@@ -22,6 +22,8 @@ import express from 'express';
 import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { CISA_KEV_CATALOG_URL } from '../lib/grounding.js';
+import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
 
 const getConfigMock = jest.fn();
 const getFreshRunMock = jest.fn();
@@ -36,6 +38,7 @@ const searchBriefsMock = jest.fn(() => []);
 const countKEVAddedTodayMock = jest.fn(() => 0);
 const getRecentKEVMock = jest.fn(() => []);
 const getKEVSetMock = jest.fn(() => new Set());
+const getKEVDueDatesMock = jest.fn(() => ({}));
 const dispatchBriefWebhookMock = jest.fn(() => Promise.resolve());
 
 jest.unstable_mockModule('../lib/config.js', () => ({
@@ -66,6 +69,7 @@ jest.unstable_mockModule('../lib/db.js', () => ({
   countKEVAddedToday: countKEVAddedTodayMock,
   getRecentKEV: getRecentKEVMock,
   getKEVSet: getKEVSetMock,
+  getKEVDueDates: getKEVDueDatesMock,
 }));
 jest.unstable_mockModule('../lib/alerts.js', () => ({
   dispatchBriefWebhook: dispatchBriefWebhookMock,
@@ -203,7 +207,9 @@ beforeEach(() => {
   getFreshRunMock.mockReset().mockResolvedValue({ headlines: [{ title: 'A headline', horizon: 1, source: 'Feed A' }], stats: { enriched: 1 } });
   saveBriefMock.mockReset().mockReturnValue('brief-2026-07-02.md');
   saveBriefMetaMock.mockReset();
+  indexBriefMock.mockReset();
   getKEVSetMock.mockReset().mockReturnValue(new Set());
+  getKEVDueDatesMock.mockReset().mockReturnValue({});
   dispatchBriefWebhookMock.mockReset().mockResolvedValue();
 });
 
@@ -421,6 +427,159 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(complete.text).toBe(firstDraft);
     expect(complete.tokens).toBe(370);
     expect(saveBriefMock).toHaveBeenCalledWith('/fake/history', firstDraft);
+  });
+});
+
+describe('POST /api/brief — grounding publication gate', () => {
+  let ctx;
+  afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test('retries an ungrounded CVE once, publishes the corrected draft, and accounts for both calls', async () => {
+    const firstDraft = GOOD_BRIEF + '\n\nCVE-2099-99999 requires immediate remediation.';
+    let calls = 0;
+    const anthropic = fakeAnthropic(async () => {
+      calls++;
+      return textStream(calls === 1 ? firstDraft : GOOD_BRIEF)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(calls).toBe(2);
+    expect(complete).toBeTruthy();
+    expect(complete.tokens).toBe(600);
+    expect(saveBriefMock).toHaveBeenCalledWith('/fake/history', GOOD_BRIEF);
+  });
+
+  test('returns an actionable SSE error and never saves or promotes a persistently ungrounded draft', async () => {
+    const badDraft = GOOD_BRIEF + '\n\nCVE-2099-99999 requires immediate remediation.';
+    let calls = 0;
+    const anthropic = fakeAnthropic(async () => {
+      calls++;
+      return textStream(badDraft)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const blocked = events.find(event => event.code === 'E006');
+    expect(calls).toBe(2);
+    expect(blocked).toBeTruthy();
+    expect(blocked.error).toMatch(/not published.*source verification/i);
+    expect(blocked.validation.trustFail).toBe(true);
+    expect(blocked.tokens).toBe(600);
+    expect(events.some(event => event.briefComplete)).toBe(false);
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    expect(indexBriefMock).not.toHaveBeenCalled();
+    expect(saveBriefMetaMock).not.toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+  });
+
+  test('de-links the blank-link ColdFusion citation without spending a retry', async () => {
+    const f = BRIEF_GROUNDING_REGRESSION;
+    getFreshRunMock.mockResolvedValue({ headlines: [f.coldFusionHeadline], stats: { enriched: 1 } });
+    const linkedDraft = GOOD_BRIEF + `\n\n[Help Net Security, July 7](${f.inventedColdFusionUrl})`;
+    let calls = 0;
+    const anthropic = fakeAnthropic(async () => {
+      calls++;
+      return textStream(linkedDraft)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(calls).toBe(1);
+    expect(complete).toBeTruthy();
+    expect(complete.text).toContain('[Help Net Security, July 7]');
+    expect(complete.text).not.toContain(f.inventedColdFusionUrl);
+    expect(saveBriefMock.mock.calls[0][1]).not.toContain(f.inventedColdFusionUrl);
+  });
+
+  test('keeps the system-shown CISA KEV catalog citation live', async () => {
+    getFreshRunMock.mockResolvedValue({
+      headlines: [{
+        source: 'Vendor', title: 'Known exploited issue', horizon: 1,
+        isKEV: true, kevCVE: 'CVE-2026-10520', cveData: 'CVE-2026-10520',
+      }],
+      stats: { enriched: 1 },
+    });
+    getKEVSetMock.mockReturnValue(new Set(['CVE-2026-10520']));
+    const draft = GOOD_BRIEF + `\n\n[CISA KEV catalog](${CISA_KEV_CATALOG_URL})`;
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(textStream(draft)) });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.find(event => event.briefComplete)?.text).toContain(`](${CISA_KEV_CATALOG_URL})`);
+    expect(saveBriefMock.mock.calls[0][1]).toContain(`](${CISA_KEV_CATALOG_URL})`);
+  });
+
+  test('fails closed on an affirmative KEV claim when the runtime catalog is empty', async () => {
+    const cve = 'CVE-2026-4555';
+    getFreshRunMock.mockResolvedValue({
+      headlines: [{ source: 'Vendor', title: `Vendor advisory ${cve}`, horizon: 1 }],
+      stats: { enriched: 1 },
+    });
+    getKEVSetMock.mockReturnValue(new Set());
+    const draft = GOOD_BRIEF.replace(
+      '**The line:** A sharp line a manager can repeat verbatim.',
+      `**What happened:** CISA added ${cve} to KEV.\n**The line:** A sharp line a manager can repeat verbatim.`
+    );
+    let calls = 0;
+    const anthropic = fakeAnthropic(async () => {
+      calls++;
+      return textStream(draft)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const blocked = events.find(event => event.code === 'E006');
+    expect(calls).toBe(2);
+    expect(blocked?.error).toMatch(/KEV catalog unavailable/);
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    expect(indexBriefMock).not.toHaveBeenCalled();
+    expect(saveBriefMetaMock).not.toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+  });
+
+  test('strips raw HTML anchors without corrupting their visible labels or spending a retry', async () => {
+    getFreshRunMock.mockResolvedValue({
+      headlines: [{ source: 'Feed', title: 'Source story', horizon: 1, link: 'https://example.com/allowed' }],
+      stats: { enriched: 1 },
+    });
+    const draft = GOOD_BRIEF + '\n\n<a href="https://example.com/allowed">Allowed source label</a>';
+    let calls = 0;
+    const anthropic = fakeAnthropic(async () => {
+      calls++;
+      return textStream(draft)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(calls).toBe(1);
+    expect(complete?.text).toContain('Allowed source label');
+    expect(complete?.text).not.toMatch(/<\/?a\b|href=/i);
+    expect(saveBriefMock.mock.calls[0][1]).toContain('Allowed source label');
+  });
+
+  test('publishes a grounded future KEV Watchlist condition when the CVE is absent from a loaded catalog', async () => {
+    const cve = 'CVE-2026-4555';
+    getFreshRunMock.mockResolvedValue({
+      headlines: [{ source: 'Vendor', title: `Vendor advisory ${cve}`, horizon: 1 }],
+      stats: { enriched: 1 },
+    });
+    getKEVSetMock.mockReturnValue(new Set(['CVE-2026-9999']));
+    const draft = GOOD_BRIEF + `\n- CISA adds ${cve} to KEV.`;
+    let calls = 0;
+    const anthropic = fakeAnthropic(async () => {
+      calls++;
+      return textStream(draft)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(calls).toBe(1);
+    expect(events.find(event => event.briefComplete)?.text).toContain(`CISA adds ${cve} to KEV`);
+    expect(events.some(event => event.code === 'E006')).toBe(false);
+    expect(saveBriefMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -682,6 +841,7 @@ describe('buildGroundTruth — KEV ground-truth facts', () => {
     countKEVAddedTodayMock.mockReset();
     getRecentKEVMock.mockReset().mockReturnValue([]);
     getKEVSetMock.mockReset();
+    getKEVDueDatesMock.mockReset().mockReturnValue({});
   });
 
   test('an unloaded catalog (empty KEV set) is reported as unknown, never as zero', () => {
@@ -711,6 +871,31 @@ describe('buildGroundTruth — KEV ground-truth facts', () => {
     expect(gt).toMatch(/2 new entries added today/);
     expect(gt).toContain('CVE-2026-0002');
     expect(gt).toContain('CVE-2026-0001');
+  });
+
+  test('adds date-only FCEB KEV timing for every CVE visible in current-source headlines', () => {
+    getKEVSetMock.mockReturnValue(new Set(['CVE-2008-4128', 'CVE-2026-48939']));
+    countKEVAddedTodayMock.mockReturnValue(0);
+    getKEVDueDatesMock.mockReturnValue({
+      'CVE-2008-4128': { date_added: '2026-07-13', due_date: '2026-07-16', overdue: false },
+      'CVE-2026-48939': { date_added: '2026-07-10', due_date: '2026-07-13', overdue: false },
+    });
+
+    const gt = buildGroundTruth({
+      headlines: [
+        { title: 'CISA adds CVE-2008-4128 to KEV' },
+        { title: 'Joomla extensions exploited', articleBody: 'CISA lists CVE-2026-48939.' },
+      ],
+    });
+
+    expect(getKEVDueDatesMock).toHaveBeenCalledWith(expect.arrayContaining([
+      'CVE-2008-4128', 'CVE-2026-48939',
+    ]));
+    expect(gt).toContain('CVE-2008-4128 — catalog added 2026-07-13; FCEB remediation due 2026-07-16');
+    expect(gt).toContain('CVE-2026-48939 — catalog added 2026-07-10; FCEB remediation due 2026-07-13');
+    expect(gt).toMatch(/date-only; FCEB scope/);
+    expect(gt).toMatch(/Do not add a clock time or timezone/);
+    expect(gt).not.toMatch(/\b\d{1,2}:\d{2}\b|\bCT\b/);
   });
 
   test('an enrichment failure this run is surfaced as a hedge instruction, not silence', () => {

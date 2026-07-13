@@ -7,10 +7,14 @@ import { getConfig, getHorizonName } from '../lib/config.js';
 import { getFreshRun } from '../lib/refresher.js';
 import { buildSystemPrompt, buildUserPrompt } from '../lib/prompts.js';
 import { saveBrief, loadRecentBriefs, extractContinuityContext, extractBluf, briefDateFromFilename, localDateISO } from '../lib/history.js';
-import { validateBrief, countHorizons, hasHardFail } from '../lib/validation.js';
+import { validateBrief, countHorizons, hasHardFail, hasTrustCriticalFailure } from '../lib/validation.js';
+import { buildGroundingManifest, delinkUnallowlistedMarkdownUrls, visibleHeadlineEvidence } from '../lib/grounding.js';
 import { parseJudgments } from '../lib/brief-schema.js';
 import { getEffectiveOrganization } from '../lib/user-settings.js';
-import { saveBriefMeta, getBriefMeta, indexBrief, searchBriefs, countKEVAddedToday, getRecentKEV, getKEVSet } from '../lib/db.js';
+import {
+  saveBriefMeta, getBriefMeta, indexBrief, searchBriefs,
+  countKEVAddedToday, getRecentKEV, getKEVSet, getKEVDueDates,
+} from '../lib/db.js';
 import { dispatchBriefWebhook } from '../lib/alerts.js';
 import { log } from '../lib/logger.js';
 import { localhostBaseUrl, normalizePublicBaseUrl } from '../lib/public-url.js';
@@ -99,6 +103,26 @@ export function buildGroundTruth(run) {
         lines.push(`• CISA KEV catalog: ${kev24} new ${kev24 === 1 ? 'entry' : 'entries'} added today${names}.`);
       } else {
         lines.push('• CISA KEV catalog: no new entries added today.');
+      }
+
+      // The Wire already has authoritative KEV added/due dates, but the brief
+      // prompt previously discarded them. Resolve every CVE visible to the model
+      // (not only headline.kevCVE) so a source-body CVE such as a Joomla entry
+      // cannot acquire a made-up same-shift cutoff. CISA dates are day-granular
+      // and BOD remediation dates apply to FCEB agencies; neither property may be
+      // silently promoted into this organization's internal clock-time target.
+      const visibleCves = new Set();
+      for (const headline of (run?.headlines || [])) {
+        for (const match of visibleHeadlineEvidence(headline).matchAll(/CVE-\d{4}-\d{3,7}/gi)) {
+          visibleCves.add(match[0].toUpperCase());
+        }
+      }
+      const kevTiming = getKEVDueDates([...visibleCves]);
+      for (const [cve, timing] of Object.entries(kevTiming).sort(([a], [b]) => a.localeCompare(b))) {
+        const added = timing.date_added
+          ? `catalog added ${timing.date_added}`
+          : 'catalog addition date unavailable';
+        lines.push(`• CISA KEV record (date-only; FCEB scope): ${cve} — ${added}; FCEB remediation due ${timing.due_date}. Do not add a clock time or timezone, and do not present the FCEB date as this organization's internal recommended target.`);
       }
     }
   } catch { /* KEV facts optional */ }
@@ -270,7 +294,10 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
       const promptConfig = { ...config, organization: getEffectiveOrganization(config) };
       const systemPrompt = buildSystemPrompt(promptConfig);
       const groundTruth = buildGroundTruth(run);
-      const userPrompt = buildUserPrompt({ headlines, continuityContext, groundTruth, config: promptConfig });
+      const groundingManifest = buildGroundingManifest({ headlines, extraSourceText: groundTruth });
+      const userPrompt = buildUserPrompt({
+        headlines, continuityContext, groundTruth, config: promptConfig, groundingManifest,
+      });
 
       const preferredModel = s.preferredModel || 'claude-sonnet-5';
       const fallbackModel = s.model || 'claude-haiku-4-5';
@@ -371,34 +398,44 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
       const elapsed = ((performance.now() - genStart) / 1000).toFixed(1);
       let wordCount = fullBrief.trim().split(/\s+/).length;
 
-      // Stage 4 — validate, with one automatic corrective retry on structural
-      // hard-fail. A brief missing BLUF or Key Judgments becomes the Wall's
-      // overnight edition with no one there to click Regenerate — validation
-      // already produces precise, machine-readable warnings, so feed them back as
-      // a corrective turn and re-stream once rather than saving the broken brief
-      // outright. If the retry ALSO hard-fails, save it (still better than
-      // discarding the generation) — its warnings/hardFail flag ride through to
-      // the client and persisted meta exactly as before.
+      // Stage 4 — validate, with one automatic corrective retry. Structural
+      // hard-fails preserve their existing warn/save behavior after the retry;
+      // factual grounding failures do not publish if they remain unresolved.
       const genDate = localDateISO();
-      // kevSet (the real catalog) and extraSourceText (the ground-truth block the
-      // model was actually shown) close the audit gaps where the brief's own
-      // verified system facts got flagged as ungrounded/mislabeled, and
-      // headlines[].link lets the grounding audit catch a fabricated citation
-      // link before it renders as an authoritative numbered source.
-      let validation = validateBrief(fullBrief, genDate, { headlines, kevSet: getKEVSet(), extraSourceText: groundTruth });
+      const validationSource = { groundingManifest, kevSet: getKEVSet() };
+      const audit = draft => validateBrief(draft, genDate, validationSource);
+      let validation = audit(fullBrief);
       let warnings = validation.valid ? [] : [...validation.warnings];
       // hasHardFail is exported by lib/validation.js — the same module that
       // produces the warning strings — so this can never drift out of sync with
       // a rewording the way a local string-matching regex could.
       let hardFail = hasHardFail(warnings);
+      let trustFail = hasTrustCriticalFailure(warnings);
+      let correctiveRetryAttempted = false;
 
-      if (hardFail && !result.error && !result.timedOut) {
-        log.warn('brief', `Structural hard-fail (${warnings.join('; ')}) — retrying once with corrective feedback`);
-        send({ progress: 'Retrying — previous draft was missing a required section...', stage: 'generating' });
+      // Resolve a link-only failure without paying for another model call.
+      // Citation prose stays intact; only an unsupported live href is removed.
+      let delinkedBrief = delinkUnallowlistedMarkdownUrls(fullBrief, groundingManifest);
+      if (delinkedBrief !== fullBrief) {
+        fullBrief = delinkedBrief;
+        wordCount = fullBrief.trim().split(/\s+/).length;
+        validation = audit(fullBrief);
+        warnings = validation.valid ? [] : [...validation.warnings];
+        hardFail = hasHardFail(warnings);
+        trustFail = hasTrustCriticalFailure(warnings);
+      }
+
+      if ((hardFail || trustFail) && !result.error && !result.timedOut) {
+        correctiveRetryAttempted = true;
+        const correctiveWarnings = warnings.filter(warning => (
+          hasHardFail([warning]) || hasTrustCriticalFailure([warning])
+        ));
+        log.warn('brief', `Corrective validation retry (${correctiveWarnings.join('; ')})`);
+        send({ progress: 'Retrying — correcting source verification or required structure...', stage: 'generating' });
         modelParams.messages = [
           { role: 'user', content: userPrompt },
           { role: 'assistant', content: fullBrief },
-          { role: 'user', content: `Your previous output was missing: ${warnings.join('; ')} — regenerate the full brief from the top, fixing these, in the exact same format.` },
+          { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}. Regenerate the full brief from the top in the exact same format. Use only CVEs and URLs in the current-source input; a source marked URL unavailable must have a plain [Source Name, Date] citation with no link. Never contradict verified KEV status.` },
         ];
         const retryResult = await streamWithRecovery(anthropic, modelParams, { timeoutMs: genTimeoutMs, onChunk });
         retryResult.usage = {
@@ -415,10 +452,24 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
           result = retryResult;
           fullBrief = result.text;
           wordCount = fullBrief.trim().split(/\s+/).length;
-          validation = validateBrief(fullBrief, genDate, { headlines, kevSet: getKEVSet(), extraSourceText: groundTruth });
+          validation = audit(fullBrief);
           warnings = validation.valid ? [] : [...validation.warnings];
           hardFail = hasHardFail(warnings);
+          trustFail = hasTrustCriticalFailure(warnings);
         }
+      }
+
+      // An unsupported URL can be made publication-safe without changing the
+      // factual prose: preserve `[Source, Date]`, remove only its live href, and
+      // re-audit. CVE/KEV contradictions cannot be repaired mechanically.
+      delinkedBrief = delinkUnallowlistedMarkdownUrls(fullBrief, groundingManifest);
+      if (delinkedBrief !== fullBrief) {
+        fullBrief = delinkedBrief;
+        wordCount = fullBrief.trim().split(/\s+/).length;
+        validation = audit(fullBrief);
+        warnings = validation.valid ? [] : [...validation.warnings];
+        hardFail = hasHardFail(warnings);
+        trustFail = hasTrustCriticalFailure(warnings);
       }
 
       // A brief is partial when the generation timed out OR a mid-stream error
@@ -432,6 +483,29 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
       }
       if (warnings.length) {
         log.warn('brief', `Validation warnings: ${warnings.join('; ')}`);
+      }
+
+      if (trustFail) {
+        const blocking = warnings.filter(warning => hasTrustCriticalFailure([warning]));
+        const costUsd = estimateCostUsd(modelUsed, result.usage?.input_tokens, result.usage?.output_tokens);
+        const retryState = correctiveRetryAttempted
+          ? 'after one corrective retry'
+          : 'and a corrective retry could not be completed';
+        const message = `Draft was not published because source verification still failed ${retryState}: ${blocking.join('; ')}. Refresh the landscape data or correct the source input, then generate again.`;
+        log.error('brief', message);
+        send({
+          error: message,
+          code: 'E006',
+          draft: fullBrief,
+          model: modelUsed,
+          tokens: (result.usage?.input_tokens || 0) + (result.usage?.output_tokens || 0),
+          costUsd,
+          validation: { warnings, hardFail, trustFail: true },
+        });
+        if (clientConnected) {
+          try { res.end(); } catch { /* client gone */ }
+        }
+        return;
       }
 
       const filename = saveBrief(historyDir, fullBrief);

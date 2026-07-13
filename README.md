@@ -30,6 +30,17 @@ npm start
 
 > **Node 22+ required** (`node --version`). Use a supported LTS release; Node 20 reached end of life in March 2026.
 
+On Windows PowerShell (including 5.1, which does not support `&&`) use this
+copy-paste equivalent. Calling `npm.cmd` also bypasses execution policies that
+block the `npm.ps1` shim:
+
+```powershell
+git clone https://github.com/ryanshrier/blueteam.git blueteam
+Set-Location blueteam
+npm.cmd install
+npm.cmd start
+```
+
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The Wall and Wire begin filling as the first source responses arrive, with no configuration or API keys.
 
 For the full daily experience, enable the recommended AI Briefing with an Anthropic API key in **Settings** or `.env`:

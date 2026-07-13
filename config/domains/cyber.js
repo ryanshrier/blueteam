@@ -225,7 +225,7 @@ export const cyberPack = {
       execAvoid: 'no unsupported certainty, no implementation jargon, no repeated analysis',
       execRows: 'Threat / Exposure / Required decisions',
       actionOwners: 'the accountable function, such as infrastructure / application security / messaging / detection engineering / leadership',
-      actionFormat: 'Infrastructure — verify every affected appliance — {Month D, HH:MM TZ}',
+      actionFormat: 'Infrastructure — verify every affected appliance — recommended target {Month D, YYYY}',
       priorityLanguage: 'Act now / Prepare / Monitor',
       actionCatalogNote: 'If the relevant judgment carries a verified KEV CVE (see below), name that exact CVE in the this-shift action.',
       absentSpecific: '"no CVE assigned yet"',
@@ -238,6 +238,7 @@ export const cyberPack = {
       verifiedCatalog: 'KEV is verified, not inferred. When a headline is flagged "⚠ CISA KEV: CVE-XXXX-XXXXX", that CVE\'s KEV membership is confirmed against the catalog — cite that exact CVE verbatim in the relevant judgment (in "What happened" and, where it drives the action, the this-shift action). Do not paraphrase, drop, or substitute it, and never label a different CVE as KEV when the verified one was provided.',
       sourceFreshness: 'A source establishes status only on its publication or update date. Date-box patch, exploitation, victim-count, and availability claims unless a current source explicitly carries them through the briefing date.',
       certaintyLanguage: 'Words such as "confirmed," "first," "fully autonomous," and "no fix" must match the cited evidence and confidence band; a single vendor claim without independent validation must be attributed as a report or assessment.',
+      deadlineScopeInstruction: 'Put external deadlines here with their authority and scope. A CISA KEV due date must read, for example, "CISA FCEB remediation due July 16, 2026"; it is not automatically this organization\'s target. Preserve the source\'s precision: a date-only deadline never gains a clock time or timezone.',
     },
     dayModes: {
       monday: 'Cover what accumulated over the weekend and set the operational posture for the week.\nEvery Horizon 1 signal should answer: "What does the day shift need to do before noon?"',

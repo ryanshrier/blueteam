@@ -44,6 +44,63 @@ function stripLabeledSegments(el, labels) {
   else el.innerHTML = kept.join('<br>');
 }
 
+const THE_LINE_PREFIX = /^\s*<strong\b[^>]*>\s*the line\s*:?\s*<\/strong>\s*:?\s*/i;
+
+/** Partition a possibly <br>-packed block without requiring a DOM. Exported so
+ * the malformed-list regression can run in the project's Node test environment. */
+export function partitionTheLineHtml(html) {
+  const line = [];
+  const kept = [];
+  for (const part of String(html || '').split(/<br\s*\/?>/i)) {
+    if (THE_LINE_PREFIX.test(part)) line.push(part.replace(THE_LINE_PREFIX, '').trim());
+    else kept.push(part);
+  }
+  return {
+    keptHtml: kept.join('<br>'),
+    lineHtml: line.filter(Boolean).join('<br>'),
+  };
+}
+
+// Lift a labeled field without discarding its neighbours. In malformed/legacy
+// Markdown, "The line" may be a <br>-packed segment inside a paragraph or list
+// item; replacing the whole host either loses adjacent content or leaves the
+// pull quote visually trapped beneath a bullet marker.
+function liftTheLine(el) {
+  if (!el?.innerHTML) return;
+  const { keptHtml, lineHtml } = partitionTheLineHtml(el.innerHTML);
+  if (!lineHtml) return;
+
+  const div = document.createElement('div');
+  div.className = 'the-line';
+  div.innerHTML = lineHtml;
+  if (!div.textContent.trim()) return;
+
+  const listItem = el.closest('li');
+  const list = listItem?.closest('ul, ol');
+  const probe = document.createElement('div');
+  probe.innerHTML = keptHtml;
+  const keepHost = !!probe.textContent.trim();
+
+  if (list) {
+    if (keepHost) {
+      el.innerHTML = keptHtml;
+    } else if (el === listItem) {
+      listItem.remove();
+    } else {
+      el.remove();
+      if (!listItem.textContent.trim()) listItem.remove();
+    }
+    // Keep valid list structure: a callout cannot be a direct child of ul/ol.
+    if (list.querySelector('li')) list.after(div);
+    else list.replaceWith(div);
+  } else if (keepHost) {
+    el.innerHTML = keptHtml;
+    el.after(div);
+  } else {
+    el.replaceWith(div);
+  }
+}
+
 // Metadata rationale is conventionally separated with a top-level em/en dash.
 // Do not split on a dash inside parentheses: a decision such as
 // "Monitor (chronic exposure — upgrades required)" is one complete label.
@@ -71,6 +128,31 @@ function editionDate(container) {
 
 function isRelativeWindow(value) {
   return /\b(?:this shift|this week|this month|this weekend|today|tonight|tomorrow|before monday|end of (?:day|week|month))\b/i.test(value || '');
+}
+
+function normalizeDeadline(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[\s.,;:]+$/g, '')
+    .trim();
+}
+
+/** Return the deadline-like final field from an Owner — imperative — deadline
+ * action. Requiring a spaced dash keeps dates mentioned inside the imperative
+ * from being mistaken for the action's actual target. */
+export function actionDeadlineSuffix(value) {
+  const parts = String(value || '').split(/\s+[\u2013\u2014]\s+/).map(part => part.trim()).filter(Boolean);
+  return parts.length >= 3 ? parts[parts.length - 1] : '';
+}
+
+/** Presentation-only duplicate check. The Markdown keeps Decision window for
+ * the Wall/schema; Briefing and Edition suppress it only when the same exact
+ * target is already printed at the end of an action in that judgment. */
+export function decisionWindowDuplicatesAction(windowValue, actionValues = []) {
+  const windowKey = normalizeDeadline(windowValue);
+  return !!windowKey && actionValues.some(value => normalizeDeadline(actionDeadlineSuffix(value)) === windowKey);
 }
 
 export function applySemanticStyling(container) {
@@ -181,14 +263,7 @@ export function applySemanticStyling(container) {
   container.querySelectorAll('p, li').forEach(el => stripLabeledSegments(el, RETIRED_LABELS));
 
   // 3. "The line" → callout
-  container.querySelectorAll('p').forEach(p => {
-    const strong = p.querySelector('strong');
-    if (!strong || !/^The line:?$/i.test(strong.textContent.trim().replace(/:$/, ''))) return;
-    const div = document.createElement('div');
-    div.className = 'the-line';
-    div.innerHTML = p.innerHTML.replace(/<strong>.*?<\/strong>\s*:?\s*/i, '');
-    if (div.textContent.trim()) p.replaceWith(div);
-  });
+  container.querySelectorAll('p, li').forEach(liftTheLine);
 
   // 4. Source citations — keep the prose clean by replacing the model's full
   // inline source label with one clickable superscript reference. Hover, keyboard
@@ -239,7 +314,13 @@ export function applySemanticStyling(container) {
     }
     // The Executive Summary restates the BLUF — de-emphasize it so the read flows
     // BLUF → Key Judgments without a redundant equal-weight stop.
-    if (/^\s*EXECUTIVE SUMMARY\b/i.test(h2.textContent)) h2.classList.add('brief-exec-heading');
+    if (/^\s*EXECUTIVE SUMMARY\b/i.test(h2.textContent)) {
+      // Archived model output used to put the shift cutoff in this heading,
+      // then repeat it in every action. Keep the section label stable and let
+      // the decision queue carry genuine, action-specific targets.
+      h2.textContent = 'EXECUTIVE SUMMARY \u2014 SHIFT DECISIONS';
+      h2.classList.add('brief-exec-heading');
+    }
   });
 
   // 6. Judgment cards — wrap each Signal (heading + metadata bar + body +
@@ -307,6 +388,18 @@ export function applySemanticStyling(container) {
     // The action directive is the story's climax, but the "View signals" nav link (step 6)
     // is trailing chrome — keep it the true card foot by inserting the block before it.
     card.insertBefore(block, card.querySelector('.brief-judgment-link'));
+  });
+
+  // Decision-window metadata is useful when it adds timing information. When
+  // it is byte-for-byte the same operational target already printed on an
+  // action, showing it again turns the edition date into visual wallpaper.
+  container.querySelectorAll('.brief-judgment-card').forEach(card => {
+    const windowEl = card.querySelector('.bjm-window');
+    if (!windowEl) return;
+    const actionValues = [...card.querySelectorAll('.c-action-text, li')]
+      .map(el => el.textContent || '');
+    const source = windowEl.dataset.decisionWindow || windowEl.textContent || '';
+    if (decisionWindowDuplicatesAction(source, actionValues)) windowEl.remove();
   });
 
   // 8. Source appendix — append the deduped, numbered citations as an ordered

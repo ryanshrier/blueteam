@@ -79,9 +79,7 @@ refreshKEV().catch(err => log.warn('kev', `Boot KEV warm-up failed: ${err.messag
 const API_KEY_PRIMARY = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY_PRIMARY;
 const API_KEY_SECONDARY = process.env.ANTHROPIC_API_KEY_SECONDARY;
 
-if (!API_KEY_PRIMARY) {
-  log.warn('env', 'ANTHROPIC_API_KEY not set — AI briefing disabled (wall and wire still work)');
-} else if (!API_KEY_PRIMARY.startsWith('sk-ant-')) {
+if (API_KEY_PRIMARY && !API_KEY_PRIMARY.startsWith('sk-ant-')) {
   log.warn('env', 'ANTHROPIC_API_KEY does not match expected format (sk-ant-...)');
 }
 const IS_LOOPBACK = HOST === '127.0.0.1' || HOST === '::1' || HOST === 'localhost';
@@ -119,6 +117,11 @@ function refreshAi() {
   ai.rotated = false; // a fresh build resets any prior secondary-key rotation
 }
 refreshAi();
+if (!ai.client) {
+  log.warn('env', 'No Anthropic API key configured — AI briefing disabled (wall and wire still work)');
+} else if (ai.source === 'settings') {
+  log.info('settings', 'Anthropic API key loaded from local Settings');
+}
 
 // Rotate the live client to the secondary key (env ANTHROPIC_API_KEY_SECONDARY)
 // after the primary is rejected mid-generation. The brief route calls this on a

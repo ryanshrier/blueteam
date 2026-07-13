@@ -229,14 +229,14 @@ body.kiosk { cursor: none; }
    gives the eye a settling pause before the read. Collapses to an instant cut
    under reduced-motion (the ticking clock + changing page still carry liveness). */
 @keyframes nb-enter { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
-.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > * {
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exec-page, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > * {
   animation: nb-enter 0.5s var(--ease) both;
 }
-.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(2) { animation-delay: 0.06s; }
-.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(3) { animation-delay: 0.12s; }
-.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(4) { animation-delay: 0.18s; }
-.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(5) { animation-delay: 0.24s; }
-.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(n+6) { animation-delay: 0.30s; }
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exec-page, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(2) { animation-delay: 0.06s; }
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exec-page, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(3) { animation-delay: 0.12s; }
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exec-page, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(4) { animation-delay: 0.18s; }
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exec-page, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(5) { animation-delay: 0.24s; }
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exec-page, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(n+6) { animation-delay: 0.30s; }
 .nb-section { flex: 1; display: flex; flex-direction: column; gap: var(--s5); min-height: 0; overflow: hidden; }
 
 /* Reliable line-clamp. -webkit-line-clamp is unreliable when set directly on a
@@ -256,13 +256,13 @@ body.kiosk { cursor: none; }
    this; extend it to every other serif text role so no page can horizontally
    overflow on pathological content. */
 .nb-headline, .nb-dek, .nb-dev-name, .nb-dev-watch, .nb-conv-intersect, .nb-move-text,
-.nb-exlead, .nb-extail, .nb-led-vp, .nb-cover-deck, .nb-standfirst, .nb-jbody {
+.nb-exec-fact dd, .nb-exec-task p, .nb-led-vp, .nb-cover-deck, .nb-standfirst, .nb-jbody {
   overflow-wrap: anywhere;
 }
 /* Ultrawide guard: cap the editorial supporting roles so serif lines don't
    run to 100+ characters on a 21:9 panel and stop being scannable from 10 ft. The
    cap only binds well beyond 1080p, so the normal-screen layout is untouched. */
-.nb-exlead, .nb-extail, .nb-dev-name, .nb-dev-watch { max-width: var(--measure-editorial); }
+.nb-exec-fact dd, .nb-dev-name, .nb-dev-watch { max-width: var(--measure-editorial); }
 
 /* ── Unified chip — one mono spec everywhere ── */
 .nb-h, .nb-tag, .nb-badge {
@@ -337,31 +337,92 @@ body.kiosk { cursor: none; }
   font-size: var(--fluid-lead); line-height: 1.32; color: var(--paper-ink);   /* brighter ink: the conviction layer must hold at 10 ft under glare */
 }
 
-/* ── Executive Summary — the day's four claims as a newspaper story stack ──
-   Each claim is a bold serif HEADLINE over a muted BLURB, on the Wall's signature
-   left accent rule, spaced to fill the column. The lead/tail split is now two
-   stacked blocks (each own clamp) so the headline always wins the 10-ft read and
-   the blurb fills under it — never the old run-on where lead + tail shared one
-   clamp and the tail did the lifting at the truncation edge. */
-.nb-exsum { flex: 1; margin: 0; padding: 0; list-style: none; counter-reset: ex; display: flex; flex-direction: column; justify-content: space-between; gap: clamp(18px, 2.8vh, 34px); }
-/* The signature left rule reads as an ANCHOR, not a pinstripe: wider, with a faint
-   inward bleed so it grounds the row at 10 ft. */
-.nb-exrow { counter-increment: ex; flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: clamp(34px, 3vw, 50px) minmax(0, 1fr); align-content: center; padding: var(--s2) var(--s4) var(--s2) var(--s5); border-left: 3px solid rgba(var(--paper-accent-rgb), 0.55); }
-.nb-exrow::before { content: counter(ex, decimal-leading-zero); grid-row: 1 / span 2; padding-top: 0.35em; font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700; letter-spacing: 0.08em; color: var(--paper-accent); }
-.nb-exrow:first-child { flex-grow: 1.18; border-left-width: 5px; border-left-color: var(--paper-accent); box-shadow: inset 6px 0 9px -6px rgba(var(--paper-accent-rgb), 0.18); }
-.nb-exrow:first-child .nb-exlead { font-size: clamp(28px, 2.25vw, 42px); font-weight: 750; }
-.nb-exlead {
-  grid-column: 2;
-  display: block; margin: 0 0 var(--s2);
-  font-family: var(--font-serif); font-weight: 650;   /* scan-blurb lead, not a page-focal claim — asserts less */
-  font-size: var(--fluid-title); line-height: 1.12; color: var(--paper-ink);
+/* ── Executive Summary — a watchfloor command view ──
+   This page belongs to the same open broadsheet system as the judgments and
+   convergence pages: two balanced editorial columns divided by an accent rule.
+   The masthead already names the page, so the content begins directly with the
+   situation and owner queue instead of repeating a second title lockup. */
+.nb-exec-overline {
+  font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--paper-accent);
 }
-.nb-extail {
-  grid-column: 2;
-  display: block; margin: 0;
-  font-family: var(--font-serif); font-weight: 400;
-  font-size: var(--fluid-dek); line-height: 1.42; color: var(--paper-ink);   /* brighter blurb ink for the 10-ft read */
+.nb-exec-grid {
+  flex: 1; min-height: 0; display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(28px, 3.2vw, 54px);
 }
+.nb-exec-situation, .nb-exec-decisions { min-width: 0; min-height: 0; }
+.nb-exec-situation { display: flex; flex-direction: column; }
+.nb-exec-situation > header, .nb-exec-decisions > header {
+  min-height: clamp(58px, 6vh, 78px); padding-bottom: clamp(12px, 1.5vh, 18px);
+  border-bottom: 1px solid var(--paper-rule-2);
+}
+.nb-exec-situation > header {
+  display: flex; flex-direction: column; justify-content: flex-end;
+}
+.nb-exec-situation h3, .nb-exec-decisions h3 {
+  margin: 0; font-family: var(--font-mono); font-size: var(--fluid-kicker);
+  font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--paper-ink-3);
+}
+.nb-exec-situation .nb-exec-overline { margin-bottom: var(--s2); }
+.nb-exec-situation dl { flex: 1; margin: 0; display: flex; flex-direction: column; }
+.nb-exec-fact {
+  flex: 1 1 0; min-height: 0; padding: clamp(18px, 2.2vh, 30px) 0;
+  border-bottom: 1px solid var(--paper-rule); display: grid;
+  grid-template-columns: minmax(0, 1fr); gap: var(--s2);
+  align-content: start;
+}
+.nb-exec-fact dt {
+  margin: 0; font-family: var(--font-mono);
+  font-size: var(--fluid-kicker); font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--paper-ink-3);
+}
+.nb-exec-fact.is-primary dt { color: var(--alert); }
+.nb-exec-fact dd {
+  margin: 0; font-family: var(--font-serif); font-size: clamp(23px, 1.65vw, 31px);
+  line-height: 1.34; color: var(--paper-ink);
+}
+.nb-exec-fact.is-primary dd { font-weight: 610; }
+.nb-exec-decisions {
+  display: flex; flex-direction: column;
+  padding-left: clamp(22px, 2.4vw, 38px);
+  border-left: 3px solid var(--paper-accent);
+  background: linear-gradient(90deg, rgba(var(--paper-accent-rgb), 0.075), rgba(var(--paper-accent-rgb), 0.018) 58%, transparent);
+}
+.nb-exec-decisions > header {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s5);
+}
+.nb-exec-overline { display: block; margin-bottom: var(--s2); }
+.nb-exec-decisions h3 {
+  font-family: var(--font-serif); font-size: clamp(28px, 2.2vw, 40px); line-height: 1;
+  letter-spacing: -0.01em; text-transform: none; color: var(--paper-ink);
+}
+.nb-exec-shared-due { flex: none; display: grid; gap: var(--s1); text-align: right; }
+.nb-exec-shared-due span, .nb-exec-due {
+  font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--paper-ink-3);
+}
+.nb-exec-shared-due strong { font-family: var(--font-mono); font-size: var(--fluid-body); font-weight: 700; color: var(--paper-accent); }
+.nb-exec-decisions ol { flex: 1; min-height: 0; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.nb-exec-decision {
+  flex: 1 1 0; min-height: 0; display: grid;
+  grid-template-columns: clamp(34px, 2.7vw, 48px) minmax(0, 1fr) auto;
+  align-content: center; align-items: start; gap: var(--s3);
+  padding: clamp(14px, 1.7vh, 24px) 0; border-bottom: 1px solid var(--paper-rule);
+}
+.nb-exec-decision:last-child { border-bottom: 0; }
+.nb-exec-index { padding-top: 0.25em; font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700; letter-spacing: 0.08em; color: var(--paper-accent); }
+.nb-exec-task { min-width: 0; }
+.nb-exec-task strong { display: block; margin-bottom: var(--s1); font-family: var(--font-sans); font-size: var(--fluid-body); font-weight: 750; color: var(--paper-ink); overflow-wrap: anywhere; }
+.nb-exec-task p { margin: 0; font-family: var(--font-serif); font-size: var(--fluid-dek); line-height: 1.32; color: var(--paper-ink-2); overflow-wrap: anywhere; }
+.nb-exec-due { max-width: 18ch; line-height: 1.35; text-align: right; color: var(--paper-accent); }
+.nb-exec-none { margin: auto 0; font-family: var(--font-serif); font-size: var(--fluid-title); color: var(--paper-ink-2); }
+.nb-exec-decisions.is-dense .nb-exec-decision { padding-block: clamp(8px, 1vh, 14px); }
+.nb-exec-decisions.is-dense .nb-exec-task .nb-clamp { -webkit-line-clamp: 2; }
+.nb-exec-decisions.is-packed .nb-exec-decision { padding-block: clamp(4px, 0.6vh, 9px); }
+.nb-exec-decisions.is-packed .nb-exec-task strong { margin-bottom: 2px; font-size: var(--fluid-dek); }
+.nb-exec-decisions.is-packed .nb-exec-task .nb-clamp { -webkit-line-clamp: 1; }
 
 /* ── Key Judgment — broadsheet FRONT-PAGE LEAD (claim·reasoning·directive +
    hero tier) ── A top-to-bottom stack of full-width bands; the dominant claim
@@ -804,8 +865,8 @@ body.kiosk { cursor: none; }
   .nb-cover-page { justify-content: flex-start; padding-top: clamp(24vh, 29vh, 34vh); padding-bottom: 0; }
   .nb-cover-deck { max-width: 62ch; }
 
-  .nb-exsum { gap: clamp(12px, 1.8vh, 24px); }
-  .nb-exrow { padding-block: clamp(14px, 1.8vh, 24px); }
+  .nb-exec-grid { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: clamp(24px, 3vw, 42px); }
+  .nb-exec-fact dd { font-size: clamp(21px, 2.15vw, 29px); }
 
   /* A judgment is one composed editorial object. The hero and its proof/action
      travel together instead of pinning themselves to opposite page edges. */
@@ -842,9 +903,22 @@ body.kiosk { cursor: none; }
   .nb-item:not(.lead) .nb-score-rationale { -webkit-line-clamp: 1; overflow: hidden; }
 }
 
+/* 720p/768p watchfloor panels have the same reading order with a tighter
+   vertical budget. Shorten only the supporting prose; owner names, deadlines,
+   and the full queue remain visible. */
+@media (max-height: 820px) {
+  .nb-exec-fact { padding-block: clamp(10px, 1.5vh, 16px); gap: var(--s1); }
+  .nb-exec-fact dd { font-size: clamp(20px, 1.55vw, 25px); line-height: 1.28; }
+  .nb-exec-fact .nb-clamp { -webkit-line-clamp: 4; }
+  .nb-exec-situation > header, .nb-exec-decisions > header { min-height: 54px; padding-bottom: clamp(8px, 1.2vh, 14px); }
+  .nb-exec-decisions { padding-left: clamp(18px, 2vw, 28px); }
+  .nb-exec-decision { padding-block: clamp(8px, 1.1vh, 14px); }
+  .nb-exec-task .nb-clamp { -webkit-line-clamp: 2; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .nb-fade { animation: none; }
-  .nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > * { animation: none; }   /* page-turn collapses to an instant cut */
+  .nb-fade :is(.nb-judgment, .nb-conv, .nb-exec-page, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > * { animation: none; }   /* page-turn collapses to an instant cut */
   .nb-live-dot { animation: none; }
   .nb-body { transition: none; }            /* staleness dim becomes an instant held state, not a fade */
   .nb-dwell i { transition: none !important; }   /* CSS is the single source of truth for "no continuous motion" — kills the dwell scaleX even though JS sets it inline; stepDwell's discrete countdown still runs */

@@ -11,7 +11,9 @@
 // `@jest-environment jsdom` docblock plus the `jest-environment-jsdom`
 // devDependency, which is not installed here.
 import { describe, test, expect } from '@jest/globals';
-import { escapeHtml, SANITIZE_CONFIG, SEARCH_SNIPPET_CONFIG } from '../public/modules/core/sanitize.js';
+import {
+  DRAFT_SANITIZE_CONFIG, escapeHtml, SANITIZE_CONFIG, SEARCH_SNIPPET_CONFIG,
+} from '../public/modules/core/sanitize.js';
 
 describe('sanitizer policy', () => {
   test('untrusted HTML cannot supply app identities, presentation hooks, data hooks, or ARIA overrides', () => {
@@ -20,6 +22,8 @@ describe('sanitizer policy', () => {
     expect(SANITIZE_CONFIG.ALLOW_ARIA_ATTR).toBe(false);
     expect(SEARCH_SNIPPET_CONFIG.ALLOWED_TAGS).toEqual(['mark']);
     expect(SEARCH_SNIPPET_CONFIG.ALLOWED_ATTR).toEqual([]);
+    expect(DRAFT_SANITIZE_CONFIG.ALLOWED_ATTR).not.toContain('href');
+    expect(DRAFT_SANITIZE_CONFIG.FORBID_ATTR).toContain('href');
   });
 });
 

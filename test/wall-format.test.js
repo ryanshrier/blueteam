@@ -2,6 +2,7 @@ import { describe, test, expect } from '@jest/globals';
 import {
   buildPages, JUDG_MAX, CONV_MAX, splitBluf, capitalizeFirst, cvssFrom, cleanSummary,
   relAge, relDayAge, isFresh, formatBriefDateStamp, isBriefStale, staleAfterSec,
+  executiveSummaryModel,
 } from '../public/modules/wall/wall-format.js';
 
 describe('buildPages', () => {
@@ -56,6 +57,64 @@ describe('buildPages', () => {
     const stories = [{ title: 'a' }, { title: 'b' }, { title: 'c' }];
     const pages = buildPages({ stories }, {}, { judgMax: 1 });
     expect(pages.filter(p => p.kind === 'judgment')).toHaveLength(1);
+  });
+});
+
+describe('executiveSummaryModel', () => {
+  test('separates situation from owner decisions and prints a shared deadline once', () => {
+    const model = executiveSummaryModel([
+      { lead: 'Threat:', tail: 'Two exploited surfaces require action.' },
+      { lead: 'Exposure:', tail: 'Internet-facing routers and Joomla sites.' },
+      { lead: 'Required decisions:', tail: 'Infrastructure — disable exposed web management — July 13, 19:00 CT; Application Security — patch affected extensions — July 13, 19:00 CT; Detection Engineering — verify ColdFusion status — July 13, 19:00 CT.' },
+    ]);
+
+    expect(model.threat).toEqual({ label: 'Threat', text: 'Two exploited surfaces require action.' });
+    expect(model.exposure).toEqual({ label: 'Exposure', text: 'Internet-facing routers and Joomla sites.' });
+    expect(model.commonDeadline).toBe('July 13, 19:00 CT');
+    expect(model.decisions).toEqual([
+      { owner: 'Infrastructure', action: 'disable exposed web management', deadline: 'July 13, 19:00 CT' },
+      { owner: 'Application Security', action: 'patch affected extensions', deadline: 'July 13, 19:00 CT' },
+      { owner: 'Detection Engineering', action: 'verify ColdFusion status', deadline: 'July 13, 19:00 CT' },
+    ]);
+  });
+
+  test('keeps mixed deadlines on their own decision rows', () => {
+    const model = executiveSummaryModel([
+      { lead: 'Decisions required', tail: 'Infrastructure — isolate the host — today; Leadership — approve replacement — July 17, close of business' },
+    ]);
+
+    expect(model.commonDeadline).toBe('');
+    expect(model.decisions.map(item => item.deadline)).toEqual(['today', 'July 17, close of business']);
+  });
+
+  test('accepts archived owner separators and broader due-date forms', () => {
+    const model = executiveSummaryModel([
+      { lead: 'Required decisions', tail: 'Infrastructure: isolate the host — COB; Application Security—patch the edge—2026-07-17; Detection Engineering - validate telemetry - Friday' },
+    ]);
+
+    expect(model.decisions).toEqual([
+      { owner: 'Infrastructure', action: 'isolate the host', deadline: 'COB' },
+      { owner: 'Application Security', action: 'patch the edge', deadline: '2026-07-17' },
+      { owner: 'Detection Engineering', action: 'validate telemetry', deadline: 'Friday' },
+    ]);
+  });
+
+  test('retains every emitted owner action and marks an unstructured one as unassigned', () => {
+    const tail = [
+      'Team 1 — act — today', 'Team 2 — act — today', 'Team 3 — act — today',
+      'Team 4 — act — today', 'Team 5 — act — today', 'Review the exception immediately',
+    ].join('; ');
+    const model = executiveSummaryModel([{ lead: 'Required decisions', tail }]);
+
+    expect(model.decisions).toHaveLength(6);
+    expect(model.decisions[5]).toEqual({ owner: 'Unassigned', action: 'Review the exception immediately', deadline: '' });
+    expect(model.commonDeadline).toBe('');
+  });
+
+  test('preserves unfamiliar summary fields as situation context', () => {
+    const model = executiveSummaryModel([{ lead: 'Business impact:', tail: 'Customer access may degrade.' }]);
+    expect(model.context).toEqual([{ label: 'Business impact', text: 'Customer access may degrade.' }]);
+    expect(model.decisions).toEqual([]);
   });
 });
 

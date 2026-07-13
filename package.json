@@ -1,6 +1,6 @@
 {
   "name": "blueteam-news",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "BlueTeam.News — an open-source, self-hosted threat-intelligence desk for cyber defense teams.",
   "author": "Ryan Shrier",

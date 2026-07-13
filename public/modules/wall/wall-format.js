@@ -31,6 +31,62 @@ export function buildPages(briefDoc, landscape, { judgMax = JUDG_MAX, convMax = 
   return out.length ? out : [{ kind: 'empty' }];
 }
 
+// Shape the prose-heavy Executive Summary into the Wall's command view. The
+// saved brief stays untouched; this presentation pass separates the situation
+// from the owner queue and collapses a shared deadline to one page-level clock.
+export function executiveSummaryModel(items = []) {
+  const rows = (Array.isArray(items) ? items : [])
+    .map(item => ({
+      label: String(item?.lead || '').replace(/\s*:\s*$/, '').trim(),
+      text: String(item?.tail || '').trim(),
+    }))
+    .filter(item => item.label || item.text);
+
+  const byLabel = pattern => rows.find(item => pattern.test(item.label));
+  const threat = byLabel(/^threat$/i) || null;
+  const exposure = byLabel(/^(?:exposure|at[- ]risk systems?)$/i) || null;
+  const decisionSource = byLabel(/^(?:required decisions?|decisions? required|actions? required)$/i) || null;
+  const reserved = new Set([threat, exposure, decisionSource].filter(Boolean));
+  const context = rows.filter(item => !reserved.has(item));
+  const decisions = splitExecutiveDecisions(decisionSource?.text || '');
+
+  const deadlineKeys = decisions.map(item => normalizeDeadline(item.deadline));
+  const commonDeadline = deadlineKeys.length > 0
+    && deadlineKeys.every(Boolean)
+    && deadlineKeys.every(key => key === deadlineKeys[0])
+    ? decisions[0].deadline
+    : '';
+
+  return { threat, exposure, context, decisions, commonDeadline };
+}
+
+function splitExecutiveDecisions(text) {
+  return String(text || '').split(/\s*;\s*/).map(clause => clause.trim()).filter(Boolean).map(clause => {
+    // The brief contract uses spaced em dashes, but archived/imported editions
+    // also contain en dashes, unspaced typographic dashes, spaced hyphens, and
+    // `Owner: action` forms. Parse all without treating hyphens inside products
+    // or CVE identifiers as separators.
+    const ownerMatch = clause.match(/^(.+?)(?:\s*[—–]\s*|\s+-\s+|:\s+)(.+)$/);
+    if (!ownerMatch) return { owner: 'Unassigned', action: clause, deadline: '' };
+
+    const owner = ownerMatch[1].trim();
+    const parts = ownerMatch[2].split(/\s*[—–]\s*|\s+-\s+/).map(part => part.trim()).filter(Boolean);
+    let deadline = '';
+    if (parts.length > 1 && looksLikeDeadline(parts[parts.length - 1])) {
+      deadline = parts.pop().replace(/[.;]+$/, '').trim();
+    }
+    return { owner, action: parts.join(' — '), deadline };
+  });
+}
+
+function looksLikeDeadline(value) {
+  return /(?:\b(?:today|tomorrow|tonight|immediately|now|eod|cob|eow)\b|\b(?:this|next)\s+(?:shift|week|month|quarter)\b|\b(?:close|end) of (?:business|day|week)\b|\bwithin\s+\d+\s+(?:hours?|days?)\b|\b\d{1,2}:\d{2}\s*(?:[ap]m|[A-Z]{2,4})?\b|\b\d{4}-\d{2}-\d{2}\b|\bQ[1-4]\s+\d{4}\b|\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}\b)/i.test(value);
+}
+
+function normalizeDeadline(value) {
+  return String(value || '').toLowerCase().replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
+}
+
 // Split the single BLUF thesis into a front-page headline + standfirst deck. The
 // brief's BLUF house style leads with the punchy claim, then em-dashes into the
 // supporting detail ("X is the week's most urgent surface — two CVEs …, while Klue

@@ -2,7 +2,7 @@
 
 import { getState, setState, on, emit } from '../core/store.js';
 import { escapeHtml, sanitizeSearchSnippet } from '../core/sanitize.js';
-import { renderMarkdown } from '../core/markdown.js';
+import { renderDraftMarkdown, renderMarkdown } from '../core/markdown.js';
 import { showToast } from '../core/toast.js';
 import { applySemanticStyling, extractSections } from './brief-renderer.js';
 import { exportBriefNewspaper } from './brief-export.js';
@@ -128,6 +128,7 @@ function setupStoreListeners() {
     // the cursor. Keeping the cursor outside the formatted snapshot prevents semantic
     // transforms (especially the final judgment card) from swallowing it.
     if (accumulated.length === chunk.length || !content.querySelector('#streamDocument')) {
+      content._validatedBriefContent = null;
       content.innerHTML = '<div id="streamDocument"></div><span class="streaming-cursor"></span>';
       content.setAttribute('aria-busy', 'true');
       announce('Briefing generating');
@@ -191,16 +192,22 @@ function setupStoreListeners() {
     // A failure must surface even when the operator has navigated away from
     // the Briefing view; silently swallowing it left them discovering the failure
     // (or worse, a stale/empty state with no explanation) only when they returned.
-    // Payload is a string for transient errors, or { message, aiDisabled, streamLost, accumulatedText }.
+    // Payload is a string for transient errors, or
+    // { message, code, aiDisabled, streamLost, accumulatedText }.
     const aiDisabled = typeof payload === 'object' && payload?.aiDisabled;
+    const errorCode = (typeof payload === 'object' && payload?.code) || '';
     const streamLost = typeof payload === 'object' && payload?.streamLost;
     const accumulatedText = (typeof payload === 'object' && payload?.accumulatedText) || '';
     let msg = typeof payload === 'object' ? (payload?.message || '') : payload;
     // Map common failures to plain, actionable language.
-    if (/E001|in progress|already running|already generating/i.test(msg)) msg = 'A briefing is already generating — wait for it to finish, then retry.';
+    if (errorCode === 'E006') {
+      // Trust-gate failures are already actionable server messages. Preserve
+      // them verbatim; CVE identifiers can contain digit sequences that look
+      // like HTTP status codes and must not be remapped as availability errors.
+    } else if (/E001|in progress|already running|already generating/i.test(msg)) msg = 'A briefing is already generating — wait for it to finish, then retry.';
     else if (/429|rate.?limit|overloaded|529/i.test(msg)) msg = 'The model is rate-limited or overloaded right now. Wait a moment and retry.';
     else if (/timed out|timeout/i.test(msg)) msg = 'Generation timed out. Retry, or reduce the brief size in config.';
-    else if (/5\d\d|unavailable|network|failed to fetch/i.test(msg)) msg = 'The briefing service is temporarily unavailable. Retry shortly.';
+    else if (/\b5\d\d\b|unavailable|network|failed to fetch/i.test(msg)) msg = 'The briefing service is temporarily unavailable. Retry shortly.';
     else if (!msg) msg = 'Generation failed. Retry, or check the server logs.';
 
     // A dropped stream connection does not mean the server-side run failed; it
@@ -214,6 +221,8 @@ function setupStoreListeners() {
       showToast(aiDisabled ? 'AI Briefing is off — add a key in Settings.' : msg, 'error');
       return;
     }
+    content._validatedBriefContent = null;
+    content.removeAttribute('aria-busy');
     if (streamLost) pollForRecoveredBrief();
     if (content._streamTimer) { clearTimeout(content._streamTimer); content._streamTimer = null; }
     setGenStatus('');
@@ -231,7 +240,7 @@ function setupStoreListeners() {
         <div class="error-message stream-lost">
           <span>Connection lost — the brief may still complete on the server. Checking History in about 30 seconds…</span>
         </div>
-        ${accumulatedText ? renderMarkdown(accumulatedText) : ''}
+        ${accumulatedText ? renderDraftMarkdown(accumulatedText) : ''}
       `;
       return;
     }
@@ -358,9 +367,15 @@ function renderAiOffState(content) {
 }
 
 function renderBriefContent(content, text) {
+  // This private identity is set only after a completed/history brief survives
+  // the full sanitized + semantic render. Export uses it to distinguish that
+  // document from an in-flight draft that happens to contain the same classes.
+  content._validatedBriefContent = null;
   content.innerHTML = renderMarkdown(text);
   applySemanticStyling(content);
   buildTOC(content);
+  content._validatedBriefContent = text;
+  content.removeAttribute('aria-busy');
 }
 
 // A streaming snapshot is intentionally rebuilt from source markdown before each
@@ -370,7 +385,8 @@ function renderBriefContent(content, text) {
 function renderStreamSnapshot(content, accumulated) {
   const documentRegion = content.querySelector('#streamDocument');
   if (!documentRegion) return;
-  documentRegion.innerHTML = renderMarkdown(accumulated);
+  content._validatedBriefContent = null;
+  documentRegion.innerHTML = renderDraftMarkdown(accumulated);
   applySemanticStyling(documentRegion);
 }
 
@@ -573,26 +589,38 @@ function announce(msg) {
 // preview with explicit Print/PDF and HTML-download actions). Guards on a real rendered
 // brief (a BLUF or a judgment) so a search-results / empty / progress view never
 // exports as a blank paper. Model provenance is passed explicitly from state.
+export function isBriefReadyForExport(content, currentBrief, isGenerating = false) {
+  // startGeneration flips state before the first network chunk arrives. During
+  // that gap the previous completed DOM/state can still match, so generation
+  // itself is an explicit veto in addition to the draft-node checks below.
+  if (isGenerating) return false;
+  if (!content || typeof currentBrief?.content !== 'string' || !currentBrief.content) return false;
+  if (content._validatedBriefContent !== currentBrief.content) return false;
+  if (content.querySelector('#streamDocument, .streaming-cursor, .error-message.stream-lost')) return false;
+  return Boolean(content.querySelector('.bluf, .brief-judgment-card'));
+}
+
 function handleExport() {
   const content = document.getElementById('briefContent');
-  if (!content || !content.querySelector('.bluf, .brief-judgment-card')) {
+  const { currentBrief, isGenerating } = getState();
+  if (!isBriefReadyForExport(content, currentBrief, isGenerating)) {
     showToast('Generate or open a briefing before exporting', 'error');
     return;
   }
   try {
     exportBriefNewspaper({
       contentEl: content,
-      filename: getState().currentBrief?.filename || null,
+      filename: currentBrief.filename || null,
       metaText: document.getElementById('briefMeta')?.textContent || '',
-      model: getState().currentBrief?.model || '',
-      generatedAt: getState().currentBrief?.generatedAt || getState().currentBrief?.timestamp || null,
+      model: currentBrief.model || '',
+      generatedAt: currentBrief.generatedAt || currentBrief.timestamp || null,
       readMins: readingMinutes(
-        getState().currentBrief?.content || '',
-        getState().currentBrief?.wordCount,
+        currentBrief.content,
+        currentBrief.wordCount,
       ),
       // Carry the persisted validation warnings so the printable edition can
       // note them in the colophon instead of silently stripping the on-screen banner.
-      warnings: getState().currentBrief?.warnings || [],
+      warnings: currentBrief.warnings || [],
     });
   } catch {
     showToast('Export failed', 'error');

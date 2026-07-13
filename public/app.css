@@ -62,8 +62,10 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
    single delegated bubble; the module (core/infotip.js) positions it near the
    target and toggles aria-hidden. The bubble is a quiet elevated card — mono for
    the machine-fact register, above every overlay, clamped by the module to the
-   viewport. cursor:help signals the chip explains itself on hover/focus/tap. */
-[data-tip] { cursor: help; }
+   viewport. Passive facts keep the normal cursor; real links/buttons keep their
+   pointer while exposing the same hover/focus/tap explanation. */
+[data-tip] { cursor: default; }
+:is(a, button, [role="button"])[data-tip] { cursor: pointer; }
 .infotip-bubble {
   position: fixed;
   top: 0; left: 0;                     /* module sets the real coords via inline transform/top/left */
@@ -977,10 +979,10 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
    so the row's one scan path is "where's the colour" */
 .cl-sev.sev-medium, .cl-sev.sev-low { color: var(--text-secondary); }
 .cl-sev.sev-unknown { color: var(--text-muted); font-weight: 600; font-style: italic; }
-.cl-kev { color: var(--kev-text); font-weight: 700; letter-spacing: 0.06em; cursor: help; }   /* catalog-verified */
+.cl-kev { color: var(--kev-text); font-weight: 700; letter-spacing: 0.06em; }   /* catalog-verified */
 .cl-due { color: var(--text-tertiary); }
 .cl-due.overdue { color: var(--sev-critical); font-weight: 700; }      /* the single allowed escalation */
-.cl-exploit { color: var(--brand-text); font-weight: 700; letter-spacing: 0.08em; cursor: help; }   /* verified — brand blue, not red */
+.cl-exploit { color: var(--brand-text); font-weight: 700; letter-spacing: 0.08em; }   /* verified — brand blue, not red */
 /* The CVE identity is now a <button> (click-to-copy) but must still read as
    the plain-text identity chip it always was: strip the native button box so nothing
    changes visually, and keep the anchored (uncolored) identity — .cl-cve above still
@@ -1006,7 +1008,7 @@ button.cl-cve:focus-visible {
 /* One priority-reason chip: ALERT MATCH > PROMOTED > CRITICAL. */
 .wire-priority {
   font-family: var(--font-mono); font-weight: 700; font-size: var(--type-2xs); letter-spacing: 0.08em;
-  padding: 2px 8px; border-radius: var(--radius-pill); cursor: help;
+  padding: 2px 8px; border-radius: var(--radius-pill);
 }
 .wire-priority.alert { color: var(--sev-critical); background: rgba(var(--sev-critical-rgb), 0.12); border: 1px solid rgba(var(--sev-critical-rgb), 0.4); }   /* YOUR rule matched — top precedence reads loudest; PROMOTED stays the quiet brand wash */
 .wire-priority.promoted { color: var(--text-secondary); background: var(--wash); border: 1px solid var(--border-subtle); }
@@ -1036,7 +1038,7 @@ button.cl-cve:focus-visible {
   display: inline-flex; align-items: center; gap: 5px;
   font-family: var(--font-mono); font-size: var(--type-2xs); font-weight: 700;
   font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
-  color: var(--brand-text); cursor: help; white-space: nowrap;
+  color: var(--brand-text); white-space: nowrap;
 }
 .wire-corrob .wc-rings { position: relative; width: 15px; height: 10px; flex: none; }
 .wire-corrob .wc-rings::before, .wire-corrob .wc-rings::after {
@@ -1089,7 +1091,6 @@ button.cl-cve:focus-visible {
   text-decoration: underline dotted;
   text-decoration-color: var(--text-muted);
   text-underline-offset: 2px;
-  cursor: help;
 }
 /* A body-only mention (basis 'mention') is a weaker inference than a headline
    attribution — dim it and parenthesize so it never reads as the story's subject. */
@@ -1099,7 +1100,7 @@ button.cl-cve:focus-visible {
 .wire-vendor { color: var(--text-muted); white-space: nowrap; }
 
 /* Date-unknown marker — sits where age would render; muted, not alarming. */
-.wire-age.unknown { color: var(--text-muted); font-style: italic; cursor: help; }
+.wire-age.unknown { color: var(--text-muted); font-style: italic; }
 
 /* A bare passthrough host for the convergence strip + the empty-filter state,
    lifted OUT of the ARIA list (a role="list" may only hold listitems). It carries no

@@ -24,6 +24,7 @@ import { TIER_NAMES } from '../core/tiers.js';
 import {
   buildPages as buildPagesPure, splitBluf, cvssFrom, cleanSummary,
   relAge, isFresh, formatBriefDateStamp, isBriefStale, staleAfterSec,
+  executiveSummaryModel,
 } from './wall-format.js';
 import { renderKevSection } from './wall-kev.js';
 // The broadsheet's terse region labels (its own editorial shortening — the pack's
@@ -52,7 +53,7 @@ const NEWS_PAGE_MS = 18_000;
 // ~22s. One constant either rushes the judgment or lingers on the cover, so each
 // page kind sits for its own read time. Falls back to NEWS_PAGE_MS for any kind.
 const PAGE_DWELL_MS = {
-  bluf: 12_000, execsummary: 14_000, judgment: 22_000, convergence: 20_000,
+  bluf: 12_000, execsummary: 18_000, judgment: 22_000, convergence: 20_000,
   developing: 18_000, kev: 16_000, wire: 18_000, empty: 8_000,
 };
 
@@ -549,17 +550,53 @@ function renderSection(def) {
         </section>`;
     }
 
-    // The day's four claims as a newspaper story stack: each a bold headline over a
-    // muted blurb, on SEPARATE clamps so the headline always leads the 10-ft read
-    // and the blurb fills beneath it — not the old run-on where the tail did the
-    // lifting at the clamp edge.
+    // Executive summary: situation on the left, owner queue on the right. A deadline
+    // shared by every action is printed once above the queue, not repeated in
+    // every row. This changes presentation only; the saved brief stays intact.
     case 'execsummary': {
-      const rows = (briefDoc.execSummary || []).slice(0, 4).map(b => `
-        <li class="nb-exrow">
-          <h3 class="nb-exlead"><span class="nb-clamp nb-clamp-3">${escapeHtml(b.lead)}</span></h3>
-          ${b.tail ? `<p class="nb-extail"><span class="nb-clamp nb-clamp-2">${escapeHtml(b.tail)}</span></p>` : ''}
+      const model = executiveSummaryModel(briefDoc.execSummary || []);
+      const situation = [model.threat, model.exposure, ...model.context].filter(Boolean).slice(0, 3);
+      const situationClamp = situation.length <= 2 ? 6 : 3;
+      const situationHtml = situation.map((item, i) => `
+        <div class="nb-exec-fact${i === 0 ? ' is-primary' : ''}">
+          <dt>${escapeHtml(item.label)}</dt>
+          <dd><span class="nb-clamp nb-clamp-${situationClamp}">${escapeHtml(item.text)}</span></dd>
+        </div>`).join('');
+      const decisionsHtml = model.decisions.map((item, i) => `
+        <li class="nb-exec-decision">
+          <span class="nb-exec-index" aria-hidden="true">${String(i + 1).padStart(2, '0')}</span>
+          <div class="nb-exec-task">
+            <strong>${escapeHtml(item.owner)}</strong>
+            <p><span class="nb-clamp nb-clamp-3">${escapeHtml(item.action)}</span></p>
+          </div>
+          ${item.deadline && !model.commonDeadline ? `<span class="nb-exec-due">${escapeHtml(item.deadline)}</span>` : ''}
         </li>`).join('');
-      return `<section class="nb-section"><ul class="nb-exsum">${rows}</ul></section>`;
+      const fallback = !situationHtml && !decisionsHtml
+        ? '<div class="nb-empty">No executive actions were included in this edition.</div>'
+        : '';
+      return `
+        <section class="nb-section nb-exec-page" aria-label="Executive summary">
+          ${fallback || `
+          <div class="nb-exec-grid">
+            <section class="nb-exec-situation" aria-labelledby="nbExecSituation">
+              <header>
+                <span class="nb-exec-overline">Situation brief</span>
+                <h3 id="nbExecSituation">Threat and exposure</h3>
+              </header>
+              <dl>${situationHtml}</dl>
+            </section>
+            <section class="nb-exec-decisions${model.decisions.length > 6 ? ' is-packed' : model.decisions.length > 4 ? ' is-dense' : ''}" aria-labelledby="nbExecDecisions">
+              <header>
+                <div>
+                  <span class="nb-exec-overline">Owner queue</span>
+                  <h3 id="nbExecDecisions">Decisions required</h3>
+                </div>
+                ${model.commonDeadline ? `<div class="nb-exec-shared-due"><span>Shared due</span><strong>${escapeHtml(model.commonDeadline)}</strong></div>` : ''}
+              </header>
+              ${decisionsHtml ? `<ol>${decisionsHtml}</ol>` : '<p class="nb-exec-none">No owner-specific decision was included.</p>'}
+            </section>
+          </div>`}
+        </section>`;
     }
 
     // One operational judgment, the focal object, with the this-shift action.

@@ -19,6 +19,17 @@ export const SANITIZE_CONFIG = {
 
 export const sanitize = (html) => DOMPurify.sanitize(html, SANITIZE_CONFIG);
 
+// Streaming and connection-lost drafts have not crossed the server's grounding
+// gate yet. Keep their readable markup, but never expose a live model-supplied
+// link until an explicit `briefComplete` replaces the draft with validated HTML.
+export const DRAFT_SANITIZE_CONFIG = {
+  ...SANITIZE_CONFIG,
+  ALLOWED_ATTR: [],
+  FORBID_ATTR: ['href'],
+};
+
+export const sanitizeDraft = (html) => DOMPurify.sanitize(html, DRAFT_SANITIZE_CONFIG);
+
 // FTS snippets are inserted inside a result <button>; they need only the server's
 // <mark> hit wrapper. A separate narrow policy prevents archived raw HTML from
 // creating nested links/headings or other interactive/structural content there.

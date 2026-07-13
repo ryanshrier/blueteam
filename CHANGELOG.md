@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.0.1 — 2026-07-13
+
+Correctness and artifact-quality patch for the initial public release.
+
+### Briefing trust and reliability
+
+- Prevent prior-edition watchlist details from becoming unsourced facts in a later briefing, and validate pending or negative KEV claims against the catalog as well as affirmative membership.
+- Keep citation URLs server-grounded: sources without URLs are explicit, unsupported URLs become plain citations, and unresolved factual trust failures cannot publish.
+- Retry factual validation failures once, while preserving the original failure when a second attempt still cannot be grounded.
+- Preserve the source precision and authority of external deadlines, ground visible KEV due dates directly from the catalog, and keep internal action targets clearly separate from mandates instead of inventing repeated clock times.
+
+### Edition and PDF
+
+- Normalize packed briefing fields into readable semantic blocks, keeping only the lead assessment centered and recommended actions outside narrative bullets.
+- Make printed and exported Editions match the warm, single-column reading view, with safer pagination, unbroken CVE identifiers, and fonts settled before export.
+
+### Interface and compatibility
+
+- Distinguish provider and server generation failures from a genuinely dropped streaming connection.
+- Report a Settings-stored Anthropic key accurately at startup while keeping it local and masked.
+- Rework the Wall executive summary into a balanced situation-and-owner view with shared deadlines shown once and no redundant title block.
+- Remove the question-mark help cursor from passive Wire evidence labels without removing their explanatory tooltips.
+- Document the `npm.cmd` quick-start fallback for PowerShell systems that block the `npm.ps1` shim.
+
 ## 1.0.0 — 2026-07-13
 
 Initial public release of BlueTeam.News, a self-hosted threat-intelligence desk

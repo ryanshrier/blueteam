@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { extractBluf, extractSignalTitles, extractContinuityContext, loadRecentBriefs, localDateISO, briefDateFromFilename } from '../lib/history.js';
+import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
 
 const SAMPLE_BRIEF = `# THREAT LANDSCAPE BRIEFING
 ### 2026-06-12 · Friday
@@ -60,7 +61,7 @@ describe('extractSignalTitles', () => {
 });
 
 describe('extractContinuityContext', () => {
-  test('builds compact context with signals, situations, and watchlist', () => {
+  test('builds compact topic context without carrying prior Watchlist facts', () => {
     const ctx = extractContinuityContext([
       { date: '2026-06-12-01', content: SAMPLE_BRIEF },
     ]);
@@ -68,11 +69,107 @@ describe('extractContinuityContext', () => {
     expect(ctx).toContain('[2026-06-12-01]');
     expect(ctx).toContain('[H1] VPN appliance zero-day');
     expect(ctx).toContain('Identity provider session token abuse');
-    expect(ctx).toContain('CISA adds CVE-2026-11111 to KEV');
+    expect(ctx).not.toContain('CISA adds CVE-2026-11111 to KEV');
+    expect(ctx).not.toMatch(/\bCVE-|\bKEV\b/);
+    expect(ctx).toContain('topic continuity only');
   });
 
   test('returns empty string for no briefs', () => {
     expect(extractContinuityContext([])).toBe('');
+  });
+
+  test('drops the shipped continuity CVEs/KEV claims while retaining the safe developing topic', () => {
+    const ctx = extractContinuityContext([{
+      date: '2026-07-12',
+      content: BRIEF_GROUNDING_REGRESSION.priorBrief,
+    }]);
+    expect(ctx).toContain('Edge-device exploitation campaigns');
+    for (const cve of BRIEF_GROUNDING_REGRESSION.continuityCves) {
+      expect(ctx).not.toContain(cve);
+    }
+    expect(ctx).not.toMatch(/\bKEV\b|https?:\/\//);
+  });
+
+  test('normalizes split Markdown before checking continuity for forbidden facts', () => {
+    const poisoned = `# Brief
+
+## BLUF
+
+CVE-2026-**10520** remains the priority.
+
+## KEY JUDGMENTS
+
+### Signal 1 — [Horizon 1] K**E**V status changes
+
+## DEVELOPING SITUATIONS
+
+### Confidence reaches 80**%**
+**Trajectory:** Accelerating.
+**Watch criteria:** Observe.
+
+### Safe identity topic
+**Trajectory:** Accelerating.
+**Watch criteria:** Observe.
+`;
+    const ctx = extractContinuityContext([{ date: '2026-07-13', content: poisoned }]);
+    expect(ctx).toContain('Safe identity topic');
+    expect(ctx).not.toContain('CVE-2026-10520');
+    expect(ctx).not.toMatch(/\bKEV\b|80%/);
+  });
+
+  test('drops facts hidden behind rendered underscore emphasis and strikethrough', () => {
+    const poisoned = `# Brief
+
+## BLUF
+
+CVE-2026-__10520__ remains the priority.
+
+## KEY JUDGMENTS
+
+### Signal 1 - [Horizon 1] K~~E~~V status changes
+
+## DEVELOPING SITUATIONS
+
+### CVE-2026-~~10523~~ exploitation expands
+**Trajectory:** Accelerating.
+**Watch criteria:** Observe.
+
+### Safe identity topic
+**Trajectory:** Accelerating.
+**Watch criteria:** Observe.
+`;
+    const ctx = extractContinuityContext([{ date: '2026-07-13', content: poisoned }]);
+    expect(ctx).toContain('Safe identity topic');
+    expect(ctx).not.toMatch(/CVE-2026-(?:10520|10523)|\bKEV\b/);
+  });
+
+  test('does not carry prior dates, clock times, or deadline-state prose into a new edition', () => {
+    const prior = `# Brief
+
+## BLUF
+
+Verify the exposed edge by July 12, 19:00 CT because the deadline expires today.
+
+## KEY JUDGMENTS
+
+### Signal 1 — [Horizon 1] Same-day patch deadline closes tonight
+
+### Signal 2 — [Horizon 2] Identity-provider session abuse
+
+## DEVELOPING SITUATIONS
+
+### Vendor deadline remains overdue
+**Trajectory:** Accelerating.
+**Watch criteria:** Observe.
+
+### Safe cloud identity topic
+**Trajectory:** Accelerating.
+**Watch criteria:** Observe.
+`;
+    const ctx = extractContinuityContext([{ date: '2026-07-12', content: prior }]);
+    expect(ctx).toContain('Identity-provider session abuse');
+    expect(ctx).toContain('Safe cloud identity topic');
+    expect(ctx).not.toMatch(/July 12|19:00|\bCT\b|\bdeadline\b|\btoday\b|\btonight\b|\boverdue\b/i);
   });
 
 });
