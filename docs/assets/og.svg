@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- BlueTeam.News — social / Open Graph card (1200x630). Source design; export to
+       docs/assets/og.png to match the og:image / twitter:image references in
+       docs/index.html. BlueTeam.News palette: warm ground, cream ink, IBM blue. -->
+  <rect width="1200" height="630" fill="#0e0c0a"/>
+
+  <!-- Three-tier signature strip (T1 red / T2 amber / T3 violet) -->
+  <rect x="0" y="0" width="400" height="6" fill="#f87171"/>
+  <rect x="400" y="0" width="400" height="6" fill="#fbbf24"/>
+  <rect x="800" y="0" width="400" height="6" fill="#a78bfa"/>
+
+  <!-- Shield mark -->
+  <g transform="translate(110,84) scale(3.6)">
+    <path d="M16 5 L25 8 V15 C25 21 21 25 16 27 C11 25 7 21 7 15 V8 Z" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M11.5 16.2 l3 3 l6 -7.2" fill="none" stroke="#3b82f6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Wordmark + line -->
+  <text x="108" y="330" font-family="Georgia, 'Times New Roman', serif" font-size="104" font-weight="700" fill="#f2ede2">BlueTeam<tspan fill="#3b82f6">.News</tspan></text>
+  <text x="112" y="404" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="40" fill="#c5beb0">Built for the floor, grounded in evidence. Hold the line.</text>
+
+  <rect x="112" y="446" width="132" height="4" rx="2" fill="#3b82f6"/>
+  <text x="112" y="500" font-family="Georgia, 'Times New Roman', serif" font-size="30" fill="#9a9182">A self-hosted threat-intelligence desk — Wall · Wire · Briefing.</text>
+
+  <!-- Footer meta -->
+  <text x="112" y="566" font-family="'JetBrains Mono', 'Cascadia Mono', monospace" font-size="26" letter-spacing="2" fill="#c5beb0">blueteam.news</text>
+  <text x="112" y="600" font-family="'JetBrains Mono', 'Cascadia Mono', monospace" font-size="19" letter-spacing="3" fill="#7d7567">OPEN-SOURCE · SELF-HOSTED · NO TELEMETRY · MIT</text>
+</svg>

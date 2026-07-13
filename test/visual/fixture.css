@@ -1,0 +1,28 @@
+html, body { min-height: 100%; }
+body { margin: 0; background: var(--bg-primary); color: var(--text-primary); }
+
+.fixture-nav {
+  position: fixed; z-index: 200; top: 10px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 4px;
+  width: min(1100px, calc(100vw - 24px)); padding: 6px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-overlay); backdrop-filter: blur(12px);
+}
+.fixture-nav a {
+  padding: 6px 9px; border-radius: 5px; color: var(--text-secondary);
+  font: 600 var(--type-xs)/1 var(--font-mono); text-decoration: none;
+}
+.fixture-nav a:hover, .fixture-nav a[aria-current="page"] { color: var(--text-primary); background: var(--wash); }
+body.capture .fixture-nav { display: none; }
+
+.fixture-operator { min-height: 100vh; background: var(--bg-primary); }
+.fixture-operator .app-header { position: sticky; top: 0; }
+.fixture-operator .fixture-shell-main { width: min(1100px, calc(100vw - 32px)); margin: 0 auto; padding: 54px 0 80px; }
+.fixture-operator .fixture-state { display: grid; gap: var(--s6); }
+.fixture-state-note { color: var(--text-muted); font: var(--type-xs)/1.5 var(--font-mono); }
+
+@media (max-width: 600px) {
+  .fixture-nav { top: 4px; }
+  .fixture-nav a { padding: 5px 6px; font-size: var(--type-2xs); }
+  .fixture-operator .fixture-shell-main { width: calc(100vw - 28px); padding-top: 88px; }
+}

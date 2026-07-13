@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        node-version: ['22', '24']
+        include:
+          - os: windows-latest
+            node-version: '22'
+          - os: macos-latest
+            node-version: '24'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Scan for committed secrets
+        run: npm run check:secrets
+
+      - name: Scan all reachable Git history for secrets
+        run: npm run check:history-secrets
+
+      - name: Check color-contrast tokens
+        run: npm run check:contrast
+
+      - name: Check for placeholder repo slugs
+        run: npm run check:placeholders
+
+      - name: Check CTI product scope
+        run: npm run check:cti-scope
+
+      - name: Check referenced assets exist
+        run: npm run check:assets
+
+      - name: Check score-model gold bands
+        run: npm run check:scoring
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify package manifest
+        run: npm pack --dry-run
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

@@ -1,0 +1,238 @@
+/* ============================================
+   BLUETEAM.NEWS — Settings view + header gear
+   Token-driven; flips cleanly under [data-theme="light"].
+   ============================================ */
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;          /* ≥44px touch target (WCAG 2.5.5) */
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.icon-btn:hover { color: var(--text-primary); border-color: var(--brand); background: var(--brand-dim); }
+.icon-btn.active { color: var(--brand); border-color: var(--brand); }
+
+.settings { max-width: var(--measure); margin: 0 auto; padding: 32px 20px 80px; }
+
+.settings-head { margin-bottom: 24px; }
+.settings-head h1 {
+  font-size: var(--type-xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  margin: 0 0 6px;
+}
+.settings-sub { color: var(--text-tertiary); font-size: var(--type-sm); margin: 0; }
+
+.settings-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 18px;
+}
+.settings-card h2 { font-size: var(--type-md); font-weight: 600; color: var(--text-primary); margin: 0 0 6px; }
+.settings-note { color: var(--text-secondary); font-size: var(--type-sm); line-height: 1.55; margin: 0 0 16px; }
+
+.settings-status {
+  display: flex; align-items: center; gap: 9px;   /* leading status dot + text */
+  font-family: var(--font-mono);
+  font-size: var(--type-sm);
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+}
+/* A status dot makes AI state readable peripherally (matching the app's signal-density
+   language): neutral = off, green = on, soft pulse = checking. */
+.settings-status::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--text-muted);
+}
+.settings-status[data-state="loading"]::before { animation: status-pulse 1.4s var(--ease) infinite; }
+.settings-status[data-state="on"] {
+  color: var(--accent-green);
+  border-color: rgba(var(--accent-green-rgb), 0.3);
+  background: rgba(var(--accent-green-rgb), 0.07);
+}
+.settings-status[data-state="on"]::before { background: var(--accent-green); box-shadow: 0 0 8px rgba(var(--accent-green-rgb), 0.5); }
+/* The "off" state was indistinguishable from loading (both flat tertiary). Give it its
+   own weight + a static neutral dot, so "disabled" reads as a deliberate state. */
+.settings-status[data-state="off"] { color: var(--text-secondary); border-color: var(--hairline-strong); }
+.settings-status[data-state="off"]::before { background: var(--text-tertiary); }
+@keyframes status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+.settings-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+
+.key-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.key-input-wrap { position: relative; flex: 1; min-width: 220px; display: flex; }   /* input + reveal eye */
+.settings-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;   /* touch target */
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--type-sm);
+}
+.key-input-wrap .settings-input { padding-right: 44px; }   /* room for the reveal eye */
+.settings-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-dim); }
+.settings-input:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Organization profile's free-text field — same frame as .settings-input, but
+   readable prose (sans, not mono) since it holds a sentence, not a token/keyword. */
+.settings-textarea { width: 100%; min-height: unset; font-family: var(--font-sans); line-height: 1.5; resize: vertical; }
+/* Reveal toggle — eyeball a long pasted secret before committing it. */
+.key-reveal {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center; width: 36px; height: 36px;
+  background: transparent; border: none; color: var(--text-tertiary); cursor: pointer;
+  border-radius: var(--radius-sm); transition: color var(--fast) var(--ease);
+}
+.key-reveal:hover, .key-reveal.on { color: var(--text-primary); }
+.key-row > .btn-primary, .key-row > .btn-ghost-sm { min-height: 44px; }   /* Verify + Save meet the touch minimum */
+
+.settings-help { color: var(--text-tertiary); font-size: var(--type-xs); line-height: 1.6; margin: 12px 0 0; overflow-wrap: anywhere; }
+.settings-help code { font-family: var(--font-mono); color: var(--text-secondary); }
+.settings-help a { color: var(--brand-text); text-decoration: none; }
+.settings-help a:hover { text-decoration: underline; }
+
+.settings-row-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.btn-ghost-sm {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
+  font-size: var(--type-xs);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+/* The base ghost-sm hover is NEUTRAL: red-on-hover for a plain secondary button
+   (it's used for more than the destructive action) mis-signalled danger. Red is now
+   reserved for the .destructive variant below. */
+.btn-ghost-sm:hover { color: var(--text-primary); border-color: var(--hairline-strong); }
+/* The genuinely destructive Remove-key button keeps the danger red on hover,
+   and escalates to a filled red once armed (the two-step confirm's live state). */
+.btn-ghost-sm.destructive:hover { color: var(--h1); border-color: var(--h1); }
+.btn-ghost-sm.destructive.armed {
+  color: var(--on-h1-soft);
+  background: rgba(var(--h1-rgb), 0.14);
+  border-color: rgba(var(--h1-rgb), 0.55);
+}
+.btn-ghost-sm.destructive.armed:hover { color: var(--h1); border-color: var(--h1); }
+.settings-row-actions .btn-ghost-sm { min-height: 44px; }   /* Remove key — touch target */
+.btn-ghost-sm:disabled { opacity: 0.45; cursor: not-allowed; }
+.settings-feedback { min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--type-xs); color: var(--text-secondary); }
+
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.seg-btn {
+  display: inline-flex; align-items: center;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  padding: 8px 22px;
+  min-height: 44px;   /* touch target */
+  font-family: var(--font-sans);
+  font-size: var(--type-sm);
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.seg-btn:hover { color: var(--text-primary); }
+.seg-btn.active { background: var(--brand); color: var(--ink-on-brand); }
+
+.swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+/* A 44px tap target with a 34px colour disc inside — keeps the compact paint while
+   meeting the touch minimum (WCAG 2.5.5). */
+.swatch {
+  width: 44px; height: 44px; padding: 0;
+  display: grid; place-items: center;
+  background: transparent; border: none; cursor: pointer;
+  border-radius: var(--radius-pill);
+}
+.swatch::before {
+  content: ''; width: 34px; height: 34px; border-radius: var(--radius-pill);
+  background: var(--sw); box-shadow: 0 0 0 1px var(--border) inset;
+  transition: box-shadow var(--fast) var(--ease);
+}
+/* Hover previews the swatch's OWN colour (--sw) — what you're about to pick — not the
+   currently-active accent (which is what a brand-rgb glow showed). */
+.swatch:hover::before { box-shadow: 0 0 0 1px var(--border) inset, 0 0 0 3px color-mix(in srgb, var(--sw) 55%, transparent); }
+.swatch.active::before { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--sw); }
+/* Roving-tabindex focus ring rides the disc, not the transparent 44px box. */
+.swatch:focus-visible { outline: none; box-shadow: none; }
+.swatch:focus-visible::before { box-shadow: 0 0 0 1px var(--border) inset, 0 0 0 3px var(--text-primary); }
+
+/* ── Alert-rules card ──
+   A read-only view of the active config rules (mono pattern + boost, one per
+   hairline row) plus the operator's literal watch-terms as removable chips and an
+   add row. The pattern is a machine fact (mono); the boost carries the brand accent
+   as a "trust/priority" mark, matching the Wire's brand-as-provenance register. */
+.alert-rule-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-variant-numeric: tabular-nums;
+}
+.alert-rule-row:last-of-type { border-bottom: none; }
+.alert-rule-pattern {
+  color: var(--text-secondary); letter-spacing: 0.02em;
+  overflow-wrap: anywhere; min-width: 0;   /* a long pattern wraps rather than shoving the boost off-row */
+}
+.alert-rule-boost { color: var(--brand-text); font-weight: 700; white-space: nowrap; flex: none; }
+
+/* Watch-terms: the operator's saved literal keywords as removable pills, and the
+   add row (input + button). Terms are literal (escaped to rules server-side), so
+   the chip reads as a plain keyword, not a code token. */
+.watch-terms { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
+.watch-term {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs); font-weight: 600; letter-spacing: 0.02em;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.watch-term:hover { color: var(--text-primary); border-color: var(--hairline-strong); }
+.wt-x { color: var(--text-tertiary); font-weight: 700; }
+/* The ✕ warms to the destructive red on hover — removing a saved keyword is a
+   genuine delete, so it earns the same reserved red as the Remove-key button;
+   red stays confined to actually-destructive actions. */
+.watch-term:hover .wt-x { color: var(--h1); }
+.watch-add-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+.watch-add-row .settings-input { flex: 1; min-width: 200px; }
+.watch-add-row .btn-ghost-sm { min-height: 44px; }   /* Add — touch target */
+
+@media (max-width: 560px) {
+  /* .app-main already owns the phone gutter. Dropping Settings' second nested
+     gutter keeps the card's inputs above their usable minimum at 320px wide. */
+  .settings { padding: 12px 0 64px; }
+  .settings-card { padding: 18px 16px; }
+  .key-input-wrap { flex-basis: 100%; min-width: 0; }
+  .settings-row-actions { align-items: flex-start; flex-wrap: wrap; }
+  .seg { display: flex; width: 100%; }
+  .seg-btn { flex: 1 1 0; justify-content: center; min-width: 0; padding-inline: 6px; }
+}

@@ -1,0 +1,129 @@
+{
+  "organization": {
+    "profile": "Enterprise cyber defense team",
+    "audience": "Cyber defenders, threat intelligence, detection engineering, and security leadership",
+    "sector": "",
+    "watchTopics": [
+      "zero-day",
+      "ransomware",
+      "supply chain",
+      "MFA bypass",
+      "ICS",
+      "SCADA",
+      "nation-state",
+      "data breach",
+      "Ivanti",
+      "Fortinet",
+      "Citrix"
+    ],
+    "regions": []
+  },
+
+  "horizons": {
+    "1": { "name": "Tactical", "window": "Current shift to 7 days", "question": "What demands attention before the next shift change?" },
+    "2": { "name": "Operational", "window": "Coming weeks to 12 months", "question": "What developing threat activity, capability, exposure, or policy change requires a defensive adjustment over the coming weeks or months?" },
+    "3": { "name": "Strategic", "window": "Beyond 12 months", "question": "What structural change will materially alter the threat environment, defensive model, or risk posture?" }
+  },
+
+  "trustedFeeds": [
+    { "url": "https://www.bleepingcomputer.com/feed/", "source": "BleepingComputer", "category": "cyber-news", "horizon": 1, "weight": 1.2, "deepExtract": true },
+    { "url": "https://therecord.media/feed", "source": "The Record", "category": "cyber-news", "horizon": 1, "weight": 1.2, "deepExtract": true },
+    { "url": "https://www.securityweek.com/feed/", "source": "SecurityWeek", "category": "cyber-enterprise", "horizon": 1, "weight": 1.0, "deepExtract": true },
+    { "url": "https://www.infosecurity-magazine.com/rss/news/", "source": "Infosecurity Magazine", "category": "cyber-enterprise", "horizon": 1, "weight": 1.0 },
+    { "url": "https://krebsonsecurity.com/feed/", "source": "Krebs on Security", "category": "investigative", "horizon": 1, "weight": 1.5, "deepExtract": true },
+    { "url": "https://isc.sans.edu/rssfeed_full.xml", "source": "SANS ISC", "category": "threat-handler", "horizon": 1, "weight": 1.2 },
+    { "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "source": "CISA Advisories", "category": "gov-advisory", "horizon": 1, "weight": 1.5 },
+    { "url": "https://www.cisa.gov/ics/advisories/advisories.xml", "source": "CISA ICS Advisories", "category": "ics-advisory", "horizon": 1, "weight": 1.3 },
+    { "url": "https://feeds.feedburner.com/GoogleOnlineSecurityBlog", "source": "Google Online Security", "category": "vendor-research", "horizon": 1, "weight": 1.3, "deepExtract": true },
+    { "url": "https://www.microsoft.com/security/blog/feed/", "source": "Microsoft Security", "category": "vendor-research", "horizon": 1, "weight": 1.1 },
+    { "url": "https://feeds.feedburner.com/feedburner/Talos", "source": "Cisco Talos", "category": "threat-research", "horizon": 1, "weight": 1.2, "deepExtract": true },
+    { "url": "https://www.darkreading.com/rss.xml", "source": "Dark Reading", "category": "cyber-enterprise", "horizon": 1, "weight": 1.0 },
+    { "url": "https://feeds.feedburner.com/TheHackersNews", "source": "The Hacker News", "category": "cyber-news", "horizon": 1, "weight": 1.0 },
+    { "url": "https://www.helpnetsecurity.com/feed/", "source": "Help Net Security", "category": "cyber-news", "horizon": 1, "weight": 1.0 },
+    { "url": "https://www.welivesecurity.com/en/rss/feed/", "source": "ESET WeLiveSecurity", "category": "threat-research", "horizon": 1, "weight": 1.0, "deepExtract": true },
+    { "url": "https://redcanary.com/blog/feed/", "source": "Red Canary", "category": "detection-engineering", "horizon": 1, "weight": 1.1, "deepExtract": true },
+    { "url": "https://www.greynoise.io/blog/rss.xml", "source": "GreyNoise", "category": "threat-research", "horizon": 1, "weight": 1.0 },
+    { "url": "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml", "source": "NCSC UK", "category": "gov-advisory", "horizon": 1, "weight": 1.3 },
+    { "url": "https://cert.europa.eu/publications/security-advisories-rss", "source": "CERT-EU", "category": "gov-advisory", "horizon": 1, "weight": 1.2 },
+    { "url": "https://www.kb.cert.org/vuls/atomfeed/", "source": "CERT/CC", "category": "gov-advisory", "horizon": 1, "weight": 1.3 },
+    { "url": "https://www.jpcert.or.jp/rss/jpcert.rdf", "source": "JPCERT/CC", "category": "gov-advisory", "horizon": 1, "weight": 1.2 },
+    { "url": "https://www.cyber.gc.ca/webservice/en/rss/alerts", "source": "CCCS", "category": "gov-advisory", "horizon": 1, "weight": 1.2 },
+    { "url": "https://www.cert.ssi.gouv.fr/feed/", "source": "CERT-FR", "category": "gov-advisory", "horizon": 1, "weight": 1.2 },
+
+    { "url": "https://thedfirreport.com/feed/", "source": "The DFIR Report", "category": "detection-engineering", "horizon": 1, "weight": 1.4, "deepExtract": true },
+    { "url": "https://www.huntress.com/blog/rss.xml", "source": "Huntress", "category": "threat-research", "horizon": 1, "weight": 1.3, "deepExtract": true },
+    { "url": "https://blog.rapid7.com/rss/", "source": "Rapid7", "category": "vendor-research", "horizon": 1, "weight": 1.2 },
+    { "url": "https://feeds.feedburner.com/threatintelligence/pvexyqv7v0v", "source": "Google Threat Intelligence", "category": "threat-research", "horizon": 1, "weight": 1.3, "deepExtract": true },
+    { "url": "https://labs.watchtowr.com/rss/", "source": "watchTowr Labs", "category": "vuln-research", "horizon": 1, "weight": 1.3, "deepExtract": true },
+    { "url": "https://security.paloaltonetworks.com/rss.xml", "source": "Palo Alto Security Advisories", "category": "vendor-advisory", "horizon": 1, "weight": 1.4 },
+
+    { "url": "https://cyberscoop.com/feed/", "source": "CyberScoop", "category": "cyber-policy", "horizon": 2, "weight": 1.0 },
+    { "url": "https://www.schneier.com/feed/", "source": "Schneier on Security", "category": "security-analysis", "horizon": 2, "weight": 1.4, "deepExtract": true },
+    { "url": "https://www.theregister.com/security/headlines.atom", "source": "The Register", "category": "enterprise-tech", "horizon": 2, "weight": 1.0 },
+    { "url": "https://unit42.paloaltonetworks.com/feed/", "source": "Unit 42", "category": "threat-research", "horizon": 2, "weight": 1.2, "deepExtract": true },
+    { "url": "https://www.crowdstrike.com/blog/feed/", "source": "CrowdStrike Research", "category": "vendor-research", "horizon": 2, "weight": 1.2 },
+    { "url": "https://www.sentinelone.com/labs/feed/", "source": "SentinelLABS", "category": "threat-research", "horizon": 2, "weight": 1.1 },
+    { "url": "https://www.nist.gov/blogs/cybersecurity-insights/rss.xml", "source": "NIST Cybersecurity", "category": "standards", "horizon": 2, "weight": 1.1 },
+    { "url": "https://research.checkpoint.com/feed/", "source": "Check Point Research", "category": "threat-research", "horizon": 2, "weight": 1.2, "deepExtract": true },
+
+    { "url": "https://projectzero.google/feed.xml", "source": "Google Project Zero", "category": "vuln-research", "horizon": 2, "weight": 1.3 },
+    { "url": "https://blog.cloudflare.com/tag/security/rss", "source": "Cloudflare Security", "category": "infra-security", "horizon": 2, "weight": 1.0 },
+    { "url": "https://blog.trailofbits.com/feed/", "source": "Trail of Bits", "category": "applied-research", "horizon": 2, "weight": 1.2 },
+    { "url": "https://www.zerodayinitiative.com/blog?format=rss", "source": "Zero Day Initiative", "category": "vuln-research", "horizon": 2, "weight": 1.2 }
+  ],
+
+  "alertRules": [
+    { "pattern": "zero.?day|0.?day", "boost": 5 },
+    { "pattern": "actively.?exploit|active.?exploitation|exploited.?in.?the.?wild", "boost": 5 },
+    { "pattern": "emergency.?directive|emergency.?patch", "boost": 5 },
+    { "pattern": "ransomware|LockBit|BlackCat|ALPHV|Cl0p|BlackBasta|RansomHub", "boost": 4 },
+    { "pattern": "supply.?chain|dependency.?confusion|typosquat|malicious.?package", "boost": 4 },
+    { "pattern": "nation.?state|APT\\d+|state.?sponsor", "boost": 4 },
+    { "pattern": "breach.?notification|mandatory.?disclos|SEC.?cyber|8-K.*cyber", "boost": 3 },
+    { "pattern": "Fortinet|Ivanti|Citrix|Pulse.?Secure|GlobalProtect|edge.?device", "boost": 3 },
+    { "pattern": "Okta|Entra|Active.?Directory|SSO|identity.?provider|MFA.?bypass", "boost": 3 },
+    { "pattern": "VMware|ESXi|hypervisor", "boost": 3 },
+    { "pattern": "ICS|SCADA|operational.?technology|OT.?network", "boost": 3 },
+    { "pattern": "agentic|AI.?agent|LLM.?security|model.?context.?protocol|prompt.?injection", "boost": 3 },
+    { "pattern": "post.?quantum|PQC|quantum.?comput", "boost": 2 },
+    { "pattern": "executive.?order|NIS2|DORA|CIRCIA", "boost": 2 }
+  ],
+
+  "analysisSettings": {
+    "model": "claude-haiku-4-5",
+    "preferredModel": "claude-sonnet-5",
+    "maxSignals": 6,
+    "maxPatterns": 3,
+    "maxConvergence": 2,
+    "maxTokens": 16000,
+    "freshnessHours": 48,
+    "continuityDepth": 5,
+    "refreshMinutes": 10,
+    "maxArticleExtractions": 10,
+    "maxCVEEnrichments": 8,
+    "headlineArchiveDays": 14,
+    "generationTimeoutSec": 300,
+    "thinkingEffort": "medium",
+    "horizonWeights": {
+      "horizon1": 0.45,
+      "horizon2": 0.4,
+      "horizon3": 0.15
+    },
+    "scoring": {
+      "recencyHalfLifeHours": 30,
+      "axisWeights": {
+        "recency": 0.22,
+        "corroboration": 0.18,
+        "exploitation": 0.28,
+        "severity": 0.16,
+        "relevance": 0.16
+      }
+    },
+    "debugScoring": false,
+    "webhook": {
+      "url": "",
+      "format": "slack",
+      "events": "alerts"
+    }
+  }
+}

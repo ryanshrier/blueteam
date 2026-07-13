@@ -1,0 +1,18 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.npmrc
+data/
+briefs/
+*.log
+*.tgz
+.DS_Store
+Thumbs.db
+coverage/
+
+# Local AI/editor workspaces and internal review material — never shipped.
+.agents/
+.claude/
+.codex/
+.internal/

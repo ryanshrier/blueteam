@@ -1,0 +1,8 @@
+# Normalize line endings for a cross-platform public repo.
+* text=auto eol=lf
+
+# Binary assets — never normalize or diff.
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.woff2 binary

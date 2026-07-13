@@ -1,0 +1,39 @@
+/* ============================================
+   BLUETEAM.NEWS — self-hosted fonts (no runtime CDN)
+   Inter and JetBrains Mono are served same-origin so the UI renders correctly
+   on air-gapped defense networks and nothing beacons to Google on page load.
+   Both are licensed under the SIL Open Font License 1.1.
+   Variable woff2 (latin subset) vendored in /vendor/fonts.
+   ============================================ */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/vendor/fonts/inter-latin-wght-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('/vendor/fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2');
+}
+
+/* Newsreader — an editorial serif (SIL OFL) for the kiosk broadsheet. */
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/vendor/fonts/newsreader-latin-wght-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: italic;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/vendor/fonts/newsreader-latin-wght-italic.woff2') format('woff2');
+}

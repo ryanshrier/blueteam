@@ -1,0 +1,307 @@
+/* ============================================
+   BLUE TEAM — Design tokens (product: BlueTeam.News)
+   Horizon colors are load-bearing: they map 1:1 to the
+   three-tier data model everywhere (the operator UI and the Wall).
+   ============================================ */
+
+:root {
+  /* Brand — IBM-blue, one accent across every surface (app, Wall, landing). */
+  --brand: #3b82f6;
+  --brand-rgb: 59, 130, 246;
+  --brand-dim: rgba(var(--brand-rgb), 0.14);
+  --brand-glow: rgba(var(--brand-rgb), 0.28);
+  --ink-on-brand: #04101f;        /* dark ink for text on a brand-blue fill */
+  --brand-text: var(--brand);     /* brand AS TEXT; light theme darkens this for AA — the fill token stays bright */
+
+  /* Surfaces — deep navy-black, not flat black */
+  --bg-primary: #070a12;
+  --bg-secondary: #0c1019;
+  --bg-tertiary: #131826;
+  --bg-card: #0e1320;
+  --bg-elevated: #161c2c;
+  --bg-overlay: rgba(4, 6, 10, 0.78);
+  --border: rgba(255, 255, 255, 0.09);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+
+  /* Text */
+  --text-primary: #e8edf8;
+  --text-secondary: #a3adc4;
+  /* Lifted from #6e7890 (~4.48:1, a hair under AA) to clear 4.5:1 on
+     bg-primary. This token carries normal-size prose (view-sub, wire-empty,
+     inactive nav), not just decoration, so it must hold the body floor. Kept a
+     clear step below text-secondary. Verified by check-contrast.mjs. */
+  --text-tertiary: #79839d;
+  --text-muted: #7b86a0;   /* ~5.4:1 on bg-primary — carries operational data (KEV due dates, timestamps) */
+  --text-bright: #ffffff;
+
+  /* Tier colors (load-bearing): T1 red (Tactical/urgent) → T2 amber
+     (Operational) → T3 violet (Strategic). A deliberate near→far urgency
+     gradient. CVSS severity hues are decoupled below so a tier recolor can't
+     shift them. */
+  --h1: #f87171;
+  --h1-rgb: 248, 113, 113;
+  --h2: #fbbf24;
+  --h2-rgb: 251, 191, 36;
+  --h3: #a78bfa;
+  --h3-rgb: 167, 139, 250;
+
+  /* Soft tier variants — muted tints for submeta/age so tier "mood" can
+     recede where it's context, not command; the strategic glow lives on h3. */
+  --h1-soft: #fca5a5;
+  --h2-soft: #fcd34d;
+  --h3-soft: #c4b5fd;
+  --h3-glow: rgba(167, 139, 250, 0.18);
+
+  /* Dark ink for text/labels sitting ON a tier-color fill (the active Wire
+     filter pills). Hand-tuned per hue — each clears legibility on its own bright
+     fill; pairs with the tiers the way --ink-on-brand pairs with --brand. */
+  --ink-on-h1: #2a0606;
+  --ink-on-h2: #2a1d02;
+  --ink-on-h3: #190f33;
+
+  /* Soft H1-family text — lighter than the --h1 fill, for badges/copy sitting on
+     an H1-tinted wash rather than a solid fill (KEV identity, error/exploit). */
+  --kev-text: #fda4af;     /* rose — KEV chip, KEV toggle, remediation deadline */
+  --on-h1-soft: #fecaca;   /* paler red — error / exploit / toast.error text */
+
+  /* Condition-level accents — used by urgency levels and the validation notice */
+  --level-elevated: #fbbf24;
+  --level-high: #fb923c;
+  --level-high-rgb: 251, 146, 60;
+
+  /* CVSS severity — decoupled from the tier palette so a tier recolor never
+     shifts a severity hue. Low keeps the cool teal freed by the 3-tier move;
+     medium amber, high orange, critical red. */
+  --sev-low: #06b6d4;
+  --sev-low-rgb: 6, 182, 212;
+  --sev-medium: #fbbf24;
+  --sev-medium-rgb: 251, 191, 36;
+  --sev-high: #fb923c;
+  --sev-high-rgb: 251, 146, 60;
+  --sev-critical: #ef4444;        /* saturated danger red — distinct from the soft coral tier red (--h1) so a critical CVSS never reads as a Tactical tier */
+  --sev-critical-rgb: 239, 68, 68;
+
+  /* Semantic aliases. --alert is the danger/condition red — the saturated severity
+     red, deliberately distinct from the soft coral tier red (--h1) so a KEV/critical
+     condition never reads as a Tactical-tier classification. */
+  --alert: var(--sev-critical);
+  /* Caution = amber CONDITION, decoupled into its OWN hue. Three ambers are
+     now distinguishable — a deliberate parallel to the two-red split (tier --h1 vs
+     danger --sev-critical): the Operational TIER amber (--h2 #fbbf24, yellow), the
+     medium CVSS SEVERITY amber (--sev-medium #fbbf24), and this CONDITION amber
+     (--warn, a distinctly oranger caution) — so a stale/degraded readout can never
+     read as an Operational tier or a HIGH severity. Sits between --sev-medium and
+     --sev-high (#fb923c) on the amber→orange run. */
+  --warn: #f59e0b;
+  --warn-rgb: 245, 158, 11;
+
+  --accent-green: #34d399;
+  --accent-green-rgb: 52, 211, 153;
+
+  /* Interaction washes — theme-aware so hovers read on light AND dark ground.
+     (Raw rgba(255,255,255,…) was invisible on the light theme.) */
+  --wash: rgba(255, 255, 255, 0.05);
+  --wash-soft: rgba(255, 255, 255, 0.04);
+  --hairline-strong: rgba(255, 255, 255, 0.18);
+
+  /* Recency gradient bands — theme-aware; fresh sits brightest, old fades out.
+     Lifted on the dark ground so fresh/recent clear the perceptual threshold — the
+     staleness gradient is a peripheral-vision signal and was near-invisible. */
+  --recency-fresh: rgba(255, 255, 255, 0.16);
+  --recency-recent: rgba(255, 255, 255, 0.10);
+  --recency-aging: rgba(255, 255, 255, 0.05);
+
+  /* MITRE ATT&CK chrome — a deliberate, named semantic (indigo), not ad-hoc */
+  --c-mitre: #6366f1;
+  --c-mitre-rgb: 99, 102, 241;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+
+  --type-3xs: 9px;    /* micro annotation: the KEV timeline date-ends only — smallest legible tabular label */
+  --type-2xs: 10px;   /* canonical micro-label: mono chips, kickers, badges */
+  --type-xs: 11px;
+  --type-sm: 13px;
+  --type-base: 15px;
+  --type-md: 17px;
+  --type-lg: 20px;
+  --type-xl: 28px;
+  --type-2xl: 34px;   /* operator-UI display: view titles, section heads — the scale's ceiling in use */
+
+  /* Fluid display ladder — the Wall's broadsheet voice, named so every headline
+     role references the SYSTEM, not a raw inline clamp. vw/vh-fluid for a 16:9
+     read across a room. Each role is a page-hero or a supporting editorial layer
+     (each Wall page has its own hero), not steps of one global ratio. */
+  --fluid-cover:   clamp(46px, 5.2vw, 104px);  /* BLUF cover headline — the rotation's largest object; ceiling lifted so it fills a 1080p screen (the 720p size is unchanged — the cap doesn't bind there) */
+  --fluid-hero:    clamp(32px, 3.0vw, 54px);   /* lead Wire headline */
+  --fluid-display: clamp(36px, 3.4vw, 64px);   /* the one Key Judgment head — now the page's leading object with the rail/divider gone */
+  --fluid-title:   clamp(23px, 2.0vw, 36px);   /* section heads: wire headline · dev name · convergence */
+  --fluid-lead:    clamp(18px, 1.5vw, 26px);   /* act · move · watchlist · cover deck — editorial layer */
+  --fluid-standfirst: clamp(22px, 1.9vw, 32px); /* the Key Judgment standfirst — the page's second object; a named rung between lead and display, not a raw clamp */
+  --fluid-body:    clamp(17px, 1.4vw, 24px);   /* judgment body · exec rows */
+  --fluid-dek:     clamp(15px, 1.15vw, 20px);  /* deks · supporting */
+  --fluid-kicker:  clamp(12px, 0.95vw, 16px);  /* mono kickers · chips · labels */
+
+  /* Type VOICE RULE (enforced across surfaces): SERIF = human editorial judgment
+     (headlines, standfirst, body, the brief); MONO = system-observed fact (CVE,
+     CVSS, scores, timestamps, KEV clocks); SANS = interaction / chrome (UI, nav). */
+
+  /* Leading ladder: display = punchy headlines, scan = rows/metadata, body =
+     long-form prose. (tight/normal/relaxed retained as aliases below.) */
+  --leading-display: 1.14;
+  --leading-scan: 1.45;
+  --leading-body: 1.65;
+  --leading-tight: 1.2;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.7;
+
+  --radius: 12px;
+  --radius-sm: 9px;
+  --radius-pill: 999px;
+
+  /* Shadow language — a named depth vocabulary, not three opaque scales:
+     intimate (close/urgent — cards demanding focus), spatial (the working
+     surface — sheets, lists), distant (overlays/popovers). sm/md/lg kept as
+     aliases so existing call-sites don't break mid-migration. */
+  --shadow-intimate: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-spatial:  0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-distant:  0 16px 40px rgba(0, 0, 0, 0.45);
+  --shadow-sm: var(--shadow-intimate);
+  --shadow-md: var(--shadow-spatial);
+  --shadow-lg: var(--shadow-distant);
+
+  /* Focus + selection are pinned to brand-blue and NOT overridden by a custom
+     accent — keyboard/kiosk focus must stay one stable hue, never a signal color. */
+  --focus: #3b82f6;
+  --selection-rgb: 59, 130, 246;
+  /* The 2px inner gap is a token so focusable controls on lighter grounds
+     (cards, overlays) can override it to blend, instead of painting a dark-navy halo. */
+  --focus-ring-gap: var(--bg-primary);
+  --focus-ring: 0 0 0 2px var(--focus-ring-gap), 0 0 0 4px var(--focus);
+
+  --glass: rgba(10, 14, 24, 0.72);
+  --glass-blur: blur(18px) saturate(150%);
+
+  /* Motion — deliberate, never bouncy */
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --fast: 140ms;
+  --normal: 220ms;
+  --slow: 360ms;
+
+  /* Tier-tempo: urgency carried in cadence — Tactical moves fast, Strategic
+     slow — so a signal's class is felt in how it arrives, not just its colour. */
+  --tempo-h1: 320ms;
+  --tempo-h2: 480ms;
+  --tempo-h3: 680ms;
+
+  /* 8px spacing scale (shared with the Wall) */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 64px;
+  --s9: 96px;
+
+  --header-height: 54px;
+  --measure: min(760px, 94vw);
+  --measure-wide: min(1100px, 94vw);
+  --measure-editorial: 68ch;    /* long-form reading column (Wall body, Briefing) */
+  --measure-operational: 90ch;  /* the Wire — each line is a decision point */
+
+  /* Semantic spacing aliases onto the 8px scale — name the rhythm by intent:
+     tight (dense rows), normal (default), relaxed (editorial), wide (sections). */
+  --gap-tight: var(--s2);
+  --gap-normal: var(--s4);
+  --gap-relaxed: var(--s5);
+  --gap-wide: var(--s7);
+
+  /* ── The compositional spine ──
+     One column vocabulary the three surfaces rack onto so the eye never re-learns
+     the layout: a left tier RAIL, an optional SCORE column, the LEAD (the read),
+     and a right META column (provenance/staleness). The Wire uses all four as an
+     aligned terminal; the Briefing card and Wall band use rail + lead. One
+     baseline vertical rhythm governs every surface's row/section spacing. */
+  --rhythm: 6px;                              /* baseline vertical-rhythm unit */
+  --rhythm-row: 11px;                         /* per-row vertical padding — tightened; compounds to ~100px denser across 50 rows */
+  --rhythm-section: 20px;                     /* gap between the Wire's masthead sections (head · controls) — one value, not 20/18/12 drift */
+  --col-score: 46px;                          /* the score column */
+  --col-meta: clamp(124px, 15vw, 188px);      /* the right meta column — source · age */
+  --col-gap: 18px;                            /* gap between grid columns */
+}
+
+/* ============================================
+   Light theme — operator surfaces (header, Wire, Briefing, Settings).
+   Opt-in via [data-theme="light"] on <html>. The Wall keeps its
+   watchfloor broadsheet palette regardless — wall.css pins its own copy
+   of every token darkened below so the operator's light-theme choice can
+   never leak into the TV display.
+   ============================================ */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-primary: #f5f7fb;
+  --bg-secondary: #eef1f7;
+  --bg-tertiary: #e5e9f1;
+  --bg-card: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-overlay: rgba(15, 23, 42, 0.42);
+  --border: rgba(15, 23, 42, 0.12);
+  --border-subtle: rgba(15, 23, 42, 0.07);
+
+  --text-primary: #0f1729;
+  --text-secondary: #3a465c;
+  --text-tertiary: #5b6781;
+  --text-muted: #51607a;   /* ~5.3:1 on bg-primary */
+  --text-bright: #000000;
+
+  /* Brand AS TEXT must clear AA on near-white; the fill (--brand) stays bright.
+     Custom accents get a per-accent darkened value computed in theme.js. */
+  --brand-text: #1d4ed8;   /* 6.7:1 on #ffffff */
+
+  --shadow-intimate: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-spatial:  0 8px 24px rgba(15, 23, 42, 0.10);
+  --shadow-distant:  0 16px 40px rgba(15, 23, 42, 0.14);
+  --shadow-sm: var(--shadow-intimate);
+  --shadow-md: var(--shadow-spatial);
+  --shadow-lg: var(--shadow-distant);
+
+  --glass: rgba(255, 255, 255, 0.74);
+
+  --wash: rgba(15, 23, 42, 0.05);
+  --wash-soft: rgba(15, 23, 42, 0.04);
+  --hairline-strong: rgba(15, 23, 42, 0.16);
+
+  /* Recency bands — darker ink wash so fresh reads on the light ground. */
+  --recency-fresh: rgba(15, 23, 42, 0.09);
+  --recency-recent: rgba(15, 23, 42, 0.05);
+  --recency-aging: rgba(15, 23, 42, 0.022);
+
+  /* Tier/severity/KEV hues AS TEXT (tier chips, CVSS severity, the KEV badge,
+     error/exploit copy) fall as low as 1.4:1 on a white card at the dark-mode
+     hex — these are the signals a triage read depends on, so they get the same
+     darken-until-AA treatment as --brand-text, anchored to --bg-tertiary
+     (#e5e9f1, the darkest light surface — worst case for dark text), not pure
+     white. Hue preserved, lightness pulled down; verified by check-contrast.mjs.
+     The Wall is unaffected — wall.css pins its own copy of each token. */
+  --h1: #a44b4b;
+  --h2: #826212;
+  --h3: #6f5ca5;
+  --sev-low: #066f81;
+  --sev-medium: #826212;
+  --sev-high: #995825;
+  --sev-critical: #ba3535;
+  --kev-text: #83555a;
+  --on-h1-soft: #795e5e;
+  /* The condition amber AS TEXT (.wire-meta.stale, the Wall STALE readout via
+     inheritance) fell far below AA on the near-white grounds at the dark-mode
+     #f59e0b. Darkened until it clears ≥4.5:1 on --bg-tertiary (#e5e9f1, the darkest
+     light surface — worst case), hue preserved. This also fixes a latent light-theme
+     bug where the old amber warn was unreadable as stale text. --warn-rgb is reused
+     for the wash backgrounds and stays the dark-mode value (fills, not text). */
+  --warn: #8a5309;
+}

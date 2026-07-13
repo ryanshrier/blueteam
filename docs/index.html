@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BlueTeam.News — a self-hosted threat-intelligence desk for defenders</title>
+  <meta name="description" content="BlueTeam.News scores open threat reporting into a live Wall and analyst Wire, then turns it into a synthesized daily defensive picture with the AI Briefing.">
+  <meta name="author" content="Ryan Shrier">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0e0c0a">
+  <link rel="canonical" href="https://blueteam.news/">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:site_name" content="BlueTeam.News">
+  <meta property="og:url" content="https://blueteam.news/">
+  <meta property="og:title" content="BlueTeam.News — defensive intelligence, ready for the floor">
+  <meta property="og:description" content="Start keyless with a scored Wall and Wire. Connect Anthropic for the full daily edition: BLUF, judgments, actions, and leadership-ready synthesis.">
+  <meta property="og:image" content="https://blueteam.news/assets/og.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="BlueTeam.News threat-intelligence card: warm-paper masthead over scored cyber-defense signals.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="BlueTeam.News — a self-hosted cyber-defense threat-intel desk">
+  <meta name="twitter:description" content="Start keyless with a scored Wall and Wire. Connect Anthropic for the full daily edition: BLUF, judgments, actions, and leadership-ready synthesis.">
+  <meta name="twitter:image" content="https://blueteam.news/assets/og.png">
+  <meta name="twitter:image:alt" content="BlueTeam.News threat-intelligence card.">
+
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <!-- Above-the-fold fonts (serif hero/tagline, sans body, mono kicker) —
+       preloaded so the masthead never flashes fallback. -->
+  <link rel="preload" href="assets/fonts/newsreader-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/newsreader-latin-wght-italic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css?v=6">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "BlueTeam.News",
+    "url": "https://blueteam.news/",
+    "description": "A self-hosted threat-intelligence desk with a scored Wall and Wire plus an AI-generated daily briefing for defensive synthesis and decision support.",
+    "applicationCategory": "SecurityApplication",
+    "operatingSystem": "Any (Node.js 22+)",
+    "softwareVersion": "1.0.0",
+    "datePublished": "2026-07-13",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "license": "https://github.com/ryanshrier/blueteam/blob/main/LICENSE",
+    "codeRepository": "https://github.com/ryanshrier/blueteam",
+    "sameAs": ["https://github.com/ryanshrier/blueteam"],
+    "author": { "@type": "Person", "name": "Ryan Shrier" }
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <!-- ── Top bar ── -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">BLUETEAM<span class="brand-suffix">.NEWS</span></span>
+    </div>
+    <nav class="topbar-actions" aria-label="Primary">
+      <a class="link-quiet" href="#surfaces">Product</a>
+      <a class="link-quiet" href="#trust">Trust</a>
+      <a class="link-quiet" href="https://github.com/ryanshrier/blueteam" rel="noopener">Source ↗</a>
+      <a class="btn btn-ghost" id="starBtn" href="https://github.com/ryanshrier/blueteam" rel="noopener">★ Star<span id="starCount" class="star-count" hidden></span></a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- ── Hero ── -->
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="hero-eyebrow">
+          <p class="kicker">// open-source · self-hosted · MIT</p>
+          <span class="release-badge">v1.0.0</span>
+        </div>
+        <h1 class="hero-head">Turn open threat reporting into a daily defensive picture.</h1>
+        <p class="hero-sub">BlueTeam.News collects, enriches, and prioritizes public threat reporting into an unattended Wall and an analyst Wire. Add Anthropic for a daily BLUF, calibrated judgments, defensive actions, and leadership-ready synthesis. Evidence stays visible. Telemetry stays off.</p>
+        <p class="hero-tagline"><em>Built for the floor, grounded in evidence. Hold the line.</em></p>
+
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#start">Run BlueTeam.News →</a>
+          <a class="btn btn-ghost" href="#surfaces">Explore the system</a>
+        </div>
+
+        <dl class="hero-proof" aria-label="Product at a glance">
+          <div><dt>Keyless start</dt><dd>Wall + Wire</dd></div>
+          <div><dt>Local state</dt><dd>Files on disk</dd></div>
+          <div><dt>Telemetry</dt><dd>None</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- ── Three surfaces ── -->
+    <section class="band" id="surfaces">
+      <p class="kicker">// three surfaces</p>
+      <h2 class="band-head">One intelligence system. Three operating views.</h2>
+      <div class="surfaces">
+        <article class="surface surface-featured surface-briefing">
+          <img class="surface-thumb" src="assets/screenshot-briefing.png" alt="Real capture of the Briefing: an AI-written daily threat brief with BLUF and key judgments" loading="lazy" width="1585" height="892">
+          <div class="surface-copy">
+            <span class="surface-kicker">THE BRIEFING <span class="surface-tag">RECOMMENDED · requires Anthropic key</span></span>
+            <h3>One threat picture for analysts and leadership.</h3>
+            <p>The synthesis layer that turns a scored feed into a shared defensive picture. Generate on demand—or let the server write the daily 05:00 local edition—with a BLUF, calibrated judgments, defensive actions, developing situations, and a 72-hour watchlist.</p>
+            <p>Every brief is labeled AI-generated, grounded in the day's prioritized signals, and validated before it is saved.</p>
+            <code class="chip">/briefing</code>
+          </div>
+        </article>
+        <article class="surface">
+          <img class="surface-thumb" src="assets/screenshot-wall-wire.jpg" alt="Real capture of the Wall's live wire page: scored signals racked into column-aligned broadsheet rows" loading="lazy" width="1600" height="900">
+          <span class="surface-kicker">THE WALL</span>
+          <h3>Know the landscape without opening another dashboard.</h3>
+          <p>A passive operations-floor display. Keyless mode rotates through KEV changes and prioritized signals; with the Briefing enabled, it becomes a complete daily edition with BLUF, judgments, developing situations, and convergence.</p>
+          <code class="chip">/wall</code>
+        </article>
+        <article class="surface">
+          <img class="surface-thumb" src="assets/screenshot-wire.png" alt="Real capture of the Wire: dense scored-signal feed with tier filters, KEV and CVSS chips" loading="lazy" width="1585" height="892">
+          <span class="surface-kicker">THE WIRE</span>
+          <h3>Every signal, with the evidence behind its priority.</h3>
+          <p>Filter the latest reporting by tier, urgency, KEV status, and unread state. Inspect source breadth, CVSS and EPSS data, attribution tags, timestamps, and the score's evidence ledger.</p>
+          <code class="chip">/wire</code>
+        </article>
+      </div>
+      <div class="experience-modes" aria-label="Keyless and briefing-enabled capabilities">
+        <div class="experience-mode">
+          <span class="experience-label">START KEYLESS</span>
+          <strong>Collect · enrich · score</strong>
+          <p>Live Wire, KEV changes, score evidence, and the signal-driven Wall—no third-party API account required.</p>
+        </div>
+        <div class="experience-mode experience-mode-full">
+          <span class="experience-label">FULL DAILY EXPERIENCE</span>
+          <strong>Synthesize · judge · act</strong>
+          <p>Add Anthropic for the BLUF, calibrated judgments, defensive actions, leadership synthesis, and complete Wall rotation.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Quick start ── -->
+    <section class="band" id="start">
+      <p class="kicker">// quick start</p>
+      <h2 class="band-head">Two commands to a live intelligence desk.</h2>
+      <ol class="steps">
+        <li>
+          <span class="step-n">1</span>
+          <div class="step-body">
+            <h3>Clone and start</h3>
+            <div class="code" data-code>
+              <div class="code-toolbar">
+                <span class="code-label" aria-hidden="true">Terminal</span>
+                <button class="copy" type="button" aria-label="Copy install command">Copy</button>
+                <span class="copy-status sr-only" aria-live="polite"></span>
+              </div>
+<pre><code>git clone https://github.com/<wbr>ryanshrier/<wbr>blueteam.git blueteam &amp;&amp; cd blueteam
+npm install &amp;&amp; npm start</code></pre>
+            </div>
+            <p class="step-note">Open <code class="chip">http://127.0.0.1:3000</code>—the Wall and Wire begin filling as the first source responses arrive.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-n">2</span>
+          <div class="step-body">
+            <h3>Put it on the wall</h3>
+            <p class="step-note">Point the screen at <code class="chip">/wall</code> for a walk-by layout that reads across a room. The cursor hides automatically, the rotation updates itself, and <code class="chip">Esc</code> exits.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-n">3</span>
+          <div class="step-body">
+            <h3>Recommended · enable the full daily Briefing</h3>
+            <p class="step-note">The Wall and Wire run keyless. Add an <code class="chip">ANTHROPIC_API_KEY</code> in Settings or <code class="chip">.env</code> to add the product's synthesis layer: BLUF, judgments, defensive actions, and the complete Wall rotation. Generate on demand or at 05:00 local time. Each successful generation is billed directly by Anthropic; the app reports the model, token count, and estimated cost.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ── Three-tier model ── -->
+    <section class="band">
+      <p class="kicker">// the model</p>
+      <h2 class="band-head">Prioritized by the decision it should change.</h2>
+      <p class="band-lede">Flat feeds tell you what was published. BlueTeam.News separates what defenders must act on now, prepare for next, and account for over the longer term. The same three-tier model drives the Wall, Wire, and Briefing.</p>
+      <div class="horizons">
+        <div class="horizon h1"><span class="h-tag">T1</span><span class="h-name">Tactical</span><span class="h-when">shift to 7 days</span><span class="h-desc">Act now through the next seven days. SOC, IR, detection.</span></div>
+        <div class="horizon h2"><span class="h-tag">T2</span><span class="h-name">Operational</span><span class="h-when">weeks to 12 months</span><span class="h-desc">Adjust posture over the coming weeks and months. Hunt and intel.</span></div>
+        <div class="horizon h3"><span class="h-tag">T3</span><span class="h-name">Strategic</span><span class="h-when">beyond 12 months</span><span class="h-desc">Prepare for structural changes to the threat environment. Directors and the board.</span></div>
+      </div>
+      <p class="band-foot">Analysts live in Tactical and Operational; leadership reads Operational and Strategic. One system serves both, on purpose.</p>
+    </section>
+
+    <!-- ── How scoring works ── -->
+    <section class="band">
+      <p class="kicker">// scoring</p>
+      <h2 class="band-head">Priority you can inspect—not a black box.</h2>
+      <div class="band-prose wide">
+        <p>BlueTeam.News groups related reporting, measures source breadth, enriches vulnerabilities with KEV, CVSS, and EPSS data, and scores each signal across recency, source diversity, exploitation, severity, and organizational relevance.</p>
+        <div class="pipeline" aria-label="Pipeline">fetch <span>→</span> group / count sources <span>→</span> verify KEV <span>→</span> score / diversify <span>→</span> enrich <span>→</span> re-score</div>
+        <p>Every score exposes its contributing evidence. Verified catalog facts and heuristic matches are displayed differently. When enabled, the AI Briefing analyzes and synthesizes the result; AI does not decide what enters the queue or what counts as critical.</p>
+        <p class="band-foot">The scoring and classification live in plain code and are tunable in <code class="chip">config.json</code>. If you disagree with a weight, change it.</p>
+      </div>
+    </section>
+
+    <!-- ── What leaves your network (trust gate) ── -->
+    <section class="band" id="trust">
+      <p class="kicker">// network behavior</p>
+      <h2 class="band-head">You can see exactly what leaves the host.</h2>
+      <div class="band-grid">
+        <div class="band-prose">
+          <p>By default, BlueTeam.News connects only to its configured threat feeds and enrichment sources. Enabling the Briefing adds the Anthropic API. Configuring a webhook adds that destination.</p>
+          <p>There is no telemetry, analytics, account, license check, or runtime CDN. Outbound fetching is SSRF-guarded, and the server binds to localhost by default.</p>
+          <p>It's MIT, it's one repo, and the network code is small enough to read in a sitting. Don't take our word for it—grep for it.</p>
+        </div>
+        <div class="egress" aria-label="Network egress">
+          <span class="egress-label">EGRESS</span>
+          <div class="egress-row"><span class="arrow">→</span> configured threat sources <span class="egress-note">feeds · KEV · NVD · advisories</span></div>
+          <div class="egress-row optional"><span class="arrow">→</span> Anthropic API <span class="egress-note">only if Briefing is on</span></div>
+          <div class="egress-row optional"><span class="arrow">→</span> alert webhook <span class="egress-note">only if you configure one</span></div>
+          <div class="egress-stop">— configured and inspectable —</div>
+        </div>
+      </div>
+      <nav class="trust-links" aria-label="Inspect the security claims">
+        <a href="https://github.com/ryanshrier/blueteam/blob/main/config.json" rel="noopener">Inspect the source list ↗</a>
+        <a href="https://github.com/ryanshrier/blueteam/blob/main/lib/net.js" rel="noopener">Read the network guard ↗</a>
+        <a href="https://github.com/ryanshrier/blueteam/blob/main/SECURITY.md" rel="noopener">Review the security model ↗</a>
+      </nav>
+      <p class="band-foot">The public website makes one request to GitHub for the displayed star count. The self-hosted application does not.</p>
+    </section>
+
+    <!-- ── Run it your way ── -->
+    <section class="band">
+      <p class="kicker">// deploy</p>
+      <h2 class="band-head">Runs anywhere Node 22+ runs.</h2>
+      <div class="band-prose wide">
+        <p>One process, local files only—SQLite for operational state, Markdown for saved briefs, and a gitignored settings file if you add an API key. Back up <code class="chip">data/</code> and <code class="chip">briefs/</code>; no external database. Run <code class="chip">npm start</code>, open <code class="chip">127.0.0.1:3000</code>, and point the floor display at <code class="chip">/wall</code>. The Wall is designed for unattended display with no GPU or WebGL dependency.</p>
+        <p>Feeds are a config file you edit. The Briefing is opt-in via one API key; when enabled, the server refreshes its evidence and generates a new edition at 05:00 local time. A missed run catches up after restart, and the Wall adopts the saved edition without operator input.</p>
+      </div>
+      <div class="facts">
+        <div class="fact"><span class="fact-k">Runtime</span><span class="fact-v">Node 22+</span></div>
+        <div class="fact"><span class="fact-k">Storage</span><span class="fact-v">local files</span></div>
+        <div class="fact"><span class="fact-k">Briefing</span><span class="fact-v">Anthropic key</span></div>
+        <div class="fact"><span class="fact-k">Wall</span><span class="fact-v">/wall</span></div>
+        <div class="fact"><span class="fact-k">License</span><span class="fact-v">MIT</span></div>
+        <div class="fact"><span class="fact-k">Telemetry</span><span class="fact-v">none</span></div>
+      </div>
+    </section>
+
+    <!-- ── Open by design ── -->
+    <section class="note">
+      <p class="kicker">// open by design</p>
+      <p class="note-body">BlueTeam.News is MIT-licensed and built to be understood, adapted, and challenged. Its source configuration, scoring model, Briefing pipeline, interfaces, and automated tests are all in the repository.</p>
+      <p class="note-body">Start with the included public sources, tune the system for your mission, or connect your own feed mirror. Forks are welcome under MIT; the project is maintainer-led, unsolicited pull requests and feature requests are not accepted, and no support or update schedule is promised.</p>
+      <p class="note-body">AI tools assisted parts of development, and Anthropic powers the Briefing. AI is not treated as an authority: the code is tested, Briefing output is schema-validated, scoring evidence stays visible, and operators retain final judgment.</p>
+    </section>
+  </main>
+
+  <!-- ── Footer ── -->
+  <footer class="footer">
+    <p class="footer-meta"><strong>BlueTeam.News</strong> · MIT-licensed · self-hosted · no telemetry · no support guarantee<br>
+    Built by <a href="https://github.com/ryanshrier" rel="me noopener">Ryan Shrier</a></p>
+    <p class="footer-links">
+      <a href="#start">Quick start</a>
+      <a href="https://github.com/ryanshrier/blueteam" rel="noopener">★ Star on GitHub<span class="star-count" data-star hidden></span></a>
+      <a href="https://github.com/ryanshrier/blueteam/blob/main/SECURITY.md" rel="noopener">Report a vulnerability</a>
+      <a href="https://github.com/ryanshrier/blueteam/blob/main/SUPPORT.md" rel="noopener">Support policy</a>
+      <a href="https://github.com/ryanshrier/blueteam/blob/main/LICENSE" rel="noopener">License: MIT</a>
+      <a href="assets/fonts/OFL-1.1.txt">Font licenses</a>
+    </p>
+  </footer>
+
+  <script src="main.js?v=3"></script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+{
+  "name": "blueteam-news",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BlueTeam.News — an open-source, self-hosted threat-intelligence desk for cyber defense teams.",
+  "author": "Ryan Shrier",
+  "license": "MIT",
+  "type": "module",
+  "main": "server.js",
+  "files": [
+    "server.js",
+    "config.json",
+    "config/",
+    "lib/",
+    "routes/",
+    "public/",
+    ".env.example",
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SUPPORT.md",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md",
+    "docs/assets/screenshot-wall-wire.jpg",
+    "docs/assets/screenshot-wire.png",
+    "docs/assets/screenshot-briefing.png",
+    "LICENSES/",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryanshrier/blueteam.git"
+  },
+  "homepage": "https://blueteam.news/",
+  "bugs": {
+    "url": "https://github.com/ryanshrier/blueteam/issues"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "visual:serve": "node scripts/serve-visual-fixtures.mjs",
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
+    "check:secrets": "node scripts/check-no-secrets.mjs",
+    "check:history-secrets": "node scripts/check-git-history-secrets.mjs",
+    "check:cti-scope": "node scripts/check-cti-scope.mjs",
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "check:scoring": "node scripts/score-report.mjs",
+    "backtest": "node scripts/backtest.mjs",
+    "check:placeholders": "node scripts/check-no-placeholders.mjs",
+    "check:assets": "node scripts/check-assets.mjs"
+  },
+  "keywords": [
+    "security-operations",
+    "threat-intelligence",
+    "soc",
+    "dashboard",
+    "cyber-threat-landscape",
+    "briefing",
+    "kiosk"
+  ],
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "better-sqlite3": "^12.8.0",
+    "compression": "^1.8.1",
+    "dompurify": "^3.2.4",
+    "dotenv": "^17.4.1",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.3.2",
+    "fast-xml-parser": "^5.5.10",
+    "helmet": "^8.1.0",
+    "htmlparser2": "^12.0.0",
+    "marked": "^15.0.7",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.3.0",
+    "jest": "^30.3.0"
+  }
+}

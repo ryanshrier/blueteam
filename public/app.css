@@ -1,0 +1,1858 @@
+/* ============================================
+   BLUETEAM.NEWS — application shell, briefing, wire
+   ============================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { height: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--type-base);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hidden { display: none !important; }
+
+/* Visually hidden, screen-reader available (live-region announcers, off-screen labels). */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--brand);
+  color: var(--ink-on-brand);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  z-index: 100;
+}
+.skip-link:focus { left: 12px; top: 12px; }
+.app-main:focus { outline: none; box-shadow: none; }
+
+button { font-family: inherit; }
+
+::selection { background: rgba(var(--selection-rgb), 0.3); }
+
+/* ── Focus visibility — keyboard / kiosk users (WCAG 2.4.7) ──
+   Never remove an outline without this replacement. The box-shadow follows
+   each element's own border-radius, so pills and cards keep their shape. */
+:where(a, button, input, select, textarea, summary, [tabindex], [data-tip], .wire-filter, .wire-toggle, .briefing-toc a):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* Any in-page anchor jump clears the sticky header. */
+html { scroll-padding-top: calc(var(--header-height) + 16px); }
+/* Controls on a card/elevated ground use that ground for the ring's inner
+   gap so it reads as a clean offset, not a dark halo (e.g. the score <summary>). */
+.wire-item, .brief-judgment-card, .settings-card { --focus-ring-gap: var(--bg-card); }
+
+/* ── Infotip primitive ──
+   Touch- and keyboard-reachable explanations for the operator chips that used to
+   carry a native title= only (invisible on touch, unreachable by keyboard). An
+   opted-in element (data-tip + tabindex=0 + a matching aria-label) shows this
+   single delegated bubble; the module (core/infotip.js) positions it near the
+   target and toggles aria-hidden. The bubble is a quiet elevated card — mono for
+   the machine-fact register, above every overlay, clamped by the module to the
+   viewport. cursor:help signals the chip explains itself on hover/focus/tap. */
+[data-tip] { cursor: help; }
+.infotip-bubble {
+  position: fixed;
+  top: 0; left: 0;                     /* module sets the real coords via inline transform/top/left */
+  z-index: 300;                        /* above the export/help overlays (200) and toasts (90) */
+  max-width: 280px;
+  padding: 8px 11px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-distant);
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);        /* a read-value explanation → AA on the elevated card */
+  pointer-events: none;                /* never intercept the pointer that opened it */
+}
+.infotip-bubble[aria-hidden="true"] { display: none; }
+
+/* ── Header ── */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.header-inner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* Public wordmark: "BLUETEAM.NEWS" in uppercase with deliberate tracking.
+   It stays text-only across product surfaces; status dots remain separate and
+   retain their functional meaning. */
+.wordmark {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--brand-text);
+  font-weight: 800;
+  font-size: var(--type-base);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 6px 4px;
+}
+
+.header-nav {
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.nav-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-tertiary);
+  font-size: var(--type-sm);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 7px 14px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all var(--fast) var(--ease);
+}
+.nav-btn:hover { color: var(--text-primary); background: var(--wash); }
+.nav-btn.active {
+  color: var(--brand-text);
+  background: var(--brand-dim);
+  border-color: rgba(var(--brand-rgb), 0.25);
+}
+
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--h1-rgb), 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(var(--h1-rgb), 0); }
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  /* Flat --brand fill, not a gradient: the directional gradient dropped the ink to
+     3.70:1 on its darker bottom stop (--brand-strong) — sub-AA for the label. A flat
+     fill keeps --ink-on-brand at 5.20:1, and matches the custom-accent path (which
+     already renders flat). Depth comes from the hover brightness, not a gradient. */
+  background: var(--brand);
+  color: var(--ink-on-brand);
+  border: none;
+  font-weight: 700;
+  font-size: var(--type-sm);
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: filter var(--fast) var(--ease);
+}
+.btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-primary:active:not(:disabled) { filter: brightness(0.9); }
+.btn-primary:disabled { opacity: 0.55; cursor: default; }
+
+.btn-ghost {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: var(--type-sm);
+  padding: 7px 14px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all var(--fast) var(--ease);
+}
+.btn-ghost:hover { color: var(--text-primary); border-color: var(--hairline-strong); }
+.btn-ghost:active { background: var(--wash); }
+
+/* ── Main ── */
+.app-main {
+  min-height: calc(100vh - var(--header-height));
+  padding: 28px 20px 80px;
+}
+
+/* ── Canonical tier chip ──
+   ONE chip grammar across the operator surfaces (Wire + Briefing): mono, tinted
+   by tier, carrying the tier NAME (TACTICAL/OPERATIONAL/STRATEGIC) — never "H1"
+   on one surface and "TACTICAL" on another. The Wall renders the same semantic
+   in its broadsheet material (.nb-h — bordered, with a pip, on warm paper). */
+.c-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.c-chip.h1 { color: var(--h1); background: rgba(var(--h1-rgb), 0.12); }
+.c-chip.h2 { color: var(--h2); background: rgba(var(--h2-rgb), 0.12); }
+.c-chip.h3 { color: var(--h3); background: rgba(var(--h3-rgb), 0.12); }
+
+/* ════════════════════════════════════════
+   BRIEFING VIEW
+   ════════════════════════════════════════ */
+
+.briefing-view { max-width: 1000px; margin: 0 auto; }
+
+.briefing-masthead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  max-width: var(--measure-wide);
+  margin: 0 auto 22px;
+}
+
+.view-kicker {
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--brand-text);
+  margin: 0 0 6px;
+}
+
+.view-title {
+  font-size: var(--type-2xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0;
+  line-height: 1.1;
+}
+/* Route changes focus the page title so assistive technology announces the new
+   surface. The title is not an interactive control, so keep that focus visual-free. */
+.view-title[tabindex="-1"]:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.view-sub {
+  color: var(--text-tertiary);
+  font-size: var(--type-sm);
+  margin: 8px 0 0;
+}
+
+/* Persistent AI provenance on the brief artifact — honest labeling for a doc
+   that may reach leadership. Quiet, non-intrusive. */
+.brief-provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 8px 0 0;
+}
+.brief-provenance::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--brand-text);
+  flex: none;
+}
+
+.briefing-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-select, .search-input {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--type-sm);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+.search-input { width: clamp(150px, 22vw, 240px); }
+.search-input:focus, .history-select:focus { border-color: rgba(var(--brand-rgb), 0.5); }
+
+/* Export → printable newspaper. Ghost button + a print glyph; the icon and
+   label ride one baseline. */
+.brief-export-btn { display: inline-flex; align-items: center; gap: 7px; }
+.brief-export-btn svg { flex: none; opacity: 0.85; }
+
+.briefing-layout {
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+}
+
+/* Reading-progress fill — a thin brand line under the header tracking scroll through
+   the sheet, reinforcing "this is a substantial read". JS sets scaleX(0→1). [D] */
+.brief-progress {
+  position: fixed; top: var(--header-height); left: 0; height: 2px; width: 100%;
+  background: var(--brand); transform: scaleX(0); transform-origin: left;
+  z-index: 30; transition: transform 0.08s linear; pointer-events: none;
+}
+
+.briefing-toc {
+  position: sticky;
+  top: calc(var(--header-height) + 20px);
+  font-size: var(--type-sm);
+}
+.briefing-toc-label {
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.briefing-toc ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.briefing-toc a {
+  display: block;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 6px 0;
+  transition: color var(--fast) var(--ease);
+}
+.briefing-toc a:hover { color: var(--text-primary); }
+.briefing-toc a.active { color: var(--brand-text); font-weight: 700; }
+.briefing-toc a.toc-secondary { color: var(--text-muted); }
+
+.briefing-sheet {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: clamp(24px, 4vw, 48px);
+  box-shadow: var(--shadow-md);
+  min-height: 300px;
+}
+/* Calm entrance — only on the FIRST mount of the briefing view, not on every route
+   change between archived briefs (which re-faded the whole sheet, fighting the calm
+   intent). The class is added once in render(). [B-brief-rise] */
+.briefing-sheet--enter { animation: brief-rise var(--slow) var(--ease) both; }
+@keyframes brief-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* Briefing typography — the one long-form, exec-readable surface gets the
+   editorial serif (Newsreader) and a ~68ch measure, matching the Wall + landing. */
+.brief-content { font-family: var(--font-serif); font-optical-sizing: auto; font-size: 16px; line-height: var(--leading-relaxed); max-width: var(--measure-editorial); margin: 0 auto; }
+/* The page masthead already shows the edition name ("Briefing"); the brief's own
+   `# {title}` h1 directly below is a duplicate. Suppress it on screen and let the
+   dateline lead. (Export strips both and builds its own nameplate.) [B4] */
+.brief-content h1 { display: none; }   /* also covers the streaming scaffold's h1 (app-only rule; export uses its own CSS) */
+.brief-content h1 + h3 {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--type-sm);
+  margin: 0 0 4px;
+}
+.brief-content h2 {
+  font-family: var(--font-mono);
+  font-size: var(--type-sm);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brand-text);
+  margin: 40px 0 16px;   /* 8px grid [C-rhythm] */
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  /* TOC links must not land the heading under the sticky header. */
+  scroll-margin-top: calc(var(--header-height) + 16px);
+}
+/* Executive Summary restates the BLUF — a quieter "skip if hurried" heading. */
+.brief-content h2.brief-exec-heading {
+  font-size: 11px; color: var(--text-muted);
+  margin-top: 24px; border-bottom: none; padding-bottom: 0;
+}
+.brief-content h3 {
+  font-size: var(--type-md);
+  font-weight: 700;
+  margin: 24px 0 8px;   /* 8px grid [C-rhythm] */
+  line-height: 1.35;
+}
+/* TOC-jump / deep-link anchors land below the sticky header. Keep the destination
+   visibly focused after navigation so keyboard and low-vision readers do not lose
+   their place when focus moves from the section index into the article. */
+.brief-content h3[id] { scroll-margin-top: calc(var(--header-height) + 16px); }
+.brief-content :is(h2, h3)[id]:focus {
+  outline: 2px solid rgba(var(--brand-rgb), 0.72);
+  outline-offset: 6px;
+  box-shadow: none;
+  border-radius: 2px;
+}
+/* Judgment metadata: tier, confidence determination, and decision window. */
+.brief-judgment-meta {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: var(--type-xs); letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  margin: 2px 0 14px;
+}
+.brief-judgment-meta .c-chip { margin-right: 0; }
+.bjm-confidence { color: var(--text-secondary); }
+.bjm-window { color: var(--text-muted); }
+.bjm-window::before { content: '⟶'; margin-right: 6px; opacity: 0.6; }
+.bjm-window[data-edition-date]::after {
+  content: ' · as of ' attr(data-edition-date);
+  color: var(--text-muted);
+  opacity: 0.82;
+}
+
+/* Judgments read as editorial sections, not stacked UI cards. Threat tier is
+   already explicit in the heading chip, so a second coloured rail adds noise. */
+.brief-judgment-card {
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0;
+  padding: 24px 0 8px;
+  margin: 20px 0;
+  box-shadow: none;
+}
+.brief-judgment-card > h3:first-child { margin-top: 0; }
+.brief-content p { margin: 0 0 16px; color: var(--text-secondary); }
+.brief-content strong { color: var(--text-primary); }
+.brief-content li { color: var(--text-secondary); margin-bottom: 7px; line-height: 1.5; }
+.brief-content hr { border: none; border-top: 1px solid var(--border-subtle); margin: 28px 0; }
+.brief-content code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+.brief-content blockquote {
+  margin: 16px 0;
+  padding: 12px 18px;
+  border-left: 3px solid var(--h3);
+  background: rgba(var(--h3-rgb), 0.07);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-style: italic;
+}
+.brief-content a { color: var(--brand-text); text-decoration: none; }
+.brief-content a:hover { text-decoration: underline; }
+.brief-content table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: var(--type-sm); }
+.brief-content th, .brief-content td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.brief-content th { color: var(--text-tertiary); font-family: var(--font-mono); font-size: var(--type-xs); letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* BLUF — the lede. A typographic STANDFIRST (a brand rule + label + one large
+   serif sentence), NOT a filled box: the only filled element on the page is the
+   Act-now directive, so that's what pops. The BLUF leads on size + the rule. [C2] */
+.brief-content .bluf {
+  background: none; border: none; border-radius: 0;
+  border-top: 2px solid var(--brand-text);
+  padding: 16px 0 0; margin: 16px 0 32px; line-height: 1.4;
+}
+.brief-content .bluf p {
+  color: var(--text-primary); margin: 0; max-width: 60ch;
+  font-size: clamp(22px, 2.6vw, var(--type-xl)); font-weight: 500; line-height: 1.38;   /* always larger than the-line (20px) — the BLUF is the lede [C-primacy] */
+}
+.brief-content .bluf::before {
+  content: 'Bottom Line Up Front';
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brand-text);
+  margin-bottom: 12px;
+}
+
+/* Tier chip inline in brief prose — the canonical .c-chip, nudged onto the text
+   baseline with trailing space so it sits cleanly before a signal heading. */
+.brief-content .c-chip { vertical-align: 1px; margin-right: 6px; }
+
+/* ── Canonical action directive ──
+   The blue act-rule as ONE shared primitive: a colored left rule + faint wash +
+   the imperative, rendering "what do I do" as the climax. Ported from the Wall's
+   .nb-act; the accent is an overridable var so the Wall can recolor to its
+   warm-paper blue while every surface keeps the same act-directive spec. */
+.c-action {
+  --c-action-accent: var(--brand);          /* the left RULE (UI element, 3:1) */
+  --c-action-accent-rgb: var(--brand-rgb);
+  --c-action-ink: var(--brand-text);        /* the LABEL text — AA-safe brand-as-text */
+  border-left: 3px solid var(--c-action-accent);
+  background: rgba(var(--c-action-accent-rgb), 0.08);
+  padding: 13px 17px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.c-action-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--c-action-ink);
+  margin-bottom: 5px;
+}
+.c-action-text { color: var(--text-primary); font-weight: 600; line-height: 1.42; }
+/* Inside a judgment the directive closes the section with a quiet editorial rule. */
+.brief-judgment-card .c-action {
+  margin-top: 18px;
+  border-left: 0;
+  border-top: 2px solid var(--c-action-accent);
+  background: transparent;
+  padding: 12px 0 0;
+  border-radius: 0;
+}
+
+/* Per-judgment nav to the Wire (deep-linked to the card's CVE, or
+   the tier filter when there's no CVE). Quiet mono chrome-blue at the card foot; a
+   navigation aid, never editorial content — brief-export strips it from print. */
+.brief-judgment-link {
+  display: inline-block;
+  margin-top: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--brand-text);
+  text-decoration: none;
+  transition: opacity var(--fast) var(--ease);
+}
+.brief-judgment-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Numbered inline citation marker + the source appendix. */
+.brief-cite {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.62em;
+  margin-left: 1px;
+}
+.brief-content .brief-cite a.brief-cite-link {
+  color: var(--brand-text);
+  text-decoration: none;
+  border-bottom: 0;
+  padding: 1px 2px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.brief-content .brief-cite a.brief-cite-link:hover,
+.brief-content .brief-cite a.brief-cite-link:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: var(--wash);
+}
+.brief-sources-heading {
+  margin: 32px 0 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.brief-sources-appendix {
+  margin: 0;
+  padding-left: 2.4em;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--type-xs);
+}
+.brief-sources-appendix li { color: var(--text-secondary); margin-bottom: 6px; line-height: 1.5; }   /* citations a defender verifies against → AA */
+.brief-sources-appendix li::marker { color: var(--text-muted); }
+.brief-sources-appendix a.source-link { word-break: break-word; }
+.brief-cite-host { color: var(--text-muted); }   /* quiet verifier host after the rich citation */
+
+/* "The line" — the human-judgment soundbite a leader repeats. NOT a box: a
+   typographic pull-quote (serif italic + a leading quote mark), carrying its
+   weight with type, not chrome. No border, no wash — those are reserved for the
+   one blue-ruled act directive, so the memo reads on rules + voice, not container
+   stacks (box-soup de-clutter). */
+.brief-content .the-line {
+  position: relative;
+  margin: 24px 0 20px;
+  padding-left: 1.5em;
+  font-style: italic;
+  font-weight: 500;   /* a per-card soundbite, subordinate to the BLUF lede [C-primacy] */
+  font-size: var(--type-lg);
+  line-height: 1.46;
+  color: var(--text-primary);
+}
+.brief-content .the-line::before {
+  content: '\201C';
+  position: absolute; left: 0; top: 0.02em;
+  font-style: normal; font-weight: 700;
+  font-size: 1.9em; line-height: 1;   /* seat the glyph so it doesn't optically clip the first line on tight measures [C-quote] */
+  color: var(--text-muted);
+}
+
+/* Streaming cursor with a life/done boundary: while the model writes, a
+   glowing brand caret breathes at the live edge (alive); on completion the brief
+   re-renders without it (done). The glow makes "still generating" unmistakable, and
+   because the live state is a PRESENT caret (not just motion), it survives
+   reduced-motion as a steady glowing caret — present = writing, absent = done. */
+.streaming-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 1.05em;
+  background: var(--brand);
+  border-radius: 1.5px;
+  vertical-align: -2px;
+  margin-left: 3px;
+  box-shadow: 0 0 8px rgba(var(--brand-rgb), 0.55);
+  animation: cursor-pulse 1.1s var(--ease) infinite;
+}
+@keyframes cursor-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* Progress / skeleton */
+.gen-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 30px 0;
+}
+.gen-progress-status {
+  font-family: var(--font-mono);
+  font-size: var(--type-sm);
+  color: var(--brand-text);
+}
+
+/* Persistent generation status — sibling of #briefContent, survives stream resets */
+.briefing-status {
+  font-family: var(--font-mono);
+  font-size: var(--type-sm);
+  color: var(--brand-text);
+  margin-bottom: 14px;
+  display: none;
+}
+.briefing-status.active { display: flex; align-items: center; gap: 9px; }
+.briefing-status.active::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 8px var(--brand-glow);
+  animation: pulse-dot 1.4s infinite;
+}
+.skeleton-line {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-elevated) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.empty-state {
+  text-align: center;
+  padding: 72px 20px;
+  max-width: 48ch;
+  margin: 0 auto;
+}
+/* Editorial restraint on the first-run / off states — the masthead kicker type, so
+   the empty surface reads like part of the edition, not a bare dialog. [C-empty] */
+.empty-kicker {
+  font-family: var(--font-mono); font-size: var(--type-2xs);
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--brand-text); margin: 0 0 12px;
+}
+.empty-state h2 { font-family: var(--font-serif); font-weight: 700; font-size: var(--type-2xl); letter-spacing: -0.01em; margin: 0 0 10px; }
+.empty-state p { color: var(--text-secondary); margin: 0 0 24px; line-height: 1.55; }
+
+.error-message {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+  background: rgba(var(--h1-rgb), 0.08);
+  border: 1px solid rgba(var(--h1-rgb), 0.25);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  color: var(--on-h1-soft);
+}
+
+.search-results {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+.search-result {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-secondary);
+  font-size: var(--type-sm);
+  transition: border-color var(--fast) var(--ease);
+}
+.search-result:hover { border-color: rgba(var(--brand-rgb), 0.4); }
+.search-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 0 0 18px; }
+.search-count { font-family: var(--font-mono); font-size: var(--type-xs); color: var(--text-muted); letter-spacing: 0.04em; }
+.search-result-date { font-family: var(--font-mono); font-size: var(--type-xs); color: var(--brand-text); display: block; margin-bottom: 5px; }
+.search-result mark { background: rgba(var(--h3-rgb), 0.3); color: var(--text-bright); border-radius: 3px; padding: 0 2px; }
+
+/* ════════════════════════════════════════
+   WIRE VIEW
+   ════════════════════════════════════════ */
+
+.wire-view { max-width: var(--measure-wide); margin: 0 auto; }
+
+.wire-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: var(--rhythm-section);
+}
+
+.wire-meta {
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  color: var(--text-muted);
+}
+/* Honest staleness — mirrors the Wall's amber warn so a stale Wire can't read as live. */
+.wire-meta.stale { color: var(--warn); font-weight: 700; }
+
+/* A quiet cross-surface link to today's briefing from the Wire head.
+   Chrome-blue link register (mono kicker), never competing with the signal list. */
+.wire-brieflink {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-text);
+  text-decoration: none;
+  transition: opacity var(--fast) var(--ease);
+}
+.wire-brieflink[hidden] { display: none; }   /* honor the emitter's hidden attr (author display beats the UA [hidden] rule) */
+.wire-brieflink:hover { text-decoration: underline; text-underline-offset: 2px; }
+.wire-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; text-align: right; }
+
+/* Quiet "reconnecting / last good" overlay — keeps the last-good list in view. */
+.wire-reconnect {
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  color: var(--warn);
+  background: rgba(var(--sev-medium-rgb), 0.14);   /* amber caution via the severity token */
+  border: 1px solid rgba(var(--sev-medium-rgb), 0.5);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  margin-bottom: 14px;
+  position: sticky;                       /* stay visible while the operator scrolls a stale list */
+  top: calc(var(--header-height) + 8px);
+  z-index: 5;
+}
+
+/* The control deck has two levels: search/count/export first, triage second.
+   A single quiet surface replaces the previous wrap of twelve equal-weight pills. */
+.wire-controls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: var(--rhythm-section);
+  padding: 11px 12px;
+  background: var(--wash-soft);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+.wire-command-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 520px) 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+.wire-filter-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wire-control-divider { width: 1px; height: 20px; flex: none; background: var(--border); }
+
+/* Tier is one segmented choice, not four unrelated chips. */
+.wire-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 2px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+}
+.wire-filter {
+  background: transparent;
+  border: 0;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.wire-filter:hover { color: var(--text-primary); background: var(--wash); }
+.wire-filter.active { color: var(--ink-on-brand); background: var(--brand); font-weight: 700; }
+.wire-filter.active.f-h1 { background: var(--h1); color: var(--ink-on-h1); }
+.wire-filter.active.f-h2 { background: var(--h2); color: var(--ink-on-h2); }
+.wire-filter.active.f-h3 { background: var(--h3); color: var(--ink-on-h3); }
+
+/* Search owns the available width and keeps a deep-linked query visible in-place;
+   the native search clear affordance makes the old duplicate query chip unnecessary. */
+.wire-search-wrap { display: block; min-width: 0; }
+.wire-search {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--type-sm);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  transition: border-color var(--fast) var(--ease);
+}
+.wire-search::placeholder { color: var(--text-tertiary); }
+.wire-search:focus { outline: none; border-color: rgba(var(--brand-rgb), 0.5); }
+
+/* The transient dismiss/undo status keeps the old compact chip shape without
+   introducing a second row when there is no status to show. */
+.wire-status-row:empty { display: none; }
+.wire-qchip {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--wash);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs); font-weight: 700; letter-spacing: 0.04em;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: border-color var(--fast) var(--ease);
+}
+.wire-qchip:hover { border-color: var(--hairline-strong); }
+.wire-qclear { font-weight: 700; opacity: 0.75; }
+.wire-qchip:hover .wire-qclear { opacity: 1; }
+.wire-undo-chip .wire-qclear { color: var(--brand-text); opacity: 1; }
+
+.wire-toggles { display: flex; gap: 2px; align-items: center; }
+.wire-toggle {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 5px 9px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.wire-toggle:hover { color: var(--text-primary); background: var(--wash); }
+.wire-toggle[data-toggle="critical"].active {
+  color: var(--h1); background: rgba(var(--h1-rgb), 0.14); border-color: rgba(var(--h1-rgb), 0.45);
+}
+.wire-toggle[data-toggle="kev"].active {
+  color: var(--kev-text); background: rgba(var(--h1-rgb), 0.14); border-color: rgba(var(--h1-rgb), 0.4);
+}
+.wire-toggle[data-toggle="unread"].active {
+  color: var(--brand-text); background: var(--brand-dim); border-color: rgba(var(--brand-rgb), 0.3);
+}
+
+.wire-sort { display: inline-flex; gap: 7px; align-items: center; margin-left: auto; }
+.wire-sort-label { font-family: var(--font-mono); font-size: var(--type-2xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
+.wire-sort-select {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 600;
+  padding: 6px 27px 6px 9px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.wire-shown { justify-self: end; font-family: var(--font-mono); font-size: var(--type-xs); color: var(--text-muted); white-space: nowrap; }
+
+/* One export trigger replaces two always-visible format buttons. */
+.wire-export { position: relative; }
+.wire-export-trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 32px;
+  padding: 5px 9px;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: var(--type-2xs); font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.wire-export-trigger::-webkit-details-marker { display: none; }
+.wire-export-trigger::marker { content: ''; }
+.wire-export-trigger span { transition: transform var(--fast) var(--ease); }
+.wire-export[open] .wire-export-trigger span { transform: rotate(180deg); }
+.wire-export-menu {
+  position: absolute; right: 0; top: calc(100% + 5px); z-index: 30;
+  display: flex; min-width: 112px; padding: 4px;
+  background: var(--bg-elevated); border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-md);
+}
+.wire-export:not([open]) .wire-export-menu { display: none; }
+.wire-export-menu button {
+  flex: 1; padding: 6px 8px; background: transparent; border: 0;
+  border-radius: calc(var(--radius-sm) - 2px); color: var(--text-secondary);
+  font-family: var(--font-mono); font-size: var(--type-2xs); cursor: pointer;
+}
+.wire-export-menu button:hover { color: var(--text-primary); background: var(--wash); }
+.wire-export-menu button:disabled { opacity: 0.4; cursor: not-allowed; }
+.wire-export.is-disabled { opacity: 0.45; }
+.wire-export.is-disabled > summary { pointer-events: none; cursor: not-allowed; }
+/* Visually-hidden but screen-reader-available (the standard clip pattern) — the
+   live-region announcer carries count/filter/arrival state to AT only. */
+.wire-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* ── The CVE cluster: one identity → severity → KEV → due → exploit line. The
+   CVE id is IDENTITY (uncolored, mono); only the condition carries color, so a
+   CVE appears once and the eye reads identity then severity then urgency. ── */
+.wire-cve-cluster {
+  display: inline-flex; align-items: baseline; flex-wrap: nowrap; gap: 4px;
+  font-family: var(--font-mono); font-size: var(--type-2xs); letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;   /* allow the cluster to shrink rather than push the column wider */
+}
+/* On a narrow lead column the identity→sev→KEV→due cluster would overflow as one
+   nowrap unit; let it break internally there instead of bleeding past the grid. */
+@media (max-width: 900px) { .wire-cve-cluster { flex-wrap: wrap; } }
+.wire-cve-cluster .cl-sep { color: var(--text-muted); }
+.cl-cve { color: var(--text-secondary); font-weight: 700; font-size: var(--type-xs); letter-spacing: 0.04em; }   /* identity — the name the analyst searches; anchored, never colored */
+.cl-sev { font-weight: 600; }   /* severity reads as a calm fact at identity weight — color does the work; overdue/exploit stay the loud escalations */
+.cl-sev.sev-critical { color: var(--sev-critical); }
+.cl-sev.sev-high { color: var(--sev-high); }
+/* Routine severities stay calm — saturation is reserved for act-now CRITICAL/HIGH,
+   so the row's one scan path is "where's the colour" */
+.cl-sev.sev-medium, .cl-sev.sev-low { color: var(--text-secondary); }
+.cl-sev.sev-unknown { color: var(--text-muted); font-weight: 600; font-style: italic; }
+.cl-kev { color: var(--kev-text); font-weight: 700; letter-spacing: 0.06em; cursor: help; }   /* catalog-verified */
+.cl-due { color: var(--text-tertiary); }
+.cl-due.overdue { color: var(--sev-critical); font-weight: 700; }      /* the single allowed escalation */
+.cl-exploit { color: var(--brand-text); font-weight: 700; letter-spacing: 0.08em; cursor: help; }   /* verified — brand blue, not red */
+/* The CVE identity is now a <button> (click-to-copy) but must still read as
+   the plain-text identity chip it always was: strip the native button box so nothing
+   changes visually, and keep the anchored (uncolored) identity — .cl-cve above still
+   owns its mono size/weight/letter-spacing (this reset deliberately doesn't touch the
+   font so it can't shrink/unbold the id). The only added affordance is a quiet
+   hover/focus cue — brighten + a solid underline — signalling "this copies" without
+   ever hueing the identity. */
+button.cl-cve {
+  appearance: none; -webkit-appearance: none;
+  background: none; border: 0; padding: 0; margin: 0;
+  line-height: inherit;               /* sit on the cluster's baseline, not the UA button line-box */
+  cursor: pointer;
+  text-underline-offset: 2px;
+  transition: color var(--fast) var(--ease);
+}
+button.cl-cve:hover,
+button.cl-cve:focus-visible {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--hairline-strong);
+}
+
+/* One priority-reason chip: ALERT MATCH > PROMOTED > CRITICAL. */
+.wire-priority {
+  font-family: var(--font-mono); font-weight: 700; font-size: var(--type-2xs); letter-spacing: 0.08em;
+  padding: 2px 8px; border-radius: var(--radius-pill); cursor: help;
+}
+.wire-priority.alert { color: var(--sev-critical); background: rgba(var(--sev-critical-rgb), 0.12); border: 1px solid rgba(var(--sev-critical-rgb), 0.4); }   /* YOUR rule matched — top precedence reads loudest; PROMOTED stays the quiet brand wash */
+.wire-priority.promoted { color: var(--text-secondary); background: var(--wash); border: 1px solid var(--border-subtle); }
+.wire-priority.crit { color: var(--sev-critical); background: rgba(var(--sev-critical-rgb), 0.12); border: 1px solid rgba(var(--sev-critical-rgb), 0.4); }
+
+/* Metadata zone — recedes; "Affects" is a labeled fact (not italic background). */
+.wire-age, .wire-src { color: var(--text-muted); white-space: nowrap; }   /* read-data (source · timestamp) → AA (5.09:1 on bg-card); never wrap "1m ago" */
+.wire-age { font-variant-numeric: tabular-nums; font-size: var(--type-xs); display: inline-block; }   /* age leads the source down the right column — it's the staleness decision signal; inline-block so the band hugs its text and aligns to the flex-end edge */
+.wire-affects { color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--type-2xs); }
+
+/* Recency gradient: a fresh signal sits on a brighter ground and reads at
+   full secondary weight; an old one fades to a bare muted timestamp. The band is
+   set in JS (ageEl); tokens are theme-aware so it holds on light too. */
+/* The background carries the gradient (fresh bright → old none); text only
+   brightens on fresh and otherwise holds the base age color, so the fade stays
+   monotonic and no band drops the timestamp below its AA contrast floor. */
+.wire-age[data-age-band] { padding: 1px 7px; border-radius: var(--radius-pill); transition: background var(--fast) var(--ease); }
+.wire-age[data-age-band="fresh"]  { background: var(--recency-fresh);  color: var(--text-secondary); }
+.wire-age[data-age-band="recent"] { background: var(--recency-recent); }
+.wire-age[data-age-band="aging"]  { background: var(--recency-aging); color: var(--text-secondary); }   /* hold the smallest type above the AA floor on the faint aging wash */
+.wire-age[data-age-band="old"]    { background: transparent; }
+
+/* Cross-source multiplier glyph: two overlapping rings (= more than one distinct
+   source identity carried this near-match) + the count, in brand-blue, in the decision zone.
+   Brand here marks PROVENANCE STRENGTH, not chrome — it reads "trust this more". */
+.wire-corrob {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: var(--type-2xs); font-weight: 700;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+  color: var(--brand-text); cursor: help; white-space: nowrap;
+}
+.wire-corrob .wc-rings { position: relative; width: 15px; height: 10px; flex: none; }
+.wire-corrob .wc-rings::before, .wire-corrob .wc-rings::after {
+  content: ''; position: absolute; top: 0; width: 10px; height: 10px;
+  border-radius: 50%; border: 1.5px solid var(--brand-text); background: var(--bg-card);
+}
+.wire-corrob .wc-rings::before { left: 0; }
+.wire-corrob .wc-rings::after  { left: 5px; }
+
+/* KEV remediation micro-timeline: a 60px line, the "now" dot positioned by
+   --kev-now (elapsed fraction of the window). End caps (added · due) are drawn as
+   pseudo-elements; an overdue window reddens the whole object — the single allowed
+   KEV escalation. The end labels sit under the line in tabular mono. */
+.kev-timeline {
+  display: inline-flex; flex-direction: column; gap: 2px;
+  vertical-align: middle; margin-left: 2px;
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.kev-timeline .kt-line {
+  position: relative; width: 60px; height: 2px; border-radius: 1px;
+  background: var(--text-muted);
+}
+/* added (left) and due (right) end caps */
+.kev-timeline .kt-line::before, .kev-timeline .kt-line::after {
+  content: ''; position: absolute; top: 50%; width: 4px; height: 4px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.kev-timeline .kt-line::before { left: 0;   background: var(--text-tertiary); }
+.kev-timeline .kt-line::after  { left: 100%; background: var(--text-secondary); }
+/* now marker — positioned along the window; clamped to the track ends in JS */
+.kev-timeline .kt-now {
+  position: absolute; top: 50%; left: var(--kev-now, 0%);
+  width: 6px; height: 6px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--brand-text); box-shadow: 0 0 0 2px var(--bg-card);
+}
+.kev-timeline .kt-ends {
+  display: flex; justify-content: space-between; width: 60px;
+  font-size: var(--type-3xs); line-height: 1; letter-spacing: 0.01em; color: var(--text-muted);
+}
+.kev-timeline.overdue .kt-line { background: var(--alert); }
+.kev-timeline.overdue .kt-line::after { background: var(--alert); }
+.kev-timeline.overdue .kt-now { background: var(--alert); }
+
+/* Heuristic tags (actors/vendors, regex/substring-derived) must not read as
+   verified facts. A dotted underline marks them auto-tagged; KEV/CVSS solid above. */
+.wire-actor { color: var(--text-muted); white-space: nowrap; }   /* a vendor/actor token never breaks mid-word; the row wraps between chips, not inside them */
+.wire-actor.heuristic,
+.wire-vendor.heuristic {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--text-muted);
+  text-underline-offset: 2px;
+  cursor: help;
+}
+/* A body-only mention (basis 'mention') is a weaker inference than a headline
+   attribution — dim it and parenthesize so it never reads as the story's subject. */
+.wire-actor.mention { color: var(--text-tertiary); }
+.wire-actor.mention::before { content: '('; }
+.wire-actor.mention::after { content: ')'; }
+.wire-vendor { color: var(--text-muted); white-space: nowrap; }
+
+/* Date-unknown marker — sits where age would render; muted, not alarming. */
+.wire-age.unknown { color: var(--text-muted); font-style: italic; cursor: help; }
+
+/* A bare passthrough host for the convergence strip + the empty-filter state,
+   lifted OUT of the ARIA list (a role="list" may only hold listitems). It carries no
+   box of its own — no padding, border, or background — so the children below
+   (.wire-converge / .wire-empty) keep their own spacing and the layout reads exactly
+   like the old in-list version with no seam. Collapses fully when there's nothing to host. */
+.wire-above-list:empty { display: none; }
+
+/* Cross-source clusters are a compact scan rail, not a second card dashboard. */
+.wire-converge {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 0;
+  margin-bottom: 6px;
+  border-top: 1px solid rgba(var(--brand-rgb), 0.25);
+  border-bottom: 1px solid rgba(var(--brand-rgb), 0.25);
+}
+.wire-converge-head {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: center;
+  font-family: var(--font-mono); font-size: var(--type-2xs); font-weight: 700; letter-spacing: 0.12em;
+  color: var(--brand-text);
+  padding: 0 12px 0 2px;
+  border-right: 1px solid var(--border-subtle);
+}
+.wire-converge-count { margin-top: 2px; font-size: var(--type-2xs); font-weight: 500; letter-spacing: 0.04em; color: var(--text-muted); }
+.wire-converge-row {
+  display: flex; flex: 1 1 auto; gap: 6px; min-width: 0;
+  overflow-x: auto; scrollbar-width: thin; padding-bottom: 1px;
+}
+.wire-converge-card {
+  flex: 1 1 180px; min-width: 180px; max-width: 250px;
+  display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; align-items: baseline;
+  background: var(--wash-soft);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+}
+.wire-converge-key { grid-column: 1; font-family: var(--font-mono); font-size: var(--type-2xs); font-weight: 700; letter-spacing: 0.05em; color: var(--brand-text); white-space: nowrap; }
+.wire-converge-title {
+  grid-column: 1 / -1;
+  font-size: var(--type-xs); font-weight: 600; color: var(--text-secondary); line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wire-converge-n { grid-column: 2; grid-row: 1; justify-self: end; font-family: var(--font-mono); font-size: var(--type-2xs); color: var(--text-muted); white-space: nowrap; }
+/* The strip renders only the first 4 clusters but the head counts them all;
+   this honest overflow tail ("+N more") reconciles the shown cards with the count
+   so the number can never over-promise what's on screen. */
+.wire-converge-more {
+  align-self: center;
+  font-family: var(--font-mono); font-size: var(--type-2xs); font-weight: 700;
+  letter-spacing: 0.06em; color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* The Wire as a column-aligned terminal (the compositional spine): de-boxed
+   rows divided by hairlines (terminal density, not a list of cards), racked onto
+   the shared grid — [score] · tier RAIL · [lead] · [meta] — so the score, the
+   headline, and the source/age provenance read down ALIGNED columns. Glance left
+   for priority, centre for the story, right for staleness. */
+/* The column-header row: mono micro-labels racked over the SAME grid as
+   .wire-item (score · lead · meta) so SCORE / SIGNAL / SOURCE · AGE sit precisely
+   above their columns. Shares --col-* / --col-gap and the item's left padding so
+   the labels align to the numerals and headlines below. Purely visual (the emitter
+   marks it aria-hidden; the sr-only <h2>Signals</h2> gives AT the heading). */
+.wire-colhead {
+  display: grid;
+  grid-template-columns: [score] var(--col-score) [lead] minmax(0, 1fr) [meta] var(--col-meta);
+  column-gap: var(--col-gap);
+  align-items: baseline;
+  padding: 0 var(--s4) 7px var(--s3);
+  border-bottom: 1px solid var(--border);   /* a hairline seating the labels over the list */
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.wire-colhead .ch-score { grid-column: score; }
+.wire-colhead .ch-lead  { grid-column: lead; }
+.wire-colhead .ch-meta  { grid-column: meta; text-align: right; }
+
+.wire-list { display: flex; flex-direction: column; }
+
+.wire-item {
+  display: grid;
+  grid-template-columns: [score] var(--col-score) [lead] minmax(0, 1fr) [meta] var(--col-meta);
+  column-gap: var(--col-gap);
+  align-items: start;
+  padding: var(--rhythm-row) var(--s4) var(--rhythm-row) var(--s3);
+  border-bottom: 1px solid var(--border-subtle);   /* hairline divider, not a boxed card */
+  border-left: 3px solid transparent;               /* tier rail — the left-edge tier read shared with the Wall */
+  transition: background var(--fast) var(--ease);
+}
+.wire-item:first-child { border-top: 1px solid var(--border-subtle); }
+.wire-item:hover { background: var(--wash); }   /* wash-soft (~4%) didn't register; hover must confirm interactivity instantly */
+/* Hover-honesty: the row wash tracks the cursor, but only the title is a
+   link. Tint the title to brand on row hover so the whole-row wash resolves to a
+   real click target instead of implying the entire row is clickable. */
+.wire-item:hover a.wire-item-title { color: var(--brand-text); }
+.wire-item.h1 { border-left-color: var(--h1); }
+.wire-item.h2 { border-left-color: var(--h2); }
+.wire-item.h3 { border-left-color: var(--h3); }
+.wire-item.kev-overdue { border-left-color: var(--alert); }   /* the one allowed rail escalation */
+
+/* Signal arrival is split into two honest cues. The one-shot FLASH
+   (.arrived-flash) washes a genuinely-new row in from the brand tint with a brand
+   left-edge, then settles once (cleared after ~1.5s in JS). Tier-tempo keys the
+   duration to the row's class — Tactical snaps in (fast), Strategic eases (slow) —
+   so an arrival's urgency is felt in its cadence. The persistent "NEW" is now a
+   REAL .wire-new element (below), cleared only when the next load establishes a new
+   baseline — so the arrival survives after the flash fades and in every motion mode. */
+@keyframes wire-arrive {
+  0%   { background: var(--brand-dim); box-shadow: inset 2px 0 0 var(--brand-text); }
+  100% { background: transparent; box-shadow: none; }
+}
+.wire-item.arrived-flash { animation: wire-arrive var(--tempo-h2) var(--ease) 1; }
+.wire-item.arrived-flash.h1 { animation-duration: var(--tempo-h1); }
+.wire-item.arrived-flash.h3 { animation-duration: var(--tempo-h3); }
+/* The persistent arrival tag: a mono brand-dim pill trailing the headline,
+   carrying the "new since you last looked" state across the flash's decay. Real
+   element (not a ::after hack) so it shows under reduced-motion too; the SR count
+   announcer already carries the arrival to AT, so this is aria-hidden decoration. */
+.wire-new {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  vertical-align: 2px;
+  color: var(--brand-text);
+  background: var(--brand-dim);
+}
+
+/* The score: a floated numeral in a thin confidence RING — solid + bright when
+   cross-reported/KEV-verified, dashed + muted when single-source (the BLINK-TEST
+   cue, kept) — but no fill and no per-row "SCORE" label (decluttered for the
+   terminal; the critique flagged the boxed numeral as over-weighted). Click it for
+   the evidence-ledger defense panel. */
+.wire-score { grid-column: score; align-self: start; }
+.wire-score:not(.has-breakdown),
+.wire-score.has-breakdown > summary {
+  display: flex; align-items: center; justify-content: center;
+  width: var(--col-score); height: var(--col-score);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-weight: 800; font-size: var(--type-lg); line-height: 1;   /* the left anchor of every row — weight is the fastest focal cue */
+  color: var(--text-secondary);   /* default; the magnitude band overrides below */
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);   /* solid: dashed was imperceptible noise at this size */
+  list-style: none;
+}
+/* MAGNITUDE — numeral brightness by score band, so a 28 vs an 88 reads from the
+   left margin in one pass. NOT brand colour (--brand stays chrome-only). */
+.wire-score[data-band="lo"]:not(.has-breakdown),  .wire-score[data-band="lo"].has-breakdown  > summary { color: var(--text-muted); }
+.wire-score[data-band="mid"]:not(.has-breakdown), .wire-score[data-band="mid"].has-breakdown > summary { color: var(--text-secondary); }
+.wire-score[data-band="hi"]:not(.has-breakdown),  .wire-score[data-band="hi"].has-breakdown  > summary { color: var(--text-bright); }
+/* CONFIDENCE — the ring BORDER (orthogonal to magnitude): cross-reported/verified
+   earns a brighter, heavier ring; a lone source stays a faint hairline. */
+.wire-score.corroborated:not(.has-breakdown),
+.wire-score.corroborated.has-breakdown > summary {
+  border-color: var(--text-secondary); border-width: 2px;
+}
+.wire-score span { display: none; }   /* drop the "SCORE" label repeated 50× a page */
+/* An actionable score (opens the ledger) sheds one weight step (800→700) at
+   rest so the serif/sans headline wins first fixation; the caret below advertises
+   the click without the numeral shouting for it. A plain single-source score has
+   no breakdown to open, so it keeps its 800 anchor weight. `position: relative`
+   makes the summary the caret's positioning context. */
+.wire-score.has-breakdown > summary { font-weight: 700; position: relative; }
+
+/* The score is a <details>; the summary is the ring, the breakdown opens below. */
+.wire-score.has-breakdown { position: relative; cursor: pointer; }
+.wire-score.has-breakdown > summary::-webkit-details-marker { display: none; }
+/* A small persistent disclosure caret seats bottom-right inside the 46px ring,
+   low-opacity at rest so it reads as a quiet affordance, then brightens on
+   hover/focus and rotates open on [open]. */
+.wire-score.has-breakdown > summary::after {
+  content: '▾';
+  position: absolute; right: 4px; bottom: 2px;
+  font-family: var(--font-sans); font-size: var(--type-2xs); line-height: 1;
+  color: var(--text-tertiary); opacity: 0.6;
+  transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease);
+  pointer-events: none;   /* the whole summary is the click target; the glyph is decoration */
+}
+.wire-score.has-breakdown > summary:hover::after,
+.wire-score.has-breakdown > summary:focus-visible::after { opacity: 1; }
+.wire-score.has-breakdown[open] > summary::after { opacity: 1; transform: rotate(180deg); }
+.wire-score.has-breakdown[open] > summary { background: var(--wash); --focus-ring-gap: var(--wash); }   /* the focus ring's inner gap matches the open background — no halo (WCAG 2.4.7) */
+/* The score's defense panel: the evidence ledger, then the five axes as bars —
+   "why is this an 84" answered in one click, with the receipt attached. */
+.wire-score-breakdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  width: clamp(220px, calc(100vw - 80px), 280px);   /* never overflow the right edge near the viewport margin */
+  max-height: 60vh; overflow-y: auto;
+  margin: 0;
+  padding: 10px 12px;
+  list-style: none;
+  background: var(--bg-card);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, 0.35));
+}
+/* the evidence ledger — the human-readable receipt, strongest evidence first */
+.wire-score-breakdown .wsb-ledger {
+  font-family: var(--font-mono); font-size: var(--type-xs); line-height: 1.45;   /* the "why is this an 84" receipt can't require leaning in */
+  color: var(--text-secondary); letter-spacing: 0.01em;
+  padding-bottom: 8px; margin-bottom: 6px; border-bottom: 1px solid var(--border-subtle);
+}
+/* each axis as label · bar · value (0–100 contribution of that evidence axis) */
+.wire-score-breakdown .wsb-axis {
+  display: grid; grid-template-columns: 70px 1fr 22px; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: var(--type-xs); color: var(--text-tertiary);   /* the evidence receipt reads without leaning in */
+  padding: 3px 0;
+}
+.wire-score-breakdown .wsb-bar { height: 4px; border-radius: 2px; background: var(--bg-tertiary); overflow: hidden; }
+.wire-score-breakdown .wsb-bar > i { display: block; height: 100%; background: var(--brand-text); border-radius: 2px; }
+.wire-score-breakdown .wsb-val { text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* The title is wrapped in an <h3> for screen-reader heading navigation
+   (jump signal-to-signal); the wrapper carries no visual weight of its own — the
+   .wire-item-title inside owns all type. */
+.wire-item-h { margin: 0; font: inherit; }
+
+/* Lead-vs-tail focal hierarchy. Routine rows ride at 500 (the tier rail
+   already supplies the accent); a critical or pipeline-promoted row earns 650 so
+   the lead reads heavier in peripheral vision without recoloring the palette. */
+.wire-item-title {
+  font-weight: 500;
+  font-size: var(--type-base);
+  color: var(--text-primary);
+  text-decoration: none;
+  line-height: 1.4;
+  overflow-wrap: break-word;   /* a long unbreakable token (URL, CVE string) can't overflow the lead column */
+}
+.wire-item.critical .wire-item-title,
+.wire-item.promoted .wire-item-title { font-weight: 650; }
+a.wire-item-title:hover { color: var(--brand-text); }
+
+.wire-item-desc {
+  color: var(--text-muted);   /* row description is read content → AA */
+  font-size: var(--type-sm);
+  margin: 4px 0 6px;
+  line-height: 1.45;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* [lead] — the centre column: headline · dek · decision chips · context sub-line.
+   Block flow (not flex) so the dek's line-clamp is reliable on this child. */
+.wire-lead { grid-column: lead; min-width: 0; display: block; }
+
+/* Tier remains explicit for non-color readers, but sheds the repeated filled pill:
+   the row rail already carries its color. Evidence and urgency keep the visual weight. */
+.wire-tier {
+  font-family: var(--font-mono); font-size: var(--type-2xs); font-weight: 800;
+  letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+}
+.wire-tier.h1 { color: var(--h1); }
+.wire-tier.h2 { color: var(--h2); }
+.wire-tier.h3 { color: var(--h3); }
+
+/* The decision line holds class, source strength, CVE facts, and at most one priority
+   reason. It wraps only when needed; routine labels no longer all look like badges. */
+.wire-decision { display: flex; align-items: center; gap: 5px 10px; flex-wrap: wrap; margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+/* The context sub-line (affected products · heuristic vendor/actor tags) — quieter,
+   below the decision chips, so the META column stays the clean provenance read. */
+.wire-submeta {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 3px;
+  font-family: var(--font-mono); font-size: var(--type-2xs); color: var(--text-muted);
+}
+
+/* [meta] — the right column: source over age, right-aligned, so provenance and
+   staleness read DOWN an aligned column across the whole list. */
+.wire-meta-col {
+  grid-column: meta; min-width: 0;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right;
+  font-family: var(--font-mono); font-size: var(--type-2xs);
+}
+
+/* Per-row analyst actions (copy-link · mark-read · dismiss), sitting under
+   source · age at the foot of the meta column. A compact inline-flex cluster; the
+   buttons are quiet by default (muted glyphs, no box) so they don't compete with the
+   provenance read down the column, and confirm interactivity with a wash on hover. */
+.wire-row-actions {
+  display: inline-flex; align-items: center; gap: 2px; margin-top: 1px;
+  opacity: 0; transform: translateY(-2px); pointer-events: none;
+  transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.wire-item:hover .wire-row-actions,
+.wire-item:focus-within .wire-row-actions { opacity: 1; transform: none; pointer-events: auto; }
+@media (hover: none), (pointer: coarse) {
+  .wire-row-actions { opacity: 1; transform: none; pointer-events: auto; }
+  .wire-copy-link, .wire-mark-read, .wire-dismiss { width: 36px; height: 36px; }
+}
+.wire-copy-link, .wire-mark-read, .wire-dismiss {
+  appearance: none; -webkit-appearance: none;
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0;
+  background: none; border: 0; border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--type-sm); line-height: 1;
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.wire-copy-link:hover, .wire-mark-read:hover, .wire-dismiss:hover {
+  color: var(--text-primary); background: var(--wash);
+}
+/* 🔗 renders as a colour emoji that ignores `color`; mute it with opacity so it sits
+   at the same quiet weight as the ○/✕ glyph siblings, lifting to full on hover/focus. */
+.wire-copy-link { opacity: 0.7; }
+.wire-copy-link:hover, .wire-copy-link:focus-visible { opacity: 1; }
+/* the read toggle's filled ● (pressed) reads as a calm "handled" mark, not an accent */
+.wire-mark-read[aria-pressed="true"] { color: var(--text-secondary); }
+/* dismiss removes the row — its hover carries the one allowed danger tint */
+.wire-dismiss:hover { color: var(--h1); background: rgba(var(--h1-rgb), 0.12); }
+
+/* A handled row recedes without lowering the opacity of already-muted metadata
+   below its contrast floor. The calm surface wash + secondary title preserve the
+   read/unread distinction; hover/focus restores the primary title for re-reading. */
+.wire-item.is-read { background: var(--wash-soft); }
+.wire-item.is-read .wire-item-title { color: var(--text-secondary); }
+.wire-item.is-read:hover .wire-item-title,
+.wire-item.is-read:focus-within .wire-item-title { color: var(--text-primary); }
+
+/* Rows are individually keyboard-focusable (tabindex=0, j/k navigation).
+   The generic [tabindex]:focus-visible rule already paints the focus ring on the whole
+   row (--focus-ring-gap is set to --bg-card for .wire-item above); reinforce it with the
+   same wash the row uses on hover so whole-row focus is unmistakable, and reserve room
+   under the sticky header so j/k never parks the focused row behind it. */
+.wire-item { scroll-margin-top: calc(var(--header-height) + 12px); }
+.wire-item:focus-visible { background: var(--wash); }
+
+.wire-empty { color: var(--text-tertiary); padding: 40px; text-align: center; }
+/* The inline "Clear all filters" ghost button reads on the same line as the
+   empty-state sentence; a little breathing room and a baseline seat so it doesn't
+   crowd or float against the message text. */
+.wire-empty .wire-clear-filters { margin-left: 6px; vertical-align: baseline; }
+
+/* Loading skeleton: six rows racked on the SAME grid as .wire-item so the
+   list arrives in place rather than reflowing from a bare spinner. The ring, the two
+   headline lines, and the meta block all reuse the .skeleton-line shimmer gradient/
+   animation for one consistent loading texture across the app. */
+.wire-skel-row {
+  display: grid;
+  grid-template-columns: [score] var(--col-score) [lead] minmax(0, 1fr) [meta] var(--col-meta);
+  column-gap: var(--col-gap);
+  align-items: start;
+  padding: var(--rhythm-row) var(--s4) var(--rhythm-row) var(--s3);
+  border-bottom: 1px solid var(--border-subtle);   /* match the row hairline so the skeleton reads as the list */
+}
+.wire-skel-row:first-child { border-top: 1px solid var(--border-subtle); }
+.wsk-ring {
+  grid-column: score;
+  width: var(--col-score); height: var(--col-score);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-elevated) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;   /* the shared skeleton shimmer */
+}
+.wsk-lines { grid-column: lead; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
+.wsk-lines i { display: block; height: 14px; border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-elevated) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%; animation: shimmer 1.6s infinite; }
+.wsk-lines i:first-child { width: 82%; }   /* headline line */
+.wsk-lines i:last-child  { width: 54%; }   /* the shorter dek line */
+.wsk-meta {
+  grid-column: meta; height: 14px; border-radius: 6px; margin-top: 4px; margin-left: auto; width: 70%;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-elevated) 50%, var(--bg-tertiary) 75%);
+  background-size: 200% 100%; animation: shimmer 1.6s infinite;
+}
+@media (max-width: 768px) {
+  .wire-head { align-items: flex-start; }
+  .wire-head-right { align-items: flex-start; text-align: left; }
+  .wire-command-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .wire-search-wrap { grid-column: 1 / -1; }
+  .wire-filter-row { flex-wrap: wrap; }
+  .wire-filters {
+    flex: 1 1 100%; overflow-x: auto; flex-wrap: nowrap;
+    scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+  }
+  .wire-control-divider { display: none; }
+  .wire-sort { margin-left: auto; }
+  .wire-converge { flex-direction: column; gap: 6px; }
+  .wire-converge-head {
+    flex-direction: row; justify-content: flex-start; gap: 8px;
+    padding: 0 2px; border-right: 0;
+  }
+  .wire-converge-count { margin-top: 0; }
+
+  /* Drop the right meta column under the lead (source · age become a row),
+     while keeping the score column as the priority anchor. */
+  .wire-item { grid-template-columns: [score] var(--col-score) [lead] minmax(0, 1fr); }
+  .wire-meta-col {
+    grid-column: lead; flex-direction: row; flex-wrap: wrap; align-items: center;
+    gap: 5px 10px; margin-top: 6px; text-align: left;
+  }
+  .wire-src { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .wire-row-actions { margin: 0 0 0 auto; opacity: 1; transform: none; pointer-events: auto; }
+
+  /* Mirror the item collapse in the visible header and loading rows. */
+  .wire-colhead { grid-template-columns: [score] var(--col-score) [lead] minmax(0, 1fr); }
+  .wire-colhead .ch-meta { display: none; }
+  .wire-skel-row { grid-template-columns: [score] var(--col-score) [lead] minmax(0, 1fr); }
+  .wsk-meta { display: none; }
+}
+@media (max-width: 520px) {
+  .wire-view { --col-score: 40px; --col-gap: 12px; }
+  .wire-controls { padding: 9px; }
+  .wire-filter { padding-inline: 8px; }
+  .wire-toggle { padding-inline: 7px; }
+  .wire-sort-label { display: none; }
+  .wire-item, .wire-colhead, .wire-skel-row { padding-left: 8px; padding-right: 8px; }
+  .wire-score:not(.has-breakdown),
+  .wire-score.has-breakdown > summary { font-size: var(--type-base); }
+  .kev-timeline { display: none; }
+}
+
+/* ── Toast ── */
+.toast-container {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.toast {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: var(--type-sm);
+  padding: 11px 18px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  animation: toast-in 0.28s var(--ease) both;
+}
+/* Entrance choreography: a micro-scale rise, and when several land together
+   they stagger up the stack instead of popping in as one block. */
+.toast:nth-child(2) { animation-delay: 0.05s; }
+.toast:nth-child(3) { animation-delay: 0.10s; }
+.toast:nth-child(n+4) { animation-delay: 0.15s; }
+.toast.error { border-color: rgba(var(--h1-rgb), 0.5); color: var(--on-h1-soft); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(0.96); } to { opacity: 1; transform: none; } }
+
+/* ── Source citation links in briefings ── */
+a.source-link {
+  color: var(--brand-text);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(var(--brand-rgb), 0.35);
+  transition: border-color var(--fast) var(--ease);
+}
+a.source-link:hover { border-bottom-color: var(--brand-text); }
+
+/* ── Briefing validation warning ── */
+.brief-validation-warning {
+  border: 1px solid var(--hairline-strong);
+  background: var(--wash);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  margin: 0 0 24px;
+  color: var(--text-secondary);
+  font-size: var(--type-sm);
+}
+.brief-validation-warning:not(.hard-fail) { padding: 0; background: transparent; }
+.brief-validation-warning summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.brief-validation-warning summary::-webkit-details-marker { display: none; }
+.brief-validation-warning summary::before {
+  content: '+';
+  width: 1em;
+  flex: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.brief-validation-warning[open] summary::before { content: '−'; }
+.brief-validation-warning summary strong { margin: 0; }
+.brief-validation-warning summary span { color: var(--text-muted); }
+.brief-validation-warning:not(.hard-fail) ul { margin: 0; padding: 0 18px 12px 46px; }
+.brief-validation-warning strong { color: var(--text-primary); display: block; margin-bottom: 6px; }
+.brief-validation-warning ul { margin: 0; padding-left: 18px; }
+.brief-validation-warning li { margin: 2px 0; }
+/* Hard structural failure (missing BLUF/Key Judgments) — escalate to red + a regenerate CTA. */
+.brief-validation-warning.hard-fail { border-color: rgba(var(--h1-rgb), 0.55); background: rgba(var(--h1-rgb), 0.08); }
+.brief-validation-warning.hard-fail strong { color: var(--h1); }
+.brief-validation-warning.hard-fail button { margin-top: 10px; }
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .briefing-layout { grid-template-columns: 1fr; }
+  /* Show the whole section index without an undiscoverable horizontal scroller.
+     Two balanced columns keep it compact on tablets; the phone rule below stacks
+     it when labels would otherwise become cramped. */
+  .briefing-toc {
+    position: static; top: auto;
+    width: 100%; min-width: 0; max-width: 100%;
+    overflow: visible;
+    margin-bottom: 18px;
+  }
+  .briefing-toc-label { margin-bottom: 8px; }
+  .briefing-toc ul {
+    width: 100%; min-width: 0; max-width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-flow: row;
+    grid-auto-columns: unset;
+    gap: 4px 12px;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+  .briefing-toc li { min-width: 0; }
+  .briefing-toc a {
+    min-height: 36px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    padding: 7px 8px;
+    border-bottom: 2px solid transparent;
+  }
+  .briefing-toc a.active { border-bottom-color: var(--brand-text); }
+  .header-nav { margin-left: 0; }
+}
+
+/* Phones: the single header row (wordmark · 3 nav pills · Generate · gear)
+   overflowed ~380px. Tighten the gaps + nav, and drop the Generate label to its
+   icon (the button keeps its aria-label/title). Nothing clips; all stay reachable. */
+@media (max-width: 560px) {
+  .app-main { padding: 20px 14px 64px; }
+  .app-header { padding-inline: 12px; }
+  .header-inner { gap: 8px; }
+  .header-nav { gap: 2px; }
+  .nav-btn { padding: 6px 7px; letter-spacing: 0.03em; font-size: var(--type-xs); }
+  .wordmark { font-size: 10px; white-space: nowrap; }
+  #hdrGenerateText { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }  /* visually hidden; the button's aria-label carries the name */
+  .btn-primary { padding: 8px 10px; }
+  .header-right { gap: 6px; }
+  /* Keep touch-only Help discoverable without forcing another item into the
+     already-full phone header. The existing icon becomes a 44px floating action
+     at the safe-area edge; keyboard and desktop placement remain unchanged. */
+  #hdrHelp {
+    position: fixed;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    z-index: 80;
+    width: 44px;
+    height: 44px;
+    background: var(--bg-elevated);
+    border-color: var(--hairline-strong);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Compress the edition preamble so the briefing reaches its decisions sooner
+     without shrinking the long-form reading type. */
+  .briefing-masthead { align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+  .view-kicker { margin-bottom: 3px; }
+  .view-sub { margin-top: 5px; }
+  .brief-provenance { margin-top: 5px; }
+  .briefing-sheet { padding: 20px 18px; }
+  .brief-content .bluf { padding-top: 12px; margin: 12px 0 24px; }
+  .brief-content .bluf::before { margin-bottom: 8px; }
+  .brief-content .bluf p { font-size: clamp(19px, 5.4vw, 22px); line-height: 1.32; }
+}
+
+@media (max-width: 430px) {
+  /* The full public name remains visible without pushing Settings off-canvas. */
+  .header-inner { gap: 4px; }
+  .wordmark { font-size: 8px; letter-spacing: 0.08em; padding-inline: 1px; }
+  .nav-btn { padding-inline: 5px; }
+  .header-right { gap: 3px; }
+  .briefing-toc ul { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .briefing-toc a { min-height: 34px; padding-block: 6px; }
+  .wire-item-desc { display: none; }
+  .wire-copy-link, .wire-mark-read, .wire-dismiss { width: 36px; height: 36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  /* The arrival flash is suppressed here by the global rule above; the
+     persistent .wire-new element (a real node, not a ::after hack) carries the
+     "NEW" arrival state in all motion modes, so no reduced-motion fallback is
+     needed. */
+}
+
+/* ── Help overlay — "How to read BlueTeam.News" ──
+   A full-screen scrim (matching the export overlay's material) holding a scrollable
+   elevated panel: the Wire column legend, the trust affordances, the tier legend,
+   and the keyboard map. Built + focus-trapped by core/help.js; opened from the
+   header ? button and the ? shortcut. */
+.help-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: clamp(24px, 6vh, 72px) 20px;
+  overflow-y: auto;
+  background: var(--bg-overlay);
+  backdrop-filter: var(--glass-blur);
+}
+.help-panel {
+  --focus-ring-gap: var(--bg-elevated);   /* controls inside sit on the elevated card, not the page ground */
+  width: 100%; max-width: 620px;
+  max-height: calc(100vh - clamp(48px, 12vh, 144px));
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-distant);
+  padding: clamp(24px, 4vw, 40px);
+}
+.help-title {   /* #helpTitle — the dialog's serif nameplate */
+  font-family: var(--font-serif); font-weight: 700;
+  font-size: var(--type-xl); letter-spacing: -0.01em;
+  color: var(--text-primary); margin: 0 0 6px;
+}
+.help-section { margin-top: 24px; }
+.help-section-h {
+  font-family: var(--font-mono);
+  font-size: var(--type-xs); font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--brand-text);
+  margin: 0 0 10px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.help-section p { color: var(--text-secondary); font-size: var(--type-sm); line-height: 1.6; margin: 0 0 8px; }
+/* term · definition grid — the mono term (column, chip, or key-cap lockup) sits
+   left, its plain-language meaning right. */
+.help-defs { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; align-items: baseline; }
+.help-defs dt { font-family: var(--font-mono); font-size: var(--type-xs); font-weight: 700; letter-spacing: 0.04em; color: var(--text-primary); }
+.help-defs dd { margin: 0; color: var(--text-secondary); font-size: var(--type-sm); line-height: 1.5; }
+/* The Keyboard section pairs multi-cap lockups with labels; let the key column keep
+   its inline <kbd> flow and stay top-aligned to a wrapping meaning. */
+.help-keys dt { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; white-space: nowrap; }
+.help-aff-mono { font-family: var(--font-mono); }
+/* The trust-affordance legend must SHOW the affordance it names — a solid vs a
+   dotted underline, in the SAME hues as the Wire's verified/heuristic chips
+   (.wire-*.heuristic) — or the row teaches nothing. */
+.help-aff-solid { text-decoration: underline solid; text-decoration-color: var(--text-secondary); text-underline-offset: 2px; }
+.help-aff-dotted { text-decoration: underline dotted; text-decoration-color: var(--text-muted); text-underline-offset: 2px; }
+.help-tier-legend { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
+.help-tier-note { color: var(--text-secondary); font-size: var(--type-sm); line-height: 1.6; margin: 0; }
+/* Mono key-caps for the keyboard map — a raised, printed-key affordance. */
+.help-kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; padding: 2px 7px;
+  font-family: var(--font-mono); font-size: var(--type-xs); font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--hairline-strong);
+  border-bottom-width: 2px;   /* the "keycap" depth cue */
+  border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.help-close {
+  float: right;
+  display: inline-grid; place-items: center;
+  width: 36px; height: 36px; margin: -8px -8px 0 0;
+  background: transparent; border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary); cursor: pointer;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.help-close:hover { color: var(--text-primary); border-color: var(--hairline-strong); }
+
+/* ── Brief export overlay — an in-app print surface ──
+   Reliable where a popup window is not: a same-origin iframe holds the warm-paper
+   broadsheet, controls sit OUTSIDE it (so the printed page is clean), and Print
+   prints the iframe's own document directly. */
+.np-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column;
+  background: rgba(7, 9, 14, 0.82);
+}
+.np-overlay-bar {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 12px 18px;
+  background: var(--bg-card); border-bottom: 1px solid var(--border-subtle);
+}
+.np-overlay-title {
+  font-family: var(--font-mono); font-size: var(--type-2xs); letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-tertiary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.np-overlay-actions { display: flex; align-items: center; gap: 10px; flex: none; min-width: 0; }
+.np-ov-btn {
+  font-family: var(--font-sans); font-size: var(--type-sm); font-weight: 600;
+  padding: 8px 16px; border-radius: var(--radius-pill); cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-secondary);
+  white-space: nowrap;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease), filter var(--fast) var(--ease);
+}
+.np-ov-btn:hover { color: var(--text-primary); border-color: var(--hairline-strong); }
+.np-ov-btn.primary { background: var(--brand); border-color: var(--brand); color: var(--ink-on-brand); }
+.np-ov-btn.primary:hover { filter: brightness(1.08); color: var(--ink-on-brand); }
+/* Download demoted to a quiet secondary link — Print / Save-as-PDF is the path now. [A3] */
+.np-ov-link {
+  font-family: var(--font-sans); font-size: var(--type-xs); font-weight: 500;
+  background: none; border: none; padding: 8px 4px; cursor: pointer;
+  color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px;
+  white-space: nowrap;
+  transition: color var(--fast) var(--ease);
+}
+.np-ov-link:hover { color: var(--text-secondary); }
+.np-frame { flex: 1; width: 100%; border: none; background: #d7d2c5; }
+
+/* Keep the printable page dominant on small screens. The iframe owns the paper
+   layout, so the app overlay compacts only its own chrome and preserves every
+   export action without a clipped toolbar. */
+@media (max-width: 640px) {
+  .np-overlay-bar { gap: 10px; padding: 8px 10px; }
+  .np-overlay-actions { gap: 6px; }
+  .np-ov-btn { padding: 7px 11px; font-size: var(--type-xs); }
+  .np-ov-link { padding: 7px 3px; font-size: var(--type-2xs); }
+}
+
+@media (max-width: 560px) {
+  .np-overlay-bar { position: relative; }
+  /* Retain the dialog's labelled-by target for assistive technology while giving
+     the complete toolbar the narrow viewport. */
+  .np-overlay-title {
+    position: absolute;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .np-overlay-actions { width: 100%; justify-content: flex-end; }
+}
+
+@media (max-width: 430px) {
+  /* Short visual labels prevent wrapping; the original DOM text remains the
+     accessible button name. HTML stays visibly secondary to the primary PDF path. */
+  .np-ov-print,
+  .np-ov-download { font-size: 0; }
+  .np-ov-print::after { content: 'Print / PDF'; font-size: var(--type-xs); }
+  .np-ov-download::after { content: 'HTML'; font-size: var(--type-2xs); }
+  .np-ov-close { padding-inline: 10px; }
+}
+
+/* Fallback only — if the app window itself prints, show just the broadsheet. */
+@media print {
+  body > *:not(.np-overlay) { display: none !important; }
+  .np-overlay { position: static; inset: auto; background: none; }
+  .np-overlay-bar { display: none !important; }
+}

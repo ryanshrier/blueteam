@@ -1,0 +1,851 @@
+/* ============================================
+   BLUE TEAM — the Wall (TV / kiosk display)
+   A passive watchfloor broadsheet for a 16:9 screen read across a room.
+   Warm paper ground, cream ink, one lifted IBM-blue accent; the data racked
+   into column-aligned tables. Folio status spine · dissolve · dwell countdown.
+   ============================================ */
+
+body.wall-active { overflow: hidden; }
+body.wall-active .app-header,
+body.wall-active .app-main { display: none; }
+body.wall-active .skip-link { display: none; }
+body.kiosk { cursor: none; }
+
+.wall-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--bg-primary);
+}
+
+.wall {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+
+/* Every fluid type role in the tokens.css ladder (--fluid-cover, --fluid-
+   display, --fluid-kicker, …) carries a px CEILING tuned for 1080p; at native 4K
+   (a mini-PC reporting 3840 CSS px at 100% OS scaling — a common ops-floor TV
+   setup) every clamp binds its cap well before it, so the broadsheet renders at
+   roughly half its intended proportion of the screen. The vw middle terms already
+   carry the correct proportion — `zoom` re-derives the effective viewport the
+   clamps see, so a 3840px canvas computes as if it were 1920px and every role
+   scales back up to its intended on-screen size, at the same underlying px
+   values (no ladder duplication, no touching the shared tokens.css scale used by
+   the rest of the app UI). Scoped to .wall only. */
+@media (min-width: 2200px) {
+  .wall { zoom: calc(100vw / 1920); }
+}
+
+/* Horizon pips — shared by the broadsheet's chips and rails */
+.h-pip {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.h-pip.h1 { background: var(--h1); box-shadow: 0 0 6px rgba(var(--h1-rgb), 0.6); }
+.h-pip.h2 { background: var(--h2); box-shadow: 0 0 6px rgba(var(--h2-rgb), 0.6); }
+.h-pip.h3 { background: var(--h3); box-shadow: 0 0 6px rgba(var(--h3-rgb), 0.6); }
+
+/* ════════════════════════════════════════════════════════════
+   The broadsheet
+   Warm broadsheet ground, cream ink, ONE lifted IBM-blue accent, the data
+   racked into column-aligned tables. Hierarchy inverted: the date is a mono
+   stamp; the judgment/headline is the focal object. One red, one amber, one
+   green. Folio status spine · 420ms dissolve · dwell countdown.
+   ════════════════════════════════════════════════════════════ */
+
+.wall.news-mode {
+  --paper-bg: #100d0a;            /* warm night-paper ground */
+  --paper-ink: #f6efe3;           /* warm cream, lifted for 10-ft contrast */
+  --paper-ink-2: #d1c9bb;
+  --paper-ink-3: #aaa08f;
+  --paper-faint: #968c7c;         /* lifted to hold at watchfloor distance */
+  --paper-rule: rgba(242, 237, 226, 0.12);
+  --paper-rule-2: rgba(242, 237, 226, 0.30);
+  /* IBM blue — sourced from the canonical --brand token (tokens.css :root, in
+     scope since wall.css loads after it) so the Wall can never drift off-brand.
+     Kept as a named --paper-accent alias to preserve the broadsheet vocabulary. */
+  --paper-accent: var(--brand);
+  --paper-accent-rgb: var(--brand-rgb);
+  --paper-elev: #16130f;          /* row banding */
+  /* The one escalation red, lifted for the warm night ground so the hue that must
+     never be missed clears AA at 10 ft (the Wire keeps the global #ef4444). */
+  --sev-critical: #ff5b5b;
+  --sev-critical-rgb: 255, 91, 91;
+  /* Pin the rest of the shared tier/severity/KEV hues to their canonical (dark-mode)
+     values. The Wall's ground never changes with the operator's light/dark theme
+     preference (warm night-paper, always) — but light theme darkens these same
+     shared tokens for AA on a WHITE operator-UI ground, which would otherwise leak
+     in here via inheritance and read as low-contrast against the Wall's dark paper. */
+  --h1: #f87171;
+  --h2: #fbbf24;
+  --h3: #a78bfa;
+  --sev-high: #fb923c;
+  --sev-medium: #fbbf24;
+  --sev-low: #06b6d4;
+  --kev-text: #fda4af;
+  --on-h1-soft: #fecaca;
+  /* --warn and --alert were the two honesty-signal hues missing from this pin
+     list: light theme redefines --warn to #8a5309 (~3.0:1 on the Wall's dark paper,
+     below AA) for STALE/DEGRADED and the PAUSED pager, and --alert (aliased to
+     --sev-critical at :root) resolves against :root's OWN --sev-critical, not the
+     Wall's locally lifted #ff5b5b above — the standard custom-property computed-value
+     gotcha. Redeclaring --alert here makes the alias substitute against the local
+     lifted red, so the KEV/CRITICAL badge and rail actually get the "lifted for AA
+     at 10 ft" color instead of the global #ef4444. --accent-green pinned alongside
+     for the same "operator theme can never leak into the TV" invariant. */
+  --warn: #f59e0b;
+  --warn-rgb: 245, 158, 11;
+  --alert: var(--sev-critical);
+  --accent-green: #34d399;
+  /* spacing scale (--s1..--s9) is inherited from tokens.css :root */
+  font-optical-sizing: auto;   /* Newsreader display cut at headline sizes */
+  /* Warm night-paper material: a top-anchored warm glow (light from above,
+     pairs with the top-light) over a faint paper grain — depth + tooth so the
+     ground reads as printed, not a flat panel. Sub-perceptible; ink stays >=AA. */
+  background-color: var(--paper-bg);
+  background-image:
+    radial-gradient(125% 85% at 50% -8%, rgba(255, 243, 226, 0.05), rgba(255, 243, 226, 0) 58%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)' opacity='0.035'/%3E%3C/svg%3E");
+  background-size: 100% 100%, 180px 180px;
+  background-repeat: no-repeat, repeat;
+}
+
+.news-mode .h-pip { box-shadow: none; }
+
+.news-mode {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  /* overscan-safe title frame */
+  padding: clamp(56px, 5vh, 72px) clamp(72px, 6vw, 120px);
+  /* Burn-in mitigation: the folio spine, dwell track, and footer pager render
+     at pixel-identical positions indefinitely on an unattended TV, at high contrast
+     — exactly what etches into an OLED/plasma panel over days. A slow, imperceptible
+     transform (wall-view.js cycles the .nb-shift-N class every ~5 min) resets the
+     subpixel history of every static chrome element without visibly moving anything
+     at 10 ft. `.wall` (the parent) keeps overflow:hidden, so the ±3px nudge can never
+     reveal a gap at the frame edge. */
+  transform: translate(0, 0);
+  transition: transform 6s linear;
+}
+.news-mode.nb-shift-1 { transform: translate(2px, -2px); }
+.news-mode.nb-shift-2 { transform: translate(-3px, 1px); }
+.news-mode.nb-shift-3 { transform: translate(1px, 3px); }
+.news-mode.nb-shift-4 { transform: translate(-2px, -1px); }
+/* Optional kiosk-only overnight dim, toggled by wall-view.js between
+   configurable quiet hours; a second, independent lever from the pixel-shift above
+   (static high-contrast chrome is the burn-in risk; a dimmer panel at 4am is lower
+   risk AND easier on a dark ops floor). Filter (not the .nb-stale brightness path)
+   so this can layer with data-staleness dimming without the two fighting. */
+.news-mode.nb-quiet-dim { filter: brightness(0.6); transition: filter 8s linear; }
+
+/* ── Folio status spine — a 3-zone nameplate: brand+date (left) · the SECTION
+   TITLE centred (the page's "edition" line) · status (right). The centre column
+   is auto-width between two equal 1fr flanks, so the title is geometrically
+   centred in the masthead regardless of how wide the side content is. ── */
+.nb-folio {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: baseline;
+  gap: var(--s5);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;   /* ONE numeric context for the whole spine, so digits/colons/slashes never drift */
+  /* No static border-bottom: the live dwell hairline below (.nb-dwell) is the
+     nameplate's single underline — one intentional rule, not a static line
+     stacked over a separate countdown bar (the old "double line"). */
+  padding-bottom: var(--s2);
+}
+.nb-folio-id { display: flex; align-items: baseline; gap: var(--s4); min-width: 0; overflow: hidden; justify-self: start; }
+/* Text-only wordmark; live/stale markers elsewhere in the folio retain their
+   functional dots. */
+.nb-wordmark { display: inline-flex; align-items: center; font-size: clamp(14px, 1.05vw, 19px); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-accent); white-space: nowrap; }
+/* The centred section title — the page's edition line. Slightly lifted from the
+   old faint slug so it carries the centre of the nameplate without shouting. */
+/* Slug font on the --fluid-kicker rung (identical value, now scale-linked); the
+   side flanks shrink (min-width:0) and the integrity readout ellipsizes, so a long
+   degraded string ("FEEDS [data error] · UPDATED 12h") can never shove the centred
+   title past overscan or collide with it. */
+.nb-folio-slug { justify-self: center; text-align: center; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fluid-kicker); font-weight: 700; letter-spacing: 0.22em; color: var(--paper-ink-3); }
+/* A brief-derived page more than ~24h past its own as-of date drives the slug
+   to the same warn hue as the integrity readout, so a weekend-old BLUF/judgment can
+   never rotate under a slug that reads as current. */
+.nb-folio-slug[data-status="warn"] { color: var(--warn); }
+.nb-folio-status { display: flex; align-items: baseline; gap: var(--s5); min-width: 0; white-space: nowrap; font-variant-numeric: tabular-nums; justify-self: end; }
+.nb-integrity { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: clamp(13px, 1vw, 17px); font-weight: 600; letter-spacing: 0.10em; color: var(--paper-ink-3); }
+.nb-integrity[data-status="warn"] { color: var(--warn); }
+.nb-folio-live { flex: none; display: inline-flex; align-items: center; gap: var(--s2); font-size: clamp(14px, 1.15vw, 19px); font-weight: 700; letter-spacing: 0.10em; color: var(--paper-ink-2); }
+/* The liveness word turns to the caution hue the instant the board can't vouch for LIVE. */
+#nbLiveWord[data-status="warn"] { color: var(--warn); }
+#nbClock { color: var(--paper-ink); }
+.nb-live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-green); box-shadow: 0 0 9px var(--accent-green); animation: nb-pulse 4.2s cubic-bezier(0.33, 0, 0.67, 1) infinite; }
+.nb-live-dot[data-status="warn"] { background: var(--warn); box-shadow: 0 0 9px var(--warn); animation: none; }
+@keyframes nb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* ── Dwell countdown hairline — doubles as the nameplate's underline ──
+   A designed time-pressure signal: a full-width faint track (the always-on
+   rule beneath the masthead) with a blue head that depletes left as the dwell runs
+   out, so "how long until this page turns" reads as a quiet countdown on the
+   nameplate rule, not a separate progress bar. The faint track keeps a complete
+   underline at all times; the moving head is the honest tell it isn't frozen.
+   Pulled flush under the folio (offsetting the column gap) so the two read as one
+   unit. Glow muted one step so clock + integrity read before motion. */
+.nb-dwell {
+  height: 2px; overflow: hidden;
+  background: var(--paper-rule-2);                 /* the always-present nameplate rule */
+  margin-top: calc(var(--s2) - var(--s5));         /* flush under the folio, one unit */
+}
+.nb-dwell i {
+  display: block; height: 100%; transform-origin: left center; transform: scaleX(1);
+  /* The depleting head reads as a flowing tell, not a frozen track: a brighter
+     leading edge + a soft (not sharp) aura, GPU-promoted so it never stutters. */
+  background: linear-gradient(90deg, rgba(var(--paper-accent-rgb), 0.55), var(--paper-accent));
+  box-shadow: 0 0 8px rgba(var(--paper-accent-rgb), 0.55);
+  will-change: transform;
+}
+
+/* ── Rotating section ── */
+/* Keep stale content fully legible while making the warning unmistakably visual:
+   the folio turns amber and the full-width dwell tell follows it. */
+.nb-body { flex: 1; min-height: 0; display: flex; }
+.news-mode.nb-stale .nb-dwell i {
+  background: linear-gradient(90deg, rgba(var(--warn-rgb), 0.55), var(--warn));
+  box-shadow: 0 0 8px rgba(var(--warn-rgb), 0.55);
+}
+.nb-fade { animation: nb-fade 0.30s var(--ease) both; }   /* the page settles fast, then the blocks bloom — "arriving", not "loading" */
+@keyframes nb-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Page-turn ceremony: the new page's blocks dissolve + slide in with a
+   short per-block stagger — a deliberate "turn" that proves the board is live and
+   gives the eye a settling pause before the read. Collapses to an instant cut
+   under reduced-motion (the ticking clock + changing page still carry liveness). */
+@keyframes nb-enter { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > * {
+  animation: nb-enter 0.5s var(--ease) both;
+}
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(2) { animation-delay: 0.06s; }
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(3) { animation-delay: 0.12s; }
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(4) { animation-delay: 0.18s; }
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(5) { animation-delay: 0.24s; }
+.nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > *:nth-child(n+6) { animation-delay: 0.30s; }
+.nb-section { flex: 1; display: flex; flex-direction: column; gap: var(--s5); min-height: 0; overflow: hidden; }
+
+/* Reliable line-clamp. -webkit-line-clamp is unreliable when set directly on a
+   flex/grid item: Chromium fails to truncate, so overflow:hidden hard-clips at
+   the padding box and a sliver of the next line bleeds through. So the clamp
+   lives on an inner block wrapper that is never itself a flex/grid item — the
+   outer element keeps the band, rule, padding, font, and color. */
+.nb-clamp { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.nb-clamp-2 { -webkit-line-clamp: 2; }
+.nb-clamp-1 { -webkit-line-clamp: 1; }
+.nb-clamp-3 { -webkit-line-clamp: 3; }
+.nb-clamp-4 { -webkit-line-clamp: 4; }
+.nb-clamp-6 { -webkit-line-clamp: 6; }
+
+/* Shared text safety: one long unbroken token (a hash, a URL, a run-on CVE list)
+   must never blow a measure on ANY page. The cover/judgment heads already carry
+   this; extend it to every other serif text role so no page can horizontally
+   overflow on pathological content. */
+.nb-headline, .nb-dek, .nb-dev-name, .nb-dev-watch, .nb-conv-intersect, .nb-move-text,
+.nb-exlead, .nb-extail, .nb-led-vp, .nb-cover-deck, .nb-standfirst, .nb-jbody {
+  overflow-wrap: anywhere;
+}
+/* Ultrawide guard: cap the editorial supporting roles so serif lines don't
+   run to 100+ characters on a 21:9 panel and stop being scannable from 10 ft. The
+   cap only binds well beyond 1080p, so the normal-screen layout is untouched. */
+.nb-exlead, .nb-extail, .nb-dev-name, .nb-dev-watch { max-width: var(--measure-editorial); }
+
+/* ── Unified chip — one mono spec everywhere ── */
+.nb-h, .nb-tag, .nb-badge {
+  display: inline-flex; align-items: center; gap: var(--s1);
+  font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 600;   /* chips share the one mono-label rung instead of a near-identical raw clamp */
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 4px;
+  border: 1px solid var(--paper-rule-2); background: transparent; color: var(--paper-ink-3);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+  /* A single chip (e.g. "KEV CVE-2026-XXXXX") can be wider than its column on its
+     own — flex-wrap only wraps BETWEEN chips, it can't shrink one chip's own text.
+     Bound it to the column so it ellipsizes instead of spilling into the next
+     column (the Wall's age/meta cell sits right next to this one). */
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.nb-h { color: var(--paper-ink); }
+.nb-h .h-pip { width: 9px; height: 9px; }
+/* KEV catalog + critical CONDITION spend the one alert red (the sanctioned
+   escalation). CVSS bands do NOT collapse to it — they carry the SAME decoupled
+   severity ladder as the Wire, so a HIGH never reads as a CRITICAL and the
+   single red stays meaningful at 10ft. */
+.nb-badge.kev, .nb-badge.crit { color: var(--alert); border-color: var(--alert); background: rgba(var(--sev-critical-rgb), 0.14); }
+/* A severity-keyed wash turns each band into a scannable OBJECT down the rows
+   (CRITICAL vs HIGH reads at a glance), without collapsing the ladder. */
+.nb-badge.cvss.sev-critical { color: var(--sev-critical); border-color: var(--sev-critical); background: rgba(var(--sev-critical-rgb), 0.12); }
+.nb-badge.cvss.sev-high { color: var(--sev-high); border-color: var(--sev-high); background: rgba(var(--sev-high-rgb), 0.12); }
+.nb-badge.cvss.sev-medium { color: var(--sev-medium); border-color: var(--sev-medium); background: rgba(var(--sev-medium-rgb), 0.12); }
+.nb-badge.cvss.sev-low { color: var(--sev-low); border-color: var(--sev-low); background: rgba(var(--sev-low-rgb), 0.12); }
+/* Unknown/unparsed severity (cvssFrom → 'na') reads as quiet metadata, never an invisible badge. */
+.nb-badge.cvss.sev-na { color: var(--paper-ink-3); border-color: var(--paper-rule-2); }
+.nb-tag.urgent { color: var(--paper-accent); border-color: rgba(var(--paper-accent-rgb), 0.55); background: rgba(var(--paper-accent-rgb), 0.12); }
+
+/* ── The BLUF — the cover: the day's thesis as a newspaper front-page lead ──
+   Eyebrow → towering headline (the claim) → standfirst deck (the detail). The
+   composition is optically CENTRED in the page so the cover is filled, not huddled
+   at the top over a void. No left pull-quote bar here: the one accent is spent on a
+   short opener rule + the eyebrow, and the cover is the single page that reads as a
+   headline rather than a racked row — the largest, most confident type on the
+   rotation (--fluid-cover). */
+/* Bias the lead into the upper third, not dead-centre: extra bottom padding lifts
+   the optically-centred block above true centre so it reads as a front-page lead,
+   with the lower field as deliberate broadsheet margin — not a void above AND below. */
+.nb-cover-page { justify-content: center; align-items: flex-start; padding-bottom: clamp(40px, 9vh, 130px); }
+/* No container max-width here: the headline (22ch) and deck (68ch) each set their
+   OWN measure at their OWN font-size. A `ch` cap on this parent resolves at the
+   small inherited font (~512px) and would crush the 92px headline to one word per
+   line (it did, at 1080p). The cover sizes to its widest child instead. */
+.nb-cover { display: flex; flex-direction: column; gap: var(--s4); max-width: min(100%, 1180px); }
+/* the eyebrow: the accent rule rides INLINE with the tracked kicker as one lockup,
+   so it never strands as a floating dash above a gap (it did, in the void). */
+.nb-cover-kicker {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  font-family: var(--font-mono); font-weight: 700; font-size: var(--fluid-kicker);
+  letter-spacing: 0.20em; text-transform: uppercase; color: var(--paper-accent);   /* one editorial-kicker tracking scale (matches convergence) */
+}
+.nb-cover-kicker::before {
+  content: ''; flex: none; width: clamp(24px, 2.6vw, 44px); height: 2px;
+  background: var(--paper-accent);
+}
+/* the headline — the claim as the page's dominant object; stacks tall on a tight
+   AP measure so it commands the cover, capped against an overlong unbroken token */
+.nb-cover-head {
+  margin: 0; font-family: var(--font-serif); font-weight: 800;
+  font-size: var(--fluid-cover); line-height: 1.06; letter-spacing: -0.02em;
+  color: var(--paper-ink); max-width: 22ch; overflow-wrap: anywhere;
+}
+/* the deck — the supporting detail as a standfirst, one size down and muted, on a
+   wider measure so the full thesis reads in full beneath the claim */
+.nb-cover-deck {
+  margin: 0; max-width: var(--measure-editorial);   /* 68ch — the same reading column as the KJ standfirst, not the old over-wide 80ch */
+  font-family: var(--font-serif); font-weight: 400;
+  font-size: var(--fluid-lead); line-height: 1.32; color: var(--paper-ink);   /* brighter ink: the conviction layer must hold at 10 ft under glare */
+}
+
+/* ── Executive Summary — the day's four claims as a newspaper story stack ──
+   Each claim is a bold serif HEADLINE over a muted BLURB, on the Wall's signature
+   left accent rule, spaced to fill the column. The lead/tail split is now two
+   stacked blocks (each own clamp) so the headline always wins the 10-ft read and
+   the blurb fills under it — never the old run-on where lead + tail shared one
+   clamp and the tail did the lifting at the truncation edge. */
+.nb-exsum { flex: 1; margin: 0; padding: 0; list-style: none; counter-reset: ex; display: flex; flex-direction: column; justify-content: space-between; gap: clamp(18px, 2.8vh, 34px); }
+/* The signature left rule reads as an ANCHOR, not a pinstripe: wider, with a faint
+   inward bleed so it grounds the row at 10 ft. */
+.nb-exrow { counter-increment: ex; flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: clamp(34px, 3vw, 50px) minmax(0, 1fr); align-content: center; padding: var(--s2) var(--s4) var(--s2) var(--s5); border-left: 3px solid rgba(var(--paper-accent-rgb), 0.55); }
+.nb-exrow::before { content: counter(ex, decimal-leading-zero); grid-row: 1 / span 2; padding-top: 0.35em; font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700; letter-spacing: 0.08em; color: var(--paper-accent); }
+.nb-exrow:first-child { flex-grow: 1.18; border-left-width: 5px; border-left-color: var(--paper-accent); box-shadow: inset 6px 0 9px -6px rgba(var(--paper-accent-rgb), 0.18); }
+.nb-exrow:first-child .nb-exlead { font-size: clamp(28px, 2.25vw, 42px); font-weight: 750; }
+.nb-exlead {
+  grid-column: 2;
+  display: block; margin: 0 0 var(--s2);
+  font-family: var(--font-serif); font-weight: 650;   /* scan-blurb lead, not a page-focal claim — asserts less */
+  font-size: var(--fluid-title); line-height: 1.12; color: var(--paper-ink);
+}
+.nb-extail {
+  grid-column: 2;
+  display: block; margin: 0;
+  font-family: var(--font-serif); font-weight: 400;
+  font-size: var(--fluid-dek); line-height: 1.42; color: var(--paper-ink);   /* brighter blurb ink for the 10-ft read */
+}
+
+/* ── Key Judgment — broadsheet FRONT-PAGE LEAD (claim·reasoning·directive +
+   hero tier) ── A top-to-bottom stack of full-width bands; the dominant claim
+   is the focal object and OWNS the vertical slack as broadsheet air. There are NO
+   side-by-side columns above the fold, so no column can strand an L-shaped void
+   beside it (the original triptych failure, cured structurally). The two anchor
+   marks — the tier rail (top) and the blue act (bottom-right) — sit at diagonal
+   corners of a FILLED frame. Tier hue is tier-only (rail/disc); --paper-accent is
+   the directive/chrome mark only — never crossed. */
+.nb-judgment-page { justify-content: stretch; }
+.nb-judgment.nb-lead {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;   /* flow top-down: rail → claim → fold; slack is the lower margin */
+  width: 100%;
+  min-height: 0;
+  gap: var(--s6);
+}
+
+/* the tier disc — a compact filled token (the moment), not a lonely outline ring */
+.nb-jdisc {
+  width: clamp(44px, 3.6vw, 64px); aspect-ratio: 1; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 3px solid var(--paper-rule-2);
+}
+.nb-jdisc .h-pip { width: clamp(18px, 1.6vw, 28px); height: clamp(18px, 1.6vw, 28px); }
+.nb-jdisc.h1 { border-color: var(--h1); }
+.nb-jdisc.h2 { border-color: var(--h2); }
+.nb-jdisc.h3 { border-color: var(--h3); }
+.nb-hero-tier {
+  font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  font-size: clamp(17px, 1.6vw, 28px); line-height: 1;
+}
+.nb-hero-tier.h1 { color: var(--h1); }
+.nb-hero-tier.h2 { color: var(--h2); }
+.nb-hero-tier.h3 { color: var(--h3); }
+.nb-jrail-tier { display: flex; align-items: center; gap: var(--s4); min-width: 0; }
+.nb-jrail-chips { width: 100%; display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; justify-content: flex-start; }
+.nb-jrail-chips .nb-tag {
+  white-space: normal;
+  line-height: 1.25;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* BAND 2+3 — the dominant claim absorbs the vertical slack as broadsheet air.
+   flex:1 + justify-content:center means a SHORT claim sits centred in a tall band
+   (air, not void) and a tall claim uses the height; either way nothing strands a
+   gap to its side, because there is no side. */
+.nb-jhead-band {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; justify-content: center;
+}
+/* The headline+standfirst (left) and the tier identity + decision/KEV chips
+   (right) sit as one top-aligned row — no divider line, no full-width rail above
+   it. The aside is a fixed-content sidebar; the claim takes whatever's left. */
+/* align-items:center sits the (short) aside against the headline's optical centre
+   so a judgment with no CVE-matched sources no longer strands a void lower-right;
+   when sources ARE present the taller aside still centres cleanly. */
+.nb-jhead-row {
+  display: flex; flex-direction: row; align-items: center; justify-content: space-between;
+  gap: var(--s7);
+}
+.nb-jhead-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--s4); }
+/* Bounded so a wide KEV chip or a multi-publisher Sources list can't widen the
+   aside and starve the headline column at narrower viewports. */
+.nb-jhead-aside { flex: 0 0 clamp(240px, 24vw, 360px); max-width: 32%; display: flex; flex-direction: column; align-items: flex-start; gap: var(--s4); }
+/* The publishers behind this judgment (CVE-matched, see judgmentSources in
+   wall-view.js) — a quiet provenance list under the tier/chip stack, never
+   competing with the headline for weight. */
+.nb-jsources { display: flex; flex-direction: column; gap: 4px; }
+.nb-jsources-label {
+  font-family: var(--font-mono); font-size: clamp(10px, 0.8vw, 12px); font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--paper-faint);
+}
+.nb-jsources ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.nb-jsources li {
+  font-family: var(--font-mono); font-size: clamp(12px, 0.95vw, 15px);
+  color: var(--paper-ink-3); white-space: nowrap;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;   /* a long publisher name ellipsizes inside the bounded aside, never widens it */
+}
+/* the claim — the page's biggest object — the canonical Key-Judgment head role
+   (--fluid-display). Uses the full main-column width (no artificial ch cap) so
+   it reads as a banner across the page instead of stacking tall and narrow next
+   to empty canvas. */
+.nb-lead .nb-jhead {
+  margin: 0; font-family: var(--font-serif); font-weight: 800;   /* the focal object: max serif authority, matching the cover */
+  font-size: var(--fluid-display); line-height: 1.08; letter-spacing: -0.018em;
+  color: var(--paper-ink);
+  overflow-wrap: anywhere;         /* a long unbroken token can't blow the measure */
+}
+.nb-lead .nb-standfirst {
+  margin: 0;   /* no max-width: the flex-shrunk main column already sets the measure; the old --measure-editorial cap was dead at every width */
+  font-family: var(--font-serif); font-style: italic; font-weight: 600;
+  /* The Key Judgment standfirst — the page's second object now the rail/divider is gone.
+     On the named --fluid-standfirst rung, not a raw clamp. */
+  font-size: var(--fluid-standfirst); line-height: 1.34; letter-spacing: 0.015em; color: var(--paper-ink-2);   /* Newsreader italic collapses narrow — a touch of expansion keeps it prose */
+}
+
+/* BAND 4+5 — the FOLD: a printed hairline, then reasoning | directive below it.
+   Emitted only when reasoning and/or action exist (judgmentHtml decides), so its
+   gutter is always real and a thin judgment never shows an empty ledger. */
+.nb-jfold {
+  /* nb-jhead-band is flex:1 and absorbs all the slack above (centring the claim
+     in it), so the fold naturally lands at the page bottom with a fixed --s6 gap
+     above it — no margin-top:auto needed, and no undistributed void on a short
+     claim+standfirst. */
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: clamp(24px, 2.8vw, 56px);   /* tighter gutter: action reads as the CONCLUSION of the reasoning, not a separate panel */
+  align-items: start;
+  padding-top: clamp(40px, 6vh, 90px);   /* the hinge gets weight proportional to screen height — a fold, not a divider */
+  border-top: 1px solid var(--paper-rule);   /* the printed fold */
+}
+/* When only ONE of the pair is present it spans the full measure (no half-empty
+   row): a lone reasoning band or a lone full-width directive, both deliberate. */
+.nb-jfold.is-single { grid-template-columns: minmax(0, 1fr); }
+.nb-jbody {
+  margin: 0; font-family: var(--font-serif); font-weight: 400;
+  font-size: var(--fluid-body); line-height: 1.5; letter-spacing: 0.01em; color: var(--paper-ink);   /* the reasoning is the conviction layer — brighter ink + a touch of spacing at the small end */
+}
+/* the directive — the climax; reuses the shared .c-action primitive (border-left
+   + wash from app.css) with only the warm-paper accent overridden. The clamp stays
+   on the inner .nb-act-text span, never on this grid child. */
+.nb-lead .nb-act {
+  --c-action-accent: var(--paper-accent); --c-action-accent-rgb: var(--paper-accent-rgb);
+  margin: 0; padding: var(--s3) 0 var(--s2) var(--s4); align-self: start;
+  background: linear-gradient(90deg, rgba(var(--paper-accent-rgb), 0.08), transparent 72%);
+  border-radius: 0;
+}
+.nb-act-text { font-family: var(--font-serif); font-weight: 600; line-height: 1.3; color: var(--paper-ink); }
+.nb-lead .nb-act-text { font-size: var(--fluid-lead); }
+
+/* ── Developing Situations — status board: what's moving, which way, what trips it ── */
+.nb-devboard { flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; }
+.nb-dev { display: grid; grid-template-columns: clamp(150px, 14vw, 230px) minmax(0, 1fr); gap: var(--s5); align-items: start; padding: var(--s4) 0; border-top: 1px solid var(--paper-rule); }   /* baseline assumes matched fonts; mono trajectory vs serif name have different x-heights — start-align reads true at distance */
+.nb-dev:first-child { border-top: none; }
+.nb-dev { padding-inline: var(--s4); box-shadow: inset 3px 0 var(--paper-rule-2); }
+.nb-dev:nth-child(even) { background: var(--paper-elev); }
+.nb-traj { font-family: var(--font-mono); font-weight: 700; font-size: clamp(16px, 1.5vw, 25px); letter-spacing: 0.05em; text-transform: uppercase; color: var(--paper-ink-3); white-space: nowrap; }
+.nb-traj.accel { color: var(--alert); }
+.nb-traj.inflect { color: var(--h3); }
+.nb-traj.decel { color: var(--accent-green); }
+.nb-dev-body { min-width: 0; }
+.nb-dev-name { margin: 0; font-family: var(--font-serif); font-weight: 700; font-size: var(--fluid-title); line-height: 1.16; color: var(--paper-ink); }
+.nb-dev-watch { margin: var(--s2) 0 0; font-family: var(--font-mono); font-size: clamp(15px, 1.1vw, 18px); line-height: 1.4; color: var(--paper-ink-2); }
+.nb-dev-watch::before { content: 'TRIPWIRE \00B7  '; font-weight: 700; letter-spacing: 0.10em; color: var(--paper-accent); }
+
+/* ── Convergence — editorial stack ──
+   The page reads top-to-bottom: title hook, labeled intersection, weighted cascade,
+   then the move as a full-width blue-ruled directive. The clamps are budgeted for
+   the ~800px body at 1080p while keeping the richer cascade visibly dominant. */
+.nb-conv { display: flex; flex-direction: column; gap: clamp(16px, 2.4vh, var(--s5)); }
+
+/* The header — the X + Y framing as the page's scannable hook, on a printed
+   dossier top-rule so it reads as a masthead over the split, not a floating line. */
+.nb-conv-head { display: flex; flex-direction: column; gap: var(--s2); padding-bottom: var(--s3); border-bottom: 1px solid var(--paper-rule-2); }
+.nb-conv-kicker { display: inline-flex; align-items: center; gap: var(--s2); font-family: var(--font-mono); font-weight: 700; font-size: var(--fluid-kicker); letter-spacing: 0.2em; text-transform: uppercase; color: var(--paper-faint); }
+.nb-conv-kicker.accent { color: var(--paper-accent); }
+.nb-conv-kicker.accent::before { content: ''; flex: none; width: clamp(20px, 2vw, 36px); height: 2px; background: var(--paper-accent); }
+.nb-conv-title {
+  margin: 0; font-family: var(--font-serif); font-weight: 800;
+  font-size: var(--fluid-standfirst); line-height: 1.12; letter-spacing: -0.015em;
+  color: var(--paper-ink); overflow-wrap: anywhere;
+}
+
+/* The running story: intersection → cascade → directive, with the stack owning
+   the slack instead of splitting the page into two half-empty columns. */
+.nb-conv-stack {
+  flex: 1; min-height: 0; min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: clamp(30px, 4.5vh, 58px) clamp(36px, 4vw, 72px);
+}
+.nb-conv-block { min-width: 0; padding-top: var(--s4); border-top: 1px solid var(--paper-rule); }
+.nb-conv-label { display: block; margin-bottom: var(--s2); font-family: var(--font-mono); font-weight: 700; font-size: var(--fluid-kicker); letter-spacing: 0.16em; text-transform: uppercase; color: var(--paper-faint); }
+.nb-conv-label.accent { color: var(--paper-accent); }
+.nb-conv-intersect {
+  margin: 0; font-family: var(--font-serif); font-weight: 400;
+  font-size: var(--fluid-lead); line-height: 1.45; color: var(--paper-ink-2);   /* the setup — read but subordinate to the cascade */
+}
+/* The cascade — the single richest field; given real prominence: brighter/heavier
+   ink, one rung up, sitting on the Wall's signature accent left-rule so the eye
+   lands here after the title. This is the centerpiece reasoning, not a footnote. */
+.nb-conv-block-lead { padding-left: var(--s5); border-top-color: rgba(var(--paper-accent-rgb), 0.55); border-left: 5px solid var(--paper-accent); box-shadow: inset 6px 0 9px -6px rgba(var(--paper-accent-rgb), 0.18); }
+.nb-conv-cascade {
+  margin: 0; font-family: var(--font-serif); font-weight: 500;
+  font-size: var(--fluid-lead); line-height: 1.44; color: var(--paper-ink);
+  overflow-wrap: anywhere;
+}
+
+/* The directive — full-width, not a stranded rail: the moveVerb becomes the
+   stance label above the imperative, on the shared .c-action blue left-rule. */
+.nb-conv-move {
+  --c-action-accent: var(--paper-accent); --c-action-accent-rgb: var(--paper-accent-rgb);
+  grid-column: 1 / -1; width: 100%; margin-top: 0;
+  padding: var(--s4) var(--s5);
+  background: linear-gradient(90deg, rgba(var(--paper-accent-rgb), 0.08), transparent 78%);
+  border-radius: 0;
+}
+.nb-conv-stance {
+  display: block; margin-bottom: var(--s3);
+  font-family: var(--font-mono); font-weight: 700; font-size: var(--fluid-dek);
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--paper-accent);
+}
+.nb-move-text {
+  margin: 0; font-family: var(--font-serif); font-weight: 600;
+  font-size: var(--fluid-lead); line-height: 1.34; color: var(--paper-ink);
+  overflow-wrap: anywhere;
+}
+
+/* ── The Wire — column-aligned table (data stacks vertically) ──
+   CONTENT-HEIGHT rows (flex:0 0 auto), contiguous so the alternating bands still
+   stripe, with the whole stack vertically centred via `safe center`: it balances
+   the block when the rows fit, and FALLS BACK to top-aligned the instant the sum
+   would overflow — so any clip lands gracefully off the BOTTOM (caught by
+   .nb-section overflow:hidden), never the top under the masthead. This replaces
+   the equal-height flex:1 model, which forced the heterogeneous lead (big hero
+   headline + 3-line dek) into a 1/N band it couldn't fit and clipped it top+bottom.
+   Fit budget: lead capped + deks at 2 lines keep 4 full rows ≈ 795px < ~850px body
+   at 1080p. (See wireStoryHtml: nb-clamp-2 deks; .nb-item.lead .nb-headline cap.) */
+.nb-feed { flex: 1; display: flex; flex-direction: column; min-height: 0; justify-content: safe center; }
+.nb-item {
+  flex: 0 0 auto; min-width: 0;
+  display: grid;
+  /* Severity column widened from 200px: a single real "KEV CVE-YYYY-NNNNN" chip
+     already needs ~200px at this font size — zero margin at the OLD ceiling, so
+     it routinely ellipsized (or, before the chip's own max-width fix, spilled
+     into the age column next to it). 240px leaves real headroom. */
+  /* Age column widened from 116px: "NEW · " plus the timestamp ("NEW · 6h ago")
+     needed ~103px at this font size — essentially zero margin at the OLD ceiling,
+     so the "NEW" prefix specifically (the non-fresh case, just "6h ago", was
+     never at risk) ellipsized or, before the column-stretch fix above, spilled
+     left into the severity column next to it. */
+  grid-template-columns: 3px clamp(116px, 11vw, 176px) minmax(0, 1fr) clamp(140px, 15vw, 240px) clamp(96px, 8.5vw, 140px);
+  gap: var(--s5); align-items: start;
+  padding: var(--s3) var(--s4);   /* rail to 3px (matches the exec accent device) + a real left breath, so Wire and KEV read at one density */
+}
+.nb-item:nth-child(even) { background: var(--paper-elev); }
+.nb-rail { align-self: stretch; border-radius: 2px; background: var(--paper-faint); }
+.nb-rail.h1 { background: var(--h1); }
+.nb-rail.h2 { background: var(--h2); }
+.nb-rail.h3 { background: var(--h3); }
+.nb-item.is-kev .nb-rail, .nb-item.is-crit .nb-rail { background: var(--alert); box-shadow: inset 2px 0 0 var(--paper-bg); }
+.nb-c-h { display: flex; }
+.nb-c-main { min-width: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.nb-c-sev { display: flex; flex-wrap: wrap; gap: var(--s1); }
+/* min-width:0 lets this grid cell actually shrink to its track instead of
+   growing to fit the "NEW · " prefix's content width (the default min-width:auto
+   on a grid item sizes it to content first, which can overflow past the track's
+   left edge — into the severity column — since this cell is right-aligned). */
+.nb-c-age { justify-self: stretch; min-width: 0; text-align: right; }
+.nb-submeta { font-family: var(--font-mono); font-size: clamp(12px, 0.9vw, 15px); letter-spacing: 0.04em; color: var(--paper-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Cross-source glyph: the SAME nested-ring ×N as the Wire (.wire-corrob),
+   in --paper-accent (the Wall's brand alias = provenance strength), not green. */
+.nb-corrob { display: inline-flex; align-items: center; gap: 4px; color: var(--paper-accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nb-corrob .nb-corrob-rings { position: relative; width: 14px; height: 9px; flex: none; }
+.nb-corrob .nb-corrob-rings::before, .nb-corrob .nb-corrob-rings::after {
+  content: ''; position: absolute; top: 0; width: 9px; height: 9px; border-radius: 50%;
+  border: 1.5px solid var(--paper-accent); background: var(--paper-bg);
+}
+.nb-corrob .nb-corrob-rings::before { left: 0; }
+.nb-corrob .nb-corrob-rings::after { left: 5px; }
+/* Auto-tagged (heuristic) attribution — dotted, so a regex guess never reads as
+   confirmed fact at 10ft (trust parity with the Wire's .heuristic marker). */
+.nb-heur { text-decoration: underline dotted; text-decoration-color: var(--paper-faint); text-underline-offset: 2px; cursor: help; }
+.nb-age { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: clamp(12px, 0.95vw, 16px); color: var(--paper-ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* A just-landed signal reads BRIGHTER (neutral paper-ink), not green: green
+   is reserved for trajectory/liveness, so freshness can't be mistaken for "good news". */
+.nb-age.fresh { color: var(--paper-ink); font-weight: 700; }
+.nb-age-none { color: var(--paper-faint); font-weight: 400; }   /* undated item: a quiet em-dash, never a silently blank cell */
+.nb-headline {
+  margin: 0; font-family: var(--font-serif); font-weight: 700;
+  font-size: var(--fluid-title); line-height: 1.14; letter-spacing: -0.005em; color: var(--paper-ink);
+}
+.nb-dek {
+  margin: 0; font-family: var(--font-serif); font-weight: 400;
+  font-size: var(--fluid-dek); line-height: 1.42; color: var(--paper-ink);   /* brighter story-blurb ink for the 10-ft read */
+}
+/* The lead earns WEIGHT first, then a moderate size bump — capped below --fluid-hero
+   (was 54px and overflowed its row) so the lead + 3 rows sum under the body. The
+   800 weight + bigger dek carry the hierarchy without a band-busting headline. */
+.nb-item.lead .nb-headline { font-size: clamp(30px, 2.4vw, 44px); line-height: 1.1; letter-spacing: -0.01em; font-weight: 800; }
+.nb-item.lead .nb-dek { font-size: clamp(16px, 1.25vw, 22px); }
+/* The score's receipt (scoreRationale), mono like the rest of the system-
+   observed-fact chrome (CVE/CVSS/timestamps), sitting quietly under the dek —
+   never competing with the editorial headline/dek for weight. */
+.nb-score-rationale {
+  margin: 2px 0 0; font-family: var(--font-mono); font-size: clamp(11px, 0.85vw, 14px);
+  letter-spacing: 0.02em; color: var(--paper-ink-3);
+}
+
+.nb-empty { margin: auto; max-width: 60ch; text-align: center; color: var(--paper-ink-3); font-family: var(--font-serif); font-size: var(--fluid-body); padding: var(--s7) 0; }   /* a centred, framed empty/awaiting state, not text stranded at the top-left */
+.nb-opening { display: flex; flex-direction: column; align-items: center; gap: var(--s3); }
+.nb-opening strong { color: var(--paper-ink); font-size: var(--fluid-display); line-height: 1.05; }
+.nb-opening-kicker { color: var(--paper-accent); font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+
+/* Screen-reader-only — visually hidden but announced. Used by the masthead's
+   board-status announcer (#nbAnnounce), which speaks ONLY on a status change. */
+.nb-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ── Footer (pager only — integrity lives in the folio now) ── */
+.nb-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--font-mono); font-size: clamp(12px, 0.85vw, 14px);
+  letter-spacing: 0.10em; text-transform: uppercase; color: var(--paper-ink-3);
+  border-top: 1px solid var(--paper-rule-2); padding-top: var(--s4); font-variant-numeric: tabular-nums;
+}
+.nb-controls-hint { margin-left: auto; color: var(--paper-ink-3); transition: opacity 0.8s var(--ease); }
+.nb-controls-hint.is-hidden, body.kiosk .nb-controls-hint { opacity: 0; }
+
+/* ── Manual pause — non-kiosk operator control ──
+   Space toggles a held pause on the rotation; the board must stop asserting motion
+   the instant it's paused so a frozen page can't read as a live one. The pager
+   carries the "❚❚ PAUSED" state in the caution amber (a deliberate held state, not
+   an error), and the dwell head freezes flush — the countdown stops, honestly. Kept
+   legible at 10 ft, quiet. Kiosk mode never sets this class, so the TV loop is
+   unaffected. */
+.news-mode.nb-paused .nb-pager {
+  color: var(--warn); font-weight: 700; letter-spacing: 0.12em;
+}
+/* Freeze the depleting dwell head: no transition, no continuing depletion — the
+   track holds where it was when paused (JS stops advancing scaleX). */
+.news-mode.nb-paused .nb-dwell i {
+  transition: none;
+  box-shadow: none;   /* drop the flowing aura — a paused head is a static mark, not a live tell */
+}
+
+/* ── Banded ledger — KEV newly-added rows ──
+   Equal-height bands (flex:1) that touch and fill the ledger, content centred in
+   each — the same continuous striped read as the Wire, no space-evenly
+   floating-band gaps. The full-height left border forms one continuous rail. */
+.nb-ledger { flex: 1; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--paper-rule); border-bottom: 1px solid var(--paper-rule); }
+.nb-led-row {
+  flex: 1 1 0; min-height: 0; align-content: safe center;   /* `safe`: an over-tall row clips off the bottom, never up past the band top */
+  display: grid; align-items: baseline; gap: var(--s5);
+  padding: var(--s3) var(--s4);
+  border-left: 3px solid var(--paper-rule-2);
+}
+.nb-led-row:nth-child(even) { background: var(--paper-elev); }
+
+/* ── KEV · newly added — the two-second read is change → consequence → records.
+   The lead is an editorial sentence, not a pair of dashboard counters. The daily
+   number stays attached as supporting recency and never borrows alert red: every
+   row on this page is already confirmed exploited, so red would add no distinction. */
+.nb-kev-page { gap: 0; }
+.nb-kev-lead {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--s7);
+  padding: clamp(10px, 1.4vh, 18px) 0 clamp(18px, 2.5vh, 30px);
+  border-bottom: 1px solid var(--paper-rule-2);
+}
+.nb-kev-intro { display: grid; gap: var(--s2); min-width: 0; }
+.nb-kev-eyebrow {
+  font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--paper-accent);
+}
+.nb-kev-total {
+  font-family: var(--font-serif); font-size: var(--fluid-title); line-height: var(--leading-display);
+  font-weight: 650; color: var(--paper-ink); text-wrap: balance;
+}
+.nb-kev-deck {
+  margin: 0; max-width: 62ch; font-family: var(--font-serif); font-size: var(--fluid-dek);
+  line-height: 1.35; color: var(--paper-ink-2);
+}
+.nb-kev-today {
+  display: grid; grid-template-columns: auto auto; align-items: baseline; gap: var(--s2);
+  padding-left: var(--s5); border-left: 1px solid var(--paper-rule-2);
+  font-family: var(--font-mono); color: var(--paper-ink-2); text-transform: uppercase;
+}
+.nb-kev-today strong { font-size: var(--fluid-title); line-height: 1; color: var(--accent-green); font-variant-numeric: tabular-nums; }
+.nb-kev-today span { font-size: var(--fluid-kicker); font-weight: 700; letter-spacing: 0.12em; }
+.nb-kev-columns {
+  display: grid; grid-template-columns: clamp(190px, 17vw, 300px) minmax(0, 1fr) clamp(150px, 14vw, 240px);
+  gap: var(--s5); padding: var(--s3) var(--s4) var(--s2);
+  font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--paper-faint);
+}
+.nb-kev-columns span:last-child { text-align: right; }
+.nb-kev .nb-led-row {
+  /* Widened from 220px: a real CVE id ("CVE-2026-48558") already filled the old
+     ceiling with ZERO margin at full width — any 6-digit sequence number (a valid,
+     real CVE id shape) overflowed straight into the vendor/product column next to
+     it. The 1fr middle column absorbs the difference. */
+  grid-template-columns: clamp(190px, 17vw, 300px) minmax(0, 1fr) clamp(150px, 14vw, 240px);
+  border-left-color: rgba(var(--paper-accent-rgb), 0.58);
+}
+.nb-led-id { display: grid; gap: var(--s2); min-width: 0; }
+.nb-led-cve {
+  font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.04em; color: var(--paper-ink);
+  font-size: var(--fluid-body); font-variant-numeric: tabular-nums; white-space: nowrap;   /* scale-linked to --fluid-body (identical value) */
+  /* Last-resort safety, not the primary fix (the column above is sized for the
+     longest realistic CVE id) — a literal ellipsis on an id is still better than
+     it visually overrunning the vendor/product text beside it. */
+  display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.nb-led-vp {
+  min-width: 0; display: grid; align-content: center; gap: 2px;
+}
+.nb-led-vendor {
+  display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-accent);
+}
+.nb-led-product {
+  min-width: 0; font-family: var(--font-serif); font-size: var(--fluid-body);
+  font-weight: 600; line-height: 1.15; color: var(--paper-ink);
+}
+.nb-led-name {
+  min-width: 0; font-family: var(--font-serif); font-size: var(--fluid-dek);
+  line-height: 1.2; color: var(--paper-ink-3);
+}
+.nb-led-due {
+  justify-self: end; display: grid; gap: var(--s1); text-align: right; white-space: nowrap;
+  font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.04em;
+  font-size: var(--fluid-dek); color: var(--paper-ink-2); font-variant-numeric: tabular-nums;
+}
+.nb-led-due small { font-size: var(--fluid-kicker); letter-spacing: 0.12em; text-transform: uppercase; color: var(--paper-faint); }
+
+/* Sparse KEV editions deliberately give the thesis the air and keep the records
+   as substantial bands near the fold. A lone row never stretches into a giant,
+   card-like slab; six rows still consume the complete ledger height. */
+.nb-kev-page.row-count-1 .nb-kev-lead { flex: 1; align-items: center; }
+.nb-kev-page.row-count-1 .nb-kev { flex: 0 0 clamp(160px, 21vh, 220px); }
+.nb-kev-page.row-count-2 .nb-kev { flex: 0 0 clamp(280px, 35vh, 380px); }
+.nb-kev-page.row-count-3 .nb-kev { flex: 0 0 clamp(390px, 48vh, 510px); }
+
+/* Near-square watchfloor panels need a vertical composition, not a stretched
+   16:9 slide. Keep one optical content spine: masthead, editorial object,
+   directive, folio. This breakpoint is intentionally aspect-based so a large
+   portrait/square panel receives it without penalizing a narrower 16:9 TV. */
+@media (max-aspect-ratio: 4 / 3) {
+  .news-mode {
+    gap: clamp(18px, 2.2vh, 28px);
+    padding: clamp(48px, 4.4vh, 64px) clamp(64px, 6vw, 92px);
+  }
+
+  .nb-cover-page { justify-content: flex-start; padding-top: clamp(24vh, 29vh, 34vh); padding-bottom: 0; }
+  .nb-cover-deck { max-width: 62ch; }
+
+  .nb-exsum { gap: clamp(12px, 1.8vh, 24px); }
+  .nb-exrow { padding-block: clamp(14px, 1.8vh, 24px); }
+
+  /* A judgment is one composed editorial object. The hero and its proof/action
+     travel together instead of pinning themselves to opposite page edges. */
+  .nb-judgment.nb-lead {
+    justify-content: center;
+    gap: clamp(34px, 4.2vh, 54px);
+  }
+  .nb-jhead-band { flex: 0 0 auto; justify-content: flex-start; }
+  .nb-jfold { padding-top: clamp(24px, 3vh, 38px); }
+  .nb-judgment:has(.nb-jfold.is-single) { gap: clamp(28px, 3.5vh, 46px); }
+  .nb-judgment:has(.nb-jfold.is-single) .nb-jfold { max-width: 86%; }
+  .nb-jhead-row { gap: clamp(30px, 4vw, 52px); }
+  .nb-jhead-aside { flex-basis: clamp(240px, 26vw, 330px); max-width: 30%; }
+
+  /* Intersection, consequence, and directive form a single causal chain. */
+  .nb-conv { gap: 0; justify-content: center; }
+  .nb-conv-stack {
+    flex: 0 0 auto;
+    align-content: start;
+    margin-top: clamp(30px, 3.8vh, 48px);
+    gap: clamp(26px, 3.2vh, 42px) clamp(34px, 4vw, 58px);
+  }
+  .nb-conv-block { padding-top: var(--s3); }
+  .nb-conv-move { padding-block: var(--s3); }
+
+  .nb-kev-lead { padding-top: var(--s2); }
+  .nb-led-row { padding-block: var(--s2); }
+
+  /* Let the lead breathe; supporting evidence becomes a compact signal rack. */
+  .nb-feed { justify-content: center; }
+  .nb-item { grid-template-columns: 3px clamp(100px, 10vw, 140px) minmax(0, 1fr) clamp(150px, 17vw, 210px) clamp(72px, 7vw, 100px); }
+  .nb-item.lead { padding-block: var(--s5); background: linear-gradient(90deg, rgba(var(--paper-accent-rgb), 0.045), transparent 72%); }
+  .nb-item:not(.lead) .nb-dek { display: none; }
+  .nb-item:not(.lead) .nb-score-rationale { -webkit-line-clamp: 1; overflow: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nb-fade { animation: none; }
+  .nb-fade :is(.nb-judgment, .nb-conv, .nb-exsum, .nb-kev, .nb-feed, .nb-devboard, .nb-cover) > * { animation: none; }   /* page-turn collapses to an instant cut */
+  .nb-live-dot { animation: none; }
+  .nb-body { transition: none; }            /* staleness dim becomes an instant held state, not a fade */
+  .nb-dwell i { transition: none !important; }   /* CSS is the single source of truth for "no continuous motion" — kills the dwell scaleX even though JS sets it inline; stepDwell's discrete countdown still runs */
+}
