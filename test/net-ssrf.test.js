@@ -69,6 +69,19 @@ describe('assertPublicUrl — IPv4 literals + schemes (no DNS)', () => {
     await expect(assertPublicUrl('not a url')).rejects.toThrow(/blocked: invalid URL/);
   });
 
+  test.each([
+    'https://user:supersecret@93.184.216.34/private',
+    'https://user@93.184.216.34/private',
+  ])('rejects URL credentials without echoing the credential-bearing input: %s', async (url) => {
+    lookupMock.mockReset();
+    const error = await assertPublicUrl(url).catch(err => err);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe('blocked: URL credentials are not allowed');
+    expect(error.message).not.toContain('supersecret');
+    expect(error.message).not.toContain('user');
+    expect(lookupMock).not.toHaveBeenCalled();
+  });
+
   test.each(['http://8.8.8.8/', 'https://1.1.1.1/path?q=1'])('allows public literal %s', async (url) => {
     const u = await assertPublicUrl(url);
     expect(u).toBeInstanceOf(URL);
@@ -130,6 +143,19 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
     global.fetch = fetchMock;
     await expect(safeFetch('http://public.example.com/')).rejects.toThrow(/blocked: private/);
     expect(fetchMock).toHaveBeenCalledTimes(1); // the second hop must never be fetched
+  });
+
+  test('a redirect to credential-bearing URL is rejected without fetching or disclosing it', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(fakeResponse({
+      status: 302,
+      location: 'https://user:redirect-secret@other.example.net/private',
+      body: true,
+    }));
+    global.fetch = fetchMock;
+    const error = await safeFetch('http://public.example.com/').catch(err => err);
+    expect(error.message).toBe('blocked: URL credentials are not allowed');
+    expect(error.message).not.toContain('redirect-secret');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test('a relative Location resolves against the current hop origin, not the original URL', async () => {
@@ -280,6 +306,200 @@ describe('safeFetch - pinned dispatcher request body integration', () => {
     } finally {
       requestSpy.mockRestore();
     }
+  });
+});
+
+describe('safeFetch - pinned dispatcher handler compatibility', () => {
+  const realFetch = global.fetch;
+  let requestSpy;
+
+  beforeEach(() => {
+    lookupMock.mockReset();
+    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+    requestSpy = jest.spyOn(http, 'request').mockImplementation((_options, onResponse) => {
+      const req = new Writable({
+        write(_chunk, _encoding, callback) { callback(); },
+      });
+      req.once('finish', () => {
+        const res = Readable.from([Buffer.from('first'), Buffer.from('second')]);
+        res.statusCode = 200;
+        res.statusMessage = 'OK';
+        res.headers = { 'content-type': 'text/plain', 'x-test': 'handler-bridge' };
+        res.rawHeaders = [
+          'Content-Type', 'text/plain',
+          'X-Test', 'handler-bridge',
+        ];
+        res.trailers = { 'x-trailer': 'done' };
+        res.rawTrailers = ['X-Trailer', 'done'];
+        onResponse(res);
+      });
+      return req;
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = realFetch;
+    requestSpy.mockRestore();
+  });
+
+  async function captureDispatcher() {
+    const fetchMock = jest.fn().mockResolvedValue(fakeResponse({ status: 200 }));
+    global.fetch = fetchMock;
+    await safeFetch('http://public.example.com/');
+    return fetchMock.mock.calls[0][1].dispatcher;
+  }
+
+  test('supports legacy callbacks and honors their pause/resume return contract', async () => {
+    const dispatcher = await captureDispatcher();
+    const events = [];
+    let resume;
+    let dataCalls = 0;
+    let headersResumed = false;
+    let dataResumed = false;
+
+    await new Promise((resolve, reject) => {
+      expect(dispatcher.dispatch({
+        origin: 'http://public.example.com',
+        path: '/legacy',
+        method: 'GET',
+      }, {
+        // Undici 7's legacy fetch handler exposes this controller-era method
+        // even though its normal response callbacks still use the old family.
+        onRequestUpgrade() {
+          throw new Error('unexpected upgrade');
+        },
+        onConnect(abort) {
+          events.push('connect');
+          expect(abort).toEqual(expect.any(Function));
+        },
+        onHeaders(statusCode, rawHeaders, resumeResponse, statusMessage) {
+          events.push('headers');
+          expect(statusCode).toBe(200);
+          expect(rawHeaders).toEqual([
+            'Content-Type', 'text/plain',
+            'X-Test', 'handler-bridge',
+          ]);
+          expect(statusMessage).toBe('OK');
+          resume = resumeResponse;
+          setImmediate(() => {
+            headersResumed = true;
+            resumeResponse();
+          });
+          return false;
+        },
+        onData(chunk) {
+          dataCalls++;
+          events.push(`data:${chunk}`);
+          if (dataCalls === 1) {
+            expect(headersResumed).toBe(true);
+            setImmediate(() => {
+              dataResumed = true;
+              resume();
+            });
+            return false;
+          }
+          expect(dataResumed).toBe(true);
+          return true;
+        },
+        onComplete(rawTrailers) {
+          events.push('complete');
+          expect(rawTrailers).toEqual(['X-Trailer', 'done']);
+          resolve();
+        },
+        onError: reject,
+      })).toBe(true);
+    });
+
+    expect(events).toEqual([
+      'connect',
+      'headers',
+      'data:first',
+      'data:second',
+      'complete',
+    ]);
+  });
+
+  test('does not fall back to legacy methods when optional controller callbacks are absent', async () => {
+    const dispatcher = await captureDispatcher();
+    let requestController;
+
+    await new Promise((resolve, reject) => {
+      dispatcher.dispatch({
+        origin: 'http://public.example.com',
+        path: '/controller-minimal',
+        method: 'GET',
+      }, {
+        onRequestStart(controller) {
+          requestController = controller;
+        },
+        onResponseEnd(controller) {
+          expect(controller).toBe(requestController);
+          resolve();
+        },
+        onResponseError(_controller, error) {
+          reject(error);
+        },
+      });
+    });
+  });
+
+  test('supports Node 26 controller callbacks with one stable controller', async () => {
+    const dispatcher = await captureDispatcher();
+    const events = [];
+    let requestController;
+
+    await new Promise((resolve, reject) => {
+      expect(dispatcher.dispatch({
+        origin: 'http://public.example.com',
+        path: '/controller',
+        method: 'GET',
+      }, {
+        onRequestStart(controller, context) {
+          requestController = controller;
+          events.push('request-start');
+          expect(context).toEqual({});
+          expect(controller.aborted).toBe(false);
+          expect(controller.rawHeaders).toBeNull();
+        },
+        onResponseStarted() {
+          events.push('response-started');
+        },
+        onResponseStart(controller, statusCode, headers, statusMessage) {
+          events.push('response-start');
+          expect(controller).toBe(requestController);
+          expect(controller.rawHeaders).toEqual([
+            'Content-Type', 'text/plain',
+            'X-Test', 'handler-bridge',
+          ]);
+          expect(statusCode).toBe(200);
+          expect(headers).toMatchObject({ 'x-test': 'handler-bridge' });
+          expect(statusMessage).toBe('OK');
+        },
+        onResponseData(controller, chunk) {
+          events.push(`response-data:${chunk}`);
+          expect(controller).toBe(requestController);
+        },
+        onResponseEnd(controller, trailers) {
+          events.push('response-end');
+          expect(controller).toBe(requestController);
+          expect(controller.rawTrailers).toEqual(['X-Trailer', 'done']);
+          expect(trailers).toEqual({ 'x-trailer': 'done' });
+          resolve();
+        },
+        onResponseError(_controller, error) {
+          reject(error);
+        },
+      })).toBe(true);
+    });
+
+    expect(events).toEqual([
+      'request-start',
+      'response-started',
+      'response-start',
+      'response-data:first',
+      'response-data:second',
+      'response-end',
+    ]);
   });
 });
 

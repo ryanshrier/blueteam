@@ -1,8 +1,16 @@
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { extractBluf, extractSignalTitles, extractContinuityContext, loadRecentBriefs, localDateISO, briefDateFromFilename } from '../lib/history.js';
+import {
+  briefDateFromFilename,
+  extractBluf,
+  extractContinuityContext,
+  extractSignalTitles,
+  loadRecentBriefs,
+  localDateISO,
+  saveBrief,
+} from '../lib/history.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
 
 const SAMPLE_BRIEF = `# THREAT LANDSCAPE BRIEFING
@@ -228,6 +236,20 @@ describe('loadRecentBriefs — per-day dedup', () => {
 // day. A naive `.replace(/(-\d+)?\.md$/, '')` over-matches a suffixless name
 // (brief-2026-07-01.md -> "2026-07"), corrupting /api/briefs, the landscape
 // latest-brief summary, and the briefs.xml feed.
+describe('saveBrief private file permissions', () => {
+  const posixTest = process.platform === 'win32' ? test.skip : test;
+
+  posixTest('creates a briefing readable and writable only by its owner', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wf-history-mode-'));
+    try {
+      const filename = saveBrief(dir, '# Private briefing');
+      expect(statSync(join(dir, filename)).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('briefDateFromFilename', () => {
   test('suffixless name yields the full date, not a truncated month', () => {
     expect(briefDateFromFilename('brief-2026-07-01.md')).toBe('2026-07-01');

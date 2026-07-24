@@ -1,9 +1,30 @@
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import { existsSync, mkdtempSync, rmSync, statSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
   initDB, closeDB, archiveHeadlines, getArchivedHeadlines, getDB,
   bulkInsertKEV, getKEVSet, getRecentKEV, countKEVAddedToday,
   saveBriefMeta, getBriefMeta, titleKey, indexBrief, searchBriefs,
 } from '../lib/db.js';
+
+describe('SQLite private file permissions', () => {
+  const posixTest = process.platform === 'win32' ? test.skip : test;
+
+  posixTest('tightens the database and any WAL sidecars to owner-only access', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wf-db-mode-'));
+    const dbPath = join(dir, 'watchfloor.db');
+    try {
+      initDB(dbPath);
+      for (const path of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+        if (existsSync(path)) expect(statSync(path).mode & 0o777).toBe(0o600);
+      }
+    } finally {
+      closeDB();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('brief_meta — publication freshness', () => {
   beforeEach(() => initDB(':memory:'));

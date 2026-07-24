@@ -250,7 +250,10 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
 
     req.socket?.setTimeout?.(0);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache');
+    // The stream contains operator context and the complete generated brief.
+    // Forbid browser and intermediary storage rather than merely requiring
+    // revalidation of a cached response.
+    res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
 

@@ -221,6 +221,7 @@ describe('POST /api/brief — happy path SSE framing', () => {
     ctx = await makeServer({ getAnthropic: () => fakeAnthropic(textStream(GOOD_BRIEF)) });
     const res = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
     expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
     const events = await readSSE(res);
 
     const progressEvents = events.filter(e => e.progress);

@@ -9,20 +9,31 @@
 //   - the four rate-limiter configs: correct windowMs/max wiring
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import express from 'express';
+import { request as httpRequest } from 'node:http';
+import { spawnSync } from 'node:child_process';
 import {
   bearerAuth,
   contentTypeCheck,
   nonce,
   securityHeaders,
   createRateLimiters,
+  loopbackHostGuard,
+  originCheck,
+  apiSecretValidationError,
 } from '../lib/middleware.js';
 
 // Stand up a minimal app with the real middleware wired in server.js's order
 // (bearerAuth mounted only when a secret is configured, matching server.js's
 // own `if (process.env.API_SECRET)` gate — bearerAuth assumes a secret is
 // present and throws constructing Buffer.from(undefined) otherwise).
-function makeServer({ secret } = {}) {
+function makeServer({
+  secret,
+  hostGuard,
+  allowedOrigin,
+  publicBaseUrl,
+} = {}) {
   const app = express();
+  app.use(loopbackHostGuard({ enabled: hostGuard ?? !secret }));
   app.use(nonce);
   app.use(securityHeaders);
   if (secret) {
@@ -31,13 +42,16 @@ function makeServer({ secret } = {}) {
     app.use('/api/', bearerAuth);
     app._restoreSecret = () => { process.env.API_SECRET = prevSecret; };
   }
+  app.use(originCheck({ allowedOrigin, publicBaseUrl }));
   app.use(express.json());
   app.use(contentTypeCheck);
   app.get('/api/health', (req, res) => res.json({ ok: true, authenticated: res.locals.authenticated === true }));
   app.get('/api/thing', (req, res) => res.json({ ok: true }));
+  app.get('/api/settings', (req, res) => res.json({ ok: true }));
   app.post('/api/brief', (req, res) => res.json({ ok: true }));
   app.post('/api/refresh', (req, res) => res.json({ ok: true }));
   app.post('/api/settings', (req, res) => res.json({ ok: true }));
+  app.delete('/api/settings', (req, res) => res.json({ ok: true }));
   app.get('/nonce-probe', (req, res) => res.json({ nonce: res.locals.nonce }));
   return new Promise((resolve) => {
     const server = app.listen(0, '127.0.0.1', () => {
@@ -46,6 +60,261 @@ function makeServer({ secret } = {}) {
     });
   });
 }
+
+function rawRequest(base, path, { method = 'GET', headers = {}, body } = {}) {
+  const target = new URL(base);
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({
+      hostname: target.hostname,
+      port: target.port,
+      path,
+      method,
+      headers,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve({
+          status: res.statusCode,
+          json: async () => JSON.parse(text),
+        });
+      });
+    });
+    req.on('error', reject);
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
+}
+
+describe('loopbackHostGuard — DNS-rebinding boundary for the default local server', () => {
+  let ctx;
+  afterEach(async () => {
+    if (ctx?.app?._restoreSecret) ctx.app._restoreSecret();
+    if (ctx?.server) await new Promise((r) => ctx.server.close(r));
+  });
+
+  test('rejects a hostile Host before a settings GET can run', async () => {
+    ctx = await makeServer();
+    const res = await rawRequest(ctx.base, '/api/settings', {
+      headers: { Host: 'attacker.example:3000' },
+    });
+    expect(res.status).toBe(421);
+    expect((await res.json()).code).toBe('E009');
+  });
+
+  test('rejects a hostile Host before a JSON settings mutation can run', async () => {
+    ctx = await makeServer();
+    const res = await rawRequest(ctx.base, '/api/settings', {
+      method: 'POST',
+      headers: {
+        Host: 'rebind.attacker.example:3000',
+        Origin: 'http://rebind.attacker.example:3000',
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    expect(res.status).toBe(421);
+    expect((await res.json()).code).toBe('E009');
+  });
+
+  test.each([
+    'localhost:3000',
+    '127.0.0.1:3000',
+    '[::1]:3000',
+  ])('allows the explicit local Host form %s', async (host) => {
+    ctx = await makeServer();
+    const res = await rawRequest(ctx.base, '/api/thing', { headers: { Host: host } });
+    expect(res.status).toBe(200);
+    await new Promise((r) => ctx.server.close(r));
+    ctx = null;
+  });
+
+  test('a strong API_SECRET disables the local Host allowlist for legitimate reverse-proxy hostnames', async () => {
+    const secret = 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6';
+    ctx = await makeServer({ secret });
+    const res = await rawRequest(ctx.base, '/api/thing', {
+      headers: { Host: 'intel.example.com', Authorization: `Bearer ${secret}` },
+    });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('originCheck — browser mutations are same-origin', () => {
+  let ctx;
+  afterEach(async () => {
+    if (ctx?.app?._restoreSecret) ctx.app._restoreSecret();
+    if (ctx?.server) await new Promise((r) => ctx.server.close(r));
+  });
+
+  test('allows a legitimate same-origin browser mutation', async () => {
+    ctx = await makeServer();
+    const res = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST',
+      headers: {
+        Origin: ctx.base,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test('rejects a hostile browser Origin even with a valid local Host and JSON body', async () => {
+    ctx = await makeServer();
+    const res = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST',
+      headers: {
+        Origin: 'https://attacker.example',
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe('E010');
+  });
+
+  test('allows a non-browser scheduler/API client that sends no Origin', async () => {
+    ctx = await makeServer();
+    const res = await fetch(`${ctx.base}/api/brief`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test('allows the one explicitly configured cross-origin browser client', async () => {
+    ctx = await makeServer({ allowedOrigin: 'https://soc.example' });
+    const res = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST',
+      headers: {
+        Origin: 'https://soc.example',
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test('allows the canonical PUBLIC_BASE_URL when a reverse proxy rewrites the upstream Host', async () => {
+    ctx = await makeServer({
+      secret: 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6',
+      publicBaseUrl: 'https://intel.example.com',
+    });
+    const res = await rawRequest(ctx.base, '/api/settings', {
+      method: 'POST',
+      headers: {
+        Host: '127.0.0.1:3000',
+        Origin: 'https://intel.example.com',
+        Authorization: 'Bearer A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6',
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test('PUBLIC_BASE_URL does not implicitly allow a different cross-origin caller', async () => {
+    ctx = await makeServer({
+      secret: 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6',
+      publicBaseUrl: 'https://intel.example.com',
+    });
+    const res = await rawRequest(ctx.base, '/api/settings', {
+      method: 'POST',
+      headers: {
+        Host: '127.0.0.1:3000',
+        Origin: 'https://attacker.example',
+        Authorization: 'Bearer A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6',
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test.each(['null', 'https://attacker.example/path', 'https://a.example, https://b.example'])(
+    'rejects malformed or opaque mutation Origin %s',
+    async (origin) => {
+      ctx = await makeServer();
+      const res = await fetch(`${ctx.base}/api/settings`, {
+        method: 'DELETE',
+        headers: { Origin: origin, 'Content-Type': 'application/json' },
+      });
+      expect(res.status).toBe(403);
+      await new Promise((r) => ctx.server.close(r));
+      ctx = null;
+    },
+  );
+
+  test('does not reject a read-only GET solely because it carries a cross-site Origin', async () => {
+    ctx = await makeServer();
+    const res = await fetch(`${ctx.base}/api/thing`, {
+      headers: { Origin: 'https://attacker.example' },
+    });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('apiSecretValidationError — fail-closed startup configuration', () => {
+  const strong = 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6';
+
+  test('preserves the default loopback deployment with no secret', () => {
+    expect(apiSecretValidationError({ bindHost: '127.0.0.1', secret: '' })).toBeNull();
+    expect(apiSecretValidationError({ bindHost: 'localhost', secret: undefined })).toBeNull();
+    expect(apiSecretValidationError({ bindHost: '::1', secret: null })).toBeNull();
+  });
+
+  test('refuses a network bind without a secret and gives actionable guidance', () => {
+    const error = apiSecretValidationError({ bindHost: '0.0.0.0', secret: '' });
+    expect(error).toContain('Refusing to bind 0.0.0.0');
+    expect(error).toContain('random token');
+    expect(error).toContain('32');
+  });
+
+  test('rejects short secrets even on loopback once authentication is enabled', () => {
+    expect(apiSecretValidationError({ bindHost: '127.0.0.1', secret: 'top-secret-token' }))
+      .toContain('at least 32');
+  });
+
+  test.each([
+    'change-me-change-me-change-me-change-me',
+    'placeholder-placeholder-placeholder-1',
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  ])('rejects obvious or repetitive secret %s', (secret) => {
+    expect(apiSecretValidationError({ bindHost: '0.0.0.0', secret })).toMatch(/placeholder|repetitive/);
+  });
+
+  test('rejects accidental surrounding whitespace', () => {
+    expect(apiSecretValidationError({ bindHost: '0.0.0.0', secret: ` ${strong}` }))
+      .toContain('whitespace');
+  });
+
+  test.each(['127.0.0.1', 'localhost', '::1', '0.0.0.0', '192.0.2.10'])(
+    'accepts a strong configured secret for bind %s',
+    (bindHost) => {
+      expect(apiSecretValidationError({ bindHost, secret: strong })).toBeNull();
+    },
+  );
+
+  test('server startup fails before listening and prints a token-generation command', () => {
+    const result = spawnSync(process.execPath, ['server.js'], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        HOST: '0.0.0.0',
+        API_SECRET: 'short',
+        NODE_ENV: 'test',
+      },
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+    expect(result.status).toBe(1);
+    expect(output).toContain('API_SECRET must be at least 32 characters');
+    expect(output).toContain('randomBytes(32)');
+  });
+});
 
 describe('bearerAuth — active only when API_SECRET is set', () => {
   let ctx;
@@ -101,6 +370,10 @@ describe('bearerAuth — active only when API_SECRET is set', () => {
     const valid = await fetch(`${ctx.base}/api/health`, { headers: { Authorization: 'Bearer top-secret-token' } });
     expect(valid.status).toBe(200);
     expect((await valid.json()).authenticated).toBe(true);
+
+    const trailingSlash = await fetch(`${ctx.base}/api/health/`);
+    expect(trailingSlash.status).toBe(200);
+    expect((await trailingSlash.json()).authenticated).toBe(false);
   });
 
   test('when API_SECRET is unset, bearerAuth is never mounted — /api/* is reachable with no token', async () => {
@@ -188,7 +461,7 @@ describe('nonce — a fresh value on every request', () => {
 });
 
 describe('createRateLimiters — the four limiter configs', () => {
-  test('apiLimiter skips /health (skip: req => req.path === "/health")', async () => {
+  test('apiLimiter skips both /health and /health/', async () => {
     const app = express();
     const { apiLimiter } = createRateLimiters();
     app.use('/', apiLimiter);
@@ -206,6 +479,9 @@ describe('createRateLimiters — the four limiter configs', () => {
       const res = await fetch(`${base}/health`);
       expect(res.status).toBe(200);
       expect(res.headers.get('ratelimit-limit')).toBeNull(); // skipped requests carry no rate-limit headers
+      const trailingSlash = await fetch(`${base}/health/`);
+      expect(trailingSlash.status).toBe(200);
+      expect(trailingSlash.headers.get('ratelimit-limit')).toBeNull();
       const apiRes = await fetch(`${base}/api/thing`);
       expect(apiRes.headers.get('ratelimit-limit')).toBe('180'); // non-exempt path IS counted
     } finally {

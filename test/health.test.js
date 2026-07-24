@@ -48,7 +48,12 @@ const { healthHandler } = await import('../lib/health.js');
 
 const DEFAULT_CONFIG = { analysisSettings: { refreshMinutes: 10 }, trustedFeeds: [{ url: 'https://a' }, { url: 'https://b' }] };
 
-function makeServer({ dataDir, loopback = true, authed = false }) {
+function makeServer({
+  dataDir,
+  loopback = true,
+  authed = false,
+  requireAuthForDetails = false,
+}) {
   const app = express();
   if (authed) app.use((_req, res, next) => { res.locals.authenticated = true; next(); });
   app.get('/api/health', healthHandler({
@@ -57,6 +62,7 @@ function makeServer({ dataDir, loopback = true, authed = false }) {
     dataDir,
     getAiStatus: () => ({ enabled: false, source: null, masked: null }),
     loopback,
+    requireAuthForDetails,
   }));
   return new Promise((resolve) => {
     const server = app.listen(0, '127.0.0.1', () => {
@@ -178,6 +184,31 @@ describe('healthHandler', () => {
     expect(body).toHaveProperty('feeds');
     expect(body).toHaveProperty('memory');
     expect(body).toHaveProperty('kev');
+  });
+
+  test('configured auth redacts an unauthenticated health request even on a loopback bind', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    ctx = await makeServer({
+      dataDir: dir,
+      loopback: true,
+      authed: false,
+      requireAuthForDetails: true,
+    });
+    const body = await (await fetch(`${ctx.base}/api/health`)).json();
+    expect(body).toEqual({ status: expect.any(String) });
+  });
+
+  test('configured auth returns loopback health details only with a valid authenticated request', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    ctx = await makeServer({
+      dataDir: dir,
+      loopback: true,
+      authed: true,
+      requireAuthForDetails: true,
+    });
+    const body = await (await fetch(`${ctx.base}/api/health`)).json();
+    expect(body).toHaveProperty('feeds');
+    expect(body).toHaveProperty('memory');
   });
 
   // ── pipeline age null before first run, headline count ──

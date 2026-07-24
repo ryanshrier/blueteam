@@ -61,6 +61,37 @@ describe('config — last-known-good on rejected reload', () => {
     expect(getLastReloadError()).not.toBeNull();
   });
 
+  test.each([
+    {
+      label: 'feed',
+      config: {
+        trustedFeeds: [{
+          url: 'https://user:feed-secret@example.com/feed.xml',
+          source: 'Credential Feed',
+          horizon: 1,
+        }],
+      },
+    },
+    {
+      label: 'webhook',
+      config: {
+        trustedFeeds: [],
+        analysisSettings: {
+          webhook: {
+            url: 'https://user:webhook-secret@example.com/hook',
+            events: 'alerts',
+          },
+        },
+      },
+    },
+  ])('rejects embedded credentials in a configured $label URL', ({ config }) => {
+    writeFileSync(configPath, JSON.stringify(config));
+    initConfig(configPath);
+    expect(getLastReloadError()).not.toBeNull();
+    expect(getConfig().trustedFeeds).toEqual([]);
+    expect(getConfig().analysisSettings.webhook.url).toBe('');
+  });
+
   test('a validation failure on a SUBSEQUENT load keeps the last-known-good config, not defaults', () => {
     writeFileSync(configPath, validConfigJSON());
     initConfig(configPath);

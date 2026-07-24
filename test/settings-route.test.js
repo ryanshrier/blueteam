@@ -3,7 +3,7 @@ import express from 'express';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createSettingsRouter } from '../routes/settings.js';
+import { createSettingsRouter, MAX_ANTHROPIC_KEY_BYTES } from '../routes/settings.js';
 import {
   loadUserSettings, getUserSettings, saveUserSettings, getEffectiveOrganization,
   MAX_ORG_REGION_LEN,
@@ -146,6 +146,32 @@ describe('settings route — watch-terms + alert-rule surfacing', () => {
     const res = await fetch(`${ctx.base}/api/settings/verify`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ anthropicKey: null }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe('E_KEYFMT');
+    expect(verifyKey).not.toHaveBeenCalled();
+  });
+
+  test('POST rejects an oversized Anthropic key without changing the saved key', async () => {
+    saveUserSettings(dir, { anthropicKey: 'sk-ant-existing-key' });
+    ctx = await makeServer({ dataDir: dir, loopback: true, authed: false });
+    const res = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ anthropicKey: `sk-ant-${'x'.repeat(MAX_ANTHROPIC_KEY_BYTES)}` }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe('E_KEYFMT');
+    expect(getUserSettings().anthropicKey).toBe('sk-ant-existing-key');
+  });
+
+  test('verify rejects an oversized candidate before making a provider call', async () => {
+    const verifyKey = jest.fn().mockResolvedValue({ valid: true });
+    ctx = await makeServer({ dataDir: dir, loopback: true, authed: false, verifyKey });
+    const res = await fetch(`${ctx.base}/api/settings/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ anthropicKey: `sk-ant-${'x'.repeat(MAX_ANTHROPIC_KEY_BYTES)}` }),
     });
     expect(res.status).toBe(400);
     expect((await res.json()).code).toBe('E_KEYFMT');

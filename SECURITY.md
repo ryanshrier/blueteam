@@ -48,8 +48,8 @@ BlueTeam.News is **self-hosted and loopback-by-default**, with no hosted service
 
 - Bypass of the SSRF guard (`lib/net.js`) that fetches feeds and articles.
 - Cross-site scripting via feed content, brief markdown, or any rendered field (briefs are sanitized with DOMPurify — a sanitizer bypass is in scope).
-- A CSP, rate-limiting, or bearer-auth (`API_SECRET`) weakness that exposes `/api/*`.
-- The non-loopback fail-closed host guard not failing closed.
+- A Host, Origin, CSP, rate-limiting, or bearer-auth (`API_SECRET`) weakness that exposes `/api/*`, including DNS rebinding against the loopback service.
+- The non-loopback fail-closed bind guard not failing closed.
 - Leakage of the Anthropic API key (in logs, responses, or the persisted settings file).
 - Any path that lets a malicious feed pivot into the operator's network or read local files.
 
@@ -71,9 +71,22 @@ The in-app Anthropic key is stored locally in `data/settings.local.json` so the
 service can restart without prompting. It is never returned raw by the API, but
 it is not encrypted at rest: protect the host account and the `data/` directory,
 and prefer an environment variable or OS-managed secret injection where local
-disk access is in your threat model.
+disk access is in your threat model. On POSIX systems the application tightens
+its state directories to `0700` and sensitive settings, Briefing, SQLite, WAL,
+and SHM files to `0600`; Windows retains the host account's ACLs.
 
 BlueTeam.News is not a multi-user security boundary. For access beyond the local
-machine, put a TLS-terminating reverse proxy in front, set a strong `API_SECRET`,
-configure `TRUST_PROXY` precisely, and restrict network reachability at the host
-firewall. Do not expose the default HTTP listener directly to the internet.
+machine, put a TLS-terminating and authenticating reverse proxy in front, set an
+`API_SECRET` of at least 32 random characters, configure `PUBLIC_BASE_URL` and
+`TRUST_PROXY` precisely, and restrict network reachability at the host firewall.
+The browser frontend does not store the shared bearer token, so a remote
+interactive deployment must have its trusted proxy inject that token on upstream
+API requests. Do not expose the default HTTP listener directly to the internet.
+
+The server validates local Host values and present browser origins; do not weaken
+those controls with a wildcard origin on a network deployment. When
+`API_SECRET` is set, unauthenticated health checks intentionally receive only a
+minimal status even if the reverse proxy connects over loopback.
+
+The exact optional data sent to Anthropic and configured webhooks is documented
+in [Operations and deployment](docs/operations.md#health-and-outbound-traffic).

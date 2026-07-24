@@ -13,12 +13,31 @@ import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { readFileSync, existsSync, mkdirSync } from 'fs';
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+} from 'fs';
 
 import { initConfig, getConfig, stopConfigWatch } from './lib/config.js';
 import { initDB, backfillBriefSearch, closeDB } from './lib/db.js';
 import { log, requestLogger, startupBanner } from './lib/logger.js';
-import { cors, requestId, nonce, securityHeaders, createRateLimiters, bearerAuth, contentTypeCheck } from './lib/middleware.js';
+import {
+  cors,
+  requestId,
+  nonce,
+  securityHeaders,
+  createRateLimiters,
+  bearerAuth,
+  contentTypeCheck,
+  loopbackHostGuard,
+  originCheck,
+  isLoopbackHost,
+  apiSecretValidationError,
+} from './lib/middleware.js';
 import { createCompressionMiddleware } from './lib/compression.js';
 import { startRefreshSchedule, stopRefreshSchedule, refreshNow, getLatestRun, getRunAgeMs } from './lib/refresher.js';
 import { startDailyBriefSchedule, stopDailyBriefSchedule, requestBriefGeneration } from './lib/brief-scheduler.js';
@@ -54,8 +73,57 @@ try {
   process.exit(1);
 }
 
-if (!existsSync(HISTORY_DIR)) mkdirSync(HISTORY_DIR);
-if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR);
+// Validate the network boundary before creating files, opening SQLite, or
+// starting an outbound catalog refresh. Invalid exposure/auth settings must
+// fail without any startup side effects.
+const IS_LOOPBACK = isLoopbackHost(HOST);
+const apiSecretError = apiSecretValidationError({ bindHost: HOST, secret: process.env.API_SECRET });
+if (apiSecretError) {
+  log.error('env', `${apiSecretError} Generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`);
+  process.exit(1);
+}
+
+function ensurePrivateDirectory(path) {
+  if (!existsSync(path)) mkdirSync(path, { mode: 0o700 });
+  if (process.platform === 'win32') return;
+  try {
+    chmodSync(path, 0o700);
+  } catch (err) {
+    log.warn('permissions', `Could not set private directory permissions on ${path}: ${err.message}`);
+  }
+}
+
+function hardenExistingPrivateFile(path) {
+  if (process.platform === 'win32') return;
+  try {
+    // Never follow a local symlink merely to change its target's mode.
+    if (!lstatSync(path).isFile()) return;
+    chmodSync(path, 0o600);
+  } catch (err) {
+    log.warn('permissions', `Could not set private file permissions on ${path}: ${err.message}`);
+  }
+}
+
+ensurePrivateDirectory(HISTORY_DIR);
+ensurePrivateDirectory(DATA_DIR);
+
+// Tighten files created by older releases. New settings, briefs, and database
+// files also request 0600 at their respective write/open boundaries.
+if (process.platform !== 'win32') {
+  for (const name of readdirSync(HISTORY_DIR)) {
+    if (/^brief-\d{4}-\d{2}-\d{2}(?:-\d+)?\.md$/.test(name)) {
+      hardenExistingPrivateFile(join(HISTORY_DIR, name));
+    }
+  }
+  for (const name of readdirSync(DATA_DIR)) {
+    if (
+      /^settings\.local\.json(?:\.tmp)?$/.test(name)
+      || /\.db(?:-(?:wal|shm))?$/.test(name)
+    ) {
+      hardenExistingPrivateFile(join(DATA_DIR, name));
+    }
+  }
+}
 
 // ── Initialize core systems ──
 initConfig(CONFIG_PATH);
@@ -81,12 +149,6 @@ const API_KEY_SECONDARY = process.env.ANTHROPIC_API_KEY_SECONDARY;
 
 if (API_KEY_PRIMARY && !API_KEY_PRIMARY.startsWith('sk-ant-')) {
   log.warn('env', 'ANTHROPIC_API_KEY does not match expected format (sk-ant-...)');
-}
-const IS_LOOPBACK = HOST === '127.0.0.1' || HOST === '::1' || HOST === 'localhost';
-if (!IS_LOOPBACK && !process.env.API_SECRET) {
-  log.error('env', `Refusing to bind ${HOST} without API_SECRET — the API would be open to the network. ` +
-    `${PUBLIC_APP_NAME} is localhost-only by design; set HOST=127.0.0.1 (default), or set API_SECRET=<token> if you understand the risk of a non-loopback bind.`);
-  process.exit(1);
 }
 
 // ── Anthropic client (mutable) ──
@@ -181,6 +243,7 @@ const cooldown = {
 // EXPRESS APP
 // ══════════════════════════════════════════
 const app = express();
+app.disable('x-powered-by');
 
 // Behind a reverse proxy? Trust it so rate-limiting and client-IP logging are
 // correct. Off by default (direct/loopback); set TRUST_PROXY to a hop count
@@ -190,6 +253,11 @@ if (process.env.TRUST_PROXY) {
   app.set('trust proxy', /^\d+$/.test(tp) ? Number(tp) : tp);
 }
 
+// The default local/no-secret deployment has no bearer boundary, so validate
+// Host before compression, CORS, parsers, static files, or API routes can do
+// work. This blocks DNS-rebinding pages from treating 127.0.0.1 as their own
+// origin. Authenticated reverse-proxy deployments may use their public Host.
+app.use(loopbackHostGuard({ enabled: IS_LOOPBACK && !process.env.API_SECRET }));
 app.use(createCompressionMiddleware());
 app.use(cors(PORT));
 app.use(requestId);
@@ -207,6 +275,10 @@ if (process.env.API_SECRET) {
   log.info('auth', 'Bearer token auth enabled on /api/*');
 }
 
+// Browser mutations must be same-origin (or match the one explicit CORS
+// origin). The daily scheduler and CLI/API clients omit Origin and continue to
+// work; bearer authentication remains mandatory when API_SECRET is configured.
+app.use(originCheck({ publicBaseUrl: PUBLIC_BASE_URL }));
 app.use(express.json({ limit: '100kb' }));
 app.use(contentTypeCheck);
 
@@ -364,7 +436,14 @@ app.get('/embed', (req, res) => {
 app.use('/api', createBriefRouter({ getAnthropic: () => ai.client, rotateKey: rotateToSecondaryKey, historyDir: HISTORY_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL, localPort: PORT }));
 app.use('/api', createLandscapeRouter({ historyDir: HISTORY_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL }));
 app.use('/api', createSettingsRouter({ dataDir: DATA_DIR, getAiStatus, refreshAi, verifyKey: verifyAnthropicKey, getAlertRules: () => getConfig().alertRules, getOrganization: () => getEffectiveOrganization(getConfig()), loopback: IS_LOOPBACK, authed: Boolean(process.env.API_SECRET) }));
-app.get('/api/health', healthHandler({ bootTime: BOOT_TIME, version: APP_VERSION, dataDir: DATA_DIR, getAiStatus, loopback: IS_LOOPBACK }));
+app.get('/api/health', healthHandler({
+  bootTime: BOOT_TIME,
+  version: APP_VERSION,
+  dataDir: DATA_DIR,
+  getAiStatus,
+  loopback: IS_LOOPBACK,
+  requireAuthForDetails: Boolean(process.env.API_SECRET),
+}));
 
 // Unknown /api/* route → JSON 404 (not the HTML SPA fallthrough).
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));

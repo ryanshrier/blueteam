@@ -10,6 +10,25 @@ import {
 } from '../lib/user-settings.js';
 import { log } from '../lib/logger.js';
 
+// Anthropic keys are currently far smaller than this. Keep enough headroom for
+// future formats while bounding request-driven allocation, persistence, and
+// provider-client construction if a trusted browser/API client malfunctions.
+export const MAX_ANTHROPIC_KEY_BYTES = 512;
+
+function anthropicKeyTooLarge(value) {
+  return value.length > MAX_ANTHROPIC_KEY_BYTES
+    || Buffer.byteLength(value, 'utf8') > MAX_ANTHROPIC_KEY_BYTES;
+}
+
+function keySizeError(res, verification = false) {
+  const payload = {
+    error: `anthropicKey must be ${MAX_ANTHROPIC_KEY_BYTES} bytes or fewer.`,
+    code: 'E_KEYFMT',
+  };
+  if (verification) payload.valid = false;
+  return res.status(400).json(payload);
+}
+
 // Watch-term validation (mirrors the persistence-layer sanitize in
 // user-settings.js — same limits and control-char guard, imported from there so
 // the two can't drift). We reject the WHOLE request on any structural violation
@@ -110,6 +129,9 @@ export function createSettingsRouter({ dataDir, getAiStatus, refreshAi, verifyKe
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'anthropicKey') && typeof req.body.anthropicKey !== 'string') {
       return res.status(400).json({ valid: false, error: 'anthropicKey must be a string.', code: 'E_KEYFMT' });
     }
+    if (typeof req.body?.anthropicKey === 'string' && anthropicKeyTooLarge(req.body.anthropicKey)) {
+      return keySizeError(res, true);
+    }
     try {
       const candidate = typeof req.body?.anthropicKey === 'string' ? req.body.anthropicKey : '';
       res.json(await verifyKey(candidate));
@@ -145,6 +167,9 @@ export function createSettingsRouter({ dataDir, getAiStatus, refreshAi, verifyKe
           error: 'anthropicKey must be a string.',
           code: 'E_KEYFMT',
         });
+      }
+      if (anthropicKeyTooLarge(body.anthropicKey)) {
+        return keySizeError(res);
       }
       const raw = body.anthropicKey.trim();
       if (raw === '') {

@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.0.2 — 2026-07-24
+
+### Runtime compatibility
+
+- Add Node 26 to the tested runtime matrix, including Apple Silicon and Intel
+  macOS coverage for the native SQLite dependency.
+- Bridge the legacy and Node 26 fetch dispatcher callback contracts, including
+  legacy pause/resume backpressure, so SSRF-pinned feed requests and webhooks
+  work on every supported runtime.
+- Require `better-sqlite3` 12.10 or newer, the first release line with Node 26
+  prebuilt binaries.
+- Explicitly approve the locked native install scripts so clean installs keep
+  working with npm's opt-in lifecycle-script policy.
+
+### Security hardening
+
+- Reject DNS-rebinding Host values and mismatched browser origins before they
+  can reach the default keyless loopback API.
+- Require configured API bearer secrets to be at least 32 characters and hide
+  detailed health diagnostics from unauthenticated reverse-proxy callers.
+- Bound untrusted feed fields before expensive processing and reject URLs that
+  contain embedded credentials.
+- Sanitize log output against terminal-control injection and credential leakage.
+- Refresh vulnerable transitive dependencies and expand CI dependency-policy
+  checks.
+
+### Documentation and operations
+
+- Clarify that BlueTeam.News remains a source-only local Node server on macOS,
+  Windows, and Linux: clone the repository, run `npm install`, then `npm start`.
+- Refine the README and move detailed operations, configuration, architecture,
+  API, and development guidance into focused documents.
+- Document optional outbound data, reverse-proxy requirements, local file
+  protections, and the reviewed dependency lifecycle-script policy.
+
 ## 1.0.1 — 2026-07-13
 
 Correctness and artifact-quality patch for the initial public release.

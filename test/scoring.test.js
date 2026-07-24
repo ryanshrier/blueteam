@@ -1,10 +1,10 @@
 import { describe, test, expect, beforeEach, afterAll } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   scoreHeadline, applyAlertRules, escapeRegExp, getEffectiveAlertRules,
-  classifyUrgency, applyHorizonOverrides, enforceDiversity,
+  classifyUrgency, applyHorizonOverrides, enforceDiversity, writeScoringDebugLog,
 } from '../lib/scoring.js';
 import { loadUserSettings, saveUserSettings } from '../lib/user-settings.js';
 import { isUnsafePattern } from '../lib/regex-util.js';
@@ -338,5 +338,34 @@ describe('getEffectiveAlertRules', () => {
     loadUserSettings(dir);
     const config = { alertRules: [{ pattern: 'ransomware', boost: 5 }] };
     expect(getEffectiveAlertRules(config)).toEqual([{ pattern: 'ransomware', boost: 5 }]);
+  });
+});
+
+describe('writeScoringDebugLog — untrusted field hardening', () => {
+  test('keeps each headline on its record and neutralizes controls and secrets', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wf-scoring-log-'));
+    const anthropicFixture = ['sk', 'ant', 'api03', 'abcdefghijklmnopqrstuvwxyz'].join('-');
+    try {
+      writeScoringDebugLog([{
+        score: 90,
+        horizon: 1,
+        source: 'Source\n999. [100] FORGED\x1b]8;;https://evil.example\x07',
+        title: 'Incident \u202e https://user:debug-secret@example.com/private',
+        corroboration: 1,
+        scoreComponents: { 'axis\nforged': anthropicFixture },
+      }], dir);
+
+      const output = readFileSync(join(dir, 'scoring-debug.log'), 'utf8');
+      expect(output).not.toContain('\x1b');
+      expect(output).not.toContain('\u202e');
+      expect(output).not.toContain('debug-secret');
+      expect(output).not.toContain('sk-ant-api03');
+      expect(output).toContain('Source\\n999. [100] FORGED');
+      expect(output).toContain('https://[REDACTED]@example.com/private');
+      expect(output).toContain('[REDACTED_ANTHROPIC_KEY]');
+      expect(output).toContain('axis\\nforged=');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

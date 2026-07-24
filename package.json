@@ -1,6 +1,6 @@
 {
   "name": "blueteam-news",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "BlueTeam.News — an open-source, self-hosted threat-intelligence desk for cyber defense teams.",
   "author": "Ryan Shrier",
@@ -21,6 +21,11 @@
     "SUPPORT.md",
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
+    "docs/operations.md",
+    "docs/configuration.md",
+    "docs/architecture.md",
+    "docs/api.md",
+    "docs/development.md",
     "docs/assets/screenshot-wall-wire.jpg",
     "docs/assets/screenshot-wire.png",
     "docs/assets/screenshot-briefing.png",
@@ -35,8 +40,15 @@
   "bugs": {
     "url": "https://github.com/ryanshrier/blueteam/issues"
   },
+  "packageManager": "npm@11.18.0",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.0.0",
+    "npm": ">=11.18.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.10.0": true,
+    "fsevents@2.3.3": true,
+    "unrs-resolver@1.12.2": true
   },
   "scripts": {
     "start": "node server.js",
@@ -64,9 +76,9 @@
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^12.10.0",
     "compression": "^1.8.1",
-    "dompurify": "^3.2.4",
+    "dompurify": "^3.4.12",
     "dotenv": "^17.4.1",
     "express": "^4.21.2",
     "express-rate-limit": "^8.3.2",
@@ -79,5 +91,10 @@
   "devDependencies": {
     "@jest/globals": "^30.3.0",
     "jest": "^30.3.0"
+  },
+  "overrides": {
+    "body-parser@>=1.0.0 <2.0.0": "1.20.6",
+    "brace-expansion@>=1.0.0 <2.0.0": "1.1.16",
+    "brace-expansion@>=2.0.0 <3.0.0": "2.1.2"
   }
 }

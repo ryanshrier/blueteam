@@ -47,8 +47,9 @@
     "description": "A self-hosted threat-intelligence desk with a scored Wall and Wire plus an AI-generated daily briefing for defensive synthesis and decision support.",
     "applicationCategory": "SecurityApplication",
     "operatingSystem": "Any (Node.js 22+)",
-    "softwareVersion": "1.0.1",
+    "softwareVersion": "1.0.2",
     "datePublished": "2026-07-13",
+    "dateModified": "2026-07-24",
     "isAccessibleForFree": true,
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
     "license": "https://github.com/ryanshrier/blueteam/blob/main/LICENSE",
@@ -79,7 +80,7 @@
       <div class="hero-copy">
         <div class="hero-eyebrow">
           <p class="kicker">// open-source · self-hosted · MIT</p>
-          <span class="release-badge">v1.0.1</span>
+          <span class="release-badge">v1.0.2</span>
         </div>
         <h1 class="hero-head">Turn open threat reporting into a daily defensive picture.</h1>
         <p class="hero-sub">BlueTeam.News collects, enriches, and prioritizes public threat reporting into an unattended Wall and an analyst Wire. Add Anthropic for a daily BLUF, calibrated judgments, defensive actions, and leadership-ready synthesis. Evidence stays visible. Telemetry stays off.</p>
@@ -145,7 +146,7 @@
     <!-- ── Quick start ── -->
     <section class="band" id="start">
       <p class="kicker">// quick start</p>
-      <h2 class="band-head">Two commands to a live intelligence desk.</h2>
+      <h2 class="band-head">One repository to a live intelligence desk.</h2>
       <ol class="steps">
         <li>
           <span class="step-n">1</span>
@@ -157,10 +158,12 @@
                 <button class="copy" type="button" aria-label="Copy install command">Copy</button>
                 <span class="copy-status sr-only" aria-live="polite"></span>
               </div>
-<pre><code>git clone https://github.com/<wbr>ryanshrier/<wbr>blueteam.git blueteam &amp;&amp; cd blueteam
-npm install &amp;&amp; npm start</code></pre>
+<pre><code>git clone https://github.com/<wbr>ryanshrier/<wbr>blueteam.git blueteam
+cd blueteam
+npm install
+npm start</code></pre>
             </div>
-            <p class="step-note">Open <code class="chip">http://127.0.0.1:3000</code>—the Wall and Wire begin filling as the first source responses arrive.</p>
+            <p class="step-note">Open <code class="chip">http://127.0.0.1:3000</code>—the Wall and Wire begin filling as the first source responses arrive. The same source install works on macOS, Windows, and Linux with Node 22, 24, or 26; there is no separate desktop installer.</p>
           </div>
         </li>
         <li>
@@ -211,7 +214,7 @@ npm install &amp;&amp; npm start</code></pre>
       <h2 class="band-head">You can see exactly what leaves the host.</h2>
       <div class="band-grid">
         <div class="band-prose">
-          <p>By default, BlueTeam.News connects only to its configured threat feeds and enrichment sources. Enabling the Briefing adds the Anthropic API. Configuring a webhook adds that destination.</p>
+          <p>By default, BlueTeam.News connects only to its configured threat feeds and enrichment sources. Enabling the Briefing sends the selected public-source evidence and your configured organization context to Anthropic. Configuring a webhook sends matched alert or Briefing fields to that endpoint.</p>
           <p>There is no telemetry, analytics, account, license check, or runtime CDN. Outbound fetching is SSRF-guarded, and the server binds to localhost by default.</p>
           <p>It's MIT, it's one repo, and the network code is small enough to read in a sitting. Don't take our word for it—grep for it.</p>
         </div>
@@ -236,7 +239,9 @@ npm install &amp;&amp; npm start</code></pre>
       <p class="kicker">// deploy</p>
       <h2 class="band-head">Runs anywhere Node 22+ runs.</h2>
       <div class="band-prose wide">
-        <p>One process, local files only—SQLite for operational state, Markdown for saved briefs, and a gitignored settings file if you add an API key. Back up <code class="chip">data/</code> and <code class="chip">briefs/</code>; no external database. Run <code class="chip">npm start</code>, open <code class="chip">127.0.0.1:3000</code>, and point the floor display at <code class="chip">/wall</code>. The Wall is designed for unattended display with no GPU or WebGL dependency.</p>
+        <p>BlueTeam.News runs as one process and keeps its state in local files: SQLite for operational data, Markdown for saved briefs, and a gitignored settings file if you add an API key. Back up <code class="chip">data/</code> and <code class="chip">briefs/</code>; there is no external database.</p>
+        <p>The repository workflow is the product: clone, run <code class="chip">npm install</code>, then <code class="chip">npm start</code>. Source installs are tested on Node 22, 24, and 26, including Node 26 on Apple Silicon and Intel macOS for the native SQLite dependency. No platform-specific installer is required.</p>
+        <p>Run <code class="chip">npm start</code>, open <code class="chip">127.0.0.1:3000</code>, and point the floor display at <code class="chip">/wall</code>. The Wall runs unattended without a GPU or WebGL.</p>
         <p>Feeds are a config file you edit. The Briefing is opt-in via one API key; when enabled, the server refreshes its evidence and generates a new edition at 05:00 local time. A missed run catches up after restart, and the Wall adopts the saved edition without operator input.</p>
       </div>
       <div class="facts">

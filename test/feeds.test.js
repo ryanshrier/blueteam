@@ -22,8 +22,10 @@ jest.unstable_mockModule('../lib/db.js', () => ({
 
 const {
   deduplicateWithCorroboration, stripHtml, publisherKey,
-  resolveGoogleNewsLink, parseRetryAfter, fetchNewsContext, getFeedHealth, feedUserAgent,
+  resolveGoogleNewsLink, parseRetryAfter, fetchNewsContext, fetchSearchResults,
+  getFeedHealth, feedUserAgent, FEED_FIELD_LIMITS,
 } = await import('../lib/feeds.js');
+const { getDomainPack, setDomainPack } = await import('../lib/domain.js');
 
 describe('feedUserAgent', () => {
   test('identifies BlueTeam.News instead of impersonating a browser', () => {
@@ -273,6 +275,13 @@ describe('resolveGoogleNewsLink', () => {
   test('drops the link when neither description nor path yields a publisher URL', () => {
     expect(resolveGoogleNewsLink('https://news.google.com/rss/articles/xyz', undefined)).toBe('');
   });
+
+  test('drops credentials embedded in direct and description-derived publisher URLs', () => {
+    expect(resolveGoogleNewsLink('https://user:secret@example.com/private')).toBe('');
+    const googleLink = 'https://news.google.com/rss/articles/opaque-id';
+    const desc = '<a href="https://user:secret@publisher.example/private">publisher</a>';
+    expect(resolveGoogleNewsLink(googleLink, desc)).toBe('');
+  });
 });
 
 describe('parseRetryAfter', () => {
@@ -416,6 +425,34 @@ describe('fetchNewsContext — feed ingest front door', () => {
     const feeds = [{ url: 'https://example.com/rss', source: 'Entity Feed', horizon: 1 }];
     const results = await fetchNewsContext(feeds, {});
     expect(results[0].title).toBe('CISA & partners warn of new threat');
+  });
+
+  test('bounds oversized RSS fields before publishing or caching them', async () => {
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    const hugeTitle = `Critical feed field limit regression ${'T'.repeat(200_000)}`;
+    const hugeDescription = `Summary ${'D'.repeat(200_000)}`;
+    const hugeDate = `not-a-date-${'9'.repeat(10_000)}`;
+    readCappedMock.mockResolvedValue(`<rss><channel><item>
+      <title>${hugeTitle}</title>
+      <description>${hugeDescription}</description>
+      <link>https://user:feed-secret@example.com/private</link>
+      <pubDate>${hugeDate}</pubDate>
+    </item></channel></rss>`);
+
+    const feeds = [{ url: 'https://example.com/rss', source: 'Oversized Feed', horizon: 1 }];
+    const results = await fetchNewsContext(feeds, {});
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.title);
+    expect(results[0].description.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.description);
+    expect(results[0].date.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.dateRaw);
+    expect(results[0].dateUnknown).toBe(true);
+    expect(results[0].link).toBe('');
+
+    const cachedItems = setFeedCacheMock.mock.calls.at(-1)[3];
+    expect(cachedItems[0].title.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.title);
+    expect(cachedItems[0].description.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.description);
+    expect(cachedItems[0].link).toBe('');
   });
 
   test('an HTTP error status is reported and does not affect other feeds', async () => {
@@ -615,6 +652,31 @@ describe('fetchNewsContext — feed ingest front door', () => {
     expect(results.length).toBe(1);
   });
 
+  test('revalidates and bounds legacy cached fields before a 304 republishes them', async () => {
+    getFeedCacheMock.mockReturnValue({
+      etag: 'W/"legacy"',
+      last_modified: null,
+      items_json: JSON.stringify([{
+        title: `Cached security update ${'T'.repeat(10_000)}`,
+        description: `Cached summary ${'D'.repeat(20_000)}`,
+        link: 'https://user:cached-secret@example.com/private',
+        source: `Old source ${'S'.repeat(10_000)}`,
+        date: '',
+        dateUnknown: true,
+      }]),
+      cached_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    });
+    safeFetchMock.mockResolvedValue(fakeResponse({ status: 304 }));
+    const feeds = [{ url: 'https://example.com/rss', source: 'Bounded Cache Feed', horizon: 1 }];
+    const results = await fetchNewsContext(feeds, {});
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.title);
+    expect(results[0].description.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.description);
+    expect(results[0].source).toBe('Bounded Cache Feed');
+    expect(results[0].link).toBe('');
+  });
+
   test('a 304 with still-fresh cached items bumps cached_at via setFeedCache', async () => {
     getFeedCacheMock.mockReturnValue({
       etag: 'W/"abc"',
@@ -661,5 +723,35 @@ describe('publisherKey — source identity', () => {
   });
   test('a non-http link carries no publisher identity (defers to source)', () => {
     expect(publisherKey({ link: 'ftp://example.com/x', source: 'Foo Wire' })).toBe('foowire');
+  });
+});
+
+describe('fetchSearchResults — bounded Google News ingress', () => {
+  test('bounds title/source/date fields and drops credential-bearing publisher links', async () => {
+    const originalPack = getDomainPack();
+    try {
+      setDomainPack({
+        id: 'feed-limit-test',
+        label: 'Feed limit test',
+        feeds: { searchQueries: [{ q: 'security test', horizon: 2 }] },
+      });
+      safeFetchMock.mockReset().mockResolvedValue(fakeResponse());
+      readCappedMock.mockReset().mockResolvedValue(`<rss><channel><item>
+        <title>Search security update ${'T'.repeat(100_000)}</title>
+        <description><a href="https://user:search-secret@publisher.example/private">story</a></description>
+        <link>https://news.google.com/rss/articles/opaque-id</link>
+        <source>Publisher ${'S'.repeat(20_000)}</source>
+        <pubDate>not-a-date-${'9'.repeat(5_000)}</pubDate>
+      </item></channel></rss>`);
+
+      const results = await fetchSearchResults({});
+      expect(results).toHaveLength(1);
+      expect(results[0].title.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.title);
+      expect(results[0].source.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.source);
+      expect(results[0].date.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.dateRaw);
+      expect(results[0].link).toBe('');
+    } finally {
+      setDomainPack(originalPack);
+    }
   });
 });

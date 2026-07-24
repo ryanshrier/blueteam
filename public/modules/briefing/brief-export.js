@@ -22,6 +22,24 @@
 import { escapeHtml } from '../core/sanitize.js';
 import { executiveSummaryModel } from '../wall/wall-format.js';
 
+// Keep srcdoc same-origin so self-hosted fonts, readiness checks, and the
+// parent-initiated print dialog continue to work. allow-modals is required for
+// print(); deliberately omit allow-scripts so a future sanitizer regression
+// cannot turn briefing content into executable code inside the preview.
+export const PRINT_IFRAME_SANDBOX = 'allow-same-origin allow-modals';
+export const PRINT_DOCUMENT_CSP = [
+  "default-src 'none'",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
+  "img-src 'self' data:",
+  "script-src 'none'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "connect-src 'none'",
+  "form-action 'none'",
+  "frame-src 'none'",
+].join('; ');
+
 // Transient nodes the live brief may carry that have no place in the artifact.
 // .brief-judgment-link is in-app Wire navigation — a dead anchor on paper, so strip it.
 // .brief-validation-warning (the on-screen banner) is stripped too — it doesn't fit the
@@ -262,7 +280,7 @@ export function exportBriefNewspaper({
         <button type="button" class="np-ov-btn np-ov-close" aria-label="Close export">Close</button>
       </div>
     </div>
-    <iframe class="np-frame" title="${escapeHtml(plateTitle)} printable edition"></iframe>`;
+    <iframe class="np-frame" sandbox="${PRINT_IFRAME_SANDBOX}" title="${escapeHtml(plateTitle)} printable edition"></iframe>`;
   document.body.appendChild(overlay);
 
   const frame = overlay.querySelector('.np-frame');
@@ -556,7 +574,7 @@ function downloadHtml(html, name) {
 // The whole self-contained broadsheet document. Inline CSS so it prints with
 // nothing missing; /fonts.css linked same-origin for the same typefaces the
 // app uses (Newsreader serif · JetBrains Mono).
-function buildDocument({ bodyHtml, plateTitle, plateSubtitle, longDate, readMins, freshness, model, warningCount = 0 }) {
+export function buildDocument({ bodyHtml, plateTitle, plateSubtitle, longDate, readMins, freshness, model, warningCount = 0 }) {
   const modelNote = model ? ` Model: ${escapeHtml(formatModelLabel(model))}.` : '';
   const validationNote = warningCount > 0
     ? `<span class="np-validation-note"> Generation notes: ${warningCount} automated ${warningCount === 1 ? 'check needs' : 'checks need'} review in the live briefing.</span>`
@@ -566,6 +584,7 @@ function buildDocument({ bodyHtml, plateTitle, plateSubtitle, longDate, readMins
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="${PRINT_DOCUMENT_CSP}">
 <title>${escapeHtml(plateTitle)} edition — ${escapeHtml(longDate)}</title>
 <link rel="stylesheet" href="/fonts.css">
 <style>

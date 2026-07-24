@@ -1,6 +1,9 @@
 import { describe, expect, jest, test } from '@jest/globals';
 import {
   NEWSPAPER_CSS,
+  PRINT_DOCUMENT_CSP,
+  PRINT_IFRAME_SANDBOX,
+  buildDocument,
   gatePrintUntilReady,
   isAssessmentFieldHtml,
   shouldKeepFieldParagraphTogether,
@@ -78,6 +81,37 @@ describe('edition field normalization', () => {
 });
 
 describe('edition print contract', () => {
+  test('sandboxes srcdoc without scripts while retaining font access and print dialogs', () => {
+    const tokens = PRINT_IFRAME_SANDBOX.split(/\s+/);
+    expect(tokens).toEqual(expect.arrayContaining(['allow-same-origin', 'allow-modals']));
+    expect(tokens).not.toContain('allow-scripts');
+    expect(tokens).not.toContain('allow-top-navigation');
+  });
+
+  test('makes preview and downloaded HTML non-executable while retaining inline styles and self-hosted fonts', () => {
+    expect(PRINT_DOCUMENT_CSP).toContain("default-src 'none'");
+    expect(PRINT_DOCUMENT_CSP).toContain("script-src 'none'");
+    expect(PRINT_DOCUMENT_CSP).toContain("object-src 'none'");
+    expect(PRINT_DOCUMENT_CSP).toContain("base-uri 'none'");
+    expect(PRINT_DOCUMENT_CSP).toContain("connect-src 'none'");
+    expect(PRINT_DOCUMENT_CSP).toContain("form-action 'none'");
+    expect(PRINT_DOCUMENT_CSP).toContain("style-src 'self' 'unsafe-inline'");
+    expect(PRINT_DOCUMENT_CSP).toContain("font-src 'self'");
+
+    const html = buildDocument({
+      bodyHtml: '<p>Sanitized briefing</p>',
+      plateTitle: 'BlueTeam News',
+      plateSubtitle: 'Threat intelligence',
+      longDate: 'July 24, 2026',
+      readMins: 5,
+      freshness: 'Generated now',
+      model: '',
+    });
+    expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="${PRINT_DOCUMENT_CSP}">`);
+    expect(html).toContain('<link rel="stylesheet" href="/fonts.css">');
+    expect(html).toContain('<style>');
+  });
+
   test('keeps the warm single-column preview design in print', () => {
     expect(NEWSPAPER_CSS).toContain('@page{ size:letter portrait; margin:14mm; background:#f6f3ea; }');
     expect(NEWSPAPER_CSS).toContain('html,body{ background:var(--paper); }');

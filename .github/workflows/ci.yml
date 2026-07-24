@@ -3,6 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 9 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -12,14 +16,19 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        node-version: ['22', '24']
+        node-version: ['22', '24', '26']
         include:
           - os: windows-latest
             node-version: '22'
-          - os: macos-latest
-            node-version: '24'
+          - os: windows-latest
+            node-version: '26'
+          - os: macos-26
+            node-version: '26'
+          - os: macos-26-intel
+            node-version: '26'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -31,8 +40,17 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
+      - name: Pin npm with lifecycle-script policy support
+        run: npm install --global npm@11.18.0 --ignore-scripts --no-audit --engine-strict=false
+
+      - name: Verify npm version
+        run: npm --version
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit
+
+      - name: Report unreviewed lifecycle scripts
+        run: npm install-scripts ls --json
 
       - name: Scan for committed secrets
         run: npm run check:secrets
@@ -73,8 +91,21 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Pin npm with lifecycle-script policy support
+        run: npm install --global npm@11.18.0 --ignore-scripts --no-audit --engine-strict=false
 
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Verify npm version
+        run: npm --version
+
+      - name: Install dependencies
+        run: npm ci --no-audit
+
+      - name: Report unreviewed lifecycle scripts
+        run: npm install-scripts ls --json
+
+      - name: Audit full dependency graph
+        run: npm audit --audit-level=high
+
+      - name: Audit production dependency graph
+        if: ${{ always() }}
+        run: npm audit --omit=dev --audit-level=low
