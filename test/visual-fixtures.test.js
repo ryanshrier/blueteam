@@ -8,7 +8,7 @@ describe('visual fixture manifest', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual(expect.arrayContaining([
       'kev-one', 'kev-missing', 'wall-loading', 'wall-stale',
-      'wire-loading', 'brief-error', 'brief-empty',
+      'wire-loading', 'brief-full', 'brief-error', 'brief-empty',
     ]));
   });
 });

@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.0.3 — 2026-07-28
+
+### Briefing reliability and control
+
+- Move unattended Briefing generation into an explicit, disabled-by-default
+  Settings control with timezone, missed-run, retry, and daily-attempt options.
+- Reload persisted scheduler state before every run so overlapping scheduler
+  instances cannot duplicate a paid generation.
+- Require enough fresh source evidence before contacting Anthropic and publish
+  an edition only after its complete structure and trust checks pass.
+- Apply one generation deadline across model setup and streaming, and return
+  distinct rate-limit and evidence errors to the interface.
+
+### Interface, editions, and printing
+
+- Refine Briefing and Edition typography, spacing, navigation, metadata, and
+  validation messages across desktop and narrow layouts.
+- Print Editions as one white document with safer pagination instead of tan,
+  section-fragmented pages.
+- Remove the redundant HTML export path and retain the reviewed print/PDF flow.
+
+### Runtime, data, and security
+
+- Use an Undici Agent with a custom pinned DNS lookup for protected outbound
+  requests, avoiding dispatcher-handler contract drift across supported Node
+  releases while preserving SSRF address pinning.
+- Add persistent article and search caching, deterministic story grouping, FTS
+  reconciliation, and content-aware enrichment invalidation.
+- Fail closed on malformed configuration, duplicate feeds, unsafe browser
+  origins, weak remote authentication, and stale readiness state.
+- Add dedicated liveness and readiness endpoints, bounded external calls, and
+  dependency-policy updates.
+
+### Documentation and verification
+
+- Split operational, configuration, architecture, API, and development detail
+  out of the README and refine the GitHub Pages landing page.
+- Expand automated coverage for Node 26, scheduler races, publication gates,
+  caching, transport security, settings, rendering, and print behavior.
+
 ## 1.0.2 — 2026-07-24
 
 ### Runtime compatibility

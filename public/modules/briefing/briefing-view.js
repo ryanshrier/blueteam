@@ -440,10 +440,69 @@ function surfaceLoadedWarnings(content, persisted) {
 }
 
 let tocObserver = null;
+let tocBreakpointCleanup = null;
+
+// Keep the disclosure's open state aligned with the same breakpoint CSS uses.
+// The returned cleanup prevents route-to-route renders from retaining listeners
+// bound to detached <details> nodes. Exported for a DOM-light regression test.
+export function bindTocBreakpoint(mediaQuery, disclosure) {
+  if (!mediaQuery || !disclosure) return () => {};
+  const sync = event => {
+    disclosure.open = !Boolean(event?.matches ?? mediaQuery.matches);
+  };
+  sync(mediaQuery);
+
+  if (typeof mediaQuery.addEventListener === 'function') {
+    mediaQuery.addEventListener('change', sync);
+    return () => mediaQuery.removeEventListener?.('change', sync);
+  }
+  if (typeof mediaQuery.addListener === 'function') {
+    mediaQuery.addListener(sync);
+    return () => mediaQuery.removeListener?.(sync);
+  }
+  return () => {};
+}
+
+/**
+ * Move both viewport and keyboard/screen-reader focus to one TOC destination.
+ * Click navigation and a fragment restored after asynchronous Briefing loading
+ * share this path; URL mutation remains the caller's responsibility.
+ */
+export function activateTocLink({
+  link,
+  target,
+  toc = null,
+  disclosure = null,
+  compact = false,
+  behavior = 'smooth',
+} = {}) {
+  if (!link || !target) return false;
+  target.scrollIntoView?.({ behavior, block: 'start' });
+  target.setAttribute?.('tabindex', '-1');
+  target.focus?.({ preventScroll: true });
+  setActiveTocLink(link, toc);
+  if (compact && disclosure) disclosure.open = false;
+  return true;
+}
+
+/** Resolve only a fragment owned by this Briefing TOC. */
+export function findTocFragmentLink(links = [], hash = '') {
+  try {
+    const targetId = decodeURIComponent(String(hash || '').replace(/^#/, ''));
+    if (!targetId) return null;
+    return links.find(link => link?.dataset?.target === targetId) || null;
+  } catch {
+    return null;
+  }
+}
 
 function buildTOC(content) {
   const toc = document.getElementById('briefToc');
   if (!toc) return;
+  if (tocBreakpointCleanup) {
+    tocBreakpointCleanup();
+    tocBreakpointCleanup = null;
+  }
   const sections = extractSections(content);
   if (sections.length === 0) {
     toc.innerHTML = '';
@@ -458,27 +517,57 @@ function buildTOC(content) {
   // Keep the rail editorial, not exhaustive. Every signal remains deep-linkable,
   // but listing six long judgment headlines here turned navigation into a second,
   // cramped copy of the brief.
+  const compactQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(max-width: 560px)')
+    : null;
   toc.innerHTML = `
-    <div class="briefing-toc-label">In this briefing</div>
-    <ul>
-      ${sections.map(s => `<li>${link(s)}</li>`).join('')}
-    </ul>
+    <details class="briefing-toc-disclosure">
+      <summary class="briefing-toc-label">
+        <span class="toc-label-wide">In this briefing</span>
+        <span class="toc-label-compact">Jump to section</span>
+      </summary>
+      <ul>
+        ${sections.map(s => `<li>${link(s)}</li>`).join('')}
+      </ul>
+    </details>
   `;
 
+  const disclosure = toc.querySelector('.briefing-toc-disclosure');
+  if (compactQuery) tocBreakpointCleanup = bindTocBreakpoint(compactQuery, disclosure);
+  else if (disclosure) disclosure.open = true;
+
   const links = [...toc.querySelectorAll('a')];
+  const navigateLink = (a, { updateHash = false, behavior = 'smooth' } = {}) => {
+    const target = document.getElementById(a?.dataset?.target || '');
+    const activated = activateTocLink({
+      link: a,
+      target,
+      toc,
+      disclosure,
+      compact: Boolean(compactQuery?.matches),
+      behavior,
+    });
+    if (!activated || !updateHash) return activated;
+    try { history.replaceState(history.state, '', `#${encodeURIComponent(a.dataset.target)}`); } catch { /* non-critical */ }
+    return true;
+  };
   links.forEach(a => {
     a.addEventListener('click', (e) => {
       e.preventDefault();
-      const target = document.getElementById(a.dataset.target);
-      if (!target) return;
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      // Move focus to the destination so keyboard/SR users land there, not just visually.
-      target.setAttribute('tabindex', '-1');
-      target.focus({ preventScroll: true });
-      setActiveTocLink(a);
-      try { history.replaceState(history.state, '', `#${encodeURIComponent(a.dataset.target)}`); } catch { /* non-critical */ }
+      navigateLink(a, { updateHash: true });
     });
   });
+  let initialLink = links[0];
+  const fragmentLink = findTocFragmentLink(links, location.hash);
+  initialLink = fragmentLink || initialLink;
+  if (fragmentLink) {
+    // Direct history routes load the article after the browser's one-shot
+    // fragment pass. Once the matching heading exists, perform that navigation
+    // ourselves without rewriting a valid (or unrelated) URL fragment.
+    navigateLink(fragmentLink, { behavior: 'auto' });
+  } else {
+    setActiveTocLink(initialLink, toc);
+  }
 
   // Scrollspy — track the section in view, not just the last click.
   if (tocObserver) tocObserver.disconnect();
@@ -494,11 +583,14 @@ function buildTOC(content) {
   }
 }
 
-function setActiveTocLink(a) {
+function setActiveTocLink(a, toc = document.getElementById('briefToc')) {
   if (!a) return;
-  const toc = document.getElementById('briefToc');
-  toc?.querySelectorAll('a').forEach(x => x.classList.remove('active'));
+  toc?.querySelectorAll('a').forEach(x => {
+    x.classList.remove('active');
+    x.removeAttribute('aria-current');
+  });
   a.classList.add('active');
+  a.setAttribute('aria-current', 'location');
 }
 
 // Reading-progress fill — fraction of the briefing sheet scrolled past.
@@ -585,8 +677,8 @@ function announce(msg) {
   if (live) live.textContent = msg;
 }
 
-// Open the printable newspaper edition of the brief currently on screen (an in-app
-// preview with explicit Print/PDF and HTML-download actions). Guards on a real rendered
+// Open the printable edition of the brief currently on screen (an in-app
+// preview with an explicit Print/PDF action). Guards on a real rendered
 // brief (a BLUF or a judgment) so a search-results / empty / progress view never
 // exports as a blank paper. Model provenance is passed explicitly from state.
 export function isBriefReadyForExport(content, currentBrief, isGenerating = false) {
@@ -755,4 +847,8 @@ export function unmount() {
   }
   contentRenderToken++;
   if (tocObserver) { tocObserver.disconnect(); tocObserver = null; }
+  if (tocBreakpointCleanup) {
+    tocBreakpointCleanup();
+    tocBreakpointCleanup = null;
+  }
 }

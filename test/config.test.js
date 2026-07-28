@@ -51,13 +51,11 @@ describe('config — last-known-good on rejected reload', () => {
     expect(getConfig().analysisSettings.maxEPSSLookups).toBe(7);
   });
 
-  test('first load falling to validation failure still gets usable defaults', () => {
+  test('first load fails closed on validation failure', () => {
     // horizon is required to be 1-3; 4 is out of range and the file has no
     // prior good config to fall back to (this is the very first load).
     writeFileSync(configPath, JSON.stringify({ trustedFeeds: [{ url: 'https://x.com/f.xml', source: 'X', horizon: 4 }] }));
-    initConfig(configPath);
-    const config = getConfig();
-    expect(config.trustedFeeds).toEqual([]); // defaults — nothing good to preserve yet
+    expect(() => initConfig(configPath)).toThrow(/Cannot start with an invalid config/);
     expect(getLastReloadError()).not.toBeNull();
   });
 
@@ -86,10 +84,51 @@ describe('config — last-known-good on rejected reload', () => {
     },
   ])('rejects embedded credentials in a configured $label URL', ({ config }) => {
     writeFileSync(configPath, JSON.stringify(config));
-    initConfig(configPath);
+    expect(() => initConfig(configPath)).toThrow(/Cannot start with an invalid config/);
     expect(getLastReloadError()).not.toBeNull();
-    expect(getConfig().trustedFeeds).toEqual([]);
-    expect(getConfig().analysisSettings.webhook.url).toBe('');
+  });
+
+  test('rejects unknown keys instead of silently stripping misspellings', () => {
+    writeFileSync(configPath, validConfigJSON({ analysisSettings: { maxEPSSLookup: 7 } }));
+    expect(() => initConfig(configPath)).toThrow(/Unrecognized key/);
+  });
+
+  test.each([
+    {
+      label: 'URL',
+      feeds: [
+        { url: 'https://example.com/feed.xml', source: 'One', horizon: 1 },
+        { url: 'https://example.com/feed.xml', source: 'Two', horizon: 2 },
+      ],
+    },
+    {
+      label: 'source label',
+      feeds: [
+        { url: 'https://one.example/feed.xml', source: 'Same Feed', horizon: 1 },
+        { url: 'https://two.example/feed.xml', source: 'same feed', horizon: 2 },
+      ],
+    },
+    {
+      label: 'explicit stable ID',
+      feeds: [
+        { id: 'cisa', url: 'https://one.example/feed.xml', source: 'One', horizon: 1 },
+        { id: 'CISA', url: 'https://two.example/feed.xml', source: 'Two', horizon: 2 },
+      ],
+    },
+  ])('rejects duplicate feed identity by $label', ({ feeds }) => {
+    writeFileSync(configPath, validConfigJSON({ trustedFeeds: feeds }));
+    expect(() => initConfig(configPath)).toThrow(/duplicates trustedFeeds/);
+  });
+
+  test('derives a stable feed ID from the URL when one is omitted', () => {
+    writeFileSync(configPath, validConfigJSON());
+    initConfig(configPath);
+    const first = getConfig().trustedFeeds[0].id;
+    expect(first).toMatch(/^feed-[a-f0-9]{12}$/);
+
+    _resetForTests();
+    initConfig(configPath);
+    expect(getConfig().trustedFeeds[0].id).toBe(first);
   });
 
   test('a validation failure on a SUBSEQUENT load keeps the last-known-good config, not defaults', () => {

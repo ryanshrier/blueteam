@@ -17,12 +17,12 @@
 
   <!-- Wordmark + line -->
   <text x="108" y="330" font-family="Georgia, 'Times New Roman', serif" font-size="104" font-weight="700" fill="#f2ede2">BlueTeam<tspan fill="#3b82f6">.News</tspan></text>
-  <text x="112" y="404" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="40" fill="#c5beb0">Built for the floor, grounded in evidence. Hold the line.</text>
+  <text x="112" y="404" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="40" fill="#c5beb0">Open-source threat intelligence for defenders.</text>
 
   <rect x="112" y="446" width="132" height="4" rx="2" fill="#3b82f6"/>
   <text x="112" y="500" font-family="Georgia, 'Times New Roman', serif" font-size="30" fill="#9a9182">A self-hosted threat-intelligence desk — Wall · Wire · Briefing.</text>
 
   <!-- Footer meta -->
   <text x="112" y="566" font-family="'JetBrains Mono', 'Cascadia Mono', monospace" font-size="26" letter-spacing="2" fill="#c5beb0">blueteam.news</text>
-  <text x="112" y="600" font-family="'JetBrains Mono', 'Cascadia Mono', monospace" font-size="19" letter-spacing="3" fill="#7d7567">OPEN-SOURCE · SELF-HOSTED · NO TELEMETRY · MIT</text>
+  <text x="112" y="600" font-family="'JetBrains Mono', 'Cascadia Mono', monospace" font-size="19" letter-spacing="3" fill="#7d7567">OPEN-SOURCE · SELF-HOSTED · NO APP TELEMETRY · MIT</text>
 </svg>

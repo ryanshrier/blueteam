@@ -17,6 +17,8 @@ import {
   nonce,
   securityHeaders,
   createRateLimiters,
+  deferBriefGenerationAccounting,
+  finalizeBriefGenerationAccounting,
   loopbackHostGuard,
   originCheck,
   apiSecretValidationError,
@@ -46,6 +48,8 @@ function makeServer({
   app.use(express.json());
   app.use(contentTypeCheck);
   app.get('/api/health', (req, res) => res.json({ ok: true, authenticated: res.locals.authenticated === true }));
+  app.get('/api/live', (req, res) => res.json({ ok: true, authenticated: res.locals.authenticated === true }));
+  app.get('/api/ready', (req, res) => res.json({ ok: true, authenticated: res.locals.authenticated === true }));
   app.get('/api/thing', (req, res) => res.json({ ok: true }));
   app.get('/api/settings', (req, res) => res.json({ ok: true }));
   app.post('/api/brief', (req, res) => res.json({ ok: true }));
@@ -376,6 +380,19 @@ describe('bearerAuth — active only when API_SECRET is set', () => {
     expect((await trailingSlash.json()).authenticated).toBe(false);
   });
 
+  test.each(['/live', '/ready'])('%s is also probe-exempt and request-scoped', async (path) => {
+    ctx = await makeServer({ secret: 'top-secret-token' });
+    const missing = await fetch(`${ctx.base}/api${path}`);
+    expect(missing.status).toBe(200);
+    expect((await missing.json()).authenticated).toBe(false);
+
+    const valid = await fetch(`${ctx.base}/api${path}`, {
+      headers: { Authorization: 'Bearer top-secret-token' },
+    });
+    expect(valid.status).toBe(200);
+    expect((await valid.json()).authenticated).toBe(true);
+  });
+
   test('when API_SECRET is unset, bearerAuth is never mounted — /api/* is reachable with no token', async () => {
     ctx = await makeServer({}); // no secret → server.js's own gate keeps bearerAuth off
     const res = await fetch(`${ctx.base}/api/thing`);
@@ -505,7 +522,7 @@ describe('createRateLimiters — the four limiter configs', () => {
       }
       const sixth = await fetch(`${base}/api/settings/verify`, { method: 'POST' });
       expect(sixth.status).toBe(429);
-      expect((await sixth.json()).code).toBe('E003');
+      expect((await sixth.json()).code).toBe('E_VERIFY_RATE');
     } finally {
       await new Promise((r) => server.close(r));
     }
@@ -529,7 +546,8 @@ describe('createRateLimiters — the four limiter configs', () => {
       expect(r1.status).toBe(200);
       expect(r2.status).toBe(200);
       expect(r3.status).toBe(429); // third call within the 30s window is rate limited
-      expect((await r3.json()).code).toBe('E003');
+      expect((await r3.json()).code).toBe('E_GENERATION_RATE');
+      expect(r3.headers.get('retry-after')).toBeTruthy();
     } finally {
       await new Promise((r) => server.close(r));
     }
@@ -589,6 +607,61 @@ describe('createRateLimiters — the four limiter configs', () => {
       expect(limited.status).toBe(429);
     } finally {
       await new Promise((r) => server.close(r));
+    }
+  });
+
+  test('an SSE close is refunded only after the route finalizes it as pre-provider', async () => {
+    const app = express();
+    const { generationLimiter } = createRateLimiters();
+    const routeCompletions = [];
+    app.post('/api/brief', generationLimiter, async (req, res) => {
+      deferBriefGenerationAccounting(res);
+      try {
+        res.type('text/event-stream');
+        res.write(': ready\n\n');
+        await new Promise(resolve => res.once('close', resolve));
+        // This deliberately happens after the socket closes. Accounting must
+        // remain deferred until the route knows whether paid work began.
+        if (req.query.lateAttempt === '1') {
+          res.locals.briefGenerationAttempted = true;
+        }
+      } finally {
+        finalizeBriefGenerationAccounting(res);
+        routeCompletions.shift()?.();
+      }
+    });
+
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise(resolve => server.once('listening', resolve));
+    const { port } = server.address();
+    const base = `http://127.0.0.1:${port}/api/brief`;
+    const abortRoute = async (suffix = '') => {
+      let complete;
+      const completed = new Promise(resolve => { complete = resolve; });
+      routeCompletions.push(complete);
+      const controller = new AbortController();
+      const response = await fetch(`${base}${suffix}`, {
+        method: 'POST',
+        signal: controller.signal,
+      });
+      controller.abort();
+      await response.text().catch(() => {});
+      await completed;
+      await new Promise(resolve => setImmediate(resolve));
+    };
+
+    try {
+      // A pre-provider disconnect is refundable.
+      await abortRoute();
+      // A provider attempt discovered after close is not refundable.
+      await abortRoute('?lateAttempt=1');
+      await abortRoute('?lateAttempt=1');
+
+      const limited = await fetch(base, { method: 'POST' });
+      expect(limited.status).toBe(429);
+      expect((await limited.json()).code).toBe('E_GENERATION_RATE');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
     }
   });
 });

@@ -1,92 +1,81 @@
 # Security Policy
 
-If you find a vulnerability in BlueTeam.News, please report it privately so it
-can be evaluated responsibly. Reporter credit will be offered if an advisory is
-published, unless you prefer to remain anonymous.
+Please report suspected vulnerabilities privately so they can be assessed before public disclosure.
 
 ## Supported versions
 
-BlueTeam.News is a single-maintainer project. Reports are evaluated against the
-latest release; any investigation, mitigation, or fix is at the maintainer's
-discretion.
+Security reports are evaluated against the latest published release.
 
-| Version | Supported |
+| Version | Support |
 |---|---|
 | Latest release | Best effort |
 | Older releases | Not supported |
 
+BlueTeam.News is a single-maintainer project with no response-time or remediation SLA.
+
 ## Reporting a vulnerability
 
-**Please do not open a public issue for a security vulnerability.** Public disclosure before a fix is available puts every operator running the tool at risk.
+Do not open a public issue containing vulnerability details. Use GitHub [private vulnerability reporting](https://github.com/ryanshrier/blueteam/security/advisories/new) from the repository's **Security** tab.
 
-Report privately through GitHub's [private vulnerability reporting](https://github.com/ryanshrier/blueteam/security/advisories/new) — the **Security** tab → **Report a vulnerability**. This opens a private advisory visible only to you and the maintainer.
+Include:
 
-Include what you'd want to receive yourself:
+- the affected version or commit, operating system, and Node version;
+- the deployment mode, including bind address, proxy, and authentication settings;
+- a clear impact statement;
+- reproduction steps or a minimal proof of concept; and
+- any suggested remediation.
 
-- The affected version or commit, and your platform (OS, Node version).
-- A description of the issue and its impact.
-- Reproduction steps or a proof of concept, if you have one.
-- Any suggested remediation.
+Reporter credit will be offered for a published advisory unless anonymity is requested. Please allow reasonable time for assessment before public disclosure, recognizing that no fix schedule is guaranteed.
 
-## What to expect
+## Security model
 
-This is a single-maintainer, no-SLA open-source project. There is no guaranteed
-acknowledgement, response time, assessment, fix, mitigation, or release. A
-significant and reproducible report may be investigated when maintainer capacity
-allows. If an advisory is published, reporter credit will be offered unless the
-reporter asks to remain anonymous.
+BlueTeam.News is a self-hosted, single-operator application. It has no hosted control plane, user accounts, role-based access control, tenancy boundary, or encrypted application vault. A person who can use the trusted local interface can change operator settings and initiate billable Briefing generation.
 
-Coordinated disclosure is requested: please allow a reasonable opportunity to
-investigate before publishing details, while understanding that no remediation
-schedule is promised.
+The supported deployment models are:
+
+1. **Local:** the default server binds to loopback and is used by the host operator.
+2. **Managed network access:** a strong `API_SECRET`, restrictive firewall, and TLS-terminating authenticating reverse proxy protect access beyond the host. The proxy injects the bearer token for the browser interface.
+
+The shared API secret authenticates requests; it is not a multi-user authorization system. BlueTeam.News should not be exposed directly to the public internet.
+
+The self-hosted application has no product telemetry. It intentionally makes outbound requests to configured threat sources and enrichment services, to Anthropic when key verification or Briefing generation is requested, and to a configured webhook. See [Network behavior](docs/operations.md#network-behavior) for the data boundary.
 
 ## Scope
 
-BlueTeam.News is **self-hosted and loopback-by-default**, with no hosted service, no accounts, and no telemetry. Security expectations are framed accordingly.
+Examples of issues that are in scope:
 
-**In scope** — issues in this repository's code, for example:
+- SSRF guard bypasses in feed, article, enrichment, or webhook fetching;
+- cross-site scripting or unsafe Markdown/HTML rendering through any untrusted field;
+- path traversal, local-file disclosure, or arbitrary file modification;
+- leakage of Anthropic keys, `API_SECRET`, or other credentials through storage, logs, responses, or generated output;
+- Host, Origin, CSP, rate-limit, or bearer-authentication bypasses in a supported deployment;
+- failure of the non-loopback bind guard or trusted-proxy boundary;
+- unauthorized Settings changes or billable generation through the documented local or managed-network configurations; and
+- a vulnerable dependency that has a reachable, BlueTeam.News-specific impact.
 
-- Bypass of the SSRF guard (`lib/net.js`) that fetches feeds and articles.
-- Cross-site scripting via feed content, brief markdown, or any rendered field (briefs are sanitized with DOMPurify — a sanitizer bypass is in scope).
-- A Host, Origin, CSP, rate-limiting, or bearer-auth (`API_SECRET`) weakness that exposes `/api/*`, including DNS rebinding against the loopback service.
-- The non-loopback fail-closed bind guard not failing closed.
-- Leakage of the Anthropic API key (in logs, responses, or the persisted settings file).
-- Any path that lets a malicious feed pivot into the operator's network or read local files.
+Examples that are out of scope by themselves:
 
-**Out of scope:**
+- direct internet exposure without the documented firewall, TLS, authentication, and proxy controls;
+- isolation between mutually untrusted users, tenants, or local operating-system accounts;
+- plaintext local state when an attacker already has access to the service account's files;
+- inaccurate or malicious content supplied by third-party threat feeds, unless the application handles it unsafely;
+- model output quality or factual errors without a security impact; and
+- automated dependency-version reports that do not demonstrate a reachable impact in this application.
 
-- Generic vulnerability reports about a third-party dependency with no
-  BlueTeam.News-specific impact or reachable path. If a dependency issue is
-  exploitable through the app, report that impact here as well as upstream.
-- Exposure caused by binding a non-loopback `HOST` with `API_SECRET` set (bearer auth is deliberately the operator's opt-in for that case), against the README's guidance that BlueTeam.News is localhost-only by design.
-- The content of third-party threat feeds themselves.
-- Missing hardening that is documented as a deliberate non-goal (multi-user auth, RBAC, tenancy).
+If the correct classification is unclear, report privately.
 
-## Hardening the deployment
+## Deployment hardening
 
-Operator-side guidance for running it safely — bind address, `API_SECRET`, and
-what leaves your network — lives in the [README](README.md#security-posture).
+- Keep the default `HOST=127.0.0.1` unless remote access is required.
+- For remote access, use at least 32 random characters for `API_SECRET`, configure `PUBLIC_BASE_URL` and `TRUST_PROXY` precisely, and require authentication and TLS at the reverse proxy.
+- Restrict the listener with the host firewall. Do not use wildcard CORS for a network deployment.
+- Run the process as a dedicated, unprivileged account and keep dependencies and the host patched.
+- Protect `.env`, `data/`, `briefs/`, logs, and backups. Test restoration regularly.
+- Treat configured webhooks and Anthropic as data recipients.
+- Monitor process logs and authenticated `/api/ready` details for persistent failures.
 
-The in-app Anthropic key is stored locally in `data/settings.local.json` so the
-service can restart without prompting. It is never returned raw by the API, but
-it is not encrypted at rest: protect the host account and the `data/` directory,
-and prefer an environment variable or OS-managed secret injection where local
-disk access is in your threat model. On POSIX systems the application tightens
-its state directories to `0700` and sensitive settings, Briefing, SQLite, WAL,
-and SHM files to `0600`; Windows retains the host account's ACLs.
+An Anthropic key saved through Settings is stored in plaintext at `data/settings.local.json`. It is masked in API responses and common credentials are redacted from logs, but those controls do not protect against local file access. Prefer environment or service-manager secret injection when disk access is in the threat model.
 
-BlueTeam.News is not a multi-user security boundary. For access beyond the local
-machine, put a TLS-terminating and authenticating reverse proxy in front, set an
-`API_SECRET` of at least 32 random characters, configure `PUBLIC_BASE_URL` and
-`TRUST_PROXY` precisely, and restrict network reachability at the host firewall.
-The browser frontend does not store the shared bearer token, so a remote
-interactive deployment must have its trusted proxy inject that token on upstream
-API requests. Do not expose the default HTTP listener directly to the internet.
+On POSIX systems the application requests mode `0700` for state directories and `0600` for sensitive state files. Windows uses the service account's filesystem ACLs. These are defense-in-depth defaults, not encryption.
 
-The server validates local Host values and present browser origins; do not weaken
-those controls with a wildcard origin on a network deployment. When
-`API_SECRET` is set, unauthenticated health checks intentionally receive only a
-minimal status even if the reverse proxy connects over loopback.
-
-The exact optional data sent to Anthropic and configured webhooks is documented
-in [Operations and deployment](docs/operations.md#health-and-outbound-traffic).
+See [Operations and deployment](docs/operations.md) for backups, logging, upgrades, and the full remote-access procedure.

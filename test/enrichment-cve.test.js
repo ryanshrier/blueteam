@@ -7,6 +7,8 @@ import { jest, describe, test, expect, beforeEach } from '@jest/globals';
 // under test — see test/feeds.test.js for the same convention.
 const safeFetchMock = jest.fn();
 const readCappedMock = jest.fn();
+const getExternalCacheMock = jest.fn(() => null);
+const setExternalCacheMock = jest.fn();
 jest.unstable_mockModule('../lib/net.js', () => ({
   safeFetch: safeFetchMock,
   readCapped: readCappedMock,
@@ -17,6 +19,8 @@ jest.unstable_mockModule('../lib/db.js', () => ({
   bulkInsertKEV: jest.fn(),
   getKEVAge: jest.fn(() => Infinity),
   getKEVDatesAdded: jest.fn(() => ({})),
+  getExternalCache: getExternalCacheMock,
+  setExternalCache: setExternalCacheMock,
 }));
 
 jest.unstable_mockModule('../lib/domain.js', () => ({
@@ -33,8 +37,12 @@ const { enrichCVEs, enrichEPSS, extractArticleBody, refreshKEV } = await import(
 // A minimal Response-shaped fake matching the convention in test/feeds.test.js
 // — enrichCVEs/enrichEPSS only touch .status/.ok; the body is consumed by the
 // mocked readCapped.
-function fakeResponse({ status = 200 } = {}) {
-  return { status, ok: status >= 200 && status < 300 };
+function fakeResponse({ status = 200, cancel = jest.fn() } = {}) {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    body: { cancel },
+  };
 }
 
 function nvdBody(cveId, { baseScore, baseSeverity, version = '31', vulnStatus = 'Analyzed' } = {}) {
@@ -53,6 +61,8 @@ function nvdBody(cveId, { baseScore, baseSeverity, version = '31', vulnStatus = 
 beforeEach(() => {
   safeFetchMock.mockReset();
   readCappedMock.mockReset();
+  getExternalCacheMock.mockReset().mockReturnValue(null);
+  setExternalCacheMock.mockReset();
 });
 
 describe('enrichCVEs — CVSS version-label parse', () => {
@@ -182,11 +192,13 @@ describe('enrichCVEs — in-process CVE cache', () => {
 
 describe('enrichCVEs — NVD throttling', () => {
   test('a 429 response is recorded as a throttle, not a silent miss', async () => {
-    safeFetchMock.mockResolvedValue(fakeResponse({ status: 429 }));
+    const cancel = jest.fn();
+    safeFetchMock.mockResolvedValue(fakeResponse({ status: 429, cancel }));
     const hs = [5, 50, 51].map(n => ({ title: `CVE-2025-${String(n).padStart(4, '0')} reported`, description: '' }));
     await expect(enrichCVEs(hs, 5)).rejects.toThrow(/rate-limited/i);
     expect(safeFetchMock).toHaveBeenCalledTimes(1);
     expect(hs.every(h => h.cveData === undefined)).toBe(true);
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 
   test('a clean run (no throttling) does not throw', async () => {
@@ -194,6 +206,50 @@ describe('enrichCVEs — NVD throttling', () => {
     readCappedMock.mockResolvedValue(JSON.stringify(nvdBody('CVE-2025-0006', { baseScore: 6.1, baseSeverity: 'MEDIUM' })));
     const h = { title: 'CVE-2025-0006 patched', description: '' };
     await expect(enrichCVEs([h], 5)).resolves.toBeUndefined();
+  });
+});
+
+describe('extractArticleBody — persistent cache', () => {
+  test('serves a fresh extraction without another network request', async () => {
+    getExternalCacheMock.mockReturnValue({
+      body: 'cached substantive article body',
+      expired: false,
+      fetched_at: new Date().toISOString(),
+    });
+    await expect(extractArticleBody('https://example.com/story?secret=hidden'))
+      .resolves.toBe('cached substantive article body');
+    expect(safeFetchMock).not.toHaveBeenCalled();
+  });
+
+  test('revalidates an expired extraction and refreshes its TTL on 304', async () => {
+    getExternalCacheMock.mockReturnValue({
+      body: 'cached substantive article body',
+      expired: true,
+      etag: '"article-v1"',
+      last_modified: 'Tue, 28 Jul 2026 12:00:00 GMT',
+      fetched_at: new Date().toISOString(),
+    });
+    const cancel = jest.fn();
+    safeFetchMock.mockResolvedValue(fakeResponse({ status: 304, cancel }));
+    await expect(extractArticleBody('https://example.com/story'))
+      .resolves.toBe('cached substantive article body');
+    expect(safeFetchMock.mock.calls[0][1].headers).toMatchObject({
+      'If-None-Match': '"article-v1"',
+      'If-Modified-Since': 'Tue, 28 Jul 2026 12:00:00 GMT',
+    });
+    expect(setExternalCacheMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^article:/),
+      'cached substantive article body',
+      expect.objectContaining({ etag: '"article-v1"' }),
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  test('cancels an error response before returning stale or null content', async () => {
+    const cancel = jest.fn();
+    safeFetchMock.mockResolvedValue(fakeResponse({ status: 503, cancel }));
+    await expect(extractArticleBody('https://example.com/unavailable')).resolves.toBeNull();
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -215,10 +271,12 @@ describe('enrichEPSS — exploitation-likelihood signal', () => {
   });
 
   test('a failed EPSS fetch degrades silently (no h.epss, no throw)', async () => {
-    safeFetchMock.mockResolvedValue(fakeResponse({ status: 500 }));
+    const cancel = jest.fn();
+    safeFetchMock.mockResolvedValue(fakeResponse({ status: 500, cancel }));
     const h = { title: 'CVE-2025-0009 disclosed', description: '' };
     await expect(enrichEPSS([h], 20)).resolves.toBeUndefined();
     expect(h.epss).toBeUndefined();
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 
   test('skips headlines with no CVE reference entirely', async () => {

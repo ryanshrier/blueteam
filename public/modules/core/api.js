@@ -62,7 +62,7 @@ export function fetchBrief(filename) {
 }
 
 export function fetchHealth() {
-  return getJson('/api/health');
+  return getJson('/api/ready');
 }
 
 // The active edition's identity (name + region labels). Cached long — it only
@@ -87,6 +87,7 @@ export async function saveSettings(patch) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -102,6 +103,7 @@ export async function verifyKey(anthropicKey) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ anthropicKey }),
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS + 2_000),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `Verify failed (${res.status})`);
@@ -117,7 +119,24 @@ export async function generateBrief() {
     headers: { 'Content-Type': 'application/json' },
     body: '{}',
   });
-  if (res.status === 429) throw new Error('A briefing is already being generated — wait a few seconds.');
+  if (res.status === 429) {
+    const body = await res.json().catch(() => ({}));
+    const headerSeconds = Number(res.headers.get('retry-after'));
+    const retryAfter = Number.isFinite(Number(body.retryAfterSeconds))
+      ? Number(body.retryAfterSeconds)
+      : (Number.isFinite(headerSeconds) ? headerSeconds : null);
+    const suffix = retryAfter ? ` Try again in about ${Math.max(1, Math.ceil(retryAfter))} seconds.` : '';
+    const messages = {
+      E_GENERATION_ACTIVE: `A Briefing is already being generated.${suffix}`,
+      E_GENERATION_COOLDOWN: `The previous Briefing just finished.${suffix}`,
+      E_GENERATION_RATE: `Too many Briefing requests were started from this client.${suffix}`,
+      E_GENERATION_DAILY_LIMIT: 'The daily Briefing generation limit has been reached. Try again tomorrow.',
+    };
+    const err = new Error(messages[body.code] || body.error || `Briefing generation is rate limited.${suffix}`);
+    err.code = body.code || 'E_RATE_LIMIT';
+    err.retryAfterSeconds = retryAfter;
+    throw err;
+  }
   if (res.status === 503) {
     // AI disabled (no key). Tag it so the UI can guide to Settings, not Retry.
     const body = await res.json().catch(() => ({}));

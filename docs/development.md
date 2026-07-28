@@ -2,9 +2,9 @@
 
 [Back to the README](../README.md)
 
-BlueTeam.News requires Node 22 or later. The browser code uses vanilla ES modules, so there is no frontend compilation step.
+BlueTeam.News supports Node 22.19 or newer in the Node 22 line, Node 24, and Node 26. The browser code uses vanilla ES modules, so there is no frontend compilation step.
 
-npm 11.18 or later is recommended and pinned in CI so the dependency lifecycle-script allowlist is enforced. Older npm releases can install the project but do not enforce that policy.
+Use the npm bundled with a supported Node release for normal development. CI's policy job separately pins npm 11.18 so the dependency lifecycle-script allowlist is enforced; the runtime matrix intentionally uses bundled npm.
 
 ## Run locally
 
@@ -27,10 +27,11 @@ npm run check:contrast         # WCAG contrast for text tokens
 npm run check:placeholders     # Placeholder slugs in public material
 npm run check:assets           # Referenced assets and package paths
 npm run check:scoring          # Score invariants and gold-band ordering
+npm run check:release          # Version/date/tag consistency across release surfaces
 npm install-scripts ls --json  # Must report no unreviewed dependency scripts (npm 11.18+)
 ```
 
-Run the focused check for the area being changed, then run `npm test` before release.
+Run the focused check for the area being changed, then run `npm test`. The CI policy job runs repository checks once on Linux. The runtime matrix covers Node 22.19, 24, and 26 on Linux; Node 22.19 and 26 on Windows; and Node 26 on Apple Silicon and Intel macOS. Tag builds also require the `vX.Y.Z` tag to match `package.json`, the changelog, the landing page, and the sitemap date.
 
 ## Repository map
 

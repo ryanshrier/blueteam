@@ -26,7 +26,7 @@ RSS/Atom | Google News | CISA KEV | NVD | EPSS | Anthropic
 | `lib/feeds.js` | Feed collection, grouping, classification, selection, and pipeline coordination |
 | `lib/scoring.js` | Weighted score calculation and score evidence |
 | `lib/enrichment.js` | CVE, KEV, EPSS, entity, ATT&CK, article, and indicator enrichment |
-| `lib/net.js` | Outbound networking and SSRF controls |
+| `lib/net.js` | Undici transport, DNS pinning, redirect policy, and SSRF controls |
 | `lib/landscape.js` | Landscape data used by the Wire and Wall |
 | `lib/db.js` | SQLite persistence and FTS5 indexes |
 | `routes/brief.js` | Briefing generation stream, validation, history, and search |
@@ -38,14 +38,14 @@ RSS/Atom | Google News | CISA KEV | NVD | EPSS | Anthropic
 The pipeline runs on demand and on the configured refresh cadence:
 
 1. Fetch configured RSS/Atom sources with bounded concurrency, conditional requests, and per-feed circuit breakers; run the configured news-search sweep.
-2. Group similar stories using TF-IDF cosine similarity and record configured-source diversity.
+2. Group similar stories using TF-IDF cosine similarity and record inferred publisher diversity.
 3. Classify urgency, apply alert-rule boosts and profile overrides, and promote operationally urgent items to Tactical when appropriate.
 4. Pre-enrich candidates with CISA KEV membership, entities, and MITRE ATT&CK tags.
 5. Score recency, source diversity, exploitation, severity, and relevance; apply per-tier floors and per-source caps.
 6. Post-enrich selected signals with NVD CVSS data, article extraction, EPSS, and indicators.
 7. Re-score and sort with verified enrichment evidence.
 
-Each score component remains available to the interface. Source diversity means multiple configured sources covered a story; it is not proof that those sources relied on independent reporting.
+Each score component remains available to the interface. Source diversity is inferred from article domains and source labels across feeds and news search; it is not proof that the publishers relied on independent reporting.
 
 Rolling signal history is stored in SQLite for trends such as actor frequency and headline velocity.
 
@@ -55,12 +55,15 @@ Rolling signal history is stored in SQLite for trends such as actor frequency an
 
 1. grounds the request in the current scored signals and a deterministic KEV facts block;
 2. streams Anthropic output to the browser over server-sent events;
-3. validates required sections such as BLUF, judgments, convergence, and watchlist;
-4. performs one corrective retry after a structural hard failure;
-5. saves the edition as Markdown under `briefs/`; and
-6. indexes it in SQLite FTS5 for search.
+3. checks required sections, citation allowlists, KEV claims, and other source constraints;
+4. performs one corrective retry after a blocking validation failure;
+5. blocks publication while hard trust failures remain, while preserving non-blocking warnings for operator review;
+6. saves the edition as Markdown under `briefs/`; and
+7. indexes it in SQLite FTS5 for search.
 
-Timeout recovery and model fallback are handled by the route. Scheduled-run state prevents duplicate daily generation after a successful edition.
+These checks reduce structural and grounding failures; they do not independently establish that generated prose is factually correct. Timeout recovery and model fallback are handled by the route.
+
+Automatic generation is disabled until enabled in Settings. When enabled, the scheduler uses the same HTTP route as manual generation, persists attempt and outcome state in SQLite, and prevents duplicate daily generation after a successful edition.
 
 ## CTI profile boundary
 

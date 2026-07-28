@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   schedule:
@@ -12,23 +13,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
-        node-version: ['22', '24', '26']
-        include:
-          - os: windows-latest
-            node-version: '22'
-          - os: windows-latest
-            node-version: '26'
-          - os: macos-26
-            node-version: '26'
-          - os: macos-26-intel
-            node-version: '26'
+  policy:
+    name: Repository policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -37,17 +30,14 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: '22.19'
           cache: npm
 
       - name: Pin npm with lifecycle-script policy support
         run: npm install --global npm@11.18.0 --ignore-scripts --no-audit --engine-strict=false
 
-      - name: Verify npm version
-        run: npm --version
-
       - name: Install dependencies
-        run: npm ci --no-audit
+        run: npm ci --strict-allow-scripts --no-audit
 
       - name: Report unreviewed lifecycle scripts
         run: npm install-scripts ls --json
@@ -73,35 +63,8 @@ jobs:
       - name: Check score-model gold bands
         run: npm run check:scoring
 
-      - name: Run tests
-        run: npm test
-
-      - name: Verify package manifest
-        run: npm pack --dry-run
-
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Pin npm with lifecycle-script policy support
-        run: npm install --global npm@11.18.0 --ignore-scripts --no-audit --engine-strict=false
-
-      - name: Verify npm version
-        run: npm --version
-
-      - name: Install dependencies
-        run: npm ci --no-audit
-
-      - name: Report unreviewed lifecycle scripts
-        run: npm install-scripts ls --json
+      - name: Check release metadata
+        run: npm run check:release
 
       - name: Audit full dependency graph
         run: npm audit --audit-level=high
@@ -109,3 +72,48 @@ jobs:
       - name: Audit production dependency graph
         if: ${{ always() }}
         run: npm audit --omit=dev --audit-level=low
+
+  test:
+    name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node-version: ['22.19', '24', '26']
+        include:
+          - os: windows-latest
+            node-version: '22.19'
+          - os: windows-latest
+            node-version: '26'
+          - os: macos-26
+            node-version: '26'
+          - os: macos-26-intel
+            node-version: '26'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies through the documented source workflow
+        run: npm install --no-audit
+
+      - name: Verify the source install preserves the lockfile
+        run: git diff --exit-code -- package-lock.json
+
+      - name: Smoke-test the documented startup command
+        run: npm start
+        env:
+          BLUETEAM_STARTUP_SMOKE: '1'
+          HOST: '127.0.0.1'
+          PORT: '3000'
+          NODE_ENV: test
+
+      - name: Run tests
+        run: npm test

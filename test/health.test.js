@@ -44,7 +44,7 @@ jest.unstable_mockModule('../lib/db.js', () => ({
   getKEVAge: getKEVAgeMock,
 }));
 
-const { healthHandler } = await import('../lib/health.js');
+const { healthHandler, readinessHandler, livenessHandler } = await import('../lib/health.js');
 
 const DEFAULT_CONFIG = { analysisSettings: { refreshMinutes: 10 }, trustedFeeds: [{ url: 'https://a' }, { url: 'https://b' }] };
 
@@ -56,14 +56,17 @@ function makeServer({
 }) {
   const app = express();
   if (authed) app.use((_req, res, next) => { res.locals.authenticated = true; next(); });
-  app.get('/api/health', healthHandler({
+  const options = {
     bootTime: Date.now() - 60_000,
     version: '9.9.9',
     dataDir,
     getAiStatus: () => ({ enabled: false, source: null, masked: null }),
     loopback,
     requireAuthForDetails,
-  }));
+  };
+  app.get('/api/live', livenessHandler);
+  app.get('/api/ready', readinessHandler(options));
+  app.get('/api/health', healthHandler(options));
   return new Promise((resolve) => {
     const server = app.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
@@ -132,6 +135,18 @@ describe('healthHandler', () => {
     expect(res.status).toBe(503);
     expect(body.status).toBe('degraded');
     expect(body.pipeline.stale).toBe(true);
+  });
+
+  test('/live stays 200 while /ready reports a dependency outage', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'failed', b: 'failed' }, search: {} });
+    getRunAgeMsMock.mockReturnValue(31 * 60_000);
+    ctx = await makeServer({ dataDir: dir });
+    const live = await fetch(`${ctx.base}/api/live`);
+    const ready = await fetch(`${ctx.base}/api/ready`);
+    expect(live.status).toBe(200);
+    expect(await live.json()).toEqual({ status: 'ok' });
+    expect(ready.status).toBe(503);
+    expect((await ready.json()).status).toBe('degraded');
   });
 
   test('status is degraded when fewer than half of configured feeds are reachable', async () => {

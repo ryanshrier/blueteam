@@ -4,6 +4,7 @@ export const FIXTURE_CASES = Object.freeze([
   { id: 'wall-loading', label: 'Wall · loading', surface: 'wall' },
   { id: 'wall-stale', label: 'Wall · stale', surface: 'wall' },
   { id: 'wire-loading', label: 'Wire · loading', surface: 'operator' },
+  { id: 'brief-full', label: 'Briefing · full edition', surface: 'operator' },
   { id: 'brief-error', label: 'Briefing · error', surface: 'operator' },
   { id: 'brief-empty', label: 'Briefing · empty', surface: 'operator' },
 ]);

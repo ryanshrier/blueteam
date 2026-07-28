@@ -11,6 +11,83 @@ const BRIEF_TIER_LABELS = Object.freeze({
   3: 'MONITOR',
 });
 
+// The model emits a compact Markdown document, and marked's `breaks:true` mode
+// turns adjacent labeled lines into one <p> separated by <br>s. Normalize those
+// lines once, before either the screen or print presentation touches them, so
+// every surface receives the same field-sized DOM. Keep the list centralized:
+// the old export-only splitter knew about judgments but left Developing and
+// Convergence packed into visually dense, pagination-hostile paragraphs.
+const BRIEF_FIELD_LABELS = new Set([
+  'assessment', 'confidence', 'what happened', 'defender impact', 'impact',
+  'relevance', 'recommended actions', 'decision window', 'the line',
+  'revises if', 'increases if', 'decreases if', 'act now',
+  'trajectory', 'watch criteria', 'the intersection', 'the cascade', 'the move',
+]);
+
+function leadingFieldLabel(html) {
+  const match = String(html || '').match(
+    /^\s*<strong\b[^>]*>\s*([^<]+?)\s*<\/strong>\s*:?[\t ]*/i
+  );
+  return match ? match[1].trim().replace(/:$/, '').toLowerCase() : '';
+}
+
+/**
+ * Split one <br>-packed Markdown block into field-sized HTML fragments.
+ * Unlabelled continuation lines remain attached to the field before them.
+ * Pure/exported so the Markdown-layout contract is testable without jsdom.
+ */
+export function splitPackedBriefFieldHtml(html) {
+  const source = String(html || '');
+  const parts = source.split(/<br\s*\/?>/i);
+  if (parts.length < 2) return [source];
+
+  const recognized = parts.filter(part => BRIEF_FIELD_LABELS.has(leadingFieldLabel(part))).length;
+  if (recognized < 2) return [source];
+
+  const groups = [];
+  for (const part of parts) {
+    if (BRIEF_FIELD_LABELS.has(leadingFieldLabel(part)) || groups.length === 0) {
+      groups.push(part);
+    } else {
+      groups[groups.length - 1] += `<br>${part}`;
+    }
+  }
+  return groups.filter(part => part.trim());
+}
+
+/**
+ * Apply the packed-field normalization to a rendered Briefing DOM.
+ * Paragraphs are safe to split into sibling paragraphs; list items deliberately
+ * stay intact because metadata and "The line" may be attached to the final
+ * action item and are lifted by the existing semantic passes below.
+ */
+export function normalizePackedBriefFields(root) {
+  if (!root?.querySelectorAll) return;
+  root.querySelectorAll('p').forEach(p => {
+    const fields = splitPackedBriefFieldHtml(p.innerHTML);
+    if (fields.length > 1) {
+      for (const html of fields) {
+        const field = p.cloneNode(false);
+        field.innerHTML = html;
+        const label = leadingFieldLabel(html);
+        if (label) {
+          field.classList.add('brief-field');
+          field.dataset.briefField = label;
+        }
+        p.before(field);
+      }
+      p.remove();
+      return;
+    }
+
+    const label = leadingFieldLabel(p.innerHTML);
+    if (BRIEF_FIELD_LABELS.has(label)) {
+      p.classList.add('brief-field');
+      p.dataset.briefField = label;
+    }
+  });
+}
+
 function parseFieldSegment(html) {
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
@@ -123,7 +200,19 @@ function editionDate(container) {
     .slice(0, 2)
     .map(el => el.textContent || '')
     .join(' ');
-  return (mastheadText.match(/\b\d{4}-\d{2}-\d{2}\b/) || [])[0] || '';
+  return editionDateLabel(mastheadText);
+}
+
+export function editionDateLabel(value) {
+  const text = String(value || '');
+  const iso = (text.match(/\b\d{4}-\d{2}-\d{2}\b/) || [])[0];
+  if (iso) return iso;
+  // Current prompts commonly render the ISO date from their input as a
+  // reader-friendly dateline. Preserve that label so an archived "Current
+  // shift" never loses the date that gives the relative window meaning.
+  return (text.match(
+    /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b/i
+  ) || [])[0] || '';
 }
 
 function isRelativeWindow(value) {
@@ -156,6 +245,10 @@ export function decisionWindowDuplicatesAction(windowValue, actionValues = []) {
 }
 
 export function applySemanticStyling(container) {
+  // Establish one field structure for the live view, streaming snapshots, and
+  // the printable edition before any later pass moves metadata or callouts.
+  normalizePackedBriefFields(container);
+
   // The generated dateline is visual masthead copy, not a subsection. Keep its
   // established H3 styling while removing the otherwise skipped heading level
   // from assistive-technology navigation (the briefing title remains the H1).
@@ -456,7 +549,7 @@ export function extractSections(container) {
     if (el.tagName === 'H2') {
       current = {
         id: el.id,
-        label: el.textContent.trim().replace(/\s+/g, ' '),
+        label: tocLabel(el.textContent),
         secondary: el.classList.contains('brief-exec-heading'),
         children: [],
       };
@@ -466,4 +559,17 @@ export function extractSections(container) {
     }
   }
   return sections;
+}
+
+/** Stable, compact navigation labels for a rail much narrower than the article. */
+export function tocLabel(value) {
+  const label = String(value || '').trim().replace(/\s+/g, ' ');
+  if (/^EXECUTIVE SUMMARY\b/i.test(label)) return 'Shift decisions';
+  if (/^KEY JUDGMENTS\b/i.test(label)) return 'Key judgments';
+  if (/^DEVELOPING SITUATIONS\b/i.test(label)) return 'Developing';
+  if (/^CONVERGENCE\b/i.test(label)) return 'Convergence';
+  if (/^WATCHLIST\b/i.test(label)) return 'Watchlist';
+  if (/^WEEK IN REVIEW\b/i.test(label)) return 'Week in review';
+  if (/^SOURCES\b/i.test(label)) return 'Sources';
+  return label;
 }

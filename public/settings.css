@@ -142,6 +142,29 @@
 .btn-ghost-sm:disabled { opacity: 0.45; cursor: not-allowed; }
 .settings-feedback { min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--type-xs); color: var(--text-secondary); }
 
+.schedule-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.schedule-toggle input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--brand); flex: none; }
+.schedule-toggle span { display: grid; gap: 3px; min-width: 0; }
+.schedule-toggle strong { color: var(--text-primary); font-size: var(--type-sm); }
+.schedule-toggle small { color: var(--text-tertiary); font-size: var(--type-xs); line-height: 1.45; }
+.schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.schedule-grid label { min-width: 0; }
+.schedule-grid .settings-input { width: 100%; }
+.schedule-grid .settings-label { margin-bottom: 8px; }
+
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .seg-btn {
   display: inline-flex; align-items: center;
@@ -233,6 +256,7 @@
   .settings-card { padding: 18px 16px; }
   .key-input-wrap { flex-basis: 100%; min-width: 0; }
   .settings-row-actions { align-items: flex-start; flex-wrap: wrap; }
+  .schedule-grid { grid-template-columns: 1fr; }
   .seg { display: flex; width: 100%; }
   .seg-btn { flex: 1 1 0; justify-content: center; min-width: 0; padding-inline: 6px; }
 }

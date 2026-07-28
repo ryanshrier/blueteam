@@ -48,6 +48,7 @@ function renderWallFixture(id, fixtures) {
 
 function renderOperatorFixture(id) {
   const content = id === 'wire-loading' ? renderWireLoading()
+    : id === 'brief-full' ? renderBriefFull()
     : id === 'brief-error' ? renderBriefError()
     : renderBriefEmpty();
 
@@ -85,5 +86,86 @@ function renderBriefEmpty() {
   return `<section aria-label="Briefing empty fixture">
     <p class="view-kicker">Daily threat landscape</p><h1 class="view-title">Briefing</h1>
     <div class="briefing-sheet" style="margin-top:24px"><div class="empty-state"><p class="empty-kicker">Daily threat landscape</p><h2>No briefing yet</h2><p>Generate the first edition after signals arrive.</p><button class="btn-primary" type="button">Generate Briefing</button></div></div>
+  </section>`;
+}
+
+function renderBriefFull() {
+  const tocOpen = matchMedia('(max-width: 560px)').matches ? '' : ' open';
+  return `<section class="briefing-view" aria-label="Full briefing fixture">
+    <header class="briefing-masthead">
+      <div>
+        <p class="view-kicker">Daily threat landscape</p>
+        <h1 class="view-title">Briefing</h1>
+        <p class="view-sub">Jul 24, 2026 · 9 min read · Sonnet 5 · est. $0.20</p>
+        <p class="brief-provenance">AI-synthesized from sourced signals — verify before acting</p>
+      </div>
+      <div class="briefing-toolbar">
+        <span class="search-input">Search archive…</span>
+        <span class="history-select">Jul 24, 2026 · brief 2</span>
+        <button class="btn-ghost brief-export-btn" type="button">Edition</button>
+      </div>
+    </header>
+    <div class="briefing-layout">
+      <aside class="briefing-toc" aria-label="Briefing sections">
+        <details class="briefing-toc-disclosure"${tocOpen}>
+          <summary class="briefing-toc-label">
+            <span class="toc-label-wide">In this briefing</span>
+            <span class="toc-label-compact">Jump to section</span>
+          </summary>
+          <ul>
+            <li><a class="active" aria-current="location" href="#fixture-shift">Shift decisions</a></li>
+            <li><a href="#fixture-judgments">Key judgments</a></li>
+            <li><a href="#fixture-developing">Developing</a></li>
+            <li><a href="#fixture-convergence">Convergence</a></li>
+            <li><a href="#fixture-watchlist">Watchlist</a></li>
+            <li><a href="#fixture-sources">Sources</a></li>
+          </ul>
+        </details>
+      </aside>
+      <article class="briefing-sheet">
+        <div class="brief-content">
+          <h1>BlueTeam.News</h1>
+          <h3 role="presentation">Threat Landscape Briefing · July 24, 2026 · Friday</h3>
+          <div class="bluf"><p>Actively exploited edge vulnerabilities remain the immediate priority; verify the exposed inventory and patch state before the next shift.</p></div>
+          <h2 class="brief-exec-heading" id="fixture-shift">Executive summary — shift decisions</h2>
+          <ul>
+            <li><strong>Threat:</strong> Active exploitation is concentrated on internet-facing management planes.</li>
+            <li><strong>Exposure:</strong> Confirm every externally reachable appliance and collaboration server.</li>
+            <li><strong>Required decisions:</strong> Infrastructure verifies patch state; detection engineering hunts the published indicators.</li>
+          </ul>
+          <h2 id="fixture-judgments">Key judgments</h2>
+          <div class="brief-judgment-card h1">
+            <h3>SharePoint exploit chain remains active</h3>
+            <div class="brief-judgment-meta"><span class="c-chip h1">Act now</span><span class="bjm-confidence">Almost certain (95–99%)</span><span class="bjm-window" data-edition-date="July 24, 2026">Current shift</span></div>
+            <p class="brief-field" data-brief-field="assessment"><strong>Assessment:</strong> Attackers continue to exploit unremediated on-premises servers after fixes became available.</p>
+            <p class="brief-field" data-brief-field="what happened"><strong>What happened:</strong> Multiple related vulnerabilities were added to an authoritative exploited-vulnerability catalog, with remediation dates now due.</p>
+            <p class="brief-field" data-brief-field="defender impact"><strong>Defender impact:</strong> Verify patch level and review web-server logs for post-exploitation activity.</p>
+            <div class="the-line">Unpatched collaboration servers are being compromised now.</div>
+            <div class="c-action"><span class="c-action-label">Act now</span><span class="c-action-text">Infrastructure — verify or isolate every affected server — recommended target July 25, 2026.</span></div>
+            <a class="brief-judgment-link" href="#">View signals →</a>
+          </div>
+          <div class="brief-judgment-card h2">
+            <h3>Management-plane bypass raises administrator risk</h3>
+            <div class="brief-judgment-meta"><span class="c-chip h2">Prepare</span><span class="bjm-confidence">Highly likely (80–95%)</span><span class="bjm-window">72 hours</span></div>
+            <p class="brief-field" data-brief-field="assessment"><strong>Assessment:</strong> A confirmed authentication bypass makes exposed consoles a high-value entry point.</p>
+            <p class="brief-field" data-brief-field="what happened"><strong>What happened:</strong> The vendor confirmed limited exploitation and issued a patch.</p>
+            <div class="the-line">Management consoles should never be treated as ordinary public services.</div>
+          </div>
+          <h2 id="fixture-developing">Developing situations</h2>
+          <h3>Autonomous agents move into post-exploitation</h3>
+          <p class="brief-field"><strong>Trajectory:</strong> Accelerating as unattended tooling becomes easier to deploy.</p>
+          <p class="brief-field"><strong>Watch criteria:</strong> Escalate on a second independently confirmed enterprise intrusion.</p>
+          <h2 id="fixture-convergence">Convergence</h2>
+          <h3>Identity and unmanaged edge access converge</h3>
+          <p class="brief-field"><strong>The intersection:</strong> Both paths exploit controls that sit outside normal endpoint visibility.</p>
+          <p class="brief-field"><strong>The cascade:</strong> Unlogged access becomes persistence, then privileged movement.</p>
+          <p class="brief-field"><strong>The move:</strong> Prepare — bring edge-device identity and logs into the same review.</p>
+          <h2 id="fixture-watchlist">Watchlist — through July 27, 2026</h2>
+          <ul><li>A new exploited vulnerability joins the catalog.</li><li>A vendor expands the affected-product range.</li></ul>
+          <h2 class="brief-sources-heading" id="fixture-sources">Sources</h2>
+          <ol class="brief-sources-appendix"><li><a class="source-link" href="#">Vendor advisory, Jul 24, 2026</a><span class="brief-cite-host"> — example.test</span></li></ol>
+        </div>
+      </article>
+    </div>
   </section>`;
 }

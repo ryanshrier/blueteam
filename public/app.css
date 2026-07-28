@@ -337,13 +337,25 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
   font-size: var(--type-sm);
 }
 .briefing-toc-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-family: var(--font-mono);
   font-size: var(--type-2xs);
   letter-spacing: 0.18em;
   color: var(--text-muted);
   text-transform: uppercase;
-  margin-bottom: 10px;
+  margin: 0;
+  padding: 0 0 6px;
+  cursor: pointer;
+  list-style: none;
 }
+.briefing-toc-label::-webkit-details-marker { display: none; }
+.briefing-toc-label::after { content: '+'; font-size: var(--type-sm); letter-spacing: 0; }
+.briefing-toc-disclosure[open] > .briefing-toc-label { margin-bottom: 4px; }
+.briefing-toc-disclosure[open] > .briefing-toc-label::after { content: '−'; }
+.toc-label-compact { display: none; }
 .briefing-toc ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .briefing-toc a {
   display: block;
@@ -391,7 +403,7 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--brand-text);
-  margin: 40px 0 16px;   /* 8px grid [C-rhythm] */
+  margin: 34px 0 14px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border-subtle);
   /* TOC links must not land the heading under the sticky header. */
@@ -441,15 +453,24 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
   border: 0;
   border-top: 1px solid var(--border-subtle);
   border-radius: 0;
-  padding: 24px 0 8px;
-  margin: 20px 0;
+  padding: 20px 0 14px;
+  margin: 0;
   box-shadow: none;
+}
+.brief-judgment-card + .brief-judgment-card { margin-top: 6px; }
+.brief-content h2 + .brief-judgment-card {
+  border-top: 0;
+  padding-top: 4px;
 }
 .brief-judgment-card > h3:first-child { margin-top: 0; }
 .brief-content p { margin: 0 0 16px; color: var(--text-secondary); }
+.brief-content p.brief-field { margin-bottom: 11px; }
 .brief-content strong { color: var(--text-primary); }
 .brief-content li { color: var(--text-secondary); margin-bottom: 7px; line-height: 1.5; }
-.brief-content hr { border: none; border-top: 1px solid var(--border-subtle); margin: 28px 0; }
+.brief-content ul, .brief-content ol { margin: 0 0 14px; padding-left: 1.4em; }
+/* Markdown rules carry source structure only; semantic headings already provide
+   the one visible separator for each section. */
+.brief-content hr { display: none; }
 .brief-content code {
   font-family: var(--font-mono);
   font-size: 0.88em;
@@ -576,10 +597,12 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
   text-underline-offset: 2px;
   background: var(--wash);
 }
-.brief-sources-heading {
+.brief-content h2.brief-sources-heading {
   margin: 32px 0 12px;
   padding-top: 18px;
   border-top: 1px solid var(--border);
+  border-bottom: 0;
+  padding-bottom: 0;
   font-family: var(--font-mono);
   font-size: var(--type-xs);
   font-weight: 700;
@@ -600,14 +623,15 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
 .brief-cite-host { color: var(--text-muted); }   /* quiet verifier host after the rich citation */
 
 /* "The line" — the human-judgment soundbite a leader repeats. NOT a box: a
-   typographic pull-quote (serif italic + a leading quote mark), carrying its
+   typographic pull-quote carried by serif italic type, with no generated quote
+   glyph (archived model output may already include quotation marks), carrying its
    weight with type, not chrome. No border, no wash — those are reserved for the
    one blue-ruled act directive, so the memo reads on rules + voice, not container
    stacks (box-soup de-clutter). */
 .brief-content .the-line {
   position: relative;
-  margin: 24px 0 20px;
-  padding-left: 1.5em;
+  margin: 18px 0 16px;
+  padding-left: 0;
   font-style: italic;
   font-weight: 500;   /* a per-card soundbite, subordinate to the BLUF lede [C-primacy] */
   font-size: var(--type-lg);
@@ -615,11 +639,7 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
   color: var(--text-primary);
 }
 .brief-content .the-line::before {
-  content: '\201C';
-  position: absolute; left: 0; top: 0.02em;
-  font-style: normal; font-weight: 700;
-  font-size: 1.9em; line-height: 1;   /* seat the glyph so it doesn't optically clip the first line on tight measures [C-quote] */
-  color: var(--text-muted);
+  content: none;
 }
 
 /* Streaming cursor with a life/done boundary: while the model writes, a
@@ -1616,7 +1636,7 @@ a.source-link:hover { border-bottom-color: var(--brand-text); }
     overflow: visible;
     margin-bottom: 18px;
   }
-  .briefing-toc-label { margin-bottom: 8px; }
+  .briefing-toc-disclosure[open] > .briefing-toc-label { margin-bottom: 4px; }
   .briefing-toc ul {
     width: 100%; min-width: 0; max-width: 100%;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1676,6 +1696,9 @@ a.source-link:hover { border-bottom-color: var(--brand-text); }
   .brief-content .bluf { padding-top: 12px; margin: 12px 0 24px; }
   .brief-content .bluf::before { margin-bottom: 8px; }
   .brief-content .bluf p { font-size: clamp(19px, 5.4vw, 22px); line-height: 1.32; }
+  .toc-label-wide { display: none; }
+  .toc-label-compact { display: inline; }
+  .briefing-toc ul { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
 
 @media (max-width: 430px) {
@@ -1684,7 +1707,6 @@ a.source-link:hover { border-bottom-color: var(--brand-text); }
   .wordmark { font-size: 8px; letter-spacing: 0.08em; padding-inline: 1px; }
   .nav-btn { padding-inline: 5px; }
   .header-right { gap: 3px; }
-  .briefing-toc ul { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .briefing-toc a { min-height: 34px; padding-block: 6px; }
   .wire-item-desc { display: none; }
   .wire-copy-link, .wire-mark-read, .wire-dismiss { width: 36px; height: 36px; }
@@ -1776,15 +1798,20 @@ a.source-link:hover { border-bottom-color: var(--brand-text); }
 }
 .help-close:hover { color: var(--text-primary); border-color: var(--hairline-strong); }
 
-/* ── Brief export overlay — an in-app print surface ──
-   Reliable where a popup window is not: a same-origin iframe holds the warm-paper
-   broadsheet, controls sit OUTSIDE it (so the printed page is clean), and Print
-   prints the iframe's own document directly. */
+/* ── Brief export overlay — an in-app preview surface ──
+   A native modal dialog makes the app inert while a same-origin iframe previews
+   the white edition. Print/PDF creates a top-level print document from the
+   explicit click; controls remain outside the artifact. */
 .np-overlay {
   position: fixed; inset: 0; z-index: 200;
-  display: flex; flex-direction: column;
-  background: rgba(7, 9, 14, 0.82);
+  width: 100vw; height: 100dvh; max-width: none; max-height: none;
+  margin: 0; padding: 0; border: 0;
+  flex-direction: column;
+  background: var(--bg-primary); color: var(--text-primary);
 }
+.np-overlay:not([open]) { display: none; }
+.np-overlay[open] { display: flex; }
+.np-overlay::backdrop { background: rgba(7, 9, 14, 0.82); }
 .np-overlay-bar {
   flex: none; display: flex; align-items: center; justify-content: space-between;
   gap: 16px; padding: 12px 18px;
@@ -1806,16 +1833,7 @@ a.source-link:hover { border-bottom-color: var(--brand-text); }
 .np-ov-btn:hover { color: var(--text-primary); border-color: var(--hairline-strong); }
 .np-ov-btn.primary { background: var(--brand); border-color: var(--brand); color: var(--ink-on-brand); }
 .np-ov-btn.primary:hover { filter: brightness(1.08); color: var(--ink-on-brand); }
-/* Download demoted to a quiet secondary link — Print / Save-as-PDF is the path now. [A3] */
-.np-ov-link {
-  font-family: var(--font-sans); font-size: var(--type-xs); font-weight: 500;
-  background: none; border: none; padding: 8px 4px; cursor: pointer;
-  color: var(--text-muted); text-decoration: underline; text-underline-offset: 2px;
-  white-space: nowrap;
-  transition: color var(--fast) var(--ease);
-}
-.np-ov-link:hover { color: var(--text-secondary); }
-.np-frame { flex: 1; width: 100%; border: none; background: #d7d2c5; }
+.np-frame { flex: 1; width: 100%; border: none; background: #e5e7eb; }
 
 /* Keep the printable page dominant on small screens. The iframe owns the paper
    layout, so the app overlay compacts only its own chrome and preserves every
@@ -1824,7 +1842,6 @@ a.source-link:hover { border-bottom-color: var(--brand-text); }
   .np-overlay-bar { gap: 10px; padding: 8px 10px; }
   .np-overlay-actions { gap: 6px; }
   .np-ov-btn { padding: 7px 11px; font-size: var(--type-xs); }
-  .np-ov-link { padding: 7px 3px; font-size: var(--type-2xs); }
 }
 
 @media (max-width: 560px) {
@@ -1842,12 +1859,9 @@ a.source-link:hover { border-bottom-color: var(--brand-text); }
 }
 
 @media (max-width: 430px) {
-  /* Short visual labels prevent wrapping; the original DOM text remains the
-     accessible button name. HTML stays visibly secondary to the primary PDF path. */
-  .np-ov-print,
-  .np-ov-download { font-size: 0; }
+  /* Preserve the full accessible name while keeping the visible label compact. */
+  .np-ov-print { font-size: 0; }
   .np-ov-print::after { content: 'Print / PDF'; font-size: var(--type-xs); }
-  .np-ov-download::after { content: 'HTML'; font-size: var(--type-2xs); }
   .np-ov-close { padding-inline: 10px; }
 }
 

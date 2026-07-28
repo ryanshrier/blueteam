@@ -17,6 +17,13 @@ export function initShortcuts() {
   on('mode-changed', (mode) => { if (mode !== 'wall') lastNonWallMode = mode; });
 }
 
+// Native <dialog>.showModal() supplies modal accessibility semantics without
+// reflecting aria-modal="true" into the DOM. Treat either representation as an
+// active modal so global shortcuts never navigate or start generation behind it.
+export function hasActiveModal(doc = document) {
+  return Boolean(doc?.querySelector?.('dialog[open], [aria-modal="true"]'));
+}
+
 function isTypingContext(target) {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
@@ -36,7 +43,7 @@ function handleKeydown(e) {
   // G-chords, or Ctrl/Command+Enter open a second overlay or start generation
   // behind the printable-edition/help dialog. The dialog's own handler retains
   // Escape and Tab trapping.
-  if (document.querySelector('[aria-modal="true"]')) return;
+  if (hasActiveModal(document)) return;
 
   if (isTypingContext(e.target)) return;
   const state = getState();

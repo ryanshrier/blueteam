@@ -21,8 +21,8 @@ jest.unstable_mockModule('../lib/net.js', () => ({
 const { initDB, closeDB, getMeta } = await import('../lib/db.js');
 const { dispatchAlerts, dispatchBriefWebhook } = await import('../lib/alerts.js');
 
-function okResponse(status = 200) {
-  return { ok: status >= 200 && status < 300, status };
+function okResponse(status = 200, cancel = jest.fn()) {
+  return { ok: status >= 200 && status < 300, status, body: { cancel } };
 }
 
 function headline(overrides = {}) {
@@ -116,9 +116,11 @@ describe('dispatchAlerts', () => {
   });
 
   test('a non-2xx response leaves the key UNPERSISTED so a transient failure retries', async () => {
-    safeFetchMock.mockResolvedValue(okResponse(500));
+    const cancel = jest.fn();
+    safeFetchMock.mockResolvedValue(okResponse(500, cancel));
     await dispatchAlerts([headline()], configWithWebhook());
     expect(getMeta('alert_sent_keys')).toBeNull();
+    expect(cancel).toHaveBeenCalledTimes(1);
 
     // Next run, same title, now succeeds — must actually retry (not think it already sent).
     safeFetchMock.mockResolvedValue(okResponse(200));
@@ -300,5 +302,15 @@ describe('dispatchBriefWebhook', () => {
   test('a thrown fetch never propagates', async () => {
     safeFetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
     await expect(dispatchBriefWebhook(brief(), { analysisSettings: { webhook: { url: 'https://hooks.example.com/x', events: 'brief' } } })).resolves.toBeUndefined();
+  });
+
+  test('cancels a non-2xx brief webhook body before returning', async () => {
+    const cancel = jest.fn();
+    safeFetchMock.mockResolvedValue(okResponse(503, cancel));
+    await dispatchBriefWebhook(
+      brief(),
+      { analysisSettings: { webhook: { url: 'https://hooks.example.com/x', events: 'brief' } } },
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,11 +1,13 @@
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, mkdtempSync, rmSync, statSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   initDB, closeDB, archiveHeadlines, getArchivedHeadlines, getDB,
   bulkInsertKEV, getKEVSet, getRecentKEV, countKEVAddedToday,
   saveBriefMeta, getBriefMeta, titleKey, indexBrief, searchBriefs,
+  backfillBriefSearch, getExternalCache, setExternalCache, pruneExternalCache,
+  completeScheduledBriefJob, getScheduledBriefJob,
 } from '../lib/db.js';
 
 describe('SQLite private file permissions', () => {
@@ -44,6 +46,34 @@ describe('brief_meta — publication freshness', () => {
   });
 });
 
+describe('scheduled brief job completion ledger', () => {
+  beforeEach(() => initDB(':memory:'));
+  afterEach(() => closeDB());
+
+  test('is idempotent for one immutable job binding and rejects remapping', () => {
+    const completion = {
+      jobKey: 'daily-brief:2026-07-12',
+      editionDate: '2026-07-12',
+      timezone: 'America/Chicago',
+      filename: 'brief-2026-07-12-00.md',
+      completedAt: '2026-07-12T10:01:00.000Z',
+    };
+    expect(completeScheduledBriefJob(completion)).toMatchObject({
+      job_key: completion.jobKey,
+      edition_date: completion.editionDate,
+      timezone: completion.timezone,
+      filename: completion.filename,
+      completed_at: completion.completedAt,
+    });
+    expect(completeScheduledBriefJob({ ...completion, completedAt: '2026-07-12T10:02:00.000Z' }))
+      .toEqual(getScheduledBriefJob(completion.jobKey));
+    expect(() => completeScheduledBriefJob({
+      ...completion,
+      filename: 'brief-2026-07-12-01.md',
+    })).toThrow('already bound');
+  });
+});
+
 describe('brief_search idempotent indexing', () => {
   beforeEach(() => initDB(':memory:'));
   afterEach(() => closeDB());
@@ -54,6 +84,59 @@ describe('brief_search idempotent indexing', () => {
     expect(searchBriefs('"unique"', 20)).toHaveLength(1);
     expect(searchBriefs('"old"', 20)).toHaveLength(0);
     expect(searchBriefs('"new"', 20)).toHaveLength(1);
+  });
+
+  test('startup reconciliation reindexes edited files and removes deleted files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wf-brief-search-'));
+    try {
+      const kept = join(dir, 'brief-2026-07-12.md');
+      const deleted = join(dir, 'brief-2026-07-11.md');
+      writeFileSync(kept, 'first searchable phrase');
+      writeFileSync(deleted, 'obsolete searchable phrase');
+
+      expect(backfillBriefSearch(dir)).toEqual({ indexed: 2, removed: 0 });
+      expect(searchBriefs('"first"', 20)).toHaveLength(1);
+      expect(searchBriefs('"obsolete"', 20)).toHaveLength(1);
+
+      writeFileSync(kept, 'replacement searchable phrase');
+      rmSync(deleted);
+      expect(backfillBriefSearch(dir)).toEqual({ indexed: 1, removed: 1 });
+      expect(searchBriefs('"first"', 20)).toHaveLength(0);
+      expect(searchBriefs('"replacement"', 20)).toHaveLength(1);
+      expect(searchBriefs('"obsolete"', 20)).toHaveLength(0);
+
+      expect(backfillBriefSearch(dir)).toEqual({ indexed: 0, removed: 0 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('external egress cache', () => {
+  beforeEach(() => initDB(':memory:'));
+  afterEach(() => closeDB());
+
+  test('round-trips a fresh cache entry with validators', () => {
+    setExternalCache('article:abc', 'cached body', {
+      ttlMs: 60_000,
+      etag: '"v1"',
+      lastModified: 'Tue, 28 Jul 2026 12:00:00 GMT',
+    });
+    expect(getExternalCache('article:abc')).toMatchObject({
+      body: 'cached body',
+      etag: '"v1"',
+      last_modified: 'Tue, 28 Jul 2026 12:00:00 GMT',
+      expired: false,
+    });
+  });
+
+  test('hides expired entries by default and prunes old rows', () => {
+    setExternalCache('expired', 'old', { ttlMs: 1 });
+    getDB().prepare("UPDATE external_cache SET expires_at = datetime('now', '-8 days') WHERE cache_key = 'expired'").run();
+    expect(getExternalCache('expired')).toBeNull();
+    expect(getExternalCache('expired', { allowExpired: true })?.expired).toBe(true);
+    expect(pruneExternalCache(7)).toBe(1);
+    expect(getExternalCache('expired', { allowExpired: true })).toBeNull();
   });
 });
 
