@@ -2,7 +2,7 @@ import { describe, test, expect } from '@jest/globals';
 import {
   buildPages, JUDG_MAX, CONV_MAX, splitBluf, capitalizeFirst, cvssFrom, cleanSummary,
   relAge, relDayAge, isFresh, formatBriefDateStamp, isBriefStale, staleAfterSec,
-  executiveSummaryModel,
+  executiveSummaryModel, actionDisplayModel,
 } from '../public/modules/wall/wall-format.js';
 
 describe('buildPages', () => {
@@ -51,6 +51,16 @@ describe('buildPages', () => {
       { kev: { recent: [{ cve: 'CVE-1' }] }, signals: [{ title: 'x' }] },
     );
     expect(pages.map(p => p.kind)).toEqual(['bluf', 'kev', 'wire']);
+  });
+
+  test('puts an explicit Briefing-load error ahead of still-usable live pages', () => {
+    const pages = buildPages(
+      null,
+      { kev: { recent: [{ cve: 'CVE-1' }] }, signals: [{ title: 'x' }] },
+      { briefLoadError: true },
+    );
+    expect(pages.map(p => p.kind)).toEqual(['brieferror', 'kev', 'wire']);
+    expect(buildPages(null, {}, { briefLoadError: true })).toEqual([{ kind: 'brieferror' }]);
   });
 
   test('respects a custom judgMax/convMax override', () => {
@@ -149,6 +159,75 @@ describe('splitBluf', () => {
     const text = 'Hi — this whole clause is actually one long headline-length sentence here. Then a second sentence follows with detail.';
     const { headline } = splitBluf(text);
     expect(headline).not.toBe('Hi');
+  });
+
+  test('splits a long compound BLUF at a conjunction even when its em dash arrives too late', () => {
+    const lead = 'Five actively exploited enterprise vulnerabilities have already passed their federal remediation deadlines';
+    const text = `${lead}, while a coordinated utility attack adds a second immediate decision surface for the shift — verify every exposed asset before handoff.`;
+    expect(splitBluf(text)).toEqual({
+      headline: lead,
+      deck: 'While a coordinated utility attack adds a second immediate decision surface for the shift — verify every exposed asset before handoff.',
+    });
+  });
+
+  test('uses a bounded word break for very long single-clause prose rather than silently clamping the whole thesis', () => {
+    const text = 'A deliberately long synthetic thesis with no punctuation keeps extending through multiple operational qualifiers and contextual details so the cover still has to preserve the complete thought for a watchfloor reader who must understand the evidence before acting';
+    const result = splitBluf(text);
+    expect(result.headline.length).toBeGreaterThanOrEqual(70);
+    expect(result.headline.length).toBeLessThanOrEqual(120);
+    expect(result.deck.length).toBeGreaterThan(0);
+    expect(`${result.headline} ${result.deck}`.toLowerCase()).toBe(text.toLowerCase());
+  });
+
+  test('keeps a long continuous BLUF grammatical across its typographic word break', () => {
+    const text = 'Five actively exploited, KEV-listed SharePoint vulnerabilities and a Check Point management-plane bypass are already past their federal remediation deadlines, while an unattributed attack disabled water utilities across 30+ Minnesota communities — verify patch status today.';
+    expect(splitBluf(text)).toEqual({
+      headline: 'Five actively exploited, KEV-listed SharePoint vulnerabilities and a Check Point management-plane bypass',
+      deck: 'are already past their federal remediation deadlines, while an unattributed attack disabled water utilities across 30+ Minnesota communities — verify patch status today.',
+    });
+  });
+});
+
+describe('actionDisplayModel', () => {
+  test('separates owner, imperative, and the exact recommended target', () => {
+    expect(actionDisplayModel({
+      owner: null,
+      imperative: 'Infrastructure — verify every exposed SharePoint server and isolate any unpatched instance — recommended target July 29, 2026.',
+    })).toEqual({
+      owner: 'Infrastructure',
+      imperative: 'verify every exposed SharePoint server and isolate any unpatched instance',
+      target: 'July 29, 2026',
+    });
+  });
+
+  test('preserves a legacy explicit owner and does not invent a target', () => {
+    expect(actionDisplayModel({
+      owner: 'Detection Engineering',
+      imperative: 'Hunt the published indicators before shift handoff.',
+    })).toEqual({
+      owner: 'Detection Engineering',
+      imperative: 'Hunt the published indicators before shift handoff.',
+      target: '',
+    });
+  });
+
+  test('leaves unstructured prose intact and handles absent actions', () => {
+    expect(actionDisplayModel({ imperative: 'Verify the synthetic exposure now.' })).toEqual({
+      owner: '',
+      imperative: 'Verify the synthetic exposure now.',
+      target: '',
+    });
+    expect(actionDisplayModel({ imperative: 'Verify source: synthetic gateway inventory.' })).toEqual({
+      owner: '',
+      imperative: 'Verify source: synthetic gateway inventory.',
+      target: '',
+    });
+    expect(actionDisplayModel({ imperative: 'Verify the recommended target system.' })).toEqual({
+      owner: '',
+      imperative: 'Verify the recommended target system.',
+      target: '',
+    });
+    expect(actionDisplayModel(null)).toEqual({ owner: '', imperative: '', target: '' });
   });
 });
 
@@ -258,16 +337,33 @@ describe('formatBriefDateStamp', () => {
 });
 
 describe('isBriefStale', () => {
-  test('false for a brief dated today', () => {
-    const today = new Date().toISOString().slice(0, 10);
-    expect(isBriefStale(today)).toBe(false);
+  test('a date-only brief remains current through the end of its local calendar day', () => {
+    // This is >24 hours after UTC midnight in western time zones, which is the
+    // precise case Date.parse(date-only) used to mark stale incorrectly.
+    const lateLocal = new Date(2026, 6, 28, 23, 59, 59).getTime();
+    expect(isBriefStale('2026-07-28', null, lateLocal)).toBe(false);
   });
-  test('true once the brief date is more than ~24h in the past', () => {
-    const old = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
-    expect(isBriefStale(old)).toBe(true);
+
+  test('a date-only brief becomes stale on a later local calendar day', () => {
+    const nextLocalDay = new Date(2026, 6, 29, 0, 0, 1).getTime();
+    expect(isBriefStale('2026-07-28', null, nextLocalDay)).toBe(true);
   });
+
+  test('prefers the real generation timestamp and applies the 24-hour window', () => {
+    const now = Date.parse('2026-07-29T01:00:00.000Z');
+    // The older edition label does not override a recent persisted generation.
+    expect(isBriefStale('2026-07-27', '2026-07-28T02:00:00.000Z', now)).toBe(false);
+    expect(isBriefStale('2026-07-28', '2026-07-28T00:59:59.000Z', now)).toBe(true);
+  });
+
+  test('falls back to local date semantics when the generation timestamp is invalid', () => {
+    const lateLocal = new Date(2026, 6, 28, 23, 59, 59).getTime();
+    expect(isBriefStale('2026-07-28', 'not a timestamp', lateLocal)).toBe(false);
+  });
+
   test('unparseable input is never stale (fails closed to "don\'t warn on garbage")', () => {
     expect(isBriefStale('not a date')).toBe(false);
+    expect(isBriefStale('2026-02-30')).toBe(false);
   });
 });
 

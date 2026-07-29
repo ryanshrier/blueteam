@@ -384,7 +384,7 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
 
 /* Briefing typography — the one long-form, exec-readable surface gets the
    editorial serif (Newsreader) and a ~68ch measure, matching the Wall + landing. */
-.brief-content { font-family: var(--font-serif); font-optical-sizing: auto; font-size: 16px; line-height: var(--leading-relaxed); max-width: var(--measure-editorial); margin: 0 auto; }
+.brief-content { font-family: var(--font-serif); font-optical-sizing: auto; font-size: 16px; line-height: var(--leading-body); max-width: var(--measure-editorial); margin: 0 auto; }
 /* The page masthead already shows the edition name ("Briefing"); the brief's own
    `# {title}` h1 directly below is a duplicate. Suppress it on screen and let the
    dateline lead. (Export strips both and builds its own nameplate.) [B4] */
@@ -400,6 +400,7 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
   font-family: var(--font-mono);
   font-size: var(--type-sm);
   font-weight: 700;
+  line-height: 1.35;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--brand-text);
@@ -415,10 +416,10 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
   margin-top: 24px; border-bottom: none; padding-bottom: 0;
 }
 .brief-content h3 {
-  font-size: var(--type-md);
+  font-size: 18px;
   font-weight: 700;
   margin: 24px 0 8px;   /* 8px grid [C-rhythm] */
-  line-height: 1.35;
+  line-height: 1.3;
 }
 /* TOC-jump / deep-link anchors land below the sticky header. Keep the destination
    visibly focused after navigation so keyboard and low-vision readers do not lose
@@ -432,15 +433,28 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
 }
 /* Judgment metadata: tier, confidence determination, and decision window. */
 .brief-judgment-meta {
-  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  font-family: var(--font-mono); font-size: var(--type-xs); letter-spacing: 0.02em;
+  display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.45; letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
-  margin: 2px 0 14px;
+  margin: 3px 0 15px;
 }
-.brief-judgment-meta .c-chip { margin-right: 0; }
+.brief-judgment-meta .c-chip { margin-right: 0; font-size: 11px; }
 .bjm-confidence { color: var(--text-secondary); }
-.bjm-window { color: var(--text-muted); }
-.bjm-window::before { content: '⟶'; margin-right: 6px; opacity: 0.6; }
+.bjm-window {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text-muted);
+}
+.bjm-window-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.bjm-window-label::after { content: ' ·'; }
+.bjm-window-value { color: var(--text-secondary); }
 .bjm-window[data-edition-date]::after {
   content: ' · as of ' attr(data-edition-date);
   color: var(--text-muted);
@@ -462,11 +476,20 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
   border-top: 0;
   padding-top: 4px;
 }
-.brief-judgment-card > h3:first-child { margin-top: 0; }
+.brief-judgment-card > h3:first-child {
+  max-width: 58ch;
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: clamp(21px, 1.2vw, 23px);
+  line-height: 1.24;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
 .brief-content p { margin: 0 0 16px; color: var(--text-secondary); }
 .brief-content p.brief-field { margin-bottom: 11px; }
 .brief-content strong { color: var(--text-primary); }
-.brief-content li { color: var(--text-secondary); margin-bottom: 7px; line-height: 1.5; }
+.brief-content li { color: var(--text-secondary); margin-bottom: 7px; line-height: var(--leading-normal); }
 .brief-content ul, .brief-content ol { margin: 0 0 14px; padding-left: 1.4em; }
 /* Markdown rules carry source structure only; semantic headings already provide
    the one visible separator for each section. */
@@ -507,7 +530,7 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
 }
 .brief-content .bluf p {
   color: var(--text-primary); margin: 0; max-width: 60ch;
-  font-size: clamp(22px, 2.6vw, var(--type-xl)); font-weight: 500; line-height: 1.38;   /* always larger than the-line (20px) — the BLUF is the lede [C-primacy] */
+  font-size: clamp(22px, 2.3vw, 27px); font-weight: 500; line-height: 1.36;   /* remains the lede without dwarfing the judgment headlines */
 }
 .brief-content .bluf::before {
   content: 'Bottom Line Up Front';
@@ -634,7 +657,7 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
   padding-left: 0;
   font-style: italic;
   font-weight: 500;   /* a per-card soundbite, subordinate to the BLUF lede [C-primacy] */
-  font-size: var(--type-lg);
+  font-size: 19px;
   line-height: 1.46;
   color: var(--text-primary);
 }
@@ -726,6 +749,26 @@ html { scroll-padding-top: calc(var(--header-height) + 16px); }
   border-radius: var(--radius);
   padding: 18px 22px;
   color: var(--on-h1-soft);
+}
+.recoverable-draft-notice strong {
+  color: var(--text-primary);
+  font-family: var(--font-serif);
+  font-size: var(--type-lg);
+}
+.recoverable-draft-caution { color: var(--text-secondary); }
+.recoverable-draft {
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid var(--hairline-strong);
+}
+.recoverable-draft-label {
+  margin: 0 0 18px;
+  color: var(--on-h1-soft);
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 .search-results {
@@ -1695,7 +1738,12 @@ a.source-link:hover { border-bottom-color: var(--brand-text); }
   .briefing-sheet { padding: 20px 18px; }
   .brief-content .bluf { padding-top: 12px; margin: 12px 0 24px; }
   .brief-content .bluf::before { margin-bottom: 8px; }
-  .brief-content .bluf p { font-size: clamp(19px, 5.4vw, 22px); line-height: 1.32; }
+  .brief-content .bluf p { font-size: clamp(21px, 5.4vw, 22px); line-height: 1.32; }
+  .brief-content h3 { font-size: 18px; }
+  .brief-judgment-card > h3:first-child {
+    font-size: 20px;
+    line-height: 1.27;
+  }
   .toc-label-wide { display: none; }
   .toc-label-compact { display: inline; }
   .briefing-toc ul { grid-template-columns: minmax(0, 1fr); gap: 2px; }

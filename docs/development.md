@@ -26,6 +26,8 @@ npm run check:cti-scope        # CTI scope in release code and public copy
 npm run check:contrast         # WCAG contrast for text tokens
 npm run check:placeholders     # Placeholder slugs in public material
 npm run check:assets           # Referenced assets and package paths
+npm run check:landing          # Landing HTML, links, semantics, metadata, and CSP
+npm run check:landing:render   # Desktop and phone browser smoke test
 npm run check:scoring          # Score invariants and gold-band ordering
 npm run check:release          # Version/date/tag consistency across release surfaces
 npm install-scripts ls --json  # Must report no unreviewed dependency scripts (npm 11.18+)
@@ -49,6 +51,23 @@ Run the focused check for the area being changed, then run `npm test`. The CI po
 | `docs/` | GitHub Pages site and project reference guides |
 
 See [Architecture](architecture.md) for the runtime flow and CTI profile boundary.
+
+## GitHub Pages security boundary
+
+The landing page uses a restrictive document-level Content Security Policy and
+`no-referrer`, makes no third-party requests, and versions its published assets
+with the release number. GitHub Pages does not allow this repository to set
+arbitrary response headers. If the custom domain is moved behind an edge or
+reverse proxy, also set `Content-Security-Policy` with `frame-ancestors 'none'`,
+`Permissions-Policy`, `X-Content-Type-Options: nosniff`, and an equivalent
+`Referrer-Policy` response header. Re-run both landing checks after changing the
+page, its metadata, or its asset paths.
+
+Publish the matching GitHub release before the Pages update so the linked
+version badge and release notes resolve atomically. After deployment, verify the
+canonical URL and social card against the production page, inspect the live
+response headers, and submit `https://blueteam.news/sitemap.xml` through the
+configured search-engine webmaster tools.
 
 ## Keyboard shortcuts
 

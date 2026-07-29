@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.3 — 2026-07-28
+## 1.0.3 — 2026-07-29
 
 ### Briefing reliability and control
 
@@ -12,6 +12,8 @@
   an edition only after its complete structure and trust checks pass.
 - Apply one generation deadline across model setup and streaming, and return
   distinct rate-limit and evidence errors to the interface.
+- Include bounded non-blocking validation warnings in completed-Briefing
+  webhook notifications so downstream reviewers receive the same caveats.
 
 ### Interface, editions, and printing
 
@@ -20,6 +22,9 @@
 - Print Editions as one white document with safer pagination instead of tan,
   section-fragmented pages.
 - Remove the redundant HTML export path and retain the reviewed print/PDF flow.
+- Separate each judgment's analytic tier from its operator decision window,
+  label that timing explicitly on the Wall and Briefing, and reserve **Act now**
+  for actions that the assessment actually marks for the current shift.
 
 ### Runtime, data, and security
 
@@ -37,6 +42,9 @@
 
 - Split operational, configuration, architecture, API, and development detail
   out of the README and refine the GitHub Pages landing page.
+- Scope no-key claims to Wall and Wire, state the Anthropic requirement for
+  Briefing generation, and describe the project as a source-run Node service
+  rather than an operating-system-specific installer.
 - Expand automated coverage for Node 26, scheduler races, publication gates,
   caching, transport security, settings, rendering, and print behavior.
 

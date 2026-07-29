@@ -9,7 +9,7 @@ BlueTeam.News uses `config.json` for product behavior, the Settings page for ope
 | Block | Controls |
 |---|---|
 | `organization` | Optional team profile, sector, watch topics, and regions used by the Briefing |
-| `horizons` | Names, time windows, and questions for the Tactical, Operational, and Strategic tiers |
+| `horizons` | Names, analytic horizon ranges, and questions for the Tactical, Operational, and Strategic tiers |
 | `trustedFeeds` | RSS/Atom sources, including tier, weight, and deep-extraction settings |
 | `alertRules` | Regular expressions that boost matching headlines |
 | `analysisSettings` | Models, token budgets, refresh cadence, freshness windows, tier weights, scoring debug, and webhook delivery |
@@ -36,10 +36,10 @@ Copy `.env.example` to `.env` for local use. Do not commit populated secret file
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | No | Enables Briefing generation. `ANTHROPIC_API_KEY_PRIMARY` is accepted as an alias. |
+| `ANTHROPIC_API_KEY` | For Briefing | Required for Briefing generation; the Wall and Wire do not require it. `ANTHROPIC_API_KEY_PRIMARY` is accepted as an alias. |
 | `ANTHROPIC_API_KEY_SECONDARY` | No | Fallback key used after an authentication failure. |
 | `NVD_API_KEY` | No | Raises the NVD CVE lookup limit from 5 to 50 requests per 30 seconds. [Request a free key.](https://nvd.nist.gov/developers/request-an-api-key) |
-| `BLUETEAM_USER_AGENT` | No | Overrides the feed-reader identity, for example to add an operator contact URL. |
+| `BLUETEAM_USER_AGENT` | No | Overrides the default outbound identity, `BlueTeam.News/<version> (+https://blueteam.news)`, for example to add an operator contact URL. |
 | `PORT` | No | HTTP port. Default: `3000`. |
 | `HOST` | No | Bind address. Default: `127.0.0.1`. A non-loopback value requires `API_SECRET`. |
 | `PUBLIC_BASE_URL` | No | Canonical HTTP(S) origin for feed metadata and Briefing webhook links. Credentials, paths, queries, and fragments are rejected. |
@@ -53,7 +53,7 @@ Copy `.env.example` to `.env` for local use. Do not commit populated secret file
 
 `TRUST_PROXY` controls whether Express honors `X-Forwarded-*` headers for client IPs, rate limiting, and request-derived feed URLs. Without it, direct clients cannot use those headers to spoof proxy information. `PUBLIC_BASE_URL` takes precedence for emitted feed URLs.
 
-An environment Anthropic key takes precedence over one saved in Settings.
+An environment Anthropic key takes precedence over one saved in Settings. Verifying a key sends a minimal request to Anthropic and may consume billable tokens. Briefing generation sends the configured organization context and selected public-source evidence described in [Network behavior](operations.md#network-behavior).
 
 Generate an `API_SECRET` with Node so the command works on every supported operating system:
 
@@ -85,6 +85,8 @@ Automatic generation is disabled by default. Its saved `briefSchedule` block con
 | `retryMinutes` | `15` | Integer from 1 to 1440 |
 | `maxAttempts` | `3` | Integer from 1 to 10 |
 
+With `"missedRun": "catch-up"`, an enabled schedule queues one delayed attempt after startup when today's configured time has passed; it does not replay multiple missed days. `"skip"` records today's initial missed run as skipped and arms the next scheduled day. An attempt chain that already began can resume after restart within the saved daily attempt limit regardless of the initial missed-run policy.
+
 Settings files from older releases that lack this block resolve to the disabled defaults in memory. Adding an API key does not enable the schedule. Schedule changes take effect without a server restart, and separate `briefScheduleStatus` data such as the next attempt, last outcome, and daily attempt count is returned to a trusted Settings client. Scheduled calls are billable; see [Operations and deployment](operations.md#briefing-schedule-and-cost).
 
 ## Alert webhook
@@ -109,7 +111,7 @@ An empty `url` disables delivery. Set:
 - `events` to `alerts`, `brief`, or `both`; and
 - `PUBLIC_BASE_URL` if recipients need links to a public deployment.
 
-Alert delivery includes only signals matching an `alertRule`, and each story is sent at most once. Briefing delivery includes the edition date, BLUF, key judgments, and a deep link.
+Alert delivery includes only signals matching an `alertRule`, and each story is sent at most once. Briefing delivery includes the edition date, BLUF, key judgments, a deep link, and—when present—the total review-warning count plus bounded warning text.
 
 Outbound webhook requests use the same SSRF protections as other fetches. Delivery is best-effort: failure is logged but never blocks a pipeline refresh or Briefing save.
 

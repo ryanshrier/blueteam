@@ -1,5 +1,10 @@
 import { renderKevSection } from '/public/modules/wall/wall-kev.js';
+import { judgmentHtml, wirePageHtml } from '/public/modules/wall/wall-view.js';
+import { renderMarkdown } from '/public/modules/core/markdown.js';
+import { applySemanticStyling } from '/public/modules/briefing/brief-renderer.js';
+import { exportBriefNewspaper } from '/public/modules/briefing/brief-export.js';
 import { FIXTURE_CASES, buildFixtureData } from './fixture-cases.js';
+import { MARKETING_BRIEF } from './marketing-brief.js';
 
 const params = new URLSearchParams(location.search);
 const requested = params.get('state') || FIXTURE_CASES[0].id;
@@ -16,28 +21,54 @@ document.getElementById('fixtureNav').innerHTML = FIXTURE_CASES.map(item => {
 }).join('');
 
 const root = document.getElementById('fixtureRoot');
-root.innerHTML = fixture.surface === 'wall'
+root.innerHTML = fixture.surface === 'showcase'
+  ? renderBriefShowcase()
+  : fixture.surface === 'edition'
+  ? renderBriefEditionCapture()
+  : fixture.surface === 'wall'
   ? renderWallFixture(fixture.id, data)
   : renderOperatorFixture(fixture.id);
+
+if (fixture.id === 'brief-showcase' || fixture.id === 'brief-edition-capture') {
+  setupBriefShowcase();
+}
+if (fixture.id === 'brief-full') setupBriefFull();
 
 function renderWallFixture(id, fixtures) {
   const stale = id === 'wall-stale';
   const loading = id === 'wall-loading';
-  const kev = fixtures[id] || fixtures['kev-one'];
+  const judgment = id === 'wall-judgment';
+  const wire = id === 'wall-wire-four';
+  const fixtureData = fixtures[id] || fixtures['kev-one'];
   const body = loading
     ? `<div class="nb-empty nb-opening">
         <span class="nb-opening-kicker">Preparing the watchfloor</span>
         <strong>Assembling today’s edition</strong>
         <span>Signals will surface as the feeds respond.</span>
       </div>`
-    : renderKevSection(kev);
+    : judgment
+      ? `<section class="nb-section nb-judgment-page">${judgmentHtml(fixtureData, '2026-07-28')}</section>`
+      : wire
+        ? wirePageHtml(fixtureData.signals)
+      : renderKevSection(fixtureData);
+
+  const warn = stale || loading;
+  const integrity = loading
+    ? 'AWAITING FIRST RUN'
+    : stale
+      ? 'FEEDS 35/42 · UPDATED 2H'
+      : 'FEEDS 42/42 · UPDATED NOW';
+  const liveWord = loading ? 'AWAITING' : stale ? 'STALE' : 'LIVE';
 
   return `<div class="wall-layer">
     <main class="wall news-mode${stale ? ' nb-stale' : ''}" aria-label="${fixture.label}">
       <header class="nb-folio">
-        <div class="nb-folio-id"><span class="nb-wordmark">BLUETEAM.NEWS</span><span>SUN, JUL 12</span></div>
-        <div class="nb-folio-slug">${loading ? 'CYBER DEFENSE INTELLIGENCE' : 'KEV · NEWLY ADDED'}</div>
-        <div class="nb-folio-status"><span>FEEDS ${stale ? '35/42 · UPDATED 2H' : '42/42 · UPDATED NOW'}</span><span class="nb-live${stale ? ' warn' : ''}"><i class="nb-live-dot"></i>${stale ? 'STALE' : 'LIVE'}</span><b>10:24</b></div>
+        <div class="nb-folio-id"><span class="nb-wordmark">BLUETEAM.NEWS</span></div>
+        <span class="nb-folio-slug">${loading ? 'CYBER DEFENSE INTELLIGENCE' : judgment ? 'KEY JUDGMENT · TUE, JUL 28' : wire ? 'THE WIRE' : 'KEV · NEWLY ADDED'}</span>
+        <div class="nb-folio-status">
+          <span class="nb-integrity" data-status="${warn ? 'warn' : 'live'}">${integrity}</span>
+          <span class="nb-folio-live"><span class="nb-live-dot" data-status="${warn ? 'warn' : 'live'}"></span>${liveWord} · <span>10:24</span></span>
+        </div>
       </header>
       <div class="nb-dwell"><i style="transform:scaleX(.62)"></i></div>
       <div class="nb-body" id="nbBody">${body}</div>
@@ -51,12 +82,13 @@ function renderOperatorFixture(id) {
     : id === 'brief-full' ? renderBriefFull()
     : id === 'brief-error' ? renderBriefError()
     : renderBriefEmpty();
+  const activeSurface = id === 'wire-loading' ? 'wire' : 'briefing';
 
   return `<div class="fixture-operator">
     <header class="app-header">
       <div class="header-inner">
         <span class="wordmark"><span>BLUETEAM.NEWS</span></span>
-        <nav class="header-nav" aria-label="Main navigation"><span class="nav-btn">BRIEFING</span><span class="nav-btn active">WIRE</span><span class="nav-btn">WALL</span></nav>
+        <nav class="header-nav" aria-label="Main navigation"><span class="nav-btn${activeSurface === 'briefing' ? ' active' : ''}">BRIEFING</span><span class="nav-btn${activeSurface === 'wire' ? ' active' : ''}">WIRE</span><span class="nav-btn">WALL</span></nav>
       </div>
     </header>
     <main class="fixture-shell-main"><div class="fixture-state">${content}</div></main>
@@ -89,20 +121,164 @@ function renderBriefEmpty() {
   </section>`;
 }
 
+function renderBriefEditionCapture() {
+  return `<main class="fixture-edition-capture" aria-label="Synthetic Print Edition capture">
+    <div class="fixture-edition-source" aria-hidden="true">
+      <div class="brief-content" id="showcaseBriefContent"></div>
+    </div>
+    <div class="showcase-edition-mount" id="showcaseEditionMount"></div>
+  </main>`;
+}
+
+function renderBriefShowcase() {
+  return `<main class="fixture-showcase" aria-label="Synthetic Briefing and Print Edition showcase">
+    <header class="showcase-intro">
+      <div>
+        <p>Synthetic product demo · The Briefing + Print Edition</p>
+        <h1>One Briefing. Two formats.</h1>
+      </div>
+      <span>Read it on screen. Open the paper-first Edition, print, or save a PDF — without another model call.</span>
+    </header>
+    <div class="showcase-grid">
+      <section class="showcase-surface">
+        <header><strong>Briefing</strong><span>digital reader</span></header>
+        <div class="showcase-screen">
+          <div class="showcase-app-canvas">
+            <div class="fixture-operator">
+              <header class="app-header">
+                <div class="header-inner">
+                  <span class="wordmark"><span>BLUETEAM.NEWS</span></span>
+                  <nav class="header-nav" aria-label="Main navigation">
+                    <span class="nav-btn active">BRIEFING</span><span class="nav-btn">WIRE</span><span class="nav-btn">WALL</span>
+                  </nav>
+                </div>
+              </header>
+              <main class="fixture-shell-main">
+                <section class="briefing-view">
+                  <header class="briefing-masthead">
+                    <div>
+                      <p class="view-kicker">Synthetic demo · no live data</p>
+                      <h1 class="view-title">Briefing</h1>
+                      <p class="view-sub">Jul 24, 2026 · 8 min read · Sonnet 5 · demo</p>
+                      <p class="brief-provenance">Fictional fixture for product demonstration — not operational intelligence</p>
+                    </div>
+                    <div class="briefing-toolbar">
+                      <span class="search-input">Search archive…</span>
+                      <span class="history-select">Jul 24, 2026 · demo</span>
+                      <button class="btn-ghost brief-export-btn" type="button">Print edition</button>
+                    </div>
+                  </header>
+                  <div class="briefing-layout">
+                    <aside class="briefing-toc" aria-label="Briefing sections">
+                      <details class="briefing-toc-disclosure" open>
+                        <summary class="briefing-toc-label"><span class="toc-label-wide">In this briefing</span></summary>
+                        <ul>
+                          <li><a class="active" aria-current="location" href="#section-executive-summary">Shift decisions</a></li>
+                          <li><a href="#section-key-judgments">Key judgments</a></li>
+                          <li><a href="#section-developing-situations">Developing</a></li>
+                          <li><a href="#section-convergence">Convergence</a></li>
+                          <li><a href="#section-watchlist">Watchlist</a></li>
+                          <li><a href="#section-sources">Sources</a></li>
+                        </ul>
+                      </details>
+                    </aside>
+                    <article class="briefing-sheet">
+                      <div class="brief-content" id="showcaseBriefContent"></div>
+                    </article>
+                  </div>
+                </section>
+              </main>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="showcase-surface">
+        <header><strong>Print Edition</strong><span>paper · PDF</span></header>
+        <div class="showcase-edition-mount" id="showcaseEditionMount"></div>
+      </section>
+    </div>
+  </main>`;
+}
+
+function setupBriefShowcase() {
+  const content = document.getElementById('showcaseBriefContent');
+  const mount = document.getElementById('showcaseEditionMount');
+  if (!content || !mount) return;
+
+  content.innerHTML = renderMarkdown(MARKETING_BRIEF);
+  applySemanticStyling(content);
+
+  exportBriefNewspaper({
+    contentEl: content,
+    filename: 'brief-2026-07-24-demo.md',
+    metaText: 'Jul 24, 2026 · 8 min read · Sonnet 5 · synthetic demo',
+    model: 'claude-sonnet-5',
+    readMins: 8,
+    warnings: [],
+  });
+
+  const overlay = document.querySelector('.np-overlay');
+  const frame = overlay?.querySelector('.np-frame');
+  if (!overlay || !frame) return;
+  frame.remove();
+  if (overlay.open && typeof overlay.close === 'function') overlay.close();
+  overlay.remove();
+  frame.className = 'showcase-edition-frame';
+  frame.title = 'Synthetic BlueTeam.News Print Edition';
+  mount.appendChild(frame);
+
+  const markReady = async () => {
+    try {
+      const captureStyle = frame.contentDocument?.createElement('style');
+      if (captureStyle && frame.contentDocument?.head) {
+        captureStyle.textContent = 'html{scrollbar-width:none}::-webkit-scrollbar{display:none}';
+        frame.contentDocument.head.appendChild(captureStyle);
+      }
+      await Promise.all([
+        document.fonts?.ready,
+        frame.contentDocument?.fonts?.ready,
+      ].filter(Boolean));
+      document.body.dataset.showcaseReady = 'true';
+    } catch {
+      document.body.dataset.showcaseError = 'font-load';
+    }
+  };
+  frame.addEventListener('load', markReady, { once: true });
+  if (frame.contentDocument?.readyState === 'complete') void markReady();
+}
+
+function setupBriefFull() {
+  const content = document.getElementById('briefFullContent');
+  if (!content) return;
+
+  content.innerHTML = renderMarkdown(MARKETING_BRIEF);
+  applySemanticStyling(content);
+
+  const markReady = async () => {
+    try {
+      await document.fonts?.ready;
+      document.body.dataset.briefReady = 'true';
+    } catch {
+      document.body.dataset.briefError = 'font-load';
+    }
+  };
+  void markReady();
+}
+
 function renderBriefFull() {
   const tocOpen = matchMedia('(max-width: 560px)').matches ? '' : ' open';
-  return `<section class="briefing-view" aria-label="Full briefing fixture">
+  return `<section class="briefing-view" aria-label="Synthetic full Briefing fixture">
     <header class="briefing-masthead">
       <div>
-        <p class="view-kicker">Daily threat landscape</p>
+        <p class="view-kicker">Synthetic demo · no live data</p>
         <h1 class="view-title">Briefing</h1>
-        <p class="view-sub">Jul 24, 2026 · 9 min read · Sonnet 5 · est. $0.20</p>
-        <p class="brief-provenance">AI-synthesized from sourced signals — verify before acting</p>
+        <p class="view-sub">Jul 24, 2026 · 8 min read · Sonnet 5 · demo</p>
+        <p class="brief-provenance">Fictional fixture for product demonstration — not operational intelligence</p>
       </div>
       <div class="briefing-toolbar">
         <span class="search-input">Search archive…</span>
-        <span class="history-select">Jul 24, 2026 · brief 2</span>
-        <button class="btn-ghost brief-export-btn" type="button">Edition</button>
+        <span class="history-select">Jul 24, 2026 · demo</span>
+        <button class="btn-ghost brief-export-btn" type="button">Print edition</button>
       </div>
     </header>
     <div class="briefing-layout">
@@ -123,7 +299,7 @@ function renderBriefFull() {
         </details>
       </aside>
       <article class="briefing-sheet">
-        <div class="brief-content">
+        <div class="brief-content" id="briefFullContent">
           <h1>BlueTeam.News</h1>
           <h3 role="presentation">Threat Landscape Briefing · July 24, 2026 · Friday</h3>
           <div class="bluf"><p>Actively exploited edge vulnerabilities remain the immediate priority; verify the exposed inventory and patch state before the next shift.</p></div>
@@ -136,7 +312,7 @@ function renderBriefFull() {
           <h2 id="fixture-judgments">Key judgments</h2>
           <div class="brief-judgment-card h1">
             <h3>SharePoint exploit chain remains active</h3>
-            <div class="brief-judgment-meta"><span class="c-chip h1">Act now</span><span class="bjm-confidence">Almost certain (95–99%)</span><span class="bjm-window" data-edition-date="July 24, 2026">Current shift</span></div>
+            <div class="brief-judgment-meta"><span class="c-chip h1">Tactical</span><span class="bjm-confidence">Almost certain (95–99%)</span><span class="bjm-window" data-edition-date="July 24, 2026"><span class="bjm-window-label">Decision</span><span class="bjm-window-value">This shift</span></span></div>
             <p class="brief-field" data-brief-field="assessment"><strong>Assessment:</strong> Attackers continue to exploit unremediated on-premises servers after fixes became available.</p>
             <p class="brief-field" data-brief-field="what happened"><strong>What happened:</strong> Multiple related vulnerabilities were added to an authoritative exploited-vulnerability catalog, with remediation dates now due.</p>
             <p class="brief-field" data-brief-field="defender impact"><strong>Defender impact:</strong> Verify patch level and review web-server logs for post-exploitation activity.</p>
@@ -146,7 +322,7 @@ function renderBriefFull() {
           </div>
           <div class="brief-judgment-card h2">
             <h3>Management-plane bypass raises administrator risk</h3>
-            <div class="brief-judgment-meta"><span class="c-chip h2">Prepare</span><span class="bjm-confidence">Highly likely (80–95%)</span><span class="bjm-window">72 hours</span></div>
+            <div class="brief-judgment-meta"><span class="c-chip h2">Operational</span><span class="bjm-confidence">Highly likely (80–95%)</span><span class="bjm-window" data-edition-date="July 24, 2026"><span class="bjm-window-label">Decision</span><span class="bjm-window-value">Within 72 hours</span></span></div>
             <p class="brief-field" data-brief-field="assessment"><strong>Assessment:</strong> A confirmed authentication bypass makes exposed consoles a high-value entry point.</p>
             <p class="brief-field" data-brief-field="what happened"><strong>What happened:</strong> The vendor confirmed limited exploitation and issued a patch.</p>
             <div class="the-line">Management consoles should never be treated as ordinary public services.</div>

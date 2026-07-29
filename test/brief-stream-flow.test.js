@@ -89,4 +89,38 @@ describe('startGeneration completion boundary', () => {
     expect(reader.read).toHaveBeenCalledTimes(1);
     expect(reader.cancel).toHaveBeenCalledTimes(1);
   });
+
+  test('emits the authoritative recoverable draft from a publication-gate error', async () => {
+    const draft = '# Unpublished replacement\n\nReview only.';
+    const reader = {
+      read: jest.fn().mockResolvedValueOnce({
+        done: false,
+        value: encode(
+          'data: {"text":"Discarded attempt"}\n\n'
+          + `data: ${JSON.stringify({
+            error: 'Draft was not published because the output-token limit was reached.',
+            code: 'E_PARTIAL_GENERATION',
+            draft,
+            validation: { warnings: ['Output limit'], hardFail: false, trustFail: false },
+          })}\n\n`
+        ),
+      }),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    };
+    generateBriefMock.mockResolvedValue({ body: { getReader: () => reader } });
+
+    const errors = [];
+    capture('generation-error', errors);
+
+    await startGeneration();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: 'E_PARTIAL_GENERATION',
+      accumulatedText: 'Discarded attempt',
+      recoverableDraft: draft,
+      validation: { warnings: ['Output limit'], hardFail: false, trustFail: false },
+    });
+    expect(getState()).toMatchObject({ isGenerating: false, currentBrief: null });
+  });
 });

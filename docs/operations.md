@@ -2,7 +2,7 @@
 
 [Back to the README](../README.md)
 
-BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and the Wire require no API key. The default listener is loopback-only.
+BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and the Wire require no API key. AI-generated Briefings require the operator's Anthropic API key. The default listener is loopback-only.
 
 ## Start, stop, and restart
 
@@ -15,7 +15,7 @@ npm start
 
 Open `http://127.0.0.1:3000`. The first feed refresh begins after startup; later refreshes use `analysisSettings.refreshMinutes`.
 
-Stop an interactive process with `Ctrl+C`. On `SIGINT` or `SIGTERM`, the server stops schedules and new HTTP work immediately. Shutdown normally retains a 30-second guard; if a Briefing is already generating, it keeps SQLite and outbound pools available for the supported generation maximum (up to 600 seconds) plus a bounded three-minute publication-cleanup margin. Restart it with `npm start`.
+Stop an interactive process with `Ctrl+C`. On `SIGINT` or `SIGTERM`, the server stops schedules and new HTTP work immediately. Shutdown normally retains a 30-second guard; if a Briefing is already generating, it keeps SQLite and outbound pools available for the supported generation maximum (up to 600 seconds) plus a bounded three-minute completion-cleanup margin. Restart it with `npm start`.
 
 Only run one process against a repository's `data/` directory. Concurrent server processes are not a supported clustering model.
 
@@ -44,15 +44,19 @@ Manual Briefing generation is available whenever a valid Anthropic key is config
 | Enabled | Off | Allows unattended, billable generation |
 | Time | `05:00` | 24-hour wall-clock time |
 | Timezone | Server local | Server timezone or an IANA timezone |
-| Missed run | Skip | Skip or catch up after the server was offline |
+| Missed run | Skip | Skip today's initial missed run, or queue one delayed catch-up attempt after startup |
 | Retry interval | 15 minutes | Delay after a failed attempt |
 | Maximum attempts | 3 | Daily automatic-attempt limit |
 
-Schedule state and outcomes persist in SQLite, so a restart does not erase the attempt count or duplicate a successful daily run. If no AI key is available, an enabled schedule waits and reports that state instead of enabling itself or issuing a provider call.
+Schedule state and outcomes persist in SQLite, so a restart does not erase the attempt count or duplicate a successful daily run. Catch-up applies only to today's missed scheduled time and does not replay multiple missed days. An attempt chain that already began can resume after restart within the saved daily attempt limit, even when the initial missed-run policy is **Skip**. If no Anthropic key is available, an enabled schedule waits and reports that state instead of enabling itself or issuing a provider call.
 
-Manual and automatic requests share the same generation route, cooldown, rate limits, validation, storage, and webhook path. Route-level request limits use process-local fixed windows and reset when the server restarts; the separate automatic-schedule attempt count persists in SQLite. Each provider request is billed to the configured Anthropic account. Corrective retries, timeout recovery, and model or key fallback can make additional provider calls, so these limits are guardrails rather than spending caps. Review Anthropic account limits and billing separately.
+Manual and automatic requests share the same generation route, cooldown, rate limits, validation, storage, and webhook path. Route-level request limits use process-local fixed windows and reset when the server restarts; the separate automatic-schedule attempt count persists in SQLite. Key verification sends a minimal provider request, and every provider request may consume billable tokens on the configured Anthropic account. Corrective retries, timeout recovery, and model or key fallback can make additional provider calls, so these limits are guardrails rather than spending caps. Review Anthropic account limits and billing separately.
 
-Completed editions report the model, token counts, and an estimated cost. Estimates can differ from the provider invoice.
+If the provider stops at the configured output-token limit, BlueTeam.News uses the existing one-retry allowance at lower thinking effort without raising the configured cap. If that retry also exhausts the limit, the app returns the recoverable draft but does not archive, index, dispatch, or announce it as complete. Raise `analysisSettings.maxTokens` in `config.json` or reduce the Briefing scope before trying again.
+
+Completed Briefings report the model, token counts, and an estimated cost. Estimates can differ from the provider invoice.
+
+Opening a completed Briefing's **Print Edition** reuses that saved assessment. The Print Edition is rendered locally in the browser, and printing or saving it as a PDF uses the browser's print pipeline. Viewing or exporting the Print Edition does not make another Anthropic request.
 
 ## State and backups
 
@@ -182,7 +186,9 @@ The self-hosted application sends no product telemetry. Expected outbound reques
 
 Briefing generation sends Anthropic the configured team profile, audience, sector, watch topics, and regions; selected public-source titles, descriptions or short excerpts, source labels, publication dates, URLs, and enrichment facts; and compact topic labels from recent Briefings for continuity. Key verification sends a minimal provider request.
 
-Webhook payloads contain the configured event's fields. Signal alerts include matched titles, links, sources, tier and score metadata, and KEV status. Briefing notifications include the edition date, BLUF, judgment titles and confidence, and an optional link. Webhook failure is logged and does not block refreshes or Briefing storage.
+Feed, article, and enrichment requests use the default User-Agent `BlueTeam.News/<version> (+https://blueteam.news)`. This identifies the application to source operators but does not report usage back to BlueTeam.News. Set `BLUETEAM_USER_AGENT` to use an operator-controlled identity, such as one containing a contact URL.
+
+Webhook payloads contain the configured event's fields. Signal alerts include matched titles, links, sources, tier and score metadata, and KEV status. Briefing notifications include the edition date, BLUF, judgment titles and confidence, an optional link, and—when present—the total review-warning count plus bounded warning text. Webhook failure is logged and does not block refreshes or Briefing storage.
 
 On POSIX systems, startup requests mode `0700` for `data/` and `briefs/` and mode `0600` for sensitive settings, Briefing, SQLite, WAL, and SHM files. Windows retains the account's ACL behavior. Local state is not encrypted; protect the operating-system account, filesystem, and backups.
 

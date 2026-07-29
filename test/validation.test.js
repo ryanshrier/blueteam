@@ -9,6 +9,7 @@ import {
   findUnallowlistedMarkdownUrls, containsRawHtmlAnchor, stripRawHtmlAnchors,
 } from '../lib/grounding.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
+import { WATCHLIST_MIN_ITEMS } from '../lib/brief-schema.js';
 
 function makeBrief({ bluf = true, judgments = true, convergence = true, watchlist = true, horizons = 3, pad = true } = {}) {
   let text = '# THREAT LANDSCAPE BRIEFING\n';
@@ -17,11 +18,14 @@ function makeBrief({ bluf = true, judgments = true, convergence = true, watchlis
   if (judgments) {
     text += '\n## KEY JUDGMENTS\n';
     for (let i = 1; i <= horizons; i++) {
-      text += `\n### Signal ${i} — [Horizon ${i}] Something happened\n**Assessment:** It matters.\n**Confidence:** Likely (55-80%).\n**The line:** A sharp line.\n**Decision window:** Next 30 days.\n`;
+      text += `\n### Signal ${i} — [Horizon ${i}] Something happened\n**Assessment:** It matters.\n**Confidence:** Likely (55-80%).\n**The line:** A sharp line.\n**Decision window:** 30 days.\n`;
     }
   }
   if (convergence) text += '\n## CONVERGENCE\n\n### Two things intersect\n**The intersection:** Where they meet.\n**The move:** What to do.\n';
-  if (watchlist) text += '\n## WATCHLIST — NEXT 72 HOURS\n\n- Observable thing\n';
+  if (watchlist) {
+    text += '\n## WATCHLIST — NEXT 72 HOURS\n\n';
+    for (let i = 1; i <= WATCHLIST_MIN_ITEMS; i++) text += `- Observable thing ${i}\n`;
+  }
   if (pad) text += '\n' + 'Detail sentence for length. '.repeat(80);
   return text;
 }
@@ -70,6 +74,38 @@ describe('validateBrief', () => {
     expect(result.warnings.join(' ')).toMatch(/chars/);
   });
 
+  test('an underfilled Watchlist hard-fails as a truncated required section', () => {
+    const brief = makeBrief().replace(
+      /## WATCHLIST[^\n]*\n[\s\S]*$/,
+      '## WATCHLIST — NEXT 72 HOURS\n\n'
+        + '- CISA adds a CVE tied to the incident to KEV.\n'
+        + '- A vendor publishes an identifier for the exploit.\n'
+        + '- A major Linux distribution ships a fixed kernel package address'
+    );
+    const result = validateBrief(brief);
+
+    expect(result.warnings).toContain(
+      `Watchlist has 3 item(s) — expected at least ${WATCHLIST_MIN_ITEMS}`
+    );
+    expect(hasHardFail(result.warnings)).toBe(true);
+  });
+
+  test('accepts the minimum number of concise Watchlist bullets without terminal punctuation', () => {
+    const brief = makeBrief().replace(
+      /## WATCHLIST[^\n]*\n[\s\S]*$/,
+      '## WATCHLIST — NEXT 72 HOURS\n\n'
+        + '- Vendor ships patch\n'
+        + '- CISA updates KEV\n'
+        + '- Exploit appears in telemetry\n'
+        + '- Affected range expands\n'
+        + '- Mitigation guidance changes'
+    );
+    const result = validateBrief(brief);
+
+    expect(result.warnings.join(' ')).not.toMatch(/Watchlist has/);
+    expect(hasHardFail(result.warnings)).toBe(false);
+  });
+
   test('the retired "Revises if" field is not required', () => {
     expect(validateBrief(makeBrief()).warnings.join(' ')).not.toMatch(/Revises if/);
   });
@@ -83,16 +119,51 @@ describe('validateBrief', () => {
   });
 
   test('a Current shift decision horizon without Act now receives the soft action warning', () => {
-    const brief = makeBrief().replace('**Decision window:** Next 30 days.', '**Decision window:** Current shift.');
+    const brief = makeBrief().replace('**Decision window:** 30 days.', '**Decision window:** Current shift.');
     expect(validateBrief(brief).warnings).toContain('No "Act now:" action found in 1 current-shift judgment(s)');
   });
 
   test('a Current shift decision horizon with Act now does not receive the action warning', () => {
     const brief = makeBrief().replace(
-      '**Decision window:** Next 30 days.',
+      '**Decision window:** 30 days.',
       '**Decision window:** Current shift.\n**Recommended actions:**\n- **Act now:** Infrastructure — verify exposure — recommended target July 13, 2026.'
     );
     expect(validateBrief(brief).warnings.join(' ')).not.toMatch(/No "Act now:" action/);
+  });
+
+  test('accepts canonical Decision windows with ordinary sentence punctuation', () => {
+    const result = validateBrief(makeBrief(), '2026-07-28');
+    expect(result.warnings.join(' ')).not.toMatch(/noncanonical Decision window/);
+  });
+
+  test('warns, but does not hard-fail, on a noncanonical newly generated Decision window', () => {
+    const brief = makeBrief().replace('**Decision window:** 30 days.', '**Decision window:** Next Tuesday.');
+    const result = validateBrief(brief, '2026-07-28');
+
+    expect(result.warnings).toContain(
+      'Signal 1 has noncanonical Decision window "Next Tuesday." — expected one of: '
+      + 'Current shift · 72 hours · 7 days · 30 days · This quarter'
+    );
+    expect(hasHardFail(result.warnings)).toBe(false);
+    expect(hasTrustCriticalFailure(result.warnings)).toBe(false);
+  });
+
+  test('does not apply the new vocabulary audit while reading an archived Briefing', () => {
+    const archived = makeBrief().replace('**Decision window:** 30 days.', '**Decision window:** July 17, close of business.');
+    expect(validateBrief(archived).warnings.join(' ')).not.toMatch(/noncanonical Decision window/);
+  });
+
+  test('keeps Decision timing distinct from later action-completion targets', () => {
+    const brief = makeBrief().replace(
+      '**Decision window:** 30 days.',
+      '**Recommended actions:**\n'
+      + '- Leadership — initiate the review — recommended target August 4, 2026.\n'
+      + '- Detection engineering — complete the follow-on audit — recommended target August 11, 2026.\n'
+      + '**Decision window:** 7 days.'
+    );
+    const result = validateBrief(brief, '2026-07-28');
+
+    expect(result.warnings.join(' ')).not.toMatch(/Decision window|recommended target/i);
   });
 });
 
@@ -536,6 +607,42 @@ describe('validateBrief — cited link grounding', () => {
   });
 });
 
+describe('validateBrief - source citation chronology', () => {
+  test.each([
+    ['linked ISO citation', '[The Hacker News, 2026-07-29](https://example.com/future)'],
+    ['plain month-name citation', '[Vendor Advisory, July 29, 2026]'],
+    ['plain day-first citation', '[CERT-EU, 29 July 2026]'],
+  ])('blocks a future-dated %s', (_label, citation) => {
+    const result = validateBrief(`${makeBrief()}\n\n**What happened:** Reported. ${citation}`, '2026-07-28');
+
+    expect(result.warnings.join(' ')).toMatch(/Future source citation date\(s\).*2026-07-29/);
+    expect(result.warnings.join(' ')).toMatch(/Use the source publication date/);
+    expect(hasTrustCriticalFailure(result.warnings)).toBe(true);
+  });
+
+  test('accepts same-day and past linked or plain source citations', () => {
+    const brief = makeBrief()
+      + '\n\n**What happened:** Reported. '
+      + '[Same-day Wire, July 28, 2026] '
+      + '[Past Advisory, 2026-07-27](https://example.com/past)';
+    const result = validateBrief(brief, '2026-07-28');
+
+    expect(result.warnings.join(' ')).not.toMatch(/Future source citation date/);
+    expect(hasTrustCriticalFailure(result.warnings)).toBe(false);
+  });
+
+  test('does not treat future action targets, Watchlist windows, or narrative dates as citations', () => {
+    const brief = makeBrief()
+      + '\n\n**Recommended actions:**\n'
+      + '- Operations - verify affected assets - recommended target July 31, 2026.\n'
+      + '\nThe next review occurs on 30 July 2026; watch through 2026-07-31.';
+    const result = validateBrief(brief, '2026-07-28');
+
+    expect(result.warnings.join(' ')).not.toMatch(/Future source citation date/);
+    expect(hasTrustCriticalFailure(result.warnings)).toBe(false);
+  });
+});
+
 describe('validateBrief — voice', () => {
   test('the banned convergence scaffold is flagged', () => {
     const brief = makeBrief().replace('Where they meet.', 'Horizon 1 (cyber) intersects with Horizon 2 (policy).');
@@ -605,6 +712,7 @@ describe('hasTrustCriticalFailure / isTrustCriticalWarning', () => {
     expect(isTrustCriticalWarning('CVE(s) labeled KEV but not in the verified catalog: CVE-2099-9999')).toBe(true);
     expect(isTrustCriticalWarning('CVE(s) described as pending/not in KEV but already in the verified catalog: CVE-2026-10520')).toBe(true);
     expect(isTrustCriticalWarning('Unverifiable source link(s) not found in the input: https://example.com/x')).toBe(true);
+    expect(isTrustCriticalWarning('Future source citation date(s) after edition date 2026-07-28: Wire (2026-07-29)')).toBe(true);
   });
 
   test('voice and structure warnings are not factual trust failures', () => {

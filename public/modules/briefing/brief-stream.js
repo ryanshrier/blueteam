@@ -68,6 +68,11 @@ export async function readSSEStream(response, { onText, onProgress, onComplete }
           const failure = new Error(data.error);
           if (data.code) failure.code = data.code;
           if (data.validation) failure.validation = data.validation;
+          // Publication-gate failures can carry the server's authoritative
+          // unpublished draft. Keep it distinct from `accumulated`: retries
+          // stream more than one attempt through the same SSE connection, so
+          // concatenated chunks are not a coherent recovery artifact.
+          if (typeof data.draft === 'string') failure.recoverableDraft = data.draft;
           throw failure;
         }
         if (data.progress && onProgress) { onProgress(data.progress, data.stage); continue; }
@@ -162,6 +167,8 @@ export async function startGeneration() {
       code: err.code || '',
       streamLost: Boolean(err.streamLost),
       accumulatedText: err.accumulatedText || '',
+      recoverableDraft: err.recoverableDraft || '',
+      validation: err.validation || null,
     });
   }
 }

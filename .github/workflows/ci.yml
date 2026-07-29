@@ -60,6 +60,12 @@ jobs:
       - name: Check referenced assets exist
         run: npm run check:assets
 
+      - name: Validate landing HTML, links, semantics, and metadata
+        run: npm run check:landing
+
+      - name: Smoke-test landing page at desktop and phone widths
+        run: npm run check:landing:render
+
       - name: Check score-model gold bands
         run: npm run check:scoring
 

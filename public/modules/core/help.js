@@ -73,7 +73,7 @@ function buildPanel() {
       <section class="help-section">
         <h3 class="help-section-h">Tiers</h3>
         <p class="help-tier-legend">${tierLegend()}</p>
-        <p class="help-tier-note">Tactical (act now) · Operational (this cycle) · Strategic (watch).</p>
+        <p class="help-tier-note">Tactical (near-term) · Operational (developing) · Strategic (long-range).</p>
       </section>
 
       <section class="help-section">

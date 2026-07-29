@@ -18,7 +18,7 @@ export function render(main) {
     <div class="settings">
       <header class="settings-head">
         <h1>Settings</h1>
-        <p class="settings-sub">Settings are stored on this machine. The AI Briefing is the one feature that sends data off it — see below.</p>
+        <p class="settings-sub">Settings are stored on this machine. The AI controls below are the only paths to Anthropic; source collection and optional webhooks have separate <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md#network-behavior" target="_blank" rel="noopener noreferrer">documented outbound paths</a>.</p>
       </header>
 
       <section class="settings-card" aria-labelledby="set-ai">

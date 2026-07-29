@@ -134,6 +134,9 @@ One sharp judgment about today's landscape that fits comfortably under budget.
 
 - Observable thing one.
 - Observable thing two.
+- Observable thing three.
+- Observable thing four.
+- Observable thing five.
 ` + 'Padding sentence to clear the structural length floor. '.repeat(40);
 
 // Build a fake Anthropic client whose messages.stream() yields a scripted
@@ -144,13 +147,20 @@ function fakeAnthropic(scriptFn) {
   return { messages: { stream: scriptFn } };
 }
 
-function textStream(text, { usage = { input_tokens: 100, output_tokens: 200 } } = {}) {
+function textStream(text, {
+  usage = { input_tokens: 100, output_tokens: 200 },
+  stopReason = null,
+} = {}) {
   return async () => ({
     controller: { abort() {} },
     async *[Symbol.asyncIterator]() {
       yield { type: 'message_start', message: { usage: { input_tokens: usage.input_tokens, output_tokens: 0 } } };
       yield { type: 'content_block_delta', delta: { text } };
-      yield { type: 'message_delta', usage: { output_tokens: usage.output_tokens } };
+      yield {
+        type: 'message_delta',
+        ...(stopReason ? { delta: { stop_reason: stopReason } } : {}),
+        usage: { output_tokens: usage.output_tokens },
+      };
     },
   });
 }
@@ -266,6 +276,9 @@ describe('POST /api/brief — happy path SSE framing', () => {
     expect(complete.tokens).toBe(300);
     expect(saveBriefMock).toHaveBeenCalled();
     expect(indexBriefMock).toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock.mock.calls[0][0].warnings).toEqual(expect.arrayContaining([
+      expect.stringMatching(/Brief dateline/),
+    ]));
   });
 
   test('uses PUBLIC_BASE_URL for the completed-Briefing webhook deep link', async () => {
@@ -612,6 +625,139 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(saveBriefMetaMock).not.toHaveBeenCalled();
     expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
   });
+
+  test('replaces a max-token Watchlist truncation with a complete corrective draft', async () => {
+    const truncatedDraft = GOOD_BRIEF.replace(
+      /## WATCHLIST[^\n]*\n[\s\S]*$/,
+      '## WATCHLIST — NEXT 72 HOURS\n\n'
+        + '- CISA adds the incident CVE to KEV.\n'
+        + '- A vendor publishes an exploit identifier.\n'
+        + '- A major Linux distribution ships a fixed kernel package address'
+    );
+    let calls = 0;
+    const attempts = [];
+    const anthropic = fakeAnthropic(async (params) => {
+      attempts.push({
+        maxTokens: params.max_tokens,
+        thinking: params.thinking,
+        effort: params.output_config?.effort,
+      });
+      calls++;
+      return calls === 1
+        ? textStream(truncatedDraft, { stopReason: 'max_tokens' })()
+        : textStream(GOOD_BRIEF)();
+    });
+
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+
+    expect(calls).toBe(2);
+    expect(attempts).toEqual([
+      { maxTokens: 16000, thinking: { type: 'adaptive' }, effort: 'medium' },
+      { maxTokens: 16000, thinking: { type: 'adaptive' }, effort: 'low' },
+    ]);
+    expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
+    expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
+    expect(saveBriefMock).toHaveBeenCalledWith(
+      '/fake/history',
+      GOOD_BRIEF,
+      expect.objectContaining({ scheduled: false }),
+    );
+  });
+});
+
+describe('POST /api/brief — output-token publication gate', () => {
+  let ctx;
+  afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test('recovers a structurally complete max-token response once at lower thinking effort', async () => {
+    let calls = 0;
+    const attempts = [];
+    const anthropic = fakeAnthropic(async (params) => {
+      calls++;
+      attempts.push({
+        maxTokens: params.max_tokens,
+        effort: params.output_config?.effort,
+        messageCount: params.messages.length,
+      });
+      return calls === 1
+        ? textStream(GOOD_BRIEF, { stopReason: 'max_tokens' })()
+        : textStream(GOOD_BRIEF)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+
+    expect(calls).toBe(2);
+    expect(attempts).toEqual([
+      { maxTokens: 16000, effort: 'medium', messageCount: 1 },
+      { maxTokens: 16000, effort: 'low', messageCount: 1 },
+    ]);
+    expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
+    expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
+    expect(saveBriefMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('recovers when adaptive reasoning exhausts max tokens before visible output', async () => {
+    let calls = 0;
+    const attempts = [];
+    const anthropic = fakeAnthropic(async (params) => {
+      calls++;
+      attempts.push({
+        effort: params.output_config?.effort,
+        messageCount: params.messages.length,
+      });
+      return calls === 1
+        ? textStream('', {
+          usage: { input_tokens: 100, output_tokens: 16000 },
+          stopReason: 'max_tokens',
+        })()
+        : textStream(GOOD_BRIEF)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+
+    expect(calls).toBe(2);
+    expect(attempts).toEqual([
+      { effort: 'medium', messageCount: 1 },
+      { effort: 'low', messageCount: 1 },
+    ]);
+    expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
+    expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
+    expect(saveBriefMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('returns the recoverable draft but never publishes when the bounded retry also hits max_tokens', async () => {
+    let calls = 0;
+    const anthropic = fakeAnthropic(async () => {
+      calls++;
+      return textStream(GOOD_BRIEF, {
+        usage: { input_tokens: 100, output_tokens: 16000 },
+        stopReason: 'max_tokens',
+      })();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const blocked = events.find(event => event.code === 'E_PARTIAL_GENERATION');
+
+    expect(blocked).toMatchObject({
+      draft: GOOD_BRIEF,
+      tokens: 32200,
+      validation: expect.objectContaining({ hardFail: false, trustFail: false }),
+    });
+    expect(calls).toBe(2);
+    expect(blocked.error).toMatch(/output-token limit/i);
+    expect(blocked.validation.warnings).toContain(
+      'Generation reached the configured output-token limit before completion'
+    );
+    expect(events.some(event => event.briefComplete)).toBe(false);
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    expect(indexBriefMock).not.toHaveBeenCalled();
+    expect(saveBriefMetaMock).not.toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /api/brief — grounding publication gate', () => {
@@ -926,6 +1072,15 @@ describe('streamWithRecovery — pure unit', () => {
     expect(result.usage).toEqual({ input_tokens: 12, output_tokens: 34 });
     expect(result.error).toBeNull();
     expect(result.timedOut).toBe(false);
+  });
+
+  test('captures a max_tokens stop reason as provider completion metadata', async () => {
+    const result = await streamWithRecovery(
+      fakeAnthropic(textStream('truncated output', { stopReason: 'max_tokens' })),
+      {},
+      {},
+    );
+    expect(result.stopReason).toBe('max_tokens');
   });
 
   test('a mid-stream throw is captured as result.error, not swallowed', async () => {

@@ -37,7 +37,9 @@
     "check:release": "node scripts/check-release-metadata.mjs",
     "backtest": "node scripts/backtest.mjs",
     "check:placeholders": "node scripts/check-no-placeholders.mjs",
-    "check:assets": "node scripts/check-assets.mjs"
+    "check:assets": "node scripts/check-assets.mjs",
+    "check:landing": "node scripts/check-landing-page.mjs",
+    "check:landing:render": "node scripts/check-landing-render.mjs"
   },
   "keywords": [
     "security-operations",

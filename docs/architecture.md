@@ -55,15 +55,23 @@ Rolling signal history is stored in SQLite for trends such as actor frequency an
 
 1. grounds the request in the current scored signals and a deterministic KEV facts block;
 2. streams Anthropic output to the browser over server-sent events;
-3. checks required sections, citation allowlists, KEV claims, and other source constraints;
+3. checks required sections, citation allowlists and dates, KEV claims, and other source constraints;
 4. performs one corrective retry after a blocking validation failure;
-5. blocks publication while hard trust failures remain, while preserving non-blocking warnings for operator review;
-6. saves the edition as Markdown under `briefs/`; and
+5. blocks publication while structural or trust failures remain, or when the provider reports an incomplete response such as an output-token stop, while preserving non-blocking warnings for operator review;
+6. saves the completed Briefing as Markdown under `briefs/`; and
 7. indexes it in SQLite FTS5 for search.
 
 These checks reduce structural and grounding failures; they do not independently establish that generated prose is factually correct. Timeout recovery and model fallback are handled by the route.
 
-Automatic generation is disabled until enabled in Settings. When enabled, the scheduler uses the same HTTP route as manual generation, persists attempt and outcome state in SQLite, and prevents duplicate daily generation after a successful edition.
+Each key judgment carries two separate time concepts. Its Tactical,
+Operational, or Strategic tier is the analytic horizon; its Decision window
+states when the operator should decide or initiate the first response, measured
+from the Briefing dateline. Action targets and cited external deadlines remain
+separate fields and may extend beyond that initial decision window.
+
+After a completed Briefing loads, the browser can render the same saved assessment as a paper-first **Print Edition** and hand it to the browser's print pipeline for paper or PDF output. This client-side rendering does not start another generation request or store a separate PDF on the server.
+
+Automatic generation is disabled until enabled in Settings. When enabled, the scheduler uses the same HTTP route as manual generation, persists attempt and outcome state in SQLite, and prevents duplicate daily generation after a successful Briefing.
 
 ## CTI profile boundary
 

@@ -3,6 +3,7 @@ import {
   activateTocLink,
   bindTocBreakpoint,
   findTocFragmentLink,
+  generationFailureModel,
   isBriefReadyForExport,
 } from '../public/modules/briefing/briefing-view.js';
 
@@ -53,6 +54,32 @@ describe('Edition export readiness', () => {
       renderedBrief({ renderedText: '# Search results', structured: false }),
       { content: '# Search results' },
     )).toBe(false);
+  });
+});
+
+describe('Briefing generation failure state', () => {
+  test('prefers the server-selected recovery draft over concatenated stream text', () => {
+    expect(generationFailureModel({
+      message: 'Draft was not published.',
+      code: 'E_PARTIAL_GENERATION',
+      accumulatedText: 'attempt oneattempt two',
+      recoverableDraft: '# Attempt two only',
+    })).toEqual({
+      message: 'Draft was not published.',
+      aiDisabled: false,
+      code: 'E_PARTIAL_GENERATION',
+      streamLost: false,
+      accumulatedText: 'attempt oneattempt two',
+      recoverableDraft: '# Attempt two only',
+    });
+  });
+
+  test('does not manufacture a recovery draft for legacy string errors', () => {
+    expect(generationFailureModel('Generation failed.')).toMatchObject({
+      message: 'Generation failed.',
+      recoverableDraft: '',
+      streamLost: false,
+    });
   });
 });
 

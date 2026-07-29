@@ -62,6 +62,8 @@ const PAGINATION_FIELD_LABELS = new Set([
 // Only genuinely short fields stay atomic. The former 720-character ceiling
 // made ten-line evidence paragraphs indivisible and left large holes on paper.
 const ATOMIC_FIELD_MAX_CHARS = 280;
+const ATOMIC_LIST_MAX_ITEMS = 3;
+const ATOMIC_LIST_MAX_CHARS = 640;
 
 function leadingHtmlFieldLabel(html) {
   const match = String(html || '').match(/^\s*<strong\b[^>]*>\s*([^<]+?)\s*<\/strong>\s*:?[\t ]*/i);
@@ -85,6 +87,17 @@ export function shouldKeepFieldParagraphTogether(html, textLength) {
     && Number.isFinite(length)
     && length > 0
     && length <= ATOMIC_FIELD_MAX_CHARS;
+}
+
+export function shouldKeepShortListTogether(itemCount, textLength) {
+  const count = Number(itemCount);
+  const length = Number(textLength);
+  return Number.isInteger(count)
+    && count > 0
+    && count <= ATOMIC_LIST_MAX_ITEMS
+    && Number.isFinite(length)
+    && length > 0
+    && length <= ATOMIC_LIST_MAX_CHARS;
 }
 
 // Persisted warnings are the authoritative generation-time audit, but legacy or
@@ -139,6 +152,33 @@ function preparePrintPagination(root) {
     if (shouldKeepFieldParagraphTogether(p.innerHTML, p.textContent.trim().length)) {
       p.classList.add('np-field-unit');
     }
+
+    // Mark a short bold label immediately introducing a list (most often
+    // "Recommended actions:") for the bounded grouping pass below.
+    const next = p.nextElementSibling;
+    const onlyChild = p.children.length === 1 ? p.firstElementChild : null;
+    if (
+      next?.matches('ul, ol')
+      && onlyChild?.tagName === 'STRONG'
+      && p.textContent.trim().length <= 80
+    ) {
+      p.classList.add('np-list-intro');
+    }
+  });
+
+  // The prompt caps Recommended actions at three bullets. Keep a genuinely
+  // short label/list group atomic so neither a heading nor a lone bullet is
+  // stranded across a page turn. Unusually long lists remain pageable.
+  root.querySelectorAll('p.np-list-intro').forEach(intro => {
+    const list = intro.nextElementSibling;
+    if (
+      !list?.matches('ul, ol')
+      || !shouldKeepShortListTogether(list.children.length, list.textContent.trim().length)
+    ) return;
+    const group = root.ownerDocument.createElement('div');
+    group.className = 'np-short-list-group';
+    intro.before(group);
+    group.append(intro, list);
   });
 }
 
@@ -261,13 +301,13 @@ export function exportBriefNewspaper({
   overlay.setAttribute('aria-labelledby', 'npOvTitle');
   overlay.innerHTML = `
     <div class="np-overlay-bar">
-      <span class="np-overlay-title" id="npOvTitle">${escapeHtml(plateTitle)} edition — ${escapeHtml(longDate)}</span>
+      <span class="np-overlay-title" id="npOvTitle">${escapeHtml(plateTitle)} print edition — ${escapeHtml(longDate)}</span>
       <div class="np-overlay-actions">
-        <button type="button" class="np-ov-btn np-ov-print primary" aria-label="Print this edition or save it as a PDF" aria-busy="true" disabled>Print / PDF</button>
-        <button type="button" class="np-ov-btn np-ov-close" aria-label="Close export">Close</button>
+        <button type="button" class="np-ov-btn np-ov-print primary" aria-label="Print this edition or save it as a PDF" aria-busy="true" disabled>Print / Save PDF</button>
+        <button type="button" class="np-ov-btn np-ov-close" aria-label="Close print edition">Close</button>
       </div>
     </div>
-    <iframe class="np-frame" sandbox="${PRINT_IFRAME_SANDBOX}" title="${escapeHtml(plateTitle)} printable edition"></iframe>`;
+    <iframe class="np-frame" sandbox="${PRINT_IFRAME_SANDBOX}" title="${escapeHtml(plateTitle)} print edition preview"></iframe>`;
   document.body.appendChild(overlay);
   // Native modal semantics make the app behind the preview inert and allow
   // keyboard focus to enter the iframe; the former hand-rolled button-only trap
@@ -317,7 +357,7 @@ export function exportBriefNewspaper({
 
   // Ctrl/Cmd+P from the parent dialog must not print the fixed-height iframe
   // shell. Send it through the same top-level document path as the visible
-  // Print/PDF action. A shortcut pressed inside the iframe remains owned by that
+  // Print / Save PDF action. A shortcut pressed inside the iframe remains owned by that
   // document and prints the white Edition directly.
   unbindPrintShortcut = bindEditionPrintShortcut(document, overlay, doPrint);
   overlay.querySelector('.np-ov-close').addEventListener('click', close);
@@ -335,7 +375,7 @@ export function exportBriefNewspaper({
 
 /**
  * Print from a real top-level document created synchronously by the user's
- * Print/PDF click. Top-level printing is substantially more reliable than
+ * Print / Save PDF click. Top-level printing is substantially more reliable than
  * asking a browser to print a sandboxed iframe, especially on Safari.
  * `openWindow` is injectable for the DOM-free unit test.
  */
@@ -668,7 +708,7 @@ export function buildDocument({
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="${PRINT_DOCUMENT_CSP}">
-<title>${escapeHtml(plateTitle)} edition — ${escapeHtml(longDate)}</title>
+<title>${escapeHtml(plateTitle)} print edition — ${escapeHtml(longDate)}</title>
 <link rel="stylesheet" href="/fonts.css">
 <style>
 ${NEWSPAPER_CSS}
@@ -685,7 +725,7 @@ ${NEWSPAPER_CSS}
       </div>
       <div class="np-folio">
         <span class="np-folio-date">${escapeHtml(longDate)}</span>
-        <span class="np-folio-end">${escapeHtml(freshness)} · AI-assisted</span>
+        <span class="np-folio-end">${escapeHtml(freshness)} · AI-generated</span>
       </div>
     </header>
 
@@ -696,7 +736,7 @@ ${NEWSPAPER_CSS}
     </div>
 
     <footer class="np-colophon">
-      ${escapeHtml(plateTitle)} · AI-assisted synthesis from sourced signals.${modelNote}
+      ${escapeHtml(plateTitle)} · AI-generated synthesis from sourced signals.${modelNote}
       Verify every CVE ID, vendor name, date, and link before acting.
       ${validationNote}
     </footer>
@@ -735,7 +775,7 @@ body{
   padding:46px 56px 52px;
 }
 
-/* Handling caveat at the document boundaries keeps the AI-synthesized
+/* Handling caveat at the document boundaries keeps the AI-generated
    "verify before acting" posture on the artifact itself, not only the app. */
 .np-handling{
   margin:0 0 14px; padding:0 0 7px; text-align:center;
@@ -907,7 +947,9 @@ body{
   text-align:center; hyphens:none; break-after:avoid;
 }
 .np-lead-head .brief-judgment-meta{ text-align:center; margin:0 0 10px; }
-.np-lead-deck{
+/* Match the body paragraph rule's scope so its margin cannot pin this narrower
+   standfirst to the left edge while only the text inside appears centred. */
+.np-body .np-lead-deck{
   max-width:56ch; margin:0 auto;
   font-size:18px; line-height:1.45; color:var(--ink-2); text-align:center;
 }
@@ -936,6 +978,8 @@ body{
 .np-body .bjm-confidence::before{ content:none; }
 .np-body .bjm-confidence{ margin-right:12px; }
 .np-body .bjm-window::before{ content:'· '; }
+.np-body .bjm-window-label{ font-weight:700; }
+.np-body .bjm-window-label::after{ content:' · '; }
 .np-body .bjm-window[data-edition-date]::after{
   content:' · as of ' attr(data-edition-date); color:var(--ink-faint);
 }
@@ -952,15 +996,16 @@ body{
 /* Action directive ("Act now") — the closing climax, set as a compact top-ruled
    note rather than a third left-highlight treatment. */
 .np-body .c-action{
+  display:block;
   break-inside:avoid; margin:14px 0 4px; padding:9px 0 0;
   border-top:2px solid var(--accent); background:none;
 }
 .np-body .c-action-label{
-  display:block; margin-bottom:4px;
+  display:block; width:100%; margin-bottom:4px;
   font-family:'JetBrains Mono',ui-monospace,monospace;
   font-size:9.5px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--accent);
 }
-.np-body .c-action-text{ font-weight:600; color:var(--ink); }
+.np-body .c-action-text{ display:block; width:100%; font-weight:600; color:var(--ink); }
 
 /* Numbered inline citations + the sources column */
 .np-body .brief-cite{
@@ -1002,7 +1047,23 @@ body{
 }
 .np-validation-note{ color:var(--t2); font-weight:700; text-transform:none; letter-spacing:.02em; }
 /* ── Print ── */
-@page{ size:auto; margin:14mm; }
+/* Modern Chromium prints these restrained running folios in the page margin.
+   Engines without margin-box support ignore the nested rules; the document's
+   masthead, colophon, and handling footer remain a complete fallback. */
+@page{
+  size:auto;
+  margin:14mm;
+  @bottom-left{
+    content:'BlueTeam.News · Print edition';
+    font-family:'JetBrains Mono',ui-monospace,monospace;
+    font-size:7pt; letter-spacing:.08em; text-transform:uppercase; color:#5e574c;
+  }
+  @bottom-right{
+    content:'Page ' counter(page) ' of ' counter(pages);
+    font-family:'JetBrains Mono',ui-monospace,monospace;
+    font-size:7pt; letter-spacing:.08em; text-transform:uppercase; color:#5e574c;
+  }
+}
 @media print{
   html,body{ background:#fff; }
   body{ padding:0; }
@@ -1028,6 +1089,16 @@ body{
   .np-body h3, .np-body .np-judgment-opening, .np-body p.np-field-unit{
     break-inside:avoid-page; page-break-inside:avoid;
   }
+  .np-body p.np-list-intro{
+    break-after:avoid-page; page-break-after:avoid;
+  }
+  .np-body p.np-list-intro + ul,
+  .np-body p.np-list-intro + ol{
+    break-before:avoid-page; page-break-before:avoid;
+  }
+  .np-body .np-short-list-group{
+    break-inside:avoid-page; page-break-inside:avoid;
+  }
   .np-body h2 + *, .np-body .brief-sources-heading + .brief-sources-appendix{
     break-before:avoid-page; page-break-before:avoid;
   }
@@ -1042,7 +1113,7 @@ body{
 
 /* Narrow screens — this artifact is read on screen before it's printed; drop
    the masthead ears (they crowd a phone), stack the plate, and tighten the sheet. */
-@media (max-width:760px){
+@media screen and (max-width:760px){
   body{ padding:8px 6px 28px; }
   .paper{ padding:18px 16px 24px; }
   .np-handling{ margin-bottom:9px; padding-bottom:4px; font-size:8px; letter-spacing:.16em; }
@@ -1063,7 +1134,7 @@ body{
   .np-body .brief-judgment-card.np-lead{ margin-bottom:18px; padding-bottom:15px; }
   .np-lead-head{ margin-bottom:10px; }
   .np-lead-head > h3{ font-size:clamp(22px,6.6vw,31px); }
-  .np-lead-deck{ font-size:16.5px; }
+  .np-body .np-lead-deck{ font-size:16.5px; }
 }
 
 @media (prefers-reduced-motion: reduce){ *{ animation:none !important; } }

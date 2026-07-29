@@ -340,17 +340,21 @@ for (const [route, candidates] of Object.entries(VENDOR_FILES)) {
     log.warn('static', `Vendor file missing for ${route} — run npm install`);
     continue;
   }
-  // Read once at startup into a Buffer, not per-request: these files are
-  // immutable for the process lifetime (node_modules, or our own brief-schema.js
-  // which only changes on deploy — i.e. a restart, which re-reads it here anyway).
-  // Serving the cached Buffer removes a synchronous disk read from the hot path.
-  const body = readFileSync(filePath);
-  app.get(route, (req, res) => {
-    // Our own brief-schema.js is a live contract that changes between releases —
-    // never let a returning kiosk cache a stale parser across deploys. Third-party
-    // libs (marked, purify) are immutable per install, so they keep the long cache.
-    res.setHeader('Cache-Control', route.endsWith('brief-schema.js') ? 'no-cache' : 'public, max-age=86400');
-    res.type('application/javascript').send(body);
+  const liveContract = route.endsWith('brief-schema.js');
+  // Third-party modules are immutable for the process lifetime and can stay in
+  // memory. The shared Briefing contract is different: browser modules and the
+  // server import the same source while local development is running. Read that
+  // one fixed path on request so an in-place edit cannot produce a half-old,
+  // half-new module graph that only a process restart repairs.
+  const cachedBody = liveContract ? null : readFileSync(filePath);
+  app.get(route, (req, res, next) => {
+    try {
+      res.setHeader('Cache-Control', liveContract ? 'no-store' : 'public, max-age=86400');
+      const body = liveContract ? readFileSync(filePath) : cachedBody;
+      res.type('application/javascript').send(body);
+    } catch (error) {
+      next(error);
+    }
   });
 }
 
@@ -591,20 +595,34 @@ server.timeout = 300_000;
 
 // CI exercises the public source workflow (`npm install`, then `npm start`) on
 // every supported runner. This internal-only mode verifies that the real server
-// can answer its liveness route, then exits cleanly so the workflow is portable
-// across Linux, Windows, and macOS without shell-specific process management.
+// can answer its liveness route and serve the shared browser contract expected
+// by the Wall, then exits cleanly so the workflow is portable without
+// shell-specific process management.
 async function runStartupSmoke() {
   try {
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('Server address unavailable');
     const connectHost = (HOST === '0.0.0.0' || HOST === '::') ? '127.0.0.1' : HOST;
     const urlHost = connectHost.includes(':') ? `[${connectHost}]` : connectHost;
-    const response = await fetch(`http://${urlHost}:${address.port}/api/live`, {
-      signal: AbortSignal.timeout(5_000),
-    });
-    const body = await response.json();
-    if (!response.ok || body?.status !== 'ok') {
-      throw new Error(`Liveness probe returned HTTP ${response.status}`);
+    const baseUrl = `http://${urlHost}:${address.port}`;
+    const [liveResponse, schemaResponse] = await Promise.all([
+      fetch(`${baseUrl}/api/live`, { signal: AbortSignal.timeout(5_000) }),
+      fetch(`${baseUrl}/vendor/brief-schema.js`, { signal: AbortSignal.timeout(5_000) }),
+    ]);
+    const [liveBody, schemaBody] = await Promise.all([
+      liveResponse.json(),
+      schemaResponse.text(),
+    ]);
+    if (!liveResponse.ok || liveBody?.status !== 'ok') {
+      throw new Error(`Liveness probe returned HTTP ${liveResponse.status}`);
+    }
+    if (
+      !schemaResponse.ok
+      || !/\bexport\s+function\s+formatDecisionWindow\b/.test(schemaBody)
+    ) {
+      throw new Error(
+        `Shared Briefing contract probe failed (HTTP ${schemaResponse.status})`,
+      );
     }
     log.info('server', 'Startup smoke test passed');
     shutdown('STARTUP_SMOKE');

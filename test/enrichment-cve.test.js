@@ -113,7 +113,10 @@ describe('enrichCVEs — CVSS version-label parse', () => {
       readCappedMock.mockResolvedValue(JSON.stringify(nvdBody('CVE-2025-0010', { baseScore: 4.0, baseSeverity: 'MEDIUM' })));
       await enrichCVEs([{ title: 'CVE-2025-0010 disclosed', description: '' }], 5);
       const [, opts] = safeFetchMock.mock.calls.at(-1);
-      expect(opts.headers).toMatchObject({ apiKey: 'late-loaded-key' });
+      expect(opts.headers).toMatchObject({
+        apiKey: 'late-loaded-key',
+        'User-Agent': expect.stringMatching(/^BlueTeam\.News\/\d+\.\d+\.\d+/),
+      });
     } finally {
       process.env.NVD_API_KEY = prior;
     }
@@ -166,6 +169,9 @@ describe('refreshKEV — concurrent startup calls', () => {
     const second = refreshKEV();
     await Promise.resolve();
     expect(safeFetchMock).toHaveBeenCalledTimes(1);
+    expect(safeFetchMock.mock.calls[0][1].headers).toMatchObject({
+      'User-Agent': expect.stringMatching(/^BlueTeam\.News\/\d+\.\d+\.\d+/),
+    });
     releaseCatalog(JSON.stringify({ vulnerabilities: [{ cveID: 'CVE-2026-9999' }] }));
     const [a, b] = await Promise.all([first, second]);
     expect(a).toBe(b);
@@ -266,6 +272,9 @@ describe('enrichEPSS — exploitation-likelihood signal', () => {
     const h = { title: 'CVE-2025-0007 and CVE-2025-0008 disclosed', description: '' };
     await enrichEPSS([h], 20);
 
+    expect(safeFetchMock.mock.calls[0][1].headers).toMatchObject({
+      'User-Agent': expect.stringMatching(/^BlueTeam\.News\/\d+\.\d+\.\d+/),
+    });
     expect(h.epss).toBeCloseTo(0.92);
     expect(h.epssCVE).toBe('CVE-2025-0008');
   });

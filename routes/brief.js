@@ -19,7 +19,9 @@ import {
 } from '../lib/history.js';
 import { validateBrief, countHorizons, hasHardFail, hasTrustCriticalFailure } from '../lib/validation.js';
 import { buildGroundingManifest, delinkUnallowlistedMarkdownUrls, visibleHeadlineEvidence } from '../lib/grounding.js';
-import { parseJudgments } from '../lib/brief-schema.js';
+import {
+  parseJudgments, WATCHLIST_MIN_ITEMS, WATCHLIST_MAX_ITEMS,
+} from '../lib/brief-schema.js';
 import { getEffectiveOrganization } from '../lib/user-settings.js';
 import {
   saveBriefMeta, getBriefMeta, indexBrief, searchBriefs,
@@ -83,6 +85,10 @@ export function applyThinking(params, model, effort) {
       if (Object.keys(params.output_config).length === 0) delete params.output_config;
     }
   }
+}
+
+function reducedRecoveryThinkingEffort(effort) {
+  return effort === 'low' || effort === 'off' ? 'off' : 'low';
 }
 
 /**
@@ -550,10 +556,14 @@ export function createBriefRouter({
       applyThinking(modelParams, preferredModel, thinkingEffort);
 
       const onChunk = (chunk) => send({ text: chunk, seq: chunkSeq++ });
-      const runProviderAttempt = client => streamWithRecovery(client, modelParams, {
-        timeoutMs: Math.max(1, generationDeadline - Date.now()),
-        onChunk,
-      });
+      let providerAttemptCount = 0;
+      const runProviderAttempt = client => {
+        providerAttemptCount++;
+        return streamWithRecovery(client, modelParams, {
+          timeoutMs: Math.max(1, generationDeadline - Date.now()),
+          onChunk,
+        });
+      };
 
       // From here on the request may incur provider cost. Rate limiters inspect
       // this marker when the route finalizes so aborting the SSE connection
@@ -621,8 +631,11 @@ export function createBriefRouter({
         }
       }
 
-      // Empty or degenerate output is a failure regardless of error state
-      if (result.text.length < 100) {
+      // Empty or degenerate output is normally a terminal provider failure.
+      // `max_tokens` is the exception: adaptive reasoning can consume the
+      // budget before much visible text is emitted, and the bounded lower-
+      // effort recovery below exists specifically to repair that outcome.
+      if (result.text.length < 100 && result.stopReason !== 'max_tokens') {
         const err = result.error || new Error(
           result.timedOut
             ? 'Generation timed out before the model produced content.'
@@ -636,9 +649,9 @@ export function createBriefRouter({
       const elapsed = ((performance.now() - genStart) / 1000).toFixed(1);
       let wordCount = fullBrief.trim().split(/\s+/).length;
 
-      // Stage 4 — validate, with one automatic corrective retry. Structural
-      // hard-fails preserve their existing warn/save behavior after the retry;
-      // factual grounding failures do not publish if they remain unresolved.
+      // Stage 4 — validate, with one automatic corrective retry. Unresolved
+      // structural or factual trust failures remain recoverable drafts and are
+      // never published as completed Briefings.
       const genDate = editionContext.date;
       const validationSource = { groundingManifest, kevSet: getKEVSet() };
       const audit = draft => validateBrief(draft, genDate, validationSource);
@@ -663,18 +676,41 @@ export function createBriefRouter({
         trustFail = hasTrustCriticalFailure(warnings);
       }
 
-      if ((hardFail || trustFail) && !result.error && !result.timedOut) {
+      const stoppedAtOutputLimit = result.stopReason === 'max_tokens';
+      // Token-limit recovery shares the existing single corrective-retry slot.
+      // If key rotation or model fallback already consumed a second provider
+      // call, never turn a max_tokens result into a third call.
+      const outputLimitRetryAvailable = !stoppedAtOutputLimit || providerAttemptCount < 2;
+      if ((hardFail || trustFail || stoppedAtOutputLimit)
+          && outputLimitRetryAvailable && !result.error && !result.timedOut) {
         correctiveRetryAttempted = true;
         const correctiveWarnings = warnings.filter(warning => (
           hasHardFail([warning]) || hasTrustCriticalFailure([warning])
         ));
-        log.warn('brief', `Corrective validation retry (${correctiveWarnings.join('; ')})`);
-        send({ progress: 'Retrying — correcting source verification or required structure...', stage: 'generating' });
-        modelParams.messages = [
-          { role: 'user', content: userPrompt },
-          { role: 'assistant', content: fullBrief },
-          { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}. Regenerate the full brief from the top in the exact same format. Use only CVEs and URLs in the current-source input; a source marked URL unavailable must have a plain [Source Name, Date] citation with no link. Never contradict verified KEV status.` },
-        ];
+        if (stoppedAtOutputLimit) {
+          const recoveryEffort = reducedRecoveryThinkingEffort(thinkingEffort);
+          applyThinking(modelParams, modelUsed, recoveryEffort);
+          log.warn('brief', `Output-token recovery retry (${thinkingEffort} → ${recoveryEffort} thinking)`);
+          send({ progress: 'Retrying — reducing thinking effort to complete every section...', stage: 'generating' });
+          const failedChecks = correctiveWarnings.length
+            ? ` It also failed these checks: ${correctiveWarnings.join('; ')}.`
+            : '';
+          // Do not resend the 16k-token partial draft: the original current-source
+          // prompt plus precise failures is sufficient and leaves more context for
+          // a concise, complete replacement.
+          modelParams.messages = [{
+            role: 'user',
+            content: `${userPrompt}\n\nRECOVERY INSTRUCTION: The previous attempt exhausted the configured output-token limit and was discarded.${failedChecks} Regenerate the full brief from the top in the exact same format, but be concise enough to finish every required section, including ${WATCHLIST_MIN_ITEMS}–${WATCHLIST_MAX_ITEMS} complete Watchlist bullets. Use only CVEs and URLs in the current-source input; a source marked URL unavailable must have a plain [Source Name, Date] citation with no link. Never contradict verified KEV status.`,
+          }];
+        } else {
+          log.warn('brief', `Corrective validation retry (${correctiveWarnings.join('; ')})`);
+          send({ progress: 'Retrying — correcting source verification or required structure...', stage: 'generating' });
+          modelParams.messages = [
+            { role: 'user', content: userPrompt },
+            { role: 'assistant', content: fullBrief },
+            { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}. Regenerate the full brief from the top in the exact same format. Use only CVEs and URLs in the current-source input; a source marked URL unavailable must have a plain [Source Name, Date] citation with no link. Never contradict verified KEV status.` },
+          ];
+        }
         const retryResult = await runProviderAttempt(anthropic);
         retryResult.usage = {
           input_tokens: result.usage.input_tokens + retryResult.usage.input_tokens,
@@ -710,14 +746,18 @@ export function createBriefRouter({
         trustFail = hasTrustCriticalFailure(warnings);
       }
 
-      // A brief is partial when the generation timed out OR a mid-stream error
-      // (network reset, mid-stream overloaded) truncated it after content had
-      // already streamed — that error is captured in result.error but previously
-      // only the timeout path ever set the partial flag, so a cut-off brief was
-      // saved, announced as complete, and promoted to the Wall with no marker.
-      const isPartial = result.timedOut || !!result.error;
+      // A brief is partial when the generation timed out, a mid-stream error
+      // interrupted it, OR the provider stopped at the configured output-token
+      // ceiling. `max_tokens` is a normal SDK stop reason rather than an error,
+      // but publishing it as complete can leave the final Watchlist (or any
+      // other trailing section) cut off mid-sentence.
+      const outputLimitReached = result.stopReason === 'max_tokens';
+      const isPartial = result.timedOut || !!result.error || outputLimitReached;
       if (result.error) {
         warnings.push(`Generation was interrupted mid-stream: ${safeErrorMsg(result.error)}`);
+      }
+      if (outputLimitReached) {
+        warnings.push('Generation reached the configured output-token limit before completion');
       }
       if (warnings.length) {
         log.warn('brief', `Validation warnings: ${warnings.join('; ')}`);
@@ -742,9 +782,11 @@ export function createBriefRouter({
           message = `Draft was not published because source verification still failed ${retryState}: ${blocking.join('; ')}. Refresh the landscape data or correct the source input, then generate again.`;
         } else if (isPartial) {
           code = 'E_PARTIAL_GENERATION';
-          message = result.timedOut
-            ? 'Draft was not published because generation exceeded the end-to-end timeout.'
-            : 'Draft was not published because the provider stream was interrupted.';
+          message = outputLimitReached
+            ? 'Draft was not published because generation reached the configured output-token limit before completing the Briefing. Raise analysisSettings.maxTokens in config.json or reduce the Briefing scope, then generate again.'
+            : result.timedOut
+              ? 'Draft was not published because generation exceeded the end-to-end timeout.'
+              : 'Draft was not published because the provider stream was interrupted.';
         }
         log.error('brief', message);
         send({
@@ -815,7 +857,13 @@ export function createBriefRouter({
         title: j.title, tier: getHorizonName(config, j.horizon), confidence: j.confidence,
       }));
       dispatchBriefWebhook(
-        { date: genDate, bluf: extractBluf(fullBrief), judgments, link: `${outwardBaseUrl}/briefing/${encodeURIComponent(filename)}` },
+        {
+          date: genDate,
+          bluf: extractBluf(fullBrief),
+          judgments,
+          link: `${outwardBaseUrl}/briefing/${encodeURIComponent(filename)}`,
+          warnings: [...warnings],
+        },
         config,
       ).catch(err => log.warn('brief', `Brief webhook dispatch failed (non-blocking): ${err.message}`));
 

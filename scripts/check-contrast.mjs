@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const css = readFileSync(join(process.cwd(), 'public', 'tokens.css'), 'utf-8');
+const landingCss = readFileSync(join(process.cwd(), 'docs', 'styles.css'), 'utf-8');
 
 function blockBody(re) { const m = css.match(re); return m ? m[1] : ''; }
 const rootBody = blockBody(/:root\s*\{([\s\S]*?)\n\}/);
@@ -24,12 +25,28 @@ function parseVars(body) {
 const darkVars = parseVars(rootBody);
 const lightVars = { ...darkVars, ...parseVars(lightBody) }; // light overrides the dark base
 
-// Resolve a value, following one-level var(--x) references to a literal hex.
+// Resolve a value, following var(--x) references and the simple opaque sRGB
+// color-mix form used by the landing page's progressive-enhancement fallback.
 function resolve(map, val, depth = 0) {
   if (val == null || depth > 6) return null;
   const v = String(val).trim();
   const ref = v.match(/^var\(\s*--([\w-]+)\s*\)$/);
   if (ref) return resolve(map, map[ref[1]], depth + 1);
+  const mix = v.match(
+    /^color-mix\(\s*in\s+srgb\s*,\s*(var\(\s*--[\w-]+\s*\)|#[0-9a-fA-F]{3,8})\s+(\d+(?:\.\d+)?)%\s*,\s*(var\(\s*--[\w-]+\s*\)|#[0-9a-fA-F]{3,8})\s*\)$/i,
+  );
+  if (mix) {
+    const first = resolve(map, mix[1], depth + 1);
+    const second = resolve(map, mix[3], depth + 1);
+    if (!first || !second) return null;
+    const weight = Math.min(100, Math.max(0, Number(mix[2]))) / 100;
+    const firstRgb = toRgb(first);
+    const secondRgb = toRgb(second);
+    const mixed = firstRgb.map((channel, index) =>
+      Math.round(channel * weight + secondRgb[index] * (1 - weight)),
+    );
+    return `#${mixed.map(channel => channel.toString(16).padStart(2, '0')).join('')}`;
+  }
   return /^#[0-9a-fA-F]{3,8}$/.test(v) ? v : null;
 }
 
@@ -115,6 +132,57 @@ for (const n of [1, 2, 3]) {
   const ok = r >= 4.5;
   report.push(`  ${ok ? '✓' : '✖'} --ink-on-h${n} on --h${n}: ${r.toFixed(2)}:1 (min 4.5)`);
   if (!ok) failures.push(`--ink-on-h${n} on --h${n} = ${r.toFixed(2)}:1 (needs 4.5:1)`);
+}
+
+// The public landing has its own intentionally warmer palette rather than
+// importing the application tokens. Check the text/background combinations it
+// actually renders so an accessible app theme cannot mask a marketing-page
+// regression.
+const landingRootBody = landingCss.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+const landingVars = parseVars(landingRootBody);
+const LANDING_BACKGROUNDS = ['bg', 'bg-elev'];
+const LANDING_ROLES = [
+  { token: 'ink', min: 4.5 },
+  { token: 'ink-2', min: 4.5 },
+  { token: 'ink-3', min: 4.5 },
+  { token: 'faint', min: 4.5 },
+  { token: 'accent', min: 4.5 },
+  { token: 'link', min: 4.5 },
+];
+
+report.push('\n[GitHub Pages landing palette]');
+if (!landingRootBody) {
+  failures.push('[landing] missing :root palette in docs/styles.css');
+} else {
+  for (const { token, min } of LANDING_ROLES) {
+    const fg = resolve(landingVars, landingVars[token]);
+    if (!fg) {
+      failures.push(`[landing] missing/unresolved token --${token}`);
+      continue;
+    }
+    for (const background of LANDING_BACKGROUNDS) {
+      const bgHex = resolve(landingVars, landingVars[background]);
+      if (!bgHex) {
+        failures.push(`[landing] missing/unresolved token --${background}`);
+        continue;
+      }
+      const r = ratio(fg, bgHex);
+      const ok = r >= min;
+      report.push(`  ${ok ? '✓' : '✖'} --${token} on --${background}: ${r.toFixed(2)}:1 (min ${min})`);
+      if (!ok) failures.push(`[landing] --${token} on --${background} = ${r.toFixed(2)}:1 (needs ${min}:1)`);
+    }
+  }
+
+  const ctaInk = '#04101f';
+  const ctaFill = resolve(landingVars, landingVars.accent);
+  if (!ctaFill) {
+    failures.push('[landing] missing/unresolved CTA fill --accent');
+  } else {
+    const r = ratio(ctaInk, ctaFill);
+    const ok = r >= 4.5;
+    report.push(`  ${ok ? '✓' : '✖'} CTA ink ${ctaInk} on --accent: ${r.toFixed(2)}:1 (min 4.5)`);
+    if (!ok) failures.push(`[landing] CTA ink ${ctaInk} on --accent = ${r.toFixed(2)}:1 (needs 4.5:1)`);
+  }
 }
 
 // CTA ink — the Generate button fills a FLAT --brand with --ink-on-brand (the old

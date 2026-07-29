@@ -10,6 +10,7 @@ import {
   isAssessmentFieldHtml,
   printTopLevelDocument,
   shouldKeepFieldParagraphTogether,
+  shouldKeepShortListTogether,
   stripAssessmentLabelHtml,
   splitPackedJudgmentFieldHtml,
 } from '../public/modules/briefing/brief-export.js';
@@ -80,6 +81,12 @@ describe('edition field normalization', () => {
     expect(shouldKeepFieldParagraphTogether(field, 281)).toBe(false);
     expect(shouldKeepFieldParagraphTogether('<strong>Trajectory:</strong> Emerging.<br><strong>Watch criteria:</strong> Escalate.', 100)).toBe(true);
     expect(shouldKeepFieldParagraphTogether('<strong>Context:</strong> Prose.', 100)).toBe(false);
+  });
+
+  test('keeps only bounded short action lists atomic', () => {
+    expect(shouldKeepShortListTogether(3, 640)).toBe(true);
+    expect(shouldKeepShortListTogether(4, 300)).toBe(false);
+    expect(shouldKeepShortListTogether(2, 641)).toBe(false);
   });
 });
 
@@ -172,13 +179,16 @@ describe('edition print contract', () => {
       model: '',
     });
     expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="${PRINT_DOCUMENT_CSP}">`);
+    expect(html).toContain('<title>BlueTeam News print edition — July 24, 2026</title>');
     expect(html).toContain('<link rel="stylesheet" href="/fonts.css">');
     expect(html).toContain('<style>');
   });
 
   test('keeps a white, ink-efficient single-column design in print', () => {
     expect(NEWSPAPER_CSS).toContain('--paper:#fff');
-    expect(NEWSPAPER_CSS).toContain('@page{ size:auto; margin:14mm; }');
+    expect(NEWSPAPER_CSS).toMatch(/@page\{\s*size:auto;\s*margin:14mm;/);
+    expect(NEWSPAPER_CSS).toContain("content:'BlueTeam.News · Print edition'");
+    expect(NEWSPAPER_CSS).toContain("content:'Page ' counter(page) ' of ' counter(pages)");
     expect(NEWSPAPER_CSS).toContain('html,body{ background:#fff; }');
     expect(NEWSPAPER_CSS).not.toContain('#f6f3ea');
     expect(NEWSPAPER_CSS).not.toContain('print-color-adjust:exact');
@@ -188,16 +198,37 @@ describe('edition print contract', () => {
     expect(NEWSPAPER_CSS).toContain('white-space:nowrap');
     expect(NEWSPAPER_CSS).toContain('break-after:avoid-page');
     expect(NEWSPAPER_CSS).toContain('.np-exec-panel');
-    expect(NEWSPAPER_CSS).toContain('.np-lead-deck');
-    expect(NEWSPAPER_CSS).toContain('text-align:center');
+    expect(NEWSPAPER_CSS).toMatch(
+      /\.np-body \.np-lead-deck\{[^}]*max-width:56ch; margin:0 auto;[^}]*text-align:center;[^}]*\}/
+    );
     expect(NEWSPAPER_CSS).toContain('.np-lead-body{ text-align:left; }');
     expect(NEWSPAPER_CSS).not.toMatch(/\.np-lead-body\s*>\s*p:first-of-type::first-letter/);
+  });
+
+  test('keeps narrow-screen layout rules out of print rendering', () => {
+    expect(NEWSPAPER_CSS).toContain('@media screen and (max-width:760px)');
+    expect(NEWSPAPER_CSS).not.toMatch(/@media\s*\(\s*max-width\s*:/);
   });
 
   test('keeps story openings, headings, and reasonable field paragraphs intact', () => {
     expect(NEWSPAPER_CSS).toContain('.np-body .np-judgment-opening{ border-top:1px solid var(--hair); padding:14px 0 0; }');
     expect(NEWSPAPER_CSS).toMatch(
       /\.np-body h3,\s*\.np-body \.np-judgment-opening,\s*\.np-body p\.np-field-unit\{\s*break-inside:avoid-page; page-break-inside:avoid;/
+    );
+    expect(NEWSPAPER_CSS).toMatch(
+      /\.np-body p\.np-list-intro\{\s*break-after:avoid-page; page-break-after:avoid;/
+    );
+    expect(NEWSPAPER_CSS).toMatch(
+      /\.np-body p\.np-list-intro \+ ul,\s*\.np-body p\.np-list-intro \+ ol\{\s*break-before:avoid-page; page-break-before:avoid;/
+    );
+    expect(NEWSPAPER_CSS).toMatch(
+      /\.np-body \.np-short-list-group\{\s*break-inside:avoid-page; page-break-inside:avoid;/
+    );
+    expect(NEWSPAPER_CSS).toMatch(
+      /\.np-body \.c-action\{\s*display:block;/
+    );
+    expect(NEWSPAPER_CSS).toMatch(
+      /\.np-body \.c-action-text\{ display:block; width:100%;/
     );
     expect(NEWSPAPER_CSS).toContain('.np-body p{ orphans:2; widows:2; }');
   });

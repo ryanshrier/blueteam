@@ -1,6 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 import {
-  editionDateLabel,
+  briefTierLabel, editionDateLabel,
   splitPackedBriefFieldHtml,
   tocLabel,
 } from '../public/modules/briefing/brief-renderer.js';
@@ -40,6 +40,15 @@ describe('archived decision-window date labels', () => {
     expect(editionDateLabel('Threat Landscape Briefing · 2026-07-24 · Friday')).toBe('2026-07-24');
     expect(editionDateLabel('Threat Landscape Briefing · July 24, 2026 · Friday')).toBe('July 24, 2026');
     expect(editionDateLabel('Threat Landscape Briefing')).toBe('');
+  });
+});
+
+describe('Briefing tier labels', () => {
+  test('keeps analytic tiers separate from explicit action directives', () => {
+    expect(briefTierLabel(1)).toBe('TACTICAL');
+    expect(briefTierLabel(2)).toBe('OPERATIONAL');
+    expect(briefTierLabel(3)).toBe('STRATEGIC');
+    expect([1, 2, 3].map(briefTierLabel)).not.toContain('ACT NOW');
   });
 });
 

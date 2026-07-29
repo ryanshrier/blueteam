@@ -1,15 +1,29 @@
 import { describe, test, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import { renderKevSection, renderKevRecent } from '../public/modules/wall/wall-kev.js';
+import { validateBrief } from '../lib/validation.js';
 import { FIXTURE_CASES, buildFixtureData } from './visual/fixture-cases.js';
+import { MARKETING_BRIEF } from './visual/marketing-brief.js';
 
 describe('visual fixture manifest', () => {
   test('covers sparse KEV plus loading, error, empty, and stale states', () => {
     const ids = FIXTURE_CASES.map(item => item.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual(expect.arrayContaining([
-      'kev-one', 'kev-missing', 'wall-loading', 'wall-stale',
-      'wire-loading', 'brief-full', 'brief-error', 'brief-empty',
+      'kev-one', 'kev-six', 'kev-missing', 'wall-loading', 'wall-stale',
+      'wall-judgment', 'wall-wire-four',
+      'wire-loading', 'brief-edition-capture', 'brief-showcase',
+      'brief-full', 'brief-error', 'brief-empty',
     ]));
+    expect(FIXTURE_CASES.find(item => item.id === 'brief-edition-capture')).toMatchObject({
+      surface: 'edition',
+    });
+  });
+
+  test('keeps the public showcase synthetic and valid under the Briefing contract', () => {
+    const result = validateBrief(MARKETING_BRIEF, '2026-07-24');
+    expect(result.warnings).toEqual([]);
+    expect(MARKETING_BRIEF).toMatch(/synthetic|fictional/i);
+    expect(MARKETING_BRIEF).not.toMatch(/SharePoint|Fortinet|Ivanti|Minnesota|CVE-\d/i);
   });
 });
 
@@ -51,6 +65,13 @@ describe('KEV visual renderer', () => {
     expect(row).toContain('&lt;script&gt;');
 
     const html = renderKevSection({ recent: Array.from({ length: 7 }, (_, i) => ({ cve: `CVE-2026-${1000 + i}` })) });
+    expect((html.match(/class="nb-led-row"/g) || [])).toHaveLength(6);
+    expect(html).toContain('row-count-6');
+  });
+
+  test('includes a deterministic six-row density fixture for 720p QA', () => {
+    const fixture = buildFixtureData(new Date('2026-07-12T12:00:00-05:00'))['kev-six'];
+    const html = renderKevSection(fixture);
     expect((html.match(/class="nb-led-row"/g) || [])).toHaveLength(6);
     expect(html).toContain('row-count-6');
   });
