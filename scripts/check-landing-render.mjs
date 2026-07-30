@@ -483,13 +483,17 @@ async function renderViewport(debugOrigin, origin, viewport) {
         awaitPromise: true,
         expression: String.raw`(async () => {
           await document.fonts.ready;
-          await Promise.all([...document.images].map(image => {
-            if (image.complete) return undefined;
-            return new Promise(resolve => {
-              image.addEventListener('load', resolve, { once: true });
-              image.addEventListener('error', resolve, { once: true });
-            });
-          }));
+          await Promise.all(
+            [...document.images]
+              .filter(image => image.loading !== 'lazy')
+              .map(image => {
+                if (image.complete) return undefined;
+                return new Promise(resolve => {
+                  image.addEventListener('load', resolve, { once: true });
+                  image.addEventListener('error', resolve, { once: true });
+                });
+              }),
+          );
           return document.readyState;
         })()`,
         returnByValue: true,
