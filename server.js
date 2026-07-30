@@ -11,6 +11,7 @@ dotenv.config({ quiet: true }); // suppress dotenv's stdout banner/tip line
 
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import { randomBytes } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import {
@@ -22,7 +23,12 @@ import {
   readdirSync,
 } from 'fs';
 
-import { initConfig, getConfig, stopConfigWatch } from './lib/config.js';
+import {
+  initConfig,
+  getConfig,
+  stopConfigWatch,
+  MAX_GENERATION_TIMEOUT_SEC,
+} from './lib/config.js';
 import { initDB, backfillBriefSearch, closeDB } from './lib/db.js';
 import { log, requestLogger, startupBanner } from './lib/logger.js';
 import {
@@ -39,20 +45,36 @@ import {
   apiSecretValidationError,
 } from './lib/middleware.js';
 import { createCompressionMiddleware } from './lib/compression.js';
-import { startRefreshSchedule, stopRefreshSchedule, refreshNow, getLatestRun, getRunAgeMs } from './lib/refresher.js';
-import { startDailyBriefSchedule, stopDailyBriefSchedule, requestBriefGeneration } from './lib/brief-scheduler.js';
+import { startRefreshSchedule, stopRefreshSchedule, getLatestRun, getRunAgeMs } from './lib/refresher.js';
+import {
+  startDailyBriefSchedule,
+  stopDailyBriefSchedule,
+  requestBriefGeneration,
+  getDailyBriefScheduleStatus,
+} from './lib/brief-scheduler.js';
 import { refreshKEV } from './lib/enrichment.js';
 import { setDomainPack, setEnrichers } from './lib/domain.js';
 import { cyberPack } from './config/domains/cyber.js';
 import { cyberEnrichers } from './config/domains/cyber-enrichers.js';
-import { healthHandler } from './lib/health.js';
+import { healthHandler, readinessHandler, livenessHandler } from './lib/health.js';
 import { createBriefRouter } from './routes/brief.js';
 import { createLandscapeRouter } from './routes/landscape.js';
 import { createSettingsRouter } from './routes/settings.js';
-import { loadUserSettings, getUserSettings, getEffectiveOrganization } from './lib/user-settings.js';
+import {
+  loadUserSettings,
+  getUserSettings,
+  getEffectiveOrganization,
+  getBriefScheduleSettings,
+} from './lib/user-settings.js';
 import { APP_VERSION } from './lib/version.js';
 import { PUBLIC_APP_NAME } from './lib/identity.js';
 import { normalizePublicBaseUrl } from './lib/public-url.js';
+import { closeOutboundDispatchers } from './lib/net.js';
+import { scheduledBriefFilename } from './lib/history.js';
+import {
+  createBriefGenerationTracker,
+  shutdownGuardMs,
+} from './lib/brief-lifecycle.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -64,6 +86,7 @@ const DATA_DIR = join(__dirname, 'data');
 const CONFIG_PATH = join(__dirname, 'config.json');
 const DB_PATH = join(DATA_DIR, 'watchfloor.db');
 const BOOT_TIME = Date.now();
+const SCHEDULED_JOB_TOKEN = randomBytes(32).toString('base64url');
 
 let PUBLIC_BASE_URL = null;
 try {
@@ -215,9 +238,15 @@ async function verifyAnthropicKey(candidate) {
     || API_KEY_PRIMARY || getUserSettings().anthropicKey || null;
   if (!key) return { valid: false, error: 'No key to verify — paste one first.' };
   if (!key.startsWith('sk-ant-')) return { valid: false, error: 'That doesn’t look like an Anthropic key (expected sk-ant-…).' };
+  const controller = new AbortController();
+  const timeoutMs = 15_000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const probe = new Anthropic({ apiKey: key });
-    await probe.messages.create({ model: 'claude-haiku-4-5', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] });
+    await probe.messages.create(
+      { model: 'claude-haiku-4-5', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] },
+      { signal: controller.signal, timeout: timeoutMs, maxRetries: 0 },
+    );
     return { valid: true };
   } catch (err) {
     const status = err?.status;
@@ -225,6 +254,8 @@ async function verifyAnthropicKey(candidate) {
     if (status === 429) return { valid: true, note: 'Key is valid (currently rate-limited).' };
     if (status === 404 || status === 400) return { valid: true, note: 'Key authenticated.' };
     return { valid: null, error: 'Could not reach Anthropic to verify — try again shortly.' };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -237,6 +268,10 @@ const cooldown = {
     this._last[key] = now;
     return true;
   },
+  retryAfterSeconds(key, cooldownMs = 10000) {
+    const elapsed = Date.now() - (this._last[key] || 0);
+    return Math.max(1, Math.ceil((cooldownMs - elapsed) / 1000));
+  },
 };
 
 // ══════════════════════════════════════════
@@ -244,6 +279,8 @@ const cooldown = {
 // ══════════════════════════════════════════
 const app = express();
 app.disable('x-powered-by');
+const briefGenerationTracker = createBriefGenerationTracker();
+let shuttingDown = false;
 
 // Behind a reverse proxy? Trust it so rate-limiting and client-IP logging are
 // correct. Off by default (direct/loopback); set TRUST_PROXY to a hop count
@@ -303,17 +340,21 @@ for (const [route, candidates] of Object.entries(VENDOR_FILES)) {
     log.warn('static', `Vendor file missing for ${route} — run npm install`);
     continue;
   }
-  // Read once at startup into a Buffer, not per-request: these files are
-  // immutable for the process lifetime (node_modules, or our own brief-schema.js
-  // which only changes on deploy — i.e. a restart, which re-reads it here anyway).
-  // Serving the cached Buffer removes a synchronous disk read from the hot path.
-  const body = readFileSync(filePath);
-  app.get(route, (req, res) => {
-    // Our own brief-schema.js is a live contract that changes between releases —
-    // never let a returning kiosk cache a stale parser across deploys. Third-party
-    // libs (marked, purify) are immutable per install, so they keep the long cache.
-    res.setHeader('Cache-Control', route.endsWith('brief-schema.js') ? 'no-cache' : 'public, max-age=86400');
-    res.type('application/javascript').send(body);
+  const liveContract = route.endsWith('brief-schema.js');
+  // Third-party modules are immutable for the process lifetime and can stay in
+  // memory. The shared Briefing contract is different: browser modules and the
+  // server import the same source while local development is running. Read that
+  // one fixed path on request so an in-place edit cannot produce a half-old,
+  // half-new module graph that only a process restart repairs.
+  const cachedBody = liveContract ? null : readFileSync(filePath);
+  app.get(route, (req, res, next) => {
+    try {
+      res.setHeader('Cache-Control', liveContract ? 'no-store' : 'public, max-age=86400');
+      const body = liveContract ? readFileSync(filePath) : cachedBody;
+      res.type('application/javascript').send(body);
+    } catch (error) {
+      next(error);
+    }
   });
 }
 
@@ -433,17 +474,48 @@ app.get('/embed', (req, res) => {
 // ══════════════════════════════════════════
 // ROUTES
 // ══════════════════════════════════════════
-app.use('/api', createBriefRouter({ getAnthropic: () => ai.client, rotateKey: rotateToSecondaryKey, historyDir: HISTORY_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL, localPort: PORT }));
+app.use('/api', (req, res, next) => {
+  if (!shuttingDown) return next();
+  res.setHeader('Connection', 'close');
+  return res.status(503).json({
+    error: 'Server is shutting down',
+    code: 'E_SHUTTING_DOWN',
+  });
+});
+
+app.use('/api', createBriefRouter({
+  getAnthropic: () => ai.client,
+  rotateKey: rotateToSecondaryKey,
+  historyDir: HISTORY_DIR,
+  cooldown,
+  publicBaseUrl: PUBLIC_BASE_URL,
+  localPort: PORT,
+  scheduledJobToken: SCHEDULED_JOB_TOKEN,
+  trackGeneration: () => briefGenerationTracker.begin(),
+}));
 app.use('/api', createLandscapeRouter({ historyDir: HISTORY_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL }));
-app.use('/api', createSettingsRouter({ dataDir: DATA_DIR, getAiStatus, refreshAi, verifyKey: verifyAnthropicKey, getAlertRules: () => getConfig().alertRules, getOrganization: () => getEffectiveOrganization(getConfig()), loopback: IS_LOOPBACK, authed: Boolean(process.env.API_SECRET) }));
-app.get('/api/health', healthHandler({
+app.use('/api', createSettingsRouter({
+  dataDir: DATA_DIR,
+  getAiStatus,
+  refreshAi,
+  verifyKey: verifyAnthropicKey,
+  getAlertRules: () => getConfig().alertRules,
+  getOrganization: () => getEffectiveOrganization(getConfig()),
+  getBriefScheduleStatus: getDailyBriefScheduleStatus,
+  onBriefScheduleChanged: armDailyBriefSchedule,
+  loopback: IS_LOOPBACK,
+}));
+const healthOptions = {
   bootTime: BOOT_TIME,
   version: APP_VERSION,
   dataDir: DATA_DIR,
   getAiStatus,
   loopback: IS_LOOPBACK,
   requireAuthForDetails: Boolean(process.env.API_SECRET),
-}));
+};
+app.get('/api/live', livenessHandler);
+app.get('/api/ready', readinessHandler(healthOptions));
+app.get('/api/health', healthHandler(healthOptions));
 
 // Unknown /api/* route → JSON 404 (not the HTML SPA fallthrough).
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
@@ -472,19 +544,35 @@ const server = app.listen(PORT, HOST, () => {
     feedCount: getConfig().trustedFeeds?.length || 0,
     aiEnabled: Boolean(ai.client),
   });
-  startDailyBriefSchedule({
-    generateBrief: generateScheduledBrief,
-    isEnabled: () => Boolean(ai.client),
-  });
+  armDailyBriefSchedule();
+  if (process.env.BLUETEAM_STARTUP_SMOKE === '1') {
+    runStartupSmoke();
+  }
 });
+
+function armDailyBriefSchedule() {
+  return startDailyBriefSchedule({
+    generateBrief: generateScheduledBrief,
+    getScheduleConfig: () => getBriefScheduleSettings(),
+    isReady: scheduledJob => Boolean(ai.client) || Boolean(
+      scheduledJob?.editionDate
+      && existsSync(join(HISTORY_DIR, scheduledBriefFilename(scheduledJob.editionDate))),
+    ),
+  });
+}
 
 // Reuse the public briefing route internally so the unattended edition receives
 // the exact same validation, persistence, search indexing, model fallback, and
-// webhook behavior as an operator-triggered brief. Refresh first so 05:00 never
-// writes from yesterday's in-memory evidence set.
-async function generateScheduledBrief() {
-  if (!ai.client) throw new Error('AI briefing is disabled — configure an Anthropic API key');
-  await refreshNow('daily-brief');
+// webhook behavior as an operator-triggered brief. The route owns the one
+// refresh/evidence gate, avoiding a duplicate pipeline refresh on failures.
+async function generateScheduledBrief(scheduledJob) {
+  const hasPublishedArchive = Boolean(
+    scheduledJob?.editionDate
+    && existsSync(join(HISTORY_DIR, scheduledBriefFilename(scheduledJob.editionDate))),
+  );
+  if (!ai.client && !hasPublishedArchive) {
+    throw new Error('AI briefing is disabled — configure an Anthropic API key');
+  }
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Server address unavailable');
   const connectHost = (HOST === '0.0.0.0' || HOST === '::') ? '127.0.0.1' : HOST;
@@ -492,6 +580,12 @@ async function generateScheduledBrief() {
   return requestBriefGeneration({
     baseUrl: `http://${urlHost}:${address.port}`,
     apiSecret: process.env.API_SECRET || '',
+    scheduledJob,
+    internalToken: SCHEDULED_JOB_TOKEN,
+    timeoutMs: Math.min(
+      15 * 60_000,
+      ((getConfig().analysisSettings?.generationTimeoutSec ?? 180) * 1000) + 3 * 60_000,
+    ),
   });
 }
 
@@ -499,18 +593,90 @@ server.requestTimeout = 120_000;
 server.headersTimeout = 30_000;
 server.timeout = 300_000;
 
+// CI exercises the public source workflow (`npm install`, then `npm start`) on
+// every supported runner. This internal-only mode verifies that the real server
+// can answer its liveness route and serve the shared browser contract expected
+// by the Wall, then exits cleanly so the workflow is portable without
+// shell-specific process management.
+async function runStartupSmoke() {
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Server address unavailable');
+    const connectHost = (HOST === '0.0.0.0' || HOST === '::') ? '127.0.0.1' : HOST;
+    const urlHost = connectHost.includes(':') ? `[${connectHost}]` : connectHost;
+    const baseUrl = `http://${urlHost}:${address.port}`;
+    const [liveResponse, schemaResponse] = await Promise.all([
+      fetch(`${baseUrl}/api/live`, { signal: AbortSignal.timeout(5_000) }),
+      fetch(`${baseUrl}/vendor/brief-schema.js`, { signal: AbortSignal.timeout(5_000) }),
+    ]);
+    const [liveBody, schemaBody] = await Promise.all([
+      liveResponse.json(),
+      schemaResponse.text(),
+    ]);
+    if (!liveResponse.ok || liveBody?.status !== 'ok') {
+      throw new Error(`Liveness probe returned HTTP ${liveResponse.status}`);
+    }
+    if (
+      !schemaResponse.ok
+      || !/\bexport\s+function\s+formatDecisionWindow\b/.test(schemaBody)
+    ) {
+      throw new Error(
+        `Shared Briefing contract probe failed (HTTP ${schemaResponse.status})`,
+      );
+    }
+    log.info('server', 'Startup smoke test passed');
+    shutdown('STARTUP_SMOKE');
+  } catch (err) {
+    log.error('server', `Startup smoke test failed: ${err.message}`);
+    shutdown('STARTUP_SMOKE', 1);
+  }
+}
+
 // ── Graceful shutdown ──
-function shutdown(signal) {
+let shutdownStarted = false;
+let shutdownExitCode = 0;
+function shutdown(signal, exitCode = 0) {
+  shutdownExitCode = Math.max(shutdownExitCode, exitCode);
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  shuttingDown = true;
   log.info('server', `${signal} received — shutting down gracefully`);
   stopConfigWatch();
   stopRefreshSchedule();
   stopDailyBriefSchedule();
-  server.close(() => {
-    closeDB();
-    log.info('server', 'All connections closed');
-    process.exit(0);
+
+  const guardMs = shutdownGuardMs({
+    activeBriefings: briefGenerationTracker.activeCount,
+    maxGenerationTimeoutSec: MAX_GENERATION_TIMEOUT_SEC,
+    startupSmoke: signal === 'STARTUP_SMOKE',
   });
-  setTimeout(() => { log.error('server', 'Forced exit'); process.exit(1); }, 30000);
+  const forceExitTimer = setTimeout(() => {
+    log.error('server', `Forced exit after ${Math.ceil(guardMs / 1000)}s shutdown guard`);
+    process.exit(1);
+  }, guardMs);
+  // Do not keep an otherwise clean shutdown alive just for the safeguard. If
+  // another handle is genuinely stuck, that handle keeps the loop active and
+  // this timer still fires.
+  forceExitTimer.unref();
+
+  // server.close() only waits for sockets. A disconnected SSE client can leave
+  // paid generation and synchronous publication work running in the route, so
+  // keep SQLite and outbound pools alive until that explicit tracker is idle.
+  const serverClosed = new Promise(resolve => {
+    server.close(err => {
+      if (err) log.warn('server', `Closing HTTP server reported: ${err.message}`);
+      resolve();
+    });
+  });
+  Promise.all([serverClosed, briefGenerationTracker.waitForIdle()])
+    .then(() => closeOutboundDispatchers())
+    .catch(err => log.warn('server', `Graceful shutdown cleanup failed: ${err.message}`))
+    .finally(() => {
+      clearTimeout(forceExitTimer);
+      closeDB();
+      log.info('server', 'All connections closed');
+      process.exitCode = shutdownExitCode;
+    });
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));

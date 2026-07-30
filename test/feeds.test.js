@@ -14,10 +14,14 @@ jest.unstable_mockModule('../lib/net.js', () => ({
 const getFeedCacheMock = jest.fn();
 const setFeedCacheMock = jest.fn();
 const logFeedHealthMock = jest.fn();
+const getExternalCacheMock = jest.fn(() => null);
+const setExternalCacheMock = jest.fn();
 jest.unstable_mockModule('../lib/db.js', () => ({
   getFeedCache: getFeedCacheMock,
   setFeedCache: setFeedCacheMock,
   logFeedHealth: logFeedHealthMock,
+  getExternalCache: getExternalCacheMock,
+  setExternalCache: setExternalCacheMock,
 }));
 
 const {
@@ -44,11 +48,12 @@ describe('feedUserAgent', () => {
 // A minimal Response-shaped fake — fetchNewsContext only touches .status,
 // .ok, and .headers.get(); the body is consumed by the mocked readCapped
 // (which ignores the actual Response), so it never touches res.body.
-function fakeResponse({ status = 200, headers = {} } = {}) {
+function fakeResponse({ status = 200, headers = {}, cancel = jest.fn() } = {}) {
   return {
     status,
     ok: status >= 200 && status < 300,
     headers: { get: (k) => headers[k.toLowerCase()] ?? null },
+    body: { cancel },
   };
 }
 
@@ -128,17 +133,7 @@ describe('deduplicateWithCorroboration', () => {
     expect(result[0].corroboration).toBe(2);
   });
 
-  // Documents the KNOWN, ACCEPTED order-dependence of the greedy single-pass
-  // algorithm (see the design note above deduplicateWithCorroboration). A
-  // "bridge" headline is ≥threshold-similar to BOTH ends, but the two ends are
-  // NOT similar to each other (a non-transitive A~B~D / A≁D triple). Greedy
-  // merges into the FIRST matching survivor, so the result depends on input
-  // order. This is a regression guard, not a bug report: the pipeline's input
-  // order is stable (RSS feeds in config order, then search), so the chosen
-  // ordering — and thus the output — is deterministic in production. If this
-  // test ever changes, the dedup contract has changed.
-  test('greedy dedup is order-dependent for a non-transitive bridge (by design)', () => {
-    // Fresh copies per call: dedup mutates headlines in place.
+  test('a non-transitive bridge produces the same conservative clusters for every input order', () => {
     const bridge = () => ({ title: 'Zero day vulnerability actively exploited', source: 'Bridge', link: 'https://bridge.example/x' });
     const end1   = () => ({ title: 'Zero day vuln actively exploited',          source: 'End1',   link: 'https://end1.example/x' });
     const end2   = () => ({ title: 'Zero day vulnerability exploited in wild',  source: 'End2',   link: 'https://end2.example/x' });
@@ -149,21 +144,55 @@ describe('deduplicateWithCorroboration', () => {
     expect(deduplicateWithCorroboration([bridge(), end2()], 0.5).length).toBe(1);
     expect(deduplicateWithCorroboration([end1(), end2()], 0.5).length).toBe(2);
 
-    // Bridge first: both ends collapse into it → ONE survivor, corroboration 3.
-    const bridgeFirst = deduplicateWithCorroboration([bridge(), end1(), end2()], 0.5);
-    expect(bridgeFirst.length).toBe(1);
-    expect(bridgeFirst[0].corroboration).toBe(3);
+    const permutations = [
+      [bridge(), end1(), end2()],
+      [bridge(), end2(), end1()],
+      [end1(), bridge(), end2()],
+      [end1(), end2(), bridge()],
+      [end2(), bridge(), end1()],
+      [end2(), end1(), bridge()],
+    ];
+    const canonical = (items) => items.map(h => ({
+      title: h.title,
+      source: h.source,
+      sources: h.sources,
+      publishers: h.publishers,
+      corroboration: h.corroboration,
+    }));
+    const expected = canonical(deduplicateWithCorroboration(permutations[0], 0.5));
+    for (const permutation of permutations.slice(1)) {
+      expect(canonical(deduplicateWithCorroboration(permutation, 0.5))).toEqual(expected);
+    }
+  });
 
-    // Ends first, bridge last: end1 and end2 don't merge; the bridge joins only
-    // the first match (end1) → TWO survivors, max corroboration 2.
-    const bridgeLast = deduplicateWithCorroboration([end1(), end2(), bridge()], 0.5);
-    expect(bridgeLast.length).toBe(2);
-    expect(Math.max(...bridgeLast.map(h => h.corroboration))).toBe(2);
-
-    // The two orderings disagree on BOTH survivor count and corroboration —
-    // that disagreement IS the order-dependence.
-    expect(bridgeFirst.length).not.toBe(bridgeLast.length);
-    expect(bridgeFirst[0].corroboration).not.toBe(Math.max(...bridgeLast.map(h => h.corroboration)));
+  test('the more authoritative source becomes primary while evidence is merged', () => {
+    const community = {
+      title: 'Critical VPN zero-day exploited by ransomware group',
+      source: 'Community News',
+      category: 'cyber-news',
+      weight: 1,
+      link: 'https://news.example/story',
+      description: 'A longer description with useful affected-product detail.',
+    };
+    const advisory = {
+      title: 'Ransomware group exploits critical VPN zero-day vulnerability',
+      source: 'CISA Advisories',
+      category: 'gov-advisory',
+      weight: 1.5,
+      link: 'https://cisa.gov/advisory',
+      description: 'Short advisory.',
+    };
+    const result = deduplicateWithCorroboration([community, advisory], 0.5);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      source: 'CISA Advisories',
+      link: 'https://cisa.gov/advisory',
+      description: community.description,
+      corroboration: 2,
+    });
+    // Input data belongs to callers and must not gain aggregation fields.
+    expect(community).not.toHaveProperty('sources');
+    expect(advisory).not.toHaveProperty('publishers');
   });
 
   // #95 — the shipped default is 0.55 (not the 0.5 every other test in this file
@@ -456,8 +485,9 @@ describe('fetchNewsContext — feed ingest front door', () => {
   });
 
   test('an HTTP error status is reported and does not affect other feeds', async () => {
+    const cancel = jest.fn();
     safeFetchMock.mockImplementation(async (url) => {
-      if (url.includes('down')) return fakeResponse({ status: 503 });
+      if (url.includes('down')) return fakeResponse({ status: 503, cancel });
       return fakeResponse();
     });
     readCappedMock.mockResolvedValue(RSS_FIXTURE);
@@ -469,6 +499,7 @@ describe('fetchNewsContext — feed ingest front door', () => {
     const health = getFeedHealth().feeds;
     expect(health['Down Feed']).toBe('http-503');
     expect(results.some(h => h.source === 'Up Feed')).toBe(true);
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 
   // #124 — every terminal status (not just success) must write a health-log
@@ -727,6 +758,11 @@ describe('publisherKey — source identity', () => {
 });
 
 describe('fetchSearchResults — bounded Google News ingress', () => {
+  beforeEach(() => {
+    getExternalCacheMock.mockReset().mockReturnValue(null);
+    setExternalCacheMock.mockReset();
+  });
+
   test('bounds title/source/date fields and drops credential-bearing publisher links', async () => {
     const originalPack = getDomainPack();
     try {
@@ -750,6 +786,58 @@ describe('fetchSearchResults — bounded Google News ingress', () => {
       expect(results[0].source.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.source);
       expect(results[0].date.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.dateRaw);
       expect(results[0].link).toBe('');
+    } finally {
+      setDomainPack(originalPack);
+    }
+  });
+
+  test('serves a fresh persistent discovery result without hitting Google again', async () => {
+    const originalPack = getDomainPack();
+    try {
+      setDomainPack({
+        id: 'feed-cache-test',
+        label: 'Feed cache test',
+        feeds: { searchQueries: [{ q: 'security test', horizon: 2 }] },
+      });
+      getExternalCacheMock.mockReturnValue({
+        body: JSON.stringify([{
+          title: 'Cached discovery',
+          description: '',
+          link: 'https://publisher.example/story',
+          source: 'Publisher',
+          category: 'search',
+          horizon: 2,
+          weight: 0.7,
+          deepExtract: false,
+          date: 'Tue, 28 Jul 2026 12:00:00 GMT',
+          dateUnknown: false,
+          corroboration: 1,
+        }]),
+        expired: false,
+        fetched_at: new Date().toISOString(),
+      });
+      safeFetchMock.mockReset();
+
+      const results = await fetchSearchResults({});
+      expect(results.map(item => item.title)).toEqual(['Cached discovery']);
+      expect(safeFetchMock).not.toHaveBeenCalled();
+    } finally {
+      setDomainPack(originalPack);
+    }
+  });
+
+  test('cancels a Google News error body before moving to the next query', async () => {
+    const originalPack = getDomainPack();
+    const cancel = jest.fn();
+    try {
+      setDomainPack({
+        id: 'feed-error-body-test',
+        label: 'Feed error body test',
+        feeds: { searchQueries: [{ q: 'security test', horizon: 2 }] },
+      });
+      safeFetchMock.mockReset().mockResolvedValue(fakeResponse({ status: 503, cancel }));
+      await expect(fetchSearchResults({})).resolves.toEqual([]);
+      expect(cancel).toHaveBeenCalledTimes(1);
     } finally {
       setDomainPack(originalPack);
     }

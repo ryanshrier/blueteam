@@ -265,7 +265,7 @@ body.kiosk { cursor: none; }
 .nb-exec-fact dd, .nb-dev-name, .nb-dev-watch { max-width: var(--measure-editorial); }
 
 /* ── Unified chip — one mono spec everywhere ── */
-.nb-h, .nb-tag, .nb-badge {
+.nb-h, .nb-badge {
   display: inline-flex; align-items: center; gap: var(--s1);
   font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 600;   /* chips share the one mono-label rung instead of a near-identical raw clamp */
   letter-spacing: 0.08em; text-transform: uppercase;
@@ -293,7 +293,6 @@ body.kiosk { cursor: none; }
 .nb-badge.cvss.sev-low { color: var(--sev-low); border-color: var(--sev-low); background: rgba(var(--sev-low-rgb), 0.12); }
 /* Unknown/unparsed severity (cvssFrom → 'na') reads as quiet metadata, never an invisible badge. */
 .nb-badge.cvss.sev-na { color: var(--paper-ink-3); border-color: var(--paper-rule-2); }
-.nb-tag.urgent { color: var(--paper-accent); border-color: rgba(var(--paper-accent-rgb), 0.55); background: rgba(var(--paper-accent-rgb), 0.12); }
 
 /* ── The BLUF — the cover: the day's thesis as a newspaper front-page lead ──
    Eyebrow → towering headline (the claim) → standfirst deck (the detail). The
@@ -327,7 +326,7 @@ body.kiosk { cursor: none; }
 .nb-cover-head {
   margin: 0; font-family: var(--font-serif); font-weight: 800;
   font-size: var(--fluid-cover); line-height: 1.06; letter-spacing: -0.02em;
-  color: var(--paper-ink); max-width: 22ch; overflow-wrap: anywhere;
+  color: var(--paper-ink); max-width: 26ch; overflow-wrap: anywhere;
 }
 /* the deck — the supporting detail as a standfirst, one size down and muted, on a
    wider measure so the full thesis reads in full beneath the claim */
@@ -424,87 +423,82 @@ body.kiosk { cursor: none; }
 .nb-exec-decisions.is-packed .nb-exec-task strong { margin-bottom: 2px; font-size: var(--fluid-dek); }
 .nb-exec-decisions.is-packed .nb-exec-task .nb-clamp { -webkit-line-clamp: 1; }
 
-/* ── Key Judgment — broadsheet FRONT-PAGE LEAD (claim·reasoning·directive +
-   hero tier) ── A top-to-bottom stack of full-width bands; the dominant claim
-   is the focal object and OWNS the vertical slack as broadsheet air. There are NO
-   side-by-side columns above the fold, so no column can strand an L-shaped void
-   beside it (the original triptych failure, cured structurally). The two anchor
-   marks — the tier rail (top) and the blue act (bottom-right) — sit at diagonal
-   corners of a FILLED frame. Tier hue is tier-only (rail/disc); --paper-accent is
-   the directive/chrome mark only — never crossed. */
+/* ── Key Judgment — broadsheet front-page lead ──
+   Claim and standfirst own the page; an aligned analytic ledger names horizon,
+   decision timing, and calibrated confidence without an alert-like hero badge.
+   Reasoning/evidence and the directive close together at the fold. */
 .nb-judgment-page { justify-content: stretch; }
 .nb-judgment.nb-lead {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;   /* flow top-down: rail → claim → fold; slack is the lower margin */
+  justify-content: safe center;
   width: 100%;
   min-height: 0;
-  gap: var(--s6);
+  gap: clamp(28px, 4vh, 56px);
 }
 
-/* the tier disc — a compact filled token (the moment), not a lonely outline ring */
-.nb-jdisc {
-  width: clamp(44px, 3.6vw, 64px); aspect-ratio: 1; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  border: 3px solid var(--paper-rule-2);
+/* A compact analytic fact table: the rail answers three distinct questions
+   without turning any one value into an alert badge. Horizon carries the only
+   tier hue; Decision remains brand blue; Confidence stays neutral evidence. */
+.nb-jfacts {
+  width: 100%; margin: 0;
+  border-top: 1px solid var(--paper-rule-2);
+  border-bottom: 1px solid var(--paper-rule-2);
 }
-.nb-jdisc .h-pip { width: clamp(18px, 1.6vw, 28px); height: clamp(18px, 1.6vw, 28px); }
-.nb-jdisc.h1 { border-color: var(--h1); }
-.nb-jdisc.h2 { border-color: var(--h2); }
-.nb-jdisc.h3 { border-color: var(--h3); }
-.nb-hero-tier {
-  font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
-  font-size: clamp(17px, 1.6vw, 28px); line-height: 1;
+.nb-jfact {
+  display: grid;
+  grid-template-columns: minmax(82px, 0.72fr) minmax(0, 1.28fr);
+  align-items: baseline;
+  gap: var(--s3);
+  padding: clamp(9px, 1.2vh, 14px) 0;
+  border-bottom: 1px solid var(--paper-rule);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
-.nb-hero-tier.h1 { color: var(--h1); }
-.nb-hero-tier.h2 { color: var(--h2); }
-.nb-hero-tier.h3 { color: var(--h3); }
-.nb-jrail-tier { display: flex; align-items: center; gap: var(--s4); min-width: 0; }
-.nb-jrail-chips { width: 100%; display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; justify-content: flex-start; }
-.nb-jrail-chips .nb-tag {
-  white-space: normal;
+.nb-jfact:last-child { border-bottom: 0; }
+.nb-jfact dt {
+  margin: 0;
+  color: var(--paper-faint);
+  font-size: var(--fluid-kicker);
+  font-weight: 700;
+  letter-spacing: 0.14em;
   line-height: 1.25;
-  overflow: visible;
-  text-overflow: clip;
+  text-transform: uppercase;
+}
+.nb-jfact dd {
+  min-width: 0; margin: 0;
+  display: inline-flex; align-items: center; gap: var(--s2);
+  color: var(--paper-ink-2);
+  font-size: clamp(13px, 1vw, 17px);
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.nb-jfact dd.h1 { color: var(--h1); }
+.nb-jfact dd.h2 { color: var(--h2); }
+.nb-jfact dd.h3 { color: var(--h3); }
+.nb-jdecision dd { color: var(--paper-accent); }
+.nb-jdecision.is-legacy dd {
+  color: var(--paper-ink-2);
 }
 
-/* BAND 2+3 — the dominant claim absorbs the vertical slack as broadsheet air.
-   flex:1 + justify-content:center means a SHORT claim sits centred in a tall band
-   (air, not void) and a tall claim uses the height; either way nothing strands a
-   gap to its side, because there is no side. */
+/* The lead and ledger travel as one compact object; the article performs the
+   vertical centring so a short claim does not strand the proof at the floor. */
 .nb-jhead-band {
-  flex: 1 1 auto; min-height: 0;
+  flex: 0 1 auto; min-height: 0;
   display: flex; flex-direction: column; justify-content: center;
 }
-/* The headline+standfirst (left) and the tier identity + decision/KEV chips
-   (right) sit as one top-aligned row — no divider line, no full-width rail above
-   it. The aside is a fixed-content sidebar; the claim takes whatever's left. */
-/* align-items:center sits the (short) aside against the headline's optical centre
-   so a judgment with no CVE-matched sources no longer strands a void lower-right;
-   when sources ARE present the taller aside still centres cleanly. */
+/* Headline+standfirst and the fixed-width fact ledger share one top edge. */
 .nb-jhead-row {
-  display: flex; flex-direction: row; align-items: center; justify-content: space-between;
-  gap: var(--s7);
+  display: flex; flex-direction: row; align-items: flex-start; justify-content: space-between;
+  gap: clamp(36px, 5vw, 82px);
 }
 .nb-jhead-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--s4); }
-/* Bounded so a wide KEV chip or a multi-publisher Sources list can't widen the
-   aside and starve the headline column at narrower viewports. */
-.nb-jhead-aside { flex: 0 0 clamp(240px, 24vw, 360px); max-width: 32%; display: flex; flex-direction: column; align-items: flex-start; gap: var(--s4); }
-/* The publishers behind this judgment (CVE-matched, see judgmentSources in
-   wall-view.js) — a quiet provenance list under the tier/chip stack, never
-   competing with the headline for weight. */
-.nb-jsources { display: flex; flex-direction: column; gap: 4px; }
-.nb-jsources-label {
-  font-family: var(--font-mono); font-size: clamp(10px, 0.8vw, 12px); font-weight: 700;
-  letter-spacing: 0.12em; text-transform: uppercase; color: var(--paper-faint);
-}
-.nb-jsources ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
-.nb-jsources li {
-  font-family: var(--font-mono); font-size: clamp(12px, 0.95vw, 15px);
-  color: var(--paper-ink-3); white-space: nowrap;
-  max-width: 100%; overflow: hidden; text-overflow: ellipsis;   /* a long publisher name ellipsizes inside the bounded aside, never widens it */
-}
+/* Bounded so long calibrated-confidence text cannot starve the headline. */
+.nb-jhead-aside { flex: 0 0 clamp(280px, 25vw, 390px); max-width: 34%; min-width: 0; }
 /* the claim — the page's biggest object — the canonical Key-Judgment head role
    (--fluid-display). Uses the full main-column width (no artificial ch cap) so
    it reads as a banner across the page instead of stacking tall and narrow next
@@ -527,15 +521,12 @@ body.kiosk { cursor: none; }
    Emitted only when reasoning and/or action exist (judgmentHtml decides), so its
    gutter is always real and a thin judgment never shows an empty ledger. */
 .nb-jfold {
-  /* nb-jhead-band is flex:1 and absorbs all the slack above (centring the claim
-     in it), so the fold naturally lands at the page bottom with a fixed --s6 gap
-     above it — no margin-top:auto needed, and no undistributed void on a short
-     claim+standfirst. */
+  /* The fold remains in normal flow with the headline object. */
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: clamp(24px, 2.8vw, 56px);   /* tighter gutter: action reads as the CONCLUSION of the reasoning, not a separate panel */
   align-items: start;
-  padding-top: clamp(40px, 6vh, 90px);   /* the hinge gets weight proportional to screen height — a fold, not a divider */
+  padding-top: clamp(22px, 3vh, 42px);
   border-top: 1px solid var(--paper-rule);   /* the printed fold */
 }
 /* When only ONE of the pair is present it spans the full measure (no half-empty
@@ -545,21 +536,71 @@ body.kiosk { cursor: none; }
   margin: 0; font-family: var(--font-serif); font-weight: 400;
   font-size: var(--fluid-body); line-height: 1.5; letter-spacing: 0.01em; color: var(--paper-ink);   /* the reasoning is the conviction layer — brighter ink + a touch of spacing at the small end */
 }
+.nb-jreasoning { min-width: 0; display: grid; gap: var(--s3); }
+.nb-jevidence {
+  min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s2) var(--s4);
+  padding-top: var(--s2); border-top: 1px solid var(--paper-rule);
+  font-family: var(--font-mono); font-size: clamp(11px, 0.86vw, 14px);
+  letter-spacing: 0.045em; color: var(--paper-ink-3);
+}
+.nb-evidence-kev {
+  flex: none; color: var(--alert); font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.nb-evidence-sources {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.nb-evidence-sources b {
+  margin-right: var(--s1); color: var(--paper-faint); font-size: 0.88em;
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
 /* the directive — the climax; reuses the shared .c-action primitive (border-left
    + wash from app.css) with only the warm-paper accent overridden. The clamp stays
    on the inner .nb-act-text span, never on this grid child. */
 .nb-lead .nb-act {
   --c-action-accent: var(--paper-accent); --c-action-accent-rgb: var(--paper-accent-rgb);
-  margin: 0; padding: var(--s3) 0 var(--s2) var(--s4); align-self: start;
+  margin: 0; padding: var(--s3) var(--s3) var(--s2) var(--s4); align-self: start;
+  width: 100%; min-width: 0; display: grid; gap: var(--s2);
   background: linear-gradient(90deg, rgba(var(--paper-accent-rgb), 0.08), transparent 72%);
   border-radius: 0;
 }
-.nb-act-text { font-family: var(--font-serif); font-weight: 600; line-height: 1.3; color: var(--paper-ink); }
+.nb-act-owner {
+  min-width: 0; overflow-wrap: anywhere;
+  font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-accent);
+}
+.nb-act-text {
+  min-width: 0; overflow-wrap: anywhere;
+  font-family: var(--font-serif); font-weight: 600; line-height: 1.3; color: var(--paper-ink);
+}
 .nb-lead .nb-act-text { font-size: var(--fluid-lead); }
+.nb-act-target {
+  min-width: 0;
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3);
+  padding-top: var(--s2); border-top: 1px solid rgba(var(--paper-accent-rgb), 0.28);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.nb-act-target small {
+  color: var(--paper-faint); font-size: clamp(10px, 0.78vw, 13px);
+  font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+}
+.nb-act-target strong {
+  min-width: 0; overflow-wrap: anywhere;
+  color: var(--paper-ink-2); font-size: clamp(12px, 0.92vw, 15px);
+  letter-spacing: 0.035em; text-align: right;
+}
 
 /* ── Developing Situations — status board: what's moving, which way, what trips it ── */
-.nb-devboard { flex: 1; display: flex; flex-direction: column; justify-content: space-evenly; }
-.nb-dev { display: grid; grid-template-columns: clamp(150px, 14vw, 230px) minmax(0, 1fr); gap: var(--s5); align-items: start; padding: var(--s4) 0; border-top: 1px solid var(--paper-rule); }   /* baseline assumes matched fonts; mono trajectory vs serif name have different x-heights — start-align reads true at distance */
+.nb-devboard {
+  flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: stretch;
+  border-top: 1px solid var(--paper-rule); border-bottom: 1px solid var(--paper-rule);
+}
+.nb-dev {
+  flex: 1 1 0; min-height: 0;
+  display: grid; grid-template-columns: clamp(150px, 14vw, 230px) minmax(0, 1fr);
+  gap: var(--s5); align-content: safe center; align-items: start;
+  padding: var(--s4) 0; border-top: 1px solid var(--paper-rule);
+}   /* baseline assumes matched fonts; mono trajectory vs serif name have different x-heights — start-align reads true at distance */
 .nb-dev:first-child { border-top: none; }
 .nb-dev { padding-inline: var(--s4); box-shadow: inset 3px 0 var(--paper-rule-2); }
 .nb-dev:nth-child(even) { background: var(--paper-elev); }
@@ -567,6 +608,7 @@ body.kiosk { cursor: none; }
 .nb-traj.accel { color: var(--alert); }
 .nb-traj.inflect { color: var(--h3); }
 .nb-traj.decel { color: var(--accent-green); }
+.nb-traj.stalled { color: var(--paper-ink-2); }
 .nb-dev-body { min-width: 0; }
 .nb-dev-name { margin: 0; font-family: var(--font-serif); font-weight: 700; font-size: var(--fluid-title); line-height: 1.16; color: var(--paper-ink); }
 .nb-dev-watch { margin: var(--s2) 0 0; font-family: var(--font-mono); font-size: clamp(15px, 1.1vw, 18px); line-height: 1.4; color: var(--paper-ink-2); }
@@ -586,7 +628,7 @@ body.kiosk { cursor: none; }
 .nb-conv-kicker.accent::before { content: ''; flex: none; width: clamp(20px, 2vw, 36px); height: 2px; background: var(--paper-accent); }
 .nb-conv-title {
   margin: 0; font-family: var(--font-serif); font-weight: 800;
-  font-size: var(--fluid-standfirst); line-height: 1.12; letter-spacing: -0.015em;
+  font-size: clamp(34px, 2.8vw, 52px); line-height: 1.1; letter-spacing: -0.018em;
   color: var(--paper-ink); overflow-wrap: anywhere;
 }
 
@@ -722,6 +764,24 @@ body.kiosk { cursor: none; }
 .nb-opening { display: flex; flex-direction: column; align-items: center; gap: var(--s3); }
 .nb-opening strong { color: var(--paper-ink); font-size: var(--fluid-display); line-height: 1.05; }
 .nb-opening-kicker { color: var(--paper-accent); font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+.nb-state {
+  display: flex; flex-direction: column; align-items: center; gap: var(--s3);
+  padding-inline: var(--s6);
+}
+.nb-state::before {
+  content: ''; width: clamp(42px, 4vw, 70px); height: 2px; background: var(--paper-accent);
+}
+.nb-state-kicker {
+  font-family: var(--font-mono); font-size: var(--fluid-kicker); font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--paper-accent);
+}
+.nb-state strong {
+  color: var(--paper-ink); font-size: var(--fluid-title); line-height: 1.1;
+}
+.nb-state-error::before { background: var(--alert); }
+.nb-state-error .nb-state-kicker { color: var(--alert); }
+.nb-state-warn::before { background: var(--warn); }
+.nb-state-warn .nb-state-kicker { color: var(--warn); }
 
 /* Screen-reader-only — visually hidden but announced. Used by the masthead's
    board-status announcer (#nbAnnounce), which speaks ONLY on a status change. */
@@ -914,6 +974,51 @@ body.kiosk { cursor: none; }
   .nb-exec-decisions { padding-left: clamp(18px, 2vw, 28px); }
   .nb-exec-decision { padding-block: clamp(8px, 1.1vh, 14px); }
   .nb-exec-task .nb-clamp { -webkit-line-clamp: 2; }
+
+  /* Key Judgments keep the whole analytic ledger and action target visible on
+     720p panels. Only secondary prose yields a line. */
+  .nb-judgment.nb-lead { gap: clamp(20px, 2.7vh, 30px); }
+  .nb-jhead-main { gap: var(--s3); }
+  .nb-jfact { padding-block: 7px; }
+  .nb-jfold { padding-top: clamp(16px, 2vh, 24px); }
+  .nb-jbody .nb-clamp { -webkit-line-clamp: 3; }
+  .nb-act-text.nb-clamp { -webkit-line-clamp: 2; }
+
+  /* Six KEV records still fit as complete contiguous rows: names are tertiary,
+     while CVE, vendor, product, and honest catalog recency remain visible. */
+  .nb-kev-page.row-count-5 .nb-kev-deck,
+  .nb-kev-page.row-count-6 .nb-kev-deck { display: none; }
+  .nb-kev-page.row-count-5 .nb-kev-lead,
+  .nb-kev-page.row-count-6 .nb-kev-lead { padding-block: 6px 12px; }
+  .nb-kev-page.row-count-5 .nb-kev-columns,
+  .nb-kev-page.row-count-6 .nb-kev-columns { padding-block: 8px 5px; }
+  .nb-kev-page.row-count-5 .nb-led-row,
+  .nb-kev-page.row-count-6 .nb-led-row { padding-block: 5px; }
+  .nb-kev-page.row-count-5 .nb-led-name,
+  .nb-kev-page.row-count-6 .nb-led-name { display: none; }
+  .nb-kev-page.row-count-5 .nb-led-product .nb-clamp,
+  .nb-kev-page.row-count-6 .nb-led-product .nb-clamp { -webkit-line-clamp: 1; }
+
+  /* Four Wire records fit without an off-screen fourth row. The lead keeps one
+     explanatory line; supporting rows become headline + provenance receipts. */
+  .nb-feed { justify-content: safe center; }
+  .nb-item { gap: var(--s3); padding-block: 7px; }
+  .nb-item:not(.lead) .nb-dek,
+  .nb-item:not(.lead) .nb-score-rationale { display: none; }
+  .nb-item.lead .nb-dek .nb-clamp,
+  .nb-item.lead .nb-score-rationale .nb-clamp { -webkit-line-clamp: 1; }
+  .nb-item.lead { padding-block: 10px; }
+  .nb-item.lead .nb-headline { font-size: clamp(27px, 2.2vw, 34px); }
+}
+
+/* Compact 720p mastheads need slightly tighter tracking and gaps so the
+   centered section slug never collides with the live feed/status readout. */
+@media (max-width: 1400px) {
+  .nb-folio { gap: var(--s3); }
+  .nb-folio-slug { letter-spacing: 0.16em; }
+  .nb-folio-status { gap: var(--s3); }
+  .nb-integrity { font-size: 12px; letter-spacing: 0.07em; }
+  .nb-folio-live { font-size: 13px; letter-spacing: 0.07em; }
 }
 
 @media (prefers-reduced-motion: reduce) {

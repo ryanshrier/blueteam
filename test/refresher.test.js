@@ -188,6 +188,40 @@ describe('refresher — getFreshRun staleness boundary', () => {
     // One call to seed the cache, one more triggered by the stale check.
     expect(runIntelligencePipelineMock).toHaveBeenCalledTimes(2);
   });
+
+  test('rejects a fresh but inadequate evidence set when a Briefing gate is requested', async () => {
+    runIntelligencePipelineMock.mockResolvedValue({ headlines: [{ title: 'only one' }], stats: {} });
+    await expect(refresher.getFreshRun(60_000, { minHeadlines: 5, maxAgeMs: 30 * 60_000 }))
+      .rejects.toMatchObject({ code: 'E_EVIDENCE' });
+  });
+
+  test('rejects a stale retained snapshot after an empty refresh', async () => {
+    runIntelligencePipelineMock.mockResolvedValueOnce({
+      headlines: Array.from({ length: 5 }, (_, i) => ({ title: `signal ${i}` })),
+      stats: {},
+    });
+    const seeded = await refresher.refreshNow('seed');
+    seeded.generatedAtMs = Date.now() - 60 * 60_000;
+    runIntelligencePipelineMock.mockResolvedValueOnce({ headlines: [], stats: {} });
+
+    await expect(refresher.getFreshRun(5 * 60_000, {
+      minHeadlines: 5,
+      maxAgeMs: 30 * 60_000,
+    })).rejects.toMatchObject({ code: 'E_EVIDENCE' });
+    expect(runIntelligencePipelineMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('returns a fresh adequate evidence set', async () => {
+    runIntelligencePipelineMock.mockResolvedValue({
+      headlines: Array.from({ length: 5 }, (_, i) => ({ title: `signal ${i}` })),
+      stats: {},
+    });
+    const run = await refresher.getFreshRun(60_000, {
+      minHeadlines: 5,
+      maxAgeMs: 30 * 60_000,
+    });
+    expect(run.headlines).toHaveLength(5);
+  });
 });
 
 describe('refresher — schedule lifecycle', () => {

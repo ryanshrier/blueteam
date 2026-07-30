@@ -1,37 +1,12 @@
 {
   "name": "blueteam-news",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "BlueTeam.News — an open-source, self-hosted threat-intelligence desk for cyber defense teams.",
   "author": "Ryan Shrier",
   "license": "MIT",
   "type": "module",
   "main": "server.js",
-  "files": [
-    "server.js",
-    "config.json",
-    "config/",
-    "lib/",
-    "routes/",
-    "public/",
-    ".env.example",
-    "README.md",
-    "CHANGELOG.md",
-    "CONTRIBUTING.md",
-    "SUPPORT.md",
-    "SECURITY.md",
-    "THIRD_PARTY_NOTICES.md",
-    "docs/operations.md",
-    "docs/configuration.md",
-    "docs/architecture.md",
-    "docs/api.md",
-    "docs/development.md",
-    "docs/assets/screenshot-wall-wire.jpg",
-    "docs/assets/screenshot-wire.png",
-    "docs/assets/screenshot-briefing.png",
-    "LICENSES/",
-    "LICENSE"
-  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ryanshrier/blueteam.git"
@@ -40,10 +15,8 @@
   "bugs": {
     "url": "https://github.com/ryanshrier/blueteam/issues"
   },
-  "packageManager": "npm@11.18.0",
   "engines": {
-    "node": ">=22.0.0",
-    "npm": ">=11.18.0"
+    "node": ">=22.19.0 <23 || >=24.0.0 <25 || >=26.0.0 <27"
   },
   "allowScripts": {
     "better-sqlite3@12.10.0": true,
@@ -61,9 +34,12 @@
     "check:cti-scope": "node scripts/check-cti-scope.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check:scoring": "node scripts/score-report.mjs",
+    "check:release": "node scripts/check-release-metadata.mjs",
     "backtest": "node scripts/backtest.mjs",
     "check:placeholders": "node scripts/check-no-placeholders.mjs",
-    "check:assets": "node scripts/check-assets.mjs"
+    "check:assets": "node scripts/check-assets.mjs",
+    "check:landing": "node scripts/check-landing-page.mjs",
+    "check:landing:render": "node scripts/check-landing-render.mjs"
   },
   "keywords": [
     "security-operations",
@@ -86,6 +62,7 @@
     "helmet": "^8.1.0",
     "htmlparser2": "^12.0.0",
     "marked": "^15.0.7",
+    "undici": "^8.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -94,7 +71,10 @@
   },
   "overrides": {
     "body-parser@>=1.0.0 <2.0.0": "1.20.6",
-    "brace-expansion@>=1.0.0 <2.0.0": "1.1.16",
-    "brace-expansion@>=2.0.0 <3.0.0": "2.1.2"
+    "babel-plugin-istanbul": "8.0.0",
+    "test-exclude": "8.0.0",
+    "glob": "13.0.6",
+    "minimatch": "10.2.5",
+    "brace-expansion": "5.0.8"
   }
 }

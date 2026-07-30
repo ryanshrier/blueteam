@@ -3,12 +3,9 @@
 // gating, and the DNS-resolution path (mocked, so the suite is hermetic — no real
 // network). Redirect-hop revalidation is exercised by assertPublicUrl per hop,
 // and safeFetch's own hop loop + readCapped's byte cap are exercised below
-// against a mocked global fetch (safeFetch's IP-pinning dispatcher wraps
-// node:http(s) directly, so mocking fetch() itself is what lets us drive the
-// hop loop deterministically without a real socket).
+// against an injected transport fetch so the hop loop stays deterministic
+// without opening a real socket.
 import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import http from 'node:http';
-import { Readable, Writable } from 'node:stream';
 
 // Mock DNS so the hostname path is deterministic. Must be registered before the
 // dynamic import of the module under test.
@@ -18,7 +15,10 @@ jest.unstable_mockModule('node:dns/promises', () => ({
   lookup: lookupMock,
 }));
 
-const { isBlockedIP, assertPublicUrl, safeFetch, readCapped } = await import('../lib/net.js');
+const {
+  isBlockedIP, assertPublicUrl, safeFetch, readCapped,
+  closeOutboundDispatchers, _setTransportFetchForTests, _createPinnedLookupForTests,
+} = await import('../lib/net.js');
 
 // Build a minimal fetch Response for the safeFetch hop-loop tests below.
 // safeFetch only touches .status, .headers.get(), and .body(.cancel()).
@@ -130,17 +130,19 @@ describe('assertPublicUrl — DNS resolution path (mocked)', () => {
   });
 });
 
-describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
-  const realFetch = global.fetch;
+describe('safeFetch — redirect hop loop (injected transport)', () => {
   beforeEach(() => {
     lookupMock.mockReset();
     lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]); // public, every hostname resolves here
   });
-  afterEach(() => { global.fetch = realFetch; });
+  afterEach(async () => {
+    _setTransportFetchForTests();
+    await closeOutboundDispatchers();
+  });
 
   test('a 302 hop to a private literal is rejected before a second fetch happens', async () => {
     const fetchMock = jest.fn().mockResolvedValue(fakeResponse({ status: 302, location: 'http://169.254.169.254/latest/meta-data/', body: true }));
-    global.fetch = fetchMock;
+    _setTransportFetchForTests(fetchMock);
     await expect(safeFetch('http://public.example.com/')).rejects.toThrow(/blocked: private/);
     expect(fetchMock).toHaveBeenCalledTimes(1); // the second hop must never be fetched
   });
@@ -151,7 +153,7 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
       location: 'https://user:redirect-secret@other.example.net/private',
       body: true,
     }));
-    global.fetch = fetchMock;
+    _setTransportFetchForTests(fetchMock);
     const error = await safeFetch('http://public.example.com/').catch(err => err);
     expect(error.message).toBe('blocked: URL credentials are not allowed');
     expect(error.message).not.toContain('redirect-secret');
@@ -162,7 +164,7 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(fakeResponse({ status: 302, location: '/next', body: true }))
       .mockResolvedValueOnce(fakeResponse({ status: 200 }));
-    global.fetch = fetchMock;
+    _setTransportFetchForTests(fetchMock);
     await safeFetch('http://public.example.com/start');
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1][0]).toBe('http://public.example.com/next');
@@ -171,7 +173,7 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
   test('a redirect status with no Location header returns that response as-is', async () => {
     const res = fakeResponse({ status: 302 }); // no location set
     const fetchMock = jest.fn().mockResolvedValue(res);
-    global.fetch = fetchMock;
+    _setTransportFetchForTests(fetchMock);
     const out = await safeFetch('http://public.example.com/');
     expect(out).toBe(res);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -179,7 +181,7 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
 
   test('exhausting maxRedirects throws "too many redirects"', async () => {
     const fetchMock = jest.fn().mockResolvedValue(fakeResponse({ status: 302, location: 'http://public.example.com/loop', body: true }));
-    global.fetch = fetchMock;
+    _setTransportFetchForTests(fetchMock);
     await expect(safeFetch('http://public.example.com/', {}, { maxRedirects: 3 })).rejects.toThrow(/too many redirects/);
     expect(fetchMock).toHaveBeenCalledTimes(4); // hop 0..3 inclusive
   });
@@ -189,7 +191,7 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce({ status: 302, headers: { get: () => 'http://public.example.com/next' }, body: firstBody })
       .mockResolvedValueOnce(fakeResponse({ status: 200 }));
-    global.fetch = fetchMock;
+    _setTransportFetchForTests(fetchMock);
     await safeFetch('http://public.example.com/');
     expect(firstBody.cancel).toHaveBeenCalledTimes(1);
   });
@@ -197,7 +199,7 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
   test('a non-redirect response is returned directly on the first hop', async () => {
     const res = fakeResponse({ status: 200 });
     const fetchMock = jest.fn().mockResolvedValue(res);
-    global.fetch = fetchMock;
+    _setTransportFetchForTests(fetchMock);
     const out = await safeFetch('http://public.example.com/');
     expect(out).toBe(res);
   });
@@ -206,7 +208,7 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(fakeResponse({ status: 302, location: '/accepted', body: true }))
       .mockResolvedValueOnce(fakeResponse({ status: 200 }));
-    global.fetch = fetchMock;
+    _setTransportFetchForTests(fetchMock);
 
     await safeFetch('http://public.example.com/hook', {
       method: 'POST',
@@ -225,7 +227,7 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(fakeResponse({ status: 307, location: 'https://other.example.net/next', body: true }))
       .mockResolvedValueOnce(fakeResponse({ status: 200 }));
-    global.fetch = fetchMock;
+    _setTransportFetchForTests(fetchMock);
 
     await safeFetch('https://public.example.com/start', {
       method: 'POST',
@@ -253,7 +255,7 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(fakeResponse({ status: 307, location: '/next', body: true }))
       .mockResolvedValueOnce(fakeResponse({ status: 200 }));
-    global.fetch = fetchMock;
+    _setTransportFetchForTests(fetchMock);
 
     await safeFetch('https://public.example.com/start', {
       headers: { apiKey: 'nvd-secret' },
@@ -263,243 +265,43 @@ describe('safeFetch — redirect hop loop (mocked global fetch)', () => {
   });
 });
 
-describe('safeFetch - pinned dispatcher request body integration', () => {
-  const realFetch = global.fetch;
-
-  beforeEach(() => {
-    lookupMock.mockReset();
-    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-    global.fetch = realFetch;
+describe('safeFetch — supported pinned Agent transport', () => {
+  afterEach(async () => {
+    _setTransportFetchForTests();
+    await closeOutboundDispatchers();
   });
 
-  afterEach(() => { global.fetch = realFetch; });
-
-  test('writes the async-iterable body Node fetch gives the dispatcher', async () => {
-    const received = [];
-    const requestSpy = jest.spyOn(http, 'request').mockImplementation((_options, onResponse) => {
-      const req = new Writable({
-        write(chunk, _encoding, callback) {
-          received.push(Buffer.from(chunk));
-          callback();
-        },
-      });
-      req.once('finish', () => {
-        const res = Readable.from([Buffer.from('ok')]);
-        res.statusCode = 200;
-        res.statusMessage = 'OK';
-        res.headers = { 'content-type': 'text/plain; charset=utf-8' };
-        onResponse(res);
-      });
-      return req;
+  test('the custom lookup returns only the vetted address for scalar and all-address calls', () => {
+    const lookup = _createPinnedLookupForTests('93.184.216.34');
+    lookup('ignored.example', {}, (err, address, family) => {
+      expect(err).toBeNull();
+      expect(address).toBe('93.184.216.34');
+      expect(family).toBe(4);
     });
-
-    try {
-      const payload = JSON.stringify({ source: 'blueteam', alert: true });
-      const res = await safeFetch('http://public.example.com/webhook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-      });
-
-      await expect(readCapped(res, 100)).resolves.toBe('ok');
-      expect(Buffer.concat(received).toString('utf8')).toBe(payload);
-    } finally {
-      requestSpy.mockRestore();
-    }
-  });
-});
-
-describe('safeFetch - pinned dispatcher handler compatibility', () => {
-  const realFetch = global.fetch;
-  let requestSpy;
-
-  beforeEach(() => {
-    lookupMock.mockReset();
-    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-    requestSpy = jest.spyOn(http, 'request').mockImplementation((_options, onResponse) => {
-      const req = new Writable({
-        write(_chunk, _encoding, callback) { callback(); },
-      });
-      req.once('finish', () => {
-        const res = Readable.from([Buffer.from('first'), Buffer.from('second')]);
-        res.statusCode = 200;
-        res.statusMessage = 'OK';
-        res.headers = { 'content-type': 'text/plain', 'x-test': 'handler-bridge' };
-        res.rawHeaders = [
-          'Content-Type', 'text/plain',
-          'X-Test', 'handler-bridge',
-        ];
-        res.trailers = { 'x-trailer': 'done' };
-        res.rawTrailers = ['X-Trailer', 'done'];
-        onResponse(res);
-      });
-      return req;
+    lookup('ignored.example', { all: true }, (err, addresses) => {
+      expect(err).toBeNull();
+      expect(addresses).toEqual([{ address: '93.184.216.34', family: 4 }]);
     });
   });
 
-  afterEach(() => {
-    global.fetch = realFetch;
-    requestSpy.mockRestore();
-  });
-
-  async function captureDispatcher() {
+  test('safeFetch delegates request bodies to an official reusable dispatcher', async () => {
+    lookupMock.mockReset().mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
     const fetchMock = jest.fn().mockResolvedValue(fakeResponse({ status: 200 }));
-    global.fetch = fetchMock;
-    await safeFetch('http://public.example.com/');
-    return fetchMock.mock.calls[0][1].dispatcher;
-  }
+    _setTransportFetchForTests(fetchMock);
+    const payload = JSON.stringify({ source: 'blueteam', alert: true });
 
-  test('supports legacy callbacks and honors their pause/resume return contract', async () => {
-    const dispatcher = await captureDispatcher();
-    const events = [];
-    let resume;
-    let dataCalls = 0;
-    let headersResumed = false;
-    let dataResumed = false;
-
-    await new Promise((resolve, reject) => {
-      expect(dispatcher.dispatch({
-        origin: 'http://public.example.com',
-        path: '/legacy',
-        method: 'GET',
-      }, {
-        // Undici 7's legacy fetch handler exposes this controller-era method
-        // even though its normal response callbacks still use the old family.
-        onRequestUpgrade() {
-          throw new Error('unexpected upgrade');
-        },
-        onConnect(abort) {
-          events.push('connect');
-          expect(abort).toEqual(expect.any(Function));
-        },
-        onHeaders(statusCode, rawHeaders, resumeResponse, statusMessage) {
-          events.push('headers');
-          expect(statusCode).toBe(200);
-          expect(rawHeaders).toEqual([
-            'Content-Type', 'text/plain',
-            'X-Test', 'handler-bridge',
-          ]);
-          expect(statusMessage).toBe('OK');
-          resume = resumeResponse;
-          setImmediate(() => {
-            headersResumed = true;
-            resumeResponse();
-          });
-          return false;
-        },
-        onData(chunk) {
-          dataCalls++;
-          events.push(`data:${chunk}`);
-          if (dataCalls === 1) {
-            expect(headersResumed).toBe(true);
-            setImmediate(() => {
-              dataResumed = true;
-              resume();
-            });
-            return false;
-          }
-          expect(dataResumed).toBe(true);
-          return true;
-        },
-        onComplete(rawTrailers) {
-          events.push('complete');
-          expect(rawTrailers).toEqual(['X-Trailer', 'done']);
-          resolve();
-        },
-        onError: reject,
-      })).toBe(true);
+    await safeFetch('http://public.example.com/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
     });
 
-    expect(events).toEqual([
-      'connect',
-      'headers',
-      'data:first',
-      'data:second',
-      'complete',
-    ]);
-  });
-
-  test('does not fall back to legacy methods when optional controller callbacks are absent', async () => {
-    const dispatcher = await captureDispatcher();
-    let requestController;
-
-    await new Promise((resolve, reject) => {
-      dispatcher.dispatch({
-        origin: 'http://public.example.com',
-        path: '/controller-minimal',
-        method: 'GET',
-      }, {
-        onRequestStart(controller) {
-          requestController = controller;
-        },
-        onResponseEnd(controller) {
-          expect(controller).toBe(requestController);
-          resolve();
-        },
-        onResponseError(_controller, error) {
-          reject(error);
-        },
-      });
-    });
-  });
-
-  test('supports Node 26 controller callbacks with one stable controller', async () => {
-    const dispatcher = await captureDispatcher();
-    const events = [];
-    let requestController;
-
-    await new Promise((resolve, reject) => {
-      expect(dispatcher.dispatch({
-        origin: 'http://public.example.com',
-        path: '/controller',
-        method: 'GET',
-      }, {
-        onRequestStart(controller, context) {
-          requestController = controller;
-          events.push('request-start');
-          expect(context).toEqual({});
-          expect(controller.aborted).toBe(false);
-          expect(controller.rawHeaders).toBeNull();
-        },
-        onResponseStarted() {
-          events.push('response-started');
-        },
-        onResponseStart(controller, statusCode, headers, statusMessage) {
-          events.push('response-start');
-          expect(controller).toBe(requestController);
-          expect(controller.rawHeaders).toEqual([
-            'Content-Type', 'text/plain',
-            'X-Test', 'handler-bridge',
-          ]);
-          expect(statusCode).toBe(200);
-          expect(headers).toMatchObject({ 'x-test': 'handler-bridge' });
-          expect(statusMessage).toBe('OK');
-        },
-        onResponseData(controller, chunk) {
-          events.push(`response-data:${chunk}`);
-          expect(controller).toBe(requestController);
-        },
-        onResponseEnd(controller, trailers) {
-          events.push('response-end');
-          expect(controller).toBe(requestController);
-          expect(controller.rawTrailers).toEqual(['X-Trailer', 'done']);
-          expect(trailers).toEqual({ 'x-trailer': 'done' });
-          resolve();
-        },
-        onResponseError(_controller, error) {
-          reject(error);
-        },
-      })).toBe(true);
-    });
-
-    expect(events).toEqual([
-      'request-start',
-      'response-started',
-      'response-start',
-      'response-data:first',
-      'response-data:second',
-      'response-end',
-    ]);
+    const options = fetchMock.mock.calls[0][1];
+    expect(options.body).toBe(payload);
+    expect(options.dispatcher).toEqual(expect.objectContaining({
+      dispatch: expect.any(Function),
+      close: expect.any(Function),
+    }));
   });
 });
 

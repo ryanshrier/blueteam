@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -10,6 +10,8 @@ import {
   loadRecentBriefs,
   localDateISO,
   saveBrief,
+  scheduledBriefFilename,
+  scheduledBriefJobKey,
 } from '../lib/history.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
 
@@ -244,6 +246,25 @@ describe('saveBrief private file permissions', () => {
     try {
       const filename = saveBrief(dir, '# Private briefing');
       expect(statSync(join(dir, filename)).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('scheduled brief archive idempotency', () => {
+  test('uses one reserved filename per edition and never overwrites it on retry', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wf-scheduled-history-'));
+    try {
+      const options = { date: '2026-07-12', scheduled: true };
+      expect(saveBrief(dir, 'first published edition', options))
+        .toBe('brief-2026-07-12-00.md');
+      expect(saveBrief(dir, 'retry must not overwrite', options))
+        .toBe('brief-2026-07-12-00.md');
+      expect(readFileSync(join(dir, 'brief-2026-07-12-00.md'), 'utf-8'))
+        .toBe('first published edition');
+      expect(scheduledBriefFilename('2026-07-12')).toBe('brief-2026-07-12-00.md');
+      expect(scheduledBriefJobKey('2026-07-12')).toBe('daily-brief:2026-07-12');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -2,7 +2,9 @@ import { describe, test, expect, afterAll } from '@jest/globals';
 import { buildSystemPrompt, buildUserPrompt } from '../lib/prompts.js';
 import { setDomainPack } from '../lib/domain.js';
 import { cyberPack } from '../config/domains/cyber.js';
-import { BLUF_MAX_WORDS } from '../lib/brief-schema.js';
+import {
+  BLUF_MAX_WORDS, DECISION_WINDOW_VALUES, WATCHLIST_MIN_ITEMS, WATCHLIST_MAX_ITEMS,
+} from '../lib/brief-schema.js';
 import { buildGroundingManifest, CISA_KEV_CATALOG_URL, isAllowedSourceUrl } from '../lib/grounding.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
 
@@ -74,6 +76,16 @@ describe('buildSystemPrompt — BLUF word budget', () => {
   });
 });
 
+describe('buildSystemPrompt — Watchlist item range', () => {
+  afterAll(() => setDomainPack(cyberPack));
+
+  test('states the same item range enforced by validation', () => {
+    setDomainPack(cyberPack);
+    const p = buildSystemPrompt(cfg);
+    expect(p).toContain(`${WATCHLIST_MIN_ITEMS}–${WATCHLIST_MAX_ITEMS} bullets`);
+  });
+});
+
 describe('buildSystemPrompt — key-judgment fields', () => {
   afterAll(() => setDomainPack(cyberPack));
 
@@ -81,7 +93,10 @@ describe('buildSystemPrompt — key-judgment fields', () => {
     setDomainPack(cyberPack);
     const p = buildSystemPrompt(cfg);
     expect(p).toContain('## EXECUTIVE SUMMARY — SHIFT DECISIONS');
-    expect(p).toContain('"Current shift" · "72 hours" · "7 days" · "30 days" · "quarter"');
+    expect(p).toContain(DECISION_WINDOW_VALUES.map(value => `"${value}"`).join(' · '));
+    expect(p).toContain('When the operator must decide or initiate the first defensive response');
+    expect(p).toContain('not a prediction horizon, incident duration, evidence age, source deadline, or action-completion target');
+    expect(p).toContain('Recommended target dates remain on the individual actions');
     expect(p).toContain('CISA FCEB remediation due July 16, 2026');
     expect(p).toContain('recommended target {Month D, YYYY}');
     expect(p).toContain('not a sourced mandate');
@@ -100,11 +115,43 @@ describe('buildSystemPrompt — key-judgment fields', () => {
     const p = buildSystemPrompt(cfg);
     expect(p).not.toMatch(/CLOSING THOUGHT|closing quotation|Seneca|Sun Tzu/i);
   });
+
+  test('requires paragraph boundaries between labeled fields', () => {
+    setDomainPack(cyberPack);
+    const p = buildSystemPrompt(cfg);
+    expect(p).toContain('Put one blank line between every labeled field');
+    expect(p).toMatch(/\*\*Assessment:\*\*[\s\S]*?\n\n\*\*Confidence:\*\*/);
+    expect(p).toMatch(/\*\*Trajectory:\*\*[\s\S]*?\n\n\*\*Watch criteria:\*\*/);
+    expect(p).toMatch(/\*\*The intersection:\*\*[\s\S]*?\n\n\*\*The cascade:\*\*/);
+  });
 });
 
 // Prompt-injection hardening: feed-derived content (title/description/
 // article body) is fenced as untrusted <source> data, and the system prompt
 // instructs the model to treat it as data, never as instructions.
+describe('buildSystemPrompt / buildUserPrompt - immutable edition clock', () => {
+  test('uses the supplied edition date for weekday, day mode, and user dateline', () => {
+    setDomainPack(cyberPack);
+    const editionContext = {
+      date: '2026-07-06',
+      timezone: 'Pacific/Kiritimati',
+      scheduled: true,
+    };
+    const system = buildSystemPrompt(cfg, editionContext);
+    const user = buildUserPrompt({
+      headlines: [],
+      continuityContext: '',
+      groundTruth: '',
+      config: cfg,
+      editionContext,
+    });
+    expect(system).toContain('MODE: MONDAY BRIEFING');
+    expect(user).toContain('for 2026-07-06 (Monday)');
+    expect(system).toContain('a citation date must never be later than the briefing');
+    expect(user).toContain('No source citation may carry a date after 2026-07-06');
+  });
+});
+
 describe('buildSystemPrompt / buildUserPrompt — untrusted input handling', () => {
   test('the system prompt instructs the model to treat <source> content as data, not instructions', () => {
     const p = buildSystemPrompt(cfg);

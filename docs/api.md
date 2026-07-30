@@ -1,12 +1,20 @@
-# API reference
+# API overview
 
 [Back to the README](../README.md)
 
-All endpoints are served by the same process as the browser application. The default loopback deployment does not require authentication. If `API_SECRET` is set, every `/api/*` request except `/api/health` requires a bearer token.
+All endpoints are served by the same process as the browser application. The default loopback deployment does not require authentication. If `API_SECRET` is set, every `/api/*` request except the public `/api/live`, `/api/ready`, and `/api/health` probes requires a bearer token.
 
 ```http
 Authorization: Bearer <API_SECRET>
 ```
+
+Every state-changing `/api/*` request must also send JSON, including requests with no parameters:
+
+```http
+Content-Type: application/json
+```
+
+For example, send `{}` as the body of `POST /api/brief` and `POST /api/refresh`. A missing or different content type returns HTTP 415.
 
 ## Endpoints
 
@@ -14,7 +22,7 @@ Authorization: Bearer <API_SECRET>
 |---|---|---|
 | `/api/landscape` | `GET` | Full Wall payload: signals, KEV, actors, and velocity |
 | `/api/headlines` | `GET` | Every scored headline from the latest pipeline run |
-| `/api/feed.xml` | `GET` | RSS/Atom feed of top signals with source, tier, score, and KEV status |
+| `/api/feed.xml` | `GET` | RSS 2.0 feed of top signals with source, tier, score, and KEV status |
 | `/api/feed.json` | `GET` | [JSON Feed](https://www.jsonfeed.org/) of the same top signals |
 | `/api/briefs.xml` | `GET` | RSS 2.0 feed of daily Briefings |
 | `/api/refresh` | `POST` | Start a pipeline refresh |
@@ -22,15 +30,19 @@ Authorization: Bearer <API_SECRET>
 | `/api/briefs` | `GET` | List Briefing history |
 | `/api/brief/:filename` | `GET` | Return a specific archived Briefing |
 | `/api/search?q=` | `GET` | Full-text search across Briefings using SQLite FTS5 |
-| `/api/health` | `GET` | Public uptime status; detailed diagnostics for the default keyless loopback deployment or a caller with a valid bearer token |
+| `/api/live` | `GET` | Process liveness; returns HTTP 200 while the server can answer requests |
+| `/api/ready` | `GET` | Readiness status and the same trusted diagnostics as `/api/health` |
+| `/api/health` | `GET` | Compatibility alias for readiness |
 | `/api/edition` | `GET` | Active CTI profile identity: id, title, label, and regions |
-| `/api/settings` | `GET`, `POST` | Read/update organization context and watch terms; inspect masked AI-key status or set/clear the key |
+| `/api/settings` | `GET`, `POST` | Read/update organization context, watch terms, and automatic-generation settings; inspect masked AI-key and schedule status or set/clear the key |
 | `/api/settings/verify` | `POST` | Make a minimal Anthropic request to verify the configured key |
 | `/embed` | `GET` | Headerless signal strip for an iframe; supports `tier` and `limit` query parameters |
 
 ## Generation stream
 
 `POST /api/brief` uses server-sent events so the interface can show generation progress and recover cleanly from timeouts. SSE responses are not compressed, which avoids buffering surprises in common proxy configurations.
+
+The route permits only one in-process generation at a time and applies a short completion cooldown plus per-client fixed windows for short-term and daily requests. These limiter counters live in process memory and reset when the server restarts; they are a guardrail, not a spending cap. A 429 response includes a machine-readable error and `Retry-After`; clients should wait instead of immediately retrying. Requests rejected before a provider call do not consume the generation allowance. Manual and automatic generation use this same route and its limits.
 
 ## Feeds and public URLs
 
@@ -50,7 +62,9 @@ It is disabled by default whenever `API_SECRET` is set because an iframe cannot 
 
 ## Health probes
 
-`/api/health` remains reachable without a token so an uptime monitor can check the service. When `API_SECRET` is configured, every unauthenticated caller receives only the overall `status`, including a reverse proxy connecting over loopback. Supply the valid bearer token for detailed diagnostics. With the default keyless loopback configuration, local callers receive the detailed payload.
+Use `/api/live` for process supervision and `/api/ready` for traffic readiness. `/api/health` remains a compatibility alias for readiness. All three remain reachable without a token.
+
+Liveness returns HTTP 200 while the process can serve HTTP. Readiness returns HTTP 503 when current pipeline, feed, or database state is degraded. When `API_SECRET` is configured, unauthenticated readiness callers receive only the overall `status`, including a reverse proxy connecting over loopback. Supply the valid bearer token for detailed diagnostics. With the default keyless loopback configuration, local callers receive the detailed payload.
 
 ## Browser request boundary
 

@@ -2,14 +2,93 @@
 // Transforms the model's markdown structure into styled components:
 // BLUF card, horizon tags, "the line" callouts, section anchors.
 
-// Briefing chips are decision verbs, not the shared Wire taxonomy. The numeric
-// h1/h2/h3 classes and source `[Horizon n]` tokens remain unchanged underneath,
-// so filters, scoring, and archived markdown keep their existing contract.
-const BRIEF_TIER_LABELS = Object.freeze({
-  1: 'ACT NOW',
-  2: 'PREPARE',
-  3: 'MONITOR',
-});
+import { formatDecisionWindow } from '/vendor/brief-schema.js';
+import { TIER_NAMES } from '../core/tiers.js';
+
+// A tier is the judgment's analytic classification, not an instruction. The
+// explicit **Act now:** action remains the sole source of that directive; using
+// ACT NOW as a synonym for every Tactical judgment contradicted valid 72-hour
+// and seven-day Decision windows.
+export function briefTierLabel(horizon) {
+  return TIER_NAMES[horizon] || `HORIZON ${horizon}`;
+}
+
+// The model emits a compact Markdown document, and marked's `breaks:true` mode
+// turns adjacent labeled lines into one <p> separated by <br>s. Normalize those
+// lines once, before either the screen or print presentation touches them, so
+// every surface receives the same field-sized DOM. Keep the list centralized:
+// the old export-only splitter knew about judgments but left Developing and
+// Convergence packed into visually dense, pagination-hostile paragraphs.
+const BRIEF_FIELD_LABELS = new Set([
+  'assessment', 'confidence', 'what happened', 'defender impact', 'impact',
+  'relevance', 'recommended actions', 'decision window', 'the line',
+  'revises if', 'increases if', 'decreases if', 'act now',
+  'trajectory', 'watch criteria', 'the intersection', 'the cascade', 'the move',
+]);
+
+function leadingFieldLabel(html) {
+  const match = String(html || '').match(
+    /^\s*<strong\b[^>]*>\s*([^<]+?)\s*<\/strong>\s*:?[\t ]*/i
+  );
+  return match ? match[1].trim().replace(/:$/, '').toLowerCase() : '';
+}
+
+/**
+ * Split one <br>-packed Markdown block into field-sized HTML fragments.
+ * Unlabelled continuation lines remain attached to the field before them.
+ * Pure/exported so the Markdown-layout contract is testable without jsdom.
+ */
+export function splitPackedBriefFieldHtml(html) {
+  const source = String(html || '');
+  const parts = source.split(/<br\s*\/?>/i);
+  if (parts.length < 2) return [source];
+
+  const recognized = parts.filter(part => BRIEF_FIELD_LABELS.has(leadingFieldLabel(part))).length;
+  if (recognized < 2) return [source];
+
+  const groups = [];
+  for (const part of parts) {
+    if (BRIEF_FIELD_LABELS.has(leadingFieldLabel(part)) || groups.length === 0) {
+      groups.push(part);
+    } else {
+      groups[groups.length - 1] += `<br>${part}`;
+    }
+  }
+  return groups.filter(part => part.trim());
+}
+
+/**
+ * Apply the packed-field normalization to a rendered Briefing DOM.
+ * Paragraphs are safe to split into sibling paragraphs; list items deliberately
+ * stay intact because metadata and "The line" may be attached to the final
+ * action item and are lifted by the existing semantic passes below.
+ */
+export function normalizePackedBriefFields(root) {
+  if (!root?.querySelectorAll) return;
+  root.querySelectorAll('p').forEach(p => {
+    const fields = splitPackedBriefFieldHtml(p.innerHTML);
+    if (fields.length > 1) {
+      for (const html of fields) {
+        const field = p.cloneNode(false);
+        field.innerHTML = html;
+        const label = leadingFieldLabel(html);
+        if (label) {
+          field.classList.add('brief-field');
+          field.dataset.briefField = label;
+        }
+        p.before(field);
+      }
+      p.remove();
+      return;
+    }
+
+    const label = leadingFieldLabel(p.innerHTML);
+    if (BRIEF_FIELD_LABELS.has(label)) {
+      p.classList.add('brief-field');
+      p.dataset.briefField = label;
+    }
+  });
+}
 
 function parseFieldSegment(html) {
   const tmp = document.createElement('div');
@@ -123,11 +202,19 @@ function editionDate(container) {
     .slice(0, 2)
     .map(el => el.textContent || '')
     .join(' ');
-  return (mastheadText.match(/\b\d{4}-\d{2}-\d{2}\b/) || [])[0] || '';
+  return editionDateLabel(mastheadText);
 }
 
-function isRelativeWindow(value) {
-  return /\b(?:this shift|this week|this month|this weekend|today|tonight|tomorrow|before monday|end of (?:day|week|month))\b/i.test(value || '');
+export function editionDateLabel(value) {
+  const text = String(value || '');
+  const iso = (text.match(/\b\d{4}-\d{2}-\d{2}\b/) || [])[0];
+  if (iso) return iso;
+  // Current prompts commonly render the ISO date from their input as a
+  // reader-friendly dateline. Preserve that label so an archived "Current
+  // shift" never loses the date that gives the relative window meaning.
+  return (text.match(
+    /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b/i
+  ) || [])[0] || '';
 }
 
 function normalizeDeadline(value) {
@@ -156,6 +243,10 @@ export function decisionWindowDuplicatesAction(windowValue, actionValues = []) {
 }
 
 export function applySemanticStyling(container) {
+  // Establish one field structure for the live view, streaming snapshots, and
+  // the printable edition before any later pass moves metadata or callouts.
+  normalizePackedBriefFields(container);
+
   // The generated dateline is visual masthead copy, not a subsection. Keep its
   // established H3 styling while removing the otherwise skipped heading level
   // from assistive-technology navigation (the briefing title remains the H1).
@@ -190,7 +281,7 @@ export function applySemanticStyling(container) {
   container.querySelectorAll('p, h3, strong, li').forEach(el => {
     if (el.innerHTML.includes('[Horizon')) {
       el.innerHTML = el.innerHTML.replace(/\[Horizon (\d)\]/g, (_, n) =>
-        `<span class="c-chip h${n}" data-horizon="${n}" aria-label="Horizon ${n}: ${BRIEF_TIER_LABELS[n] || ('Horizon ' + n)}">${BRIEF_TIER_LABELS[n] || ('HORIZON ' + n)}</span>`
+        `<span class="c-chip h${n}" data-horizon="${n}" aria-label="Analytic tier ${n}: ${briefTierLabel(n)}">${briefTierLabel(n)}</span>`
       );
     }
   });
@@ -223,8 +314,9 @@ export function applySemanticStyling(container) {
         if (label === 'confidence' && !confidence) {
           confidence = metadataSummary(value);   // term + band ("Likely (55–80%)"); drop the top-level " — basis" tail
         } else if (label === 'decision window' && !windowLabel) {
-          // A deadline is operational content, not rationale. Preserve it in full,
-          // including any top-level dash that separates a date from a time/condition.
+          // Decision timing is operational content, not rationale. Preserve the
+          // source value for archived compatibility; presentation below makes its
+          // relation explicit without converting it into a deadline.
           windowLabel = value.trim();
           windowSource = value.trim();
         }
@@ -244,14 +336,31 @@ export function applySemanticStyling(container) {
         bar.appendChild(c);
       }
       if (windowLabel) {
-        const w = document.createElement('span');
-        w.className = 'bjm-window';
-        w.textContent = windowLabel;
-        w.dataset.decisionWindow = windowSource || windowLabel;
-        const relativeAsOf = asOfDate && isRelativeWindow(windowSource || windowLabel) ? asOfDate : '';
-        if (relativeAsOf) w.dataset.editionDate = relativeAsOf;
-        w.setAttribute('aria-label', `Decision window${relativeAsOf ? ` as of ${relativeAsOf}` : ''}: ${windowLabel}`);
-        bar.appendChild(w);
+        const presentedWindow = formatDecisionWindow(windowSource || windowLabel);
+        if (presentedWindow.display) {
+          const w = document.createElement('span');
+          w.className = 'bjm-window';
+          w.setAttribute('role', 'group');
+          w.dataset.decisionWindow = windowSource || windowLabel;
+          w.dataset.windowKind = presentedWindow.kind;
+          if (presentedWindow.legacy) w.dataset.legacy = 'true';
+          const label = document.createElement('span');
+          label.className = 'bjm-window-label';
+          label.textContent = 'Decision';
+          label.setAttribute('aria-hidden', 'true');
+          const value = document.createElement('span');
+          value.className = 'bjm-window-value';
+          value.textContent = presentedWindow.display;
+          value.setAttribute('aria-hidden', 'true');
+          w.append(label, value);
+          const relativeAsOf = asOfDate && presentedWindow.relative ? asOfDate : '';
+          if (relativeAsOf) w.dataset.editionDate = relativeAsOf;
+          w.setAttribute(
+            'aria-label',
+            `Decision window${relativeAsOf ? ` as of ${relativeAsOf}` : ''}: ${presentedWindow.display}`
+          );
+          bar.appendChild(w);
+        }
       }
       h3.after(bar);
     }
@@ -456,7 +565,7 @@ export function extractSections(container) {
     if (el.tagName === 'H2') {
       current = {
         id: el.id,
-        label: el.textContent.trim().replace(/\s+/g, ' '),
+        label: tocLabel(el.textContent),
         secondary: el.classList.contains('brief-exec-heading'),
         children: [],
       };
@@ -466,4 +575,17 @@ export function extractSections(container) {
     }
   }
   return sections;
+}
+
+/** Stable, compact navigation labels for a rail much narrower than the article. */
+export function tocLabel(value) {
+  const label = String(value || '').trim().replace(/\s+/g, ' ');
+  if (/^EXECUTIVE SUMMARY\b/i.test(label)) return 'Shift decisions';
+  if (/^KEY JUDGMENTS\b/i.test(label)) return 'Key judgments';
+  if (/^DEVELOPING SITUATIONS\b/i.test(label)) return 'Developing';
+  if (/^CONVERGENCE\b/i.test(label)) return 'Convergence';
+  if (/^WATCHLIST\b/i.test(label)) return 'Watchlist';
+  if (/^WEEK IN REVIEW\b/i.test(label)) return 'Week in review';
+  if (/^SOURCES\b/i.test(label)) return 'Sources';
+  return label;
 }

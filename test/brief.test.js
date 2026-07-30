@@ -23,6 +23,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { CISA_KEV_CATALOG_URL } from '../lib/grounding.js';
+import { createBriefGenerationTracker } from '../lib/brief-lifecycle.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
 
 const getConfigMock = jest.fn();
@@ -39,6 +40,8 @@ const countKEVAddedTodayMock = jest.fn(() => 0);
 const getRecentKEVMock = jest.fn(() => []);
 const getKEVSetMock = jest.fn(() => new Set());
 const getKEVDueDatesMock = jest.fn(() => ({}));
+const getScheduledBriefJobMock = jest.fn(() => null);
+const completeScheduledBriefJobMock = jest.fn();
 const dispatchBriefWebhookMock = jest.fn(() => Promise.resolve());
 
 jest.unstable_mockModule('../lib/config.js', () => ({
@@ -54,6 +57,11 @@ jest.unstable_mockModule('../lib/history.js', () => ({
   extractContinuityContext: extractContinuityContextMock,
   extractBluf: extractBlufMock,
   localDateISO: (d = new Date()) => new Date(d).toISOString().slice(0, 10),
+  scheduledBriefFilename: date => `brief-${date}-00.md`,
+  scheduledBriefJobKey: date => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) throw new TypeError('invalid date');
+    return `daily-brief:${date}`;
+  },
   // Real implementation (not a jest.fn mock): a pure regex helper, cheap and
   // safe to exercise for real rather than re-mock.
   briefDateFromFilename: (filename) => {
@@ -70,6 +78,8 @@ jest.unstable_mockModule('../lib/db.js', () => ({
   getRecentKEV: getRecentKEVMock,
   getKEVSet: getKEVSetMock,
   getKEVDueDates: getKEVDueDatesMock,
+  getScheduledBriefJob: getScheduledBriefJobMock,
+  completeScheduledBriefJob: completeScheduledBriefJobMock,
 }));
 jest.unstable_mockModule('../lib/alerts.js', () => ({
   dispatchBriefWebhook: dispatchBriefWebhookMock,
@@ -124,6 +134,9 @@ One sharp judgment about today's landscape that fits comfortably under budget.
 
 - Observable thing one.
 - Observable thing two.
+- Observable thing three.
+- Observable thing four.
+- Observable thing five.
 ` + 'Padding sentence to clear the structural length floor. '.repeat(40);
 
 // Build a fake Anthropic client whose messages.stream() yields a scripted
@@ -134,13 +147,20 @@ function fakeAnthropic(scriptFn) {
   return { messages: { stream: scriptFn } };
 }
 
-function textStream(text, { usage = { input_tokens: 100, output_tokens: 200 } } = {}) {
+function textStream(text, {
+  usage = { input_tokens: 100, output_tokens: 200 },
+  stopReason = null,
+} = {}) {
   return async () => ({
     controller: { abort() {} },
     async *[Symbol.asyncIterator]() {
       yield { type: 'message_start', message: { usage: { input_tokens: usage.input_tokens, output_tokens: 0 } } };
       yield { type: 'content_block_delta', delta: { text } };
-      yield { type: 'message_delta', usage: { output_tokens: usage.output_tokens } };
+      yield {
+        type: 'message_delta',
+        ...(stopReason ? { delta: { stop_reason: stopReason } } : {}),
+        usage: { output_tokens: usage.output_tokens },
+      };
     },
   });
 }
@@ -181,11 +201,29 @@ function refusalStream(text = 'I cannot assist with this request. '.repeat(10)) 
   });
 }
 
-function makeServer({ getAnthropic, rotateKey, cooldownCheck = () => true, historyDir = '/fake/history', publicBaseUrl = null, localPort = 3000 } = {}) {
+function makeServer({
+  getAnthropic,
+  rotateKey,
+  cooldownCheck = () => true,
+  historyDir = '/fake/history',
+  publicBaseUrl = null,
+  localPort = 3000,
+  scheduledJobToken = '',
+  trackGeneration,
+} = {}) {
   const app = express();
   app.use(express.json());
   const cooldown = { check: cooldownCheck };
-  app.use('/api', createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldown, publicBaseUrl, localPort }));
+  app.use('/api', createBriefRouter({
+    getAnthropic,
+    rotateKey,
+    historyDir,
+    cooldown,
+    publicBaseUrl,
+    localPort,
+    scheduledJobToken,
+    trackGeneration,
+  }));
   return new Promise((resolve) => {
     const server = app.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
@@ -210,6 +248,8 @@ beforeEach(() => {
   indexBriefMock.mockReset();
   getKEVSetMock.mockReset().mockReturnValue(new Set());
   getKEVDueDatesMock.mockReset().mockReturnValue({});
+  getScheduledBriefJobMock.mockReset().mockReturnValue(null);
+  completeScheduledBriefJobMock.mockReset();
   dispatchBriefWebhookMock.mockReset().mockResolvedValue();
 });
 
@@ -236,6 +276,9 @@ describe('POST /api/brief — happy path SSE framing', () => {
     expect(complete.tokens).toBe(300);
     expect(saveBriefMock).toHaveBeenCalled();
     expect(indexBriefMock).toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock.mock.calls[0][0].warnings).toEqual(expect.arrayContaining([
+      expect.stringMatching(/Brief dateline/),
+    ]));
   });
 
   test('uses PUBLIC_BASE_URL for the completed-Briefing webhook deep link', async () => {
@@ -283,6 +326,116 @@ describe('POST /api/brief — happy path SSE framing', () => {
     const complete = events.find(e => e.briefComplete);
     expect(complete).toBeTruthy();
     expect(complete.text).toContain('THREAT LANDSCAPE BRIEFING');
+  });
+
+  test('tracks generation through publication after the SSE client disconnects', async () => {
+    const tracker = createBriefGenerationTracker();
+    const controller = new AbortController();
+    ctx = await makeServer({
+      getAnthropic: () => fakeAnthropic(delayedTextStream(GOOD_BRIEF, 75)),
+      trackGeneration: () => tracker.begin(),
+    });
+
+    const res = await fetch(`${ctx.base}/api/brief`, {
+      method: 'POST',
+      signal: controller.signal,
+    });
+    expect(tracker.activeCount).toBe(1);
+    controller.abort();
+    await res.text().catch(() => {});
+
+    await tracker.waitForIdle();
+    expect(tracker.activeCount).toBe(0);
+    expect(saveBriefMock).toHaveBeenCalled();
+    expect(indexBriefMock).toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/brief - scheduled job idempotency and edition context', () => {
+  let ctx;
+  afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test('returns an existing deterministic archive without touching the provider', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'scheduled-brief-replay-'));
+    const filename = 'brief-2026-07-02-00.md';
+    writeFileSync(join(dir, filename), GOOD_BRIEF);
+    const getAnthropic = jest.fn(() => null);
+    try {
+      ctx = await makeServer({
+        getAnthropic,
+        historyDir: dir,
+        scheduledJobToken: 'internal-test-token',
+      });
+      const res = await fetch(`${ctx.base}/api/brief`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-blueteam-scheduled-token': 'internal-test-token',
+        },
+        body: JSON.stringify({
+          scheduledJob: {
+            jobKey: 'daily-brief:2026-07-02',
+            editionDate: '2026-07-02',
+            timezone: 'Pacific/Kiritimati',
+          },
+        }),
+      });
+      const events = await readSSE(res);
+      expect(events.find(event => event.briefComplete)).toMatchObject({
+        filename,
+        text: GOOD_BRIEF,
+        replayed: true,
+        jobKey: 'daily-brief:2026-07-02',
+      });
+      expect(getAnthropic).not.toHaveBeenCalled();
+      expect(saveBriefMock).not.toHaveBeenCalled();
+      expect(completeScheduledBriefJobMock).toHaveBeenCalledWith(expect.objectContaining({
+        jobKey: 'daily-brief:2026-07-02',
+        editionDate: '2026-07-02',
+        timezone: 'Pacific/Kiritimati',
+        filename,
+      }));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('publishes a new scheduled run under the immutable configured-zone edition', async () => {
+    saveBriefMock.mockReturnValue('brief-2026-07-02-00.md');
+    ctx = await makeServer({
+      getAnthropic: () => fakeAnthropic(textStream(GOOD_BRIEF)),
+      scheduledJobToken: 'internal-test-token',
+    });
+    const res = await fetch(`${ctx.base}/api/brief`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-blueteam-scheduled-token': 'internal-test-token',
+      },
+      body: JSON.stringify({
+        scheduledJob: {
+          jobKey: 'daily-brief:2026-07-02',
+          editionDate: '2026-07-02',
+          timezone: 'Pacific/Kiritimati',
+        },
+      }),
+    });
+    const events = await readSSE(res);
+    expect(events.find(event => event.briefComplete)).toMatchObject({
+      filename: 'brief-2026-07-02-00.md',
+      jobKey: 'daily-brief:2026-07-02',
+    });
+    expect(saveBriefMock).toHaveBeenCalledWith('/fake/history', GOOD_BRIEF, {
+      date: '2026-07-02',
+      scheduled: true,
+    });
+    expect(saveBriefMetaMock).toHaveBeenCalledWith(expect.objectContaining({ date: '2026-07-02' }));
+    expect(completeScheduledBriefJobMock).toHaveBeenCalledWith(expect.objectContaining({
+      jobKey: 'daily-brief:2026-07-02',
+      editionDate: '2026-07-02',
+      timezone: 'Pacific/Kiritimati',
+      filename: 'brief-2026-07-02-00.md',
+    }));
   });
 });
 
@@ -394,11 +547,50 @@ describe('POST /api/brief — degenerate output rejected', () => {
   });
 });
 
+describe('POST /api/brief — evidence publication gate', () => {
+  let ctx;
+  afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test('stops before the provider when current evidence is unavailable', async () => {
+    const evidenceError = new Error('Briefing evidence is stale.');
+    evidenceError.code = 'E_EVIDENCE';
+    evidenceError.details = { headlines: 5, ageMs: 60 * 60_000 };
+    getFreshRunMock.mockRejectedValue(evidenceError);
+    const anthropic = fakeAnthropic(jest.fn(textStream(GOOD_BRIEF)));
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const blocked = events.find(event => event.code === 'E_EVIDENCE');
+    expect(blocked).toMatchObject({
+      error: 'Briefing evidence is stale.',
+      details: { headlines: 5 },
+    });
+    expect(anthropic.messages.stream).not.toHaveBeenCalled();
+    expect(saveBriefMock).not.toHaveBeenCalled();
+  });
+
+  test('the end-to-end deadline also bounds a refresh that never settles', async () => {
+    getConfigMock.mockReturnValue({
+      analysisSettings: { generationTimeoutSec: 0.02 },
+      horizons: {},
+      organization: {},
+    });
+    getFreshRunMock.mockReturnValue(new Promise(() => {}));
+    const anthropic = fakeAnthropic(jest.fn(textStream(GOOD_BRIEF)));
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.find(event => event.code === 'E_GENERATION_TIMEOUT')).toBeTruthy();
+    expect(anthropic.messages.stream).not.toHaveBeenCalled();
+    expect(saveBriefMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /api/brief — corrective retry recovery', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
-  test('keeps the complete first draft when the structural retry is interrupted, while counting retry usage', async () => {
+  test('returns but never publishes the first invalid draft when its corrective retry is interrupted', async () => {
     const firstDraft = GOOD_BRIEF.replace('## BLUF', '## OVERVIEW');
     let calls = 0;
     const anthropic = {
@@ -421,13 +613,150 @@ describe('POST /api/brief — corrective retry recovery', () => {
 
     ctx = await makeServer({ getAnthropic: () => anthropic });
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
-    const complete = events.find(e => e.briefComplete);
+    const blocked = events.find(e => e.code === 'E_VALIDATION');
 
     expect(calls).toBe(2);
-    expect(complete).toBeTruthy();
-    expect(complete.text).toBe(firstDraft);
-    expect(complete.tokens).toBe(370);
-    expect(saveBriefMock).toHaveBeenCalledWith('/fake/history', firstDraft);
+    expect(blocked).toBeTruthy();
+    expect(blocked.draft).toBe(firstDraft);
+    expect(blocked.tokens).toBe(370);
+    expect(events.some(e => e.briefComplete)).toBe(false);
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    expect(indexBriefMock).not.toHaveBeenCalled();
+    expect(saveBriefMetaMock).not.toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+  });
+
+  test('replaces a max-token Watchlist truncation with a complete corrective draft', async () => {
+    const truncatedDraft = GOOD_BRIEF.replace(
+      /## WATCHLIST[^\n]*\n[\s\S]*$/,
+      '## WATCHLIST — NEXT 72 HOURS\n\n'
+        + '- CISA adds the incident CVE to KEV.\n'
+        + '- A vendor publishes an exploit identifier.\n'
+        + '- A major Linux distribution ships a fixed kernel package address'
+    );
+    let calls = 0;
+    const attempts = [];
+    const anthropic = fakeAnthropic(async (params) => {
+      attempts.push({
+        maxTokens: params.max_tokens,
+        thinking: params.thinking,
+        effort: params.output_config?.effort,
+      });
+      calls++;
+      return calls === 1
+        ? textStream(truncatedDraft, { stopReason: 'max_tokens' })()
+        : textStream(GOOD_BRIEF)();
+    });
+
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+
+    expect(calls).toBe(2);
+    expect(attempts).toEqual([
+      { maxTokens: 16000, thinking: { type: 'adaptive' }, effort: 'medium' },
+      { maxTokens: 16000, thinking: { type: 'adaptive' }, effort: 'low' },
+    ]);
+    expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
+    expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
+    expect(saveBriefMock).toHaveBeenCalledWith(
+      '/fake/history',
+      GOOD_BRIEF,
+      expect.objectContaining({ scheduled: false }),
+    );
+  });
+});
+
+describe('POST /api/brief — output-token publication gate', () => {
+  let ctx;
+  afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test('recovers a structurally complete max-token response once at lower thinking effort', async () => {
+    let calls = 0;
+    const attempts = [];
+    const anthropic = fakeAnthropic(async (params) => {
+      calls++;
+      attempts.push({
+        maxTokens: params.max_tokens,
+        effort: params.output_config?.effort,
+        messageCount: params.messages.length,
+      });
+      return calls === 1
+        ? textStream(GOOD_BRIEF, { stopReason: 'max_tokens' })()
+        : textStream(GOOD_BRIEF)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+
+    expect(calls).toBe(2);
+    expect(attempts).toEqual([
+      { maxTokens: 16000, effort: 'medium', messageCount: 1 },
+      { maxTokens: 16000, effort: 'low', messageCount: 1 },
+    ]);
+    expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
+    expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
+    expect(saveBriefMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('recovers when adaptive reasoning exhausts max tokens before visible output', async () => {
+    let calls = 0;
+    const attempts = [];
+    const anthropic = fakeAnthropic(async (params) => {
+      calls++;
+      attempts.push({
+        effort: params.output_config?.effort,
+        messageCount: params.messages.length,
+      });
+      return calls === 1
+        ? textStream('', {
+          usage: { input_tokens: 100, output_tokens: 16000 },
+          stopReason: 'max_tokens',
+        })()
+        : textStream(GOOD_BRIEF)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+
+    expect(calls).toBe(2);
+    expect(attempts).toEqual([
+      { effort: 'medium', messageCount: 1 },
+      { effort: 'low', messageCount: 1 },
+    ]);
+    expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
+    expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
+    expect(saveBriefMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('returns the recoverable draft but never publishes when the bounded retry also hits max_tokens', async () => {
+    let calls = 0;
+    const anthropic = fakeAnthropic(async () => {
+      calls++;
+      return textStream(GOOD_BRIEF, {
+        usage: { input_tokens: 100, output_tokens: 16000 },
+        stopReason: 'max_tokens',
+      })();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const blocked = events.find(event => event.code === 'E_PARTIAL_GENERATION');
+
+    expect(blocked).toMatchObject({
+      draft: GOOD_BRIEF,
+      tokens: 32200,
+      validation: expect.objectContaining({ hardFail: false, trustFail: false }),
+    });
+    expect(calls).toBe(2);
+    expect(blocked.error).toMatch(/output-token limit/i);
+    expect(blocked.validation.warnings).toContain(
+      'Generation reached the configured output-token limit before completion'
+    );
+    expect(events.some(event => event.briefComplete)).toBe(false);
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    expect(indexBriefMock).not.toHaveBeenCalled();
+    expect(saveBriefMetaMock).not.toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
   });
 });
 
@@ -449,7 +778,11 @@ describe('POST /api/brief — grounding publication gate', () => {
     expect(calls).toBe(2);
     expect(complete).toBeTruthy();
     expect(complete.tokens).toBe(600);
-    expect(saveBriefMock).toHaveBeenCalledWith('/fake/history', GOOD_BRIEF);
+    expect(saveBriefMock).toHaveBeenCalledWith(
+      '/fake/history',
+      GOOD_BRIEF,
+      expect.objectContaining({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), scheduled: false }),
+    );
   });
 
   test('returns an actionable SSE error and never saves or promotes a persistently ungrounded draft', async () => {
@@ -609,11 +942,12 @@ describe('POST /api/brief — no API key / cooldown / in-flight lock', () => {
     expect((await res.json()).code).toBe('E002');
   });
 
-  test('cooldown rejection returns 429 E001', async () => {
+  test('cooldown rejection returns a distinct 429 code and Retry-After', async () => {
     ctx = await makeServer({ getAnthropic: () => fakeAnthropic(textStream(GOOD_BRIEF)), cooldownCheck: () => false });
     const res = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
     expect(res.status).toBe(429);
-    expect((await res.json()).code).toBe('E001');
+    expect(res.headers.get('retry-after')).toBe('15');
+    expect((await res.json()).code).toBe('E_GENERATION_COOLDOWN');
   });
 
   // A real in-flight lock, not just the 15s cooldown timestamp gate: a
@@ -636,11 +970,12 @@ describe('POST /api/brief — no API key / cooldown / in-flight lock', () => {
     await new Promise(r => setTimeout(r, 50));
 
     const second = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
-    expect(second.status).toBe(429);
-    expect((await second.json()).code).toBe('E001');
-
+    const secondBody = await second.json();
     releaseFirst();
     await firstReq;
+    expect(second.status).toBe(429);
+    expect(second.headers.get('retry-after')).toBe('15');
+    expect(secondBody.code).toBe('E_GENERATION_ACTIVE');
   });
 });
 
@@ -739,6 +1074,15 @@ describe('streamWithRecovery — pure unit', () => {
     expect(result.timedOut).toBe(false);
   });
 
+  test('captures a max_tokens stop reason as provider completion metadata', async () => {
+    const result = await streamWithRecovery(
+      fakeAnthropic(textStream('truncated output', { stopReason: 'max_tokens' })),
+      {},
+      {},
+    );
+    expect(result.stopReason).toBe('max_tokens');
+  });
+
   test('a mid-stream throw is captured as result.error, not swallowed', async () => {
     const midStreamThrow = async () => ({
       controller: { abort() {} },
@@ -778,6 +1122,21 @@ describe('streamWithRecovery — pure unit', () => {
     expect(result.timedOut).toBe(true);
     expect(aborted).toBe(true);
   }, 10_000);
+
+  test('the timeout also bounds an SDK stream call that never opens', async () => {
+    const anthropic = {
+      messages: {
+        stream: jest.fn(() => new Promise(() => {})),
+      },
+    };
+    const result = await streamWithRecovery(anthropic, {}, { timeoutMs: 20 });
+    expect(result.timedOut).toBe(true);
+    expect(result.text).toBe('');
+    expect(anthropic.messages.stream).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ signal: expect.any(AbortSignal), maxRetries: 0 }),
+    );
+  });
 });
 
 describe('safeErrorMsg — redaction', () => {

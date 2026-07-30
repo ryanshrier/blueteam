@@ -1,13 +1,14 @@
 // BlueTeam.News — landscape routes: wall payload, wire headlines, manual refresh.
 
 import { Router } from 'express';
+import { createHash } from 'crypto';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { buildLandscape, pipelineStaleAfterMs } from '../lib/landscape.js';
 import { getKEVDueDates, getBriefMeta } from '../lib/db.js';
 import { getLatestRun, refreshNow, getRunAgeMs } from '../lib/refresher.js';
 import { parseBluf, parseSignalTitles } from '../lib/brief-schema.js';
-import { getConfig, getHorizonName } from '../lib/config.js';
+import { getConfig, getConfigVersion, getHorizonName } from '../lib/config.js';
 import { getDomainPack, getBrief } from '../lib/domain.js';
 import { briefDateFromFilename } from '../lib/history.js';
 import { log } from '../lib/logger.js';
@@ -97,6 +98,7 @@ function loadLatestBriefSummary(historyDir) {
     const content = readFileSync(join(historyDir, filename), 'utf-8');
     return {
       filename,
+      revision: createHash('sha256').update(content).digest('hex'),
       date: briefDateFromFilename(filename),
       bluf: parseBluf(content),
       judgments: parseSignalTitles(content).slice(0, 6),
@@ -121,26 +123,34 @@ function loadLatestBriefSummary(historyDir) {
 // (pure elapsed-time arithmetic) — those are recomputed fresh on every hit
 // rather than served frozen from the cached build.
 const LANDSCAPE_MEMO_TTL_MS = 30_000;
-let landscapeMemo = null; // { generatedAtMs, briefFilename, builtAtMs, payload }
+let landscapeMemo = null; // { generatedAtMs, configVersion, briefRevision, builtAtMs, payload }
 
 function buildLandscapeMemoized(historyDir) {
   const run = getLatestRun();
   const runAgeMs = getRunAgeMs();
   const now = Date.now();
+  const configVersion = getConfigVersion();
 
   const runChanged = !landscapeMemo || landscapeMemo.generatedAtMs !== (run?.generatedAtMs ?? null);
+  const configChanged = !landscapeMemo || landscapeMemo.configVersion !== configVersion;
   const ttlExpired = !landscapeMemo || (now - landscapeMemo.builtAtMs) > LANDSCAPE_MEMO_TTL_MS;
 
-  if (runChanged || ttlExpired) {
+  if (runChanged || configChanged || ttlExpired) {
     const brief = loadLatestBriefSummary(historyDir);
-    const briefFilename = brief?.filename ?? null;
+    const briefRevision = brief ? `${brief.filename}:${brief.revision}` : null;
     // Rebuild only when the run actually advanced or the brief on disk changed
     // since the last build — a same-brief TTL tick just refreshes the cache
     // bookkeeping so the next few requests skip straight to the age patch below.
-    if (runChanged || !landscapeMemo || landscapeMemo.briefFilename !== briefFilename) {
+    if (
+      runChanged
+      || configChanged
+      || !landscapeMemo
+      || landscapeMemo.briefRevision !== briefRevision
+    ) {
       landscapeMemo = {
         generatedAtMs: run?.generatedAtMs ?? null,
-        briefFilename,
+        configVersion,
+        briefRevision,
         builtAtMs: now,
         payload: buildLandscape(run, brief, { runAgeMs }),
       };
@@ -158,6 +168,11 @@ function buildLandscapeMemoized(historyDir) {
     stale: run ? runAgeMs > pipelineStaleAfterMs(payload.pipeline?.refreshMinutes) : true,
     pipeline: { ...payload.pipeline, ageMinutes: pipelineAgeMin },
   };
+}
+
+/** Test-only reset for the process-lifetime landscape memo. */
+export function _resetLandscapeMemoForTests() {
+  landscapeMemo = null;
 }
 
 export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = null }) {

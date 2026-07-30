@@ -11,8 +11,13 @@
 export const JUDG_MAX = 5;   // judgment pages (one signal each), priority-ordered
 export const CONV_MAX = 3;   // convergence pages — capped like the judgments
 
-export function buildPages(briefDoc, landscape, { judgMax = JUDG_MAX, convMax = CONV_MAX } = {}) {
+export function buildPages(
+  briefDoc,
+  landscape,
+  { judgMax = JUDG_MAX, convMax = CONV_MAX, briefLoadError = false } = {}
+) {
   const out = [];
+  if (briefLoadError) out.push({ kind: 'brieferror' });
   if (briefDoc) {
     if (briefDoc.bluf) out.push({ kind: 'bluf' });
     if (briefDoc.execSummary && briefDoc.execSummary.length) out.push({ kind: 'execsummary' });
@@ -95,26 +100,102 @@ function normalizeDeadline(value) {
 // longer truncates: the load is split across two type sizes. Falls back to the
 // whole thesis as the headline (no deck) when there is no clean break.
 export function splitBluf(text) {
-  const t = (text || '').trim();
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
   if (!t) return { headline: '', deck: '' };
-  // Prefer the lead-clause em/en-dash break, but only when the lead reads as a
-  // headline: long enough to be a claim, short enough not to be the whole thesis.
-  const dash = t.search(/\s[—–]\s/);
-  if (dash >= 24 && dash <= 120) {
-    const deck = t.slice(dash).replace(/^\s*[—–]\s*/, '').trim();
-    return { headline: t.slice(0, dash).trim(), deck: capitalizeFirst(deck) };
+
+  // A BLUF can be structurally valid yet arrive as one long compound sentence.
+  // Search the lead half for increasingly softer editorial breakpoints. The
+  // fallback word break is intentionally reserved for genuinely long text: a
+  // slightly imperfect but complete two-level read is safer than silently
+  // clamping most of the day's thesis out of the cover.
+  const min = 24;
+  const max = 150;
+  const firstMatch = (pattern, offset = 0) => {
+    const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+    for (const match of t.matchAll(new RegExp(pattern.source, flags))) {
+      const index = match.index + offset;
+      if (index >= min && index <= max) {
+        return { index, length: match[0].length - offset };
+      }
+      if (index > max) break;
+    }
+    return null;
+  };
+
+  const dash = firstMatch(/\s[—–]\s/);
+  if (dash) return splitBlufAt(t, dash.index, dash.index + dash.length);
+
+  const sentence = firstMatch(/[.!?](?=\s+[A-Z(])/);
+  if (sentence) return splitBlufAt(t, sentence.index + 1, sentence.index + 1);
+
+  const clause = firstMatch(/[;:](?=\s)/);
+  if (clause) return splitBlufAt(t, clause.index, clause.index + 1);
+
+  const conjunction = firstMatch(/,\s+(?=(?:while|but|and|yet|as|with|so|which|meaning)\b)/i);
+  if (conjunction) return splitBlufAt(t, conjunction.index, conjunction.index + conjunction.length);
+
+  const comma = firstMatch(/,\s+/);
+  if (comma) return splitBlufAt(t, comma.index, comma.index + comma.length);
+
+  if (t.length > 180) {
+    let wordBreak = t.lastIndexOf(' ', 105);
+    if (wordBreak < 70) wordBreak = t.indexOf(' ', 90);
+    if (wordBreak >= min && wordBreak <= max) {
+      // This is a typographic break inside one continuous sentence, not a new
+      // sentence boundary. Preserve the source casing so the headline and deck
+      // still read grammatically when scanned together.
+      return splitBlufAt(t, wordBreak, wordBreak + 1, { capitalizeDeck: false });
+    }
   }
-  // Else split at the first sentence boundary if the lead sentence is headline-length.
-  const period = t.search(/[.!?]\s+[A-Z(]/);
-  if (period >= 24 && period <= 150) {
-    return { headline: t.slice(0, period + 1).trim(), deck: t.slice(period + 1).trim() };
-  }
-  // No clean break — render the whole thesis as the lead, no deck.
+
+  // A short thesis with no natural break remains one intact headline.
   return { headline: t, deck: '' };
+}
+
+function splitBlufAt(text, headlineEnd, deckStart, { capitalizeDeck = true } = {}) {
+  const headline = text.slice(0, headlineEnd).replace(/[,;:\s]+$/, '').trim();
+  const deck = text.slice(deckStart).trim();
+  if (!headline || !deck) return { headline: text, deck: '' };
+  return { headline, deck: capitalizeDeck ? capitalizeFirst(deck) : deck };
 }
 
 export function capitalizeFirst(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+// Shape the single Act-now directive for the passive Wall. The Briefing contract
+// emits `Owner — imperative — recommended target DATE`; splitting those fields
+// lets the owner and target remain visible even when the imperative needs a
+// visual clamp. Unknown/legacy prose remains intact rather than being guessed.
+export function actionDisplayModel(actionShift) {
+  if (!actionShift || typeof actionShift !== 'object') {
+    return { owner: '', imperative: '', target: '' };
+  }
+
+  let imperative = String(actionShift.imperative || '').replace(/\s+/g, ' ').trim();
+  let owner = String(actionShift.owner || '').replace(/\s+/g, ' ').trim();
+  let target = '';
+  if (!imperative) return { owner, imperative: '', target };
+
+  const targetMatch = imperative.match(
+    /(?:\s*[—–]\s*|\s+-\s+|;\s*|,\s*)(?:recommended\s+)?target(?:\s+date)?\s*:?\s+(.+?)\.?$/i
+  );
+  if (targetMatch?.[1]) {
+    target = targetMatch[1].replace(/[.;]+$/, '').trim();
+    imperative = imperative.slice(0, targetMatch.index).replace(/[\s—–-]+$/, '').trim();
+  }
+
+  if (!owner) {
+    // The current contract uses a spaced dash. Do not treat a prose colon as an
+    // owner separator: "Verify source: path" is an imperative, not team metadata.
+    const ownerMatch = imperative.match(/^([^—–\n]{2,60}?)(?:\s*[—–]\s*|\s+-\s+)(.+)$/);
+    if (ownerMatch) {
+      owner = ownerMatch[1].trim();
+      imperative = ownerMatch[2].trim();
+    }
+  }
+
+  return { owner, imperative, target };
 }
 
 export function cvssFrom(s) {
@@ -182,12 +263,43 @@ export function formatBriefDateStamp(dateStr) {
   return new Date(t).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).toUpperCase();
 }
 
-// The brief is "stale" for masthead purposes once it's more than ~24h past
-// its own as-of date, independent of the feed pipeline's own staleness clock
+// Brief freshness is independent of the feed pipeline's own staleness clock
 // (updateLiveline's ageSec threshold): a brief can be old while the wire is fresh.
-export function isBriefStale(dateStr) {
-  const t = Date.parse(dateStr);
-  return !Number.isNaN(t) && (Date.now() - t) > 24 * 3600 * 1000;
+//
+// Prefer the persisted generation timestamp when the archive API supplies it;
+// that carries enough precision for the intended 24-hour freshness window. A
+// bare edition date does not. Date.parse('YYYY-MM-DD') treats that calendar
+// label as UTC midnight, which can make a same-local-day brief look >24h old in
+// western time zones late in the evening. With date-only input, compare LOCAL
+// calendar days instead: today's edition is current, an earlier edition is stale.
+export function isBriefStale(dateStr, generatedAt = null, nowMs = Date.now()) {
+  const generatedMs = generatedAt ? Date.parse(generatedAt) : NaN;
+  if (!Number.isNaN(generatedMs)) {
+    return (nowMs - generatedMs) > 24 * 3600 * 1000;
+  }
+
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim());
+  if (dateOnly) {
+    const year = Number(dateOnly[1]);
+    const month = Number(dateOnly[2]) - 1;
+    const day = Number(dateOnly[3]);
+    const editionDay = new Date(year, month, day);
+    // Reject rollover dates such as 2026-02-30 rather than warning on garbage.
+    if (
+      editionDay.getFullYear() !== year
+      || editionDay.getMonth() !== month
+      || editionDay.getDate() !== day
+    ) return false;
+
+    const now = new Date(nowMs);
+    const localToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return editionDay < localToday;
+  }
+
+  // Compatibility for legacy callers that supplied a full timestamp as the
+  // first argument before generatedAt was available.
+  const fallbackMs = dateStr ? Date.parse(dateStr) : NaN;
+  return !Number.isNaN(fallbackMs) && (nowMs - fallbackMs) > 24 * 3600 * 1000;
 }
 
 // The STALE threshold as a pure function of the configured refresh cadence:

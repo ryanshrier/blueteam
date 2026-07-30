@@ -2,9 +2,9 @@
 
 [Back to the README](../README.md)
 
-BlueTeam.News requires Node 22 or later. The browser code uses vanilla ES modules, so there is no frontend compilation step.
+BlueTeam.News supports Node 22.19 or newer in the Node 22 line, Node 24, and Node 26. The browser code uses vanilla ES modules, so there is no frontend compilation step.
 
-npm 11.18 or later is recommended and pinned in CI so the dependency lifecycle-script allowlist is enforced. Older npm releases can install the project but do not enforce that policy.
+Use the npm bundled with a supported Node release for normal development. CI's policy job separately pins npm 11.18 so the dependency lifecycle-script allowlist is enforced; the runtime matrix intentionally uses bundled npm.
 
 ## Run locally
 
@@ -26,11 +26,14 @@ npm run check:cti-scope        # CTI scope in release code and public copy
 npm run check:contrast         # WCAG contrast for text tokens
 npm run check:placeholders     # Placeholder slugs in public material
 npm run check:assets           # Referenced assets and package paths
+npm run check:landing          # Landing HTML, links, semantics, metadata, and CSP
+npm run check:landing:render   # Desktop and phone browser smoke test
 npm run check:scoring          # Score invariants and gold-band ordering
+npm run check:release          # Version/date/tag consistency across release surfaces
 npm install-scripts ls --json  # Must report no unreviewed dependency scripts (npm 11.18+)
 ```
 
-Run the focused check for the area being changed, then run `npm test` before release.
+Run the focused check for the area being changed, then run `npm test`. The CI policy job runs repository checks once on Linux. The runtime matrix covers Node 22.19, 24, and 26 on Linux; Node 22.19 and 26 on Windows; and Node 26 on Apple Silicon and Intel macOS. Tag builds also require the `vX.Y.Z` tag to match `package.json`, the changelog, the landing page, and the sitemap date.
 
 ## Repository map
 
@@ -48,6 +51,23 @@ Run the focused check for the area being changed, then run `npm test` before rel
 | `docs/` | GitHub Pages site and project reference guides |
 
 See [Architecture](architecture.md) for the runtime flow and CTI profile boundary.
+
+## GitHub Pages security boundary
+
+The landing page uses a restrictive document-level Content Security Policy and
+`no-referrer`, makes no third-party requests, and versions its published assets
+with the release number. GitHub Pages does not allow this repository to set
+arbitrary response headers. If the custom domain is moved behind an edge or
+reverse proxy, also set `Content-Security-Policy` with `frame-ancestors 'none'`,
+`Permissions-Policy`, `X-Content-Type-Options: nosniff`, and an equivalent
+`Referrer-Policy` response header. Re-run both landing checks after changing the
+page, its metadata, or its asset paths.
+
+Publish the matching GitHub release before the Pages update so the linked
+version badge and release notes resolve atomically. After deployment, verify the
+canonical URL and social card against the production page, inspect the live
+response headers, and submit `https://blueteam.news/sitemap.xml` through the
+configured search-engine webmaster tools.
 
 ## Keyboard shortcuts
 

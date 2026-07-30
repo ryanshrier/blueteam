@@ -28,6 +28,7 @@ const getRunAgeMsMock = jest.fn(() => 60_000);
 const getKEVDueDatesMock = jest.fn(() => ({}));
 const getBriefMetaMock = jest.fn(() => null);
 const getConfigMock = jest.fn(() => ({ horizons: {} }));
+const getConfigVersionMock = jest.fn(() => 1);
 const getHorizonNameMock = jest.fn((cfg, h) => `Tier ${h}`);
 const getDomainPackMock = jest.fn(() => ({ id: 'cyber', label: 'Blue Team', entities: { regions: {} } }));
 const getBriefMock = jest.fn(() => ({ frame: { title: 'Blue Team' } }));
@@ -44,6 +45,7 @@ jest.unstable_mockModule('../lib/db.js', () => ({
 }));
 jest.unstable_mockModule('../lib/config.js', () => ({
   getConfig: getConfigMock,
+  getConfigVersion: getConfigVersionMock,
   getHorizonName: getHorizonNameMock,
 }));
 jest.unstable_mockModule('../lib/domain.js', () => ({
@@ -55,7 +57,7 @@ jest.unstable_mockModule('../lib/landscape.js', () => ({
   pipelineStaleAfterMs: (minutes = 10) => Math.max(20, Number(minutes || 10) * 2) * 60_000,
 }));
 
-const { createLandscapeRouter } = await import('../routes/landscape.js');
+const { createLandscapeRouter, _resetLandscapeMemoForTests } = await import('../routes/landscape.js');
 
 const SAMPLE_HEADLINES = [
   { title: 'Critical RCE exploited in the wild', link: 'https://example.com/a', source: 'Feed A', horizon: 1, score: 92.4, isKEV: true, kevCVE: 'CVE-2026-0001', date: '2026-07-01T00:00:00.000Z' },
@@ -274,5 +276,49 @@ describe('routes/landscape.js — GET /briefs.xml', () => {
     expect(res.status).toBe(200);
     const xml = await res.text();
     expect(xml).toContain('<rss version="2.0">');
+  });
+});
+
+describe('routes/landscape.js — memo invalidation', () => {
+  let dir; let ctx;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'wf-landscape-memo-'));
+    _resetLandscapeMemoForTests();
+    buildLandscapeMock.mockClear();
+    getLatestRunMock.mockReset().mockReturnValue({
+      headlines: SAMPLE_HEADLINES,
+      generatedAt: '2026-07-01T00:00:00.000Z',
+      generatedAtMs: 1234,
+    });
+    getConfigVersionMock.mockReset().mockReturnValue(1);
+  });
+  afterEach(async () => {
+    if (ctx?.server) await new Promise(r => ctx.server.close(r));
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  test('rebuilds when the latest brief content changes under the same filename', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      const filename = join(dir, 'brief-2026-07-01.md');
+      writeFileSync(filename, '## BLUF\n\nFirst text.\n');
+      ctx = await makeServer({ historyDir: dir });
+      expect((await fetch(`${ctx.base}/api/landscape`)).status).toBe(200);
+
+      writeFileSync(filename, '## BLUF\n\nEdited text with the same filename.\n');
+      now.mockReturnValue(1_031_000);
+      expect((await fetch(`${ctx.base}/api/landscape`)).status).toBe(200);
+      expect(buildLandscapeMock).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test('rebuilds immediately when the applied config version changes', async () => {
+    ctx = await makeServer({ historyDir: dir });
+    expect((await fetch(`${ctx.base}/api/landscape`)).status).toBe(200);
+    getConfigVersionMock.mockReturnValue(2);
+    expect((await fetch(`${ctx.base}/api/landscape`)).status).toBe(200);
+    expect(buildLandscapeMock).toHaveBeenCalledTimes(2);
   });
 });

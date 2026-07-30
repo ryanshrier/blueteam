@@ -21,8 +21,8 @@ jest.unstable_mockModule('../lib/net.js', () => ({
 const { initDB, closeDB, getMeta } = await import('../lib/db.js');
 const { dispatchAlerts, dispatchBriefWebhook } = await import('../lib/alerts.js');
 
-function okResponse(status = 200) {
-  return { ok: status >= 200 && status < 300, status };
+function okResponse(status = 200, cancel = jest.fn()) {
+  return { ok: status >= 200 && status < 300, status, body: { cancel } };
 }
 
 function headline(overrides = {}) {
@@ -116,9 +116,11 @@ describe('dispatchAlerts', () => {
   });
 
   test('a non-2xx response leaves the key UNPERSISTED so a transient failure retries', async () => {
-    safeFetchMock.mockResolvedValue(okResponse(500));
+    const cancel = jest.fn();
+    safeFetchMock.mockResolvedValue(okResponse(500, cancel));
     await dispatchAlerts([headline()], configWithWebhook());
     expect(getMeta('alert_sent_keys')).toBeNull();
+    expect(cancel).toHaveBeenCalledTimes(1);
 
     // Next run, same title, now succeeds — must actually retry (not think it already sent).
     safeFetchMock.mockResolvedValue(okResponse(200));
@@ -263,12 +265,17 @@ describe('dispatchBriefWebhook', () => {
 
   test('POSTs the compact brief payload when events is "brief"', async () => {
     safeFetchMock.mockResolvedValue(okResponse(200));
-    await dispatchBriefWebhook(brief(), { analysisSettings: { webhook: { url: 'https://hooks.example.com/x', events: 'brief' } } });
+    await dispatchBriefWebhook(
+      brief({ warnings: ['BLUF is 2 sentences — should be one'] }),
+      { analysisSettings: { webhook: { url: 'https://hooks.example.com/x', events: 'brief' } } },
+    );
     expect(safeFetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(safeFetchMock.mock.calls[0][1].body);
     expect(body.text).toContain('2026-07-02');
     expect(body.text).toContain('VPN zero-day');
     expect(body.text).toContain('Patch VPN gateways now');
+    expect(body.text).toContain('1 validation warning');
+    expect(body.text).toContain('BLUF is 2 sentences');
   });
 
   test('POSTs when events is "both"', async () => {
@@ -279,26 +286,64 @@ describe('dispatchBriefWebhook', () => {
 
   test('builds a structured json body when format is json', async () => {
     safeFetchMock.mockResolvedValue(okResponse(200));
-    await dispatchBriefWebhook(brief(), { analysisSettings: { webhook: { url: 'https://hooks.example.com/x', events: 'brief', format: 'json' } } });
+    await dispatchBriefWebhook(
+      brief({ warnings: ['Review the source mix'] }),
+      { analysisSettings: { webhook: { url: 'https://hooks.example.com/x', events: 'brief', format: 'json' } } },
+    );
     const body = JSON.parse(safeFetchMock.mock.calls[0][1].body);
     expect(body.type).toBe('brief');
     expect(body.date).toBe('2026-07-02');
     expect(body.judgments[0].title).toBe('Patch VPN gateways now');
+    expect(body.validation).toEqual({
+      warningCount: 1,
+      warnings: ['Review the source mix'],
+      truncated: false,
+    });
   });
 
-  test('escapes mrkdwn in the BLUF and judgment titles', async () => {
+  test('escapes mrkdwn in the BLUF, judgment titles, and validation warnings', async () => {
     safeFetchMock.mockResolvedValue(okResponse(200));
     await dispatchBriefWebhook(
-      brief({ bluf: 'Vendor <X> & "urgent" patch', judgments: [{ title: '<script>alert(1)</script>', tier: 'H1' }] }),
+      brief({
+        bluf: 'Vendor <X> & "urgent" patch',
+        judgments: [{ title: '<script>alert(1)</script>', tier: 'H1' }],
+        warnings: ['Unverifiable <https://example.test> & review'],
+      }),
       { analysisSettings: { webhook: { url: 'https://hooks.example.com/x', events: 'brief' } } },
     );
     const body = JSON.parse(safeFetchMock.mock.calls[0][1].body);
     expect(body.text).not.toContain('<X>');
     expect(body.text).not.toContain('<script>');
+    expect(body.text).not.toContain('<https://example.test>');
+    expect(body.text).toContain('&lt;https://example.test&gt;');
+  });
+
+  test('bounds validation warnings in webhook payloads', async () => {
+    safeFetchMock.mockResolvedValue(okResponse(200));
+    const warnings = Array.from({ length: 25 }, (_, index) => `Warning ${index + 1} ${'x'.repeat(600)}`);
+    await dispatchBriefWebhook(
+      brief({ warnings }),
+      { analysisSettings: { webhook: { url: 'https://hooks.example.com/x', events: 'brief', format: 'json' } } },
+    );
+    const body = JSON.parse(safeFetchMock.mock.calls[0][1].body);
+    expect(body.validation.warningCount).toBe(25);
+    expect(body.validation.warnings).toHaveLength(20);
+    expect(body.validation.warnings[0].length).toBe(500);
+    expect(body.validation.truncated).toBe(true);
   });
 
   test('a thrown fetch never propagates', async () => {
     safeFetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
     await expect(dispatchBriefWebhook(brief(), { analysisSettings: { webhook: { url: 'https://hooks.example.com/x', events: 'brief' } } })).resolves.toBeUndefined();
+  });
+
+  test('cancels a non-2xx brief webhook body before returning', async () => {
+    const cancel = jest.fn();
+    safeFetchMock.mockResolvedValue(okResponse(503, cancel));
+    await dispatchBriefWebhook(
+      brief(),
+      { analysisSettings: { webhook: { url: 'https://hooks.example.com/x', events: 'brief' } } },
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });

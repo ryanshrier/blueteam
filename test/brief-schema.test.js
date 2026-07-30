@@ -2,7 +2,8 @@ import { describe, test, expect } from '@jest/globals';
 import {
   parseBluf, parseSignalTitles,
   parseBrief, parseJudgments, parseExecBullets, parseDeveloping, parseConvergence,
-  BLUF_MAX_WORDS,
+  BLUF_MAX_WORDS, DECISION_WINDOW_VALUES, TRAJECTORY_VALUES,
+  normalizeDecisionWindow, formatDecisionWindow,
 } from '../lib/brief-schema.js';
 
 // Canonical brief: the shapes every Wall page parses. One signal carries the
@@ -173,6 +174,70 @@ describe('parseJudgments', () => {
   });
 });
 
+describe('Decision-window contract', () => {
+  test.each([
+    ['Current shift', 'This shift'],
+    ['72 hours', 'Within 72 hours'],
+    ['7 days.', 'Within 7 days'],
+    ['30 DAYS', 'Within 30 days'],
+    ['This quarter.', 'This quarter'],
+  ])('normalizes canonical %s and presents it explicitly', (source, display) => {
+    const normalized = normalizeDecisionWindow(source);
+    const presented = formatDecisionWindow(source);
+
+    expect(DECISION_WINDOW_VALUES).toContain(normalized);
+    expect(presented).toMatchObject({
+      canonical: normalized,
+      display,
+      relative: true,
+      legacy: false,
+    });
+  });
+
+  test.each([
+    ['Next 24 hours.', 'Within 24 hours', 'within'],
+    ['Next 30 days.', 'Within 30 days', 'within'],
+    ['quarter.', 'This quarter', 'this'],
+    ['July 12, 19:00 CT.', 'By July 12, 19:00 CT', 'by'],
+    ['2026-07-17.', 'By 2026-07-17', 'by'],
+    ['By July 17, 2026.', 'By July 17, 2026', 'by'],
+    ['by 2026-07-17', 'By 2026-07-17', 'by'],
+    ['Due July 17, 2026.', 'By July 17, 2026', 'by'],
+    ['Due by July 17, 2026.', 'By July 17, 2026', 'by'],
+    ['Until July 17, 2026.', 'By July 17, 2026', 'by'],
+    ['By: July 17, 2026.', 'By July 17, 2026', 'by'],
+  ])('preserves archived %s without accepting it for new output', (source, display, kind) => {
+    expect(normalizeDecisionWindow(source)).toBe('');
+    expect(formatDecisionWindow(source)).toMatchObject({
+      canonical: '',
+      display,
+      kind,
+      legacy: true,
+    });
+  });
+
+  test('does not invent timing semantics for an unknown archived value', () => {
+    expect(formatDecisionWindow('After legal review.')).toMatchObject({
+      canonical: '',
+      display: 'After legal review',
+      relative: false,
+      legacy: true,
+      kind: 'raw',
+    });
+  });
+
+  test('returns an explicit missing shape for blank input', () => {
+    expect(formatDecisionWindow(' . ')).toEqual({
+      source: '',
+      canonical: '',
+      display: '',
+      relative: false,
+      legacy: false,
+      kind: 'missing',
+    });
+  });
+});
+
 describe('parseExecBullets', () => {
   test('splits the bold lead from the muted tail', () => {
     const rows = parseExecBullets(`- **VPN appliances under mass scanning.** Exploitation went global within 48 hours.
@@ -209,6 +274,29 @@ describe('parseDeveloping', () => {
     expect(dev[0].name).toBe('Identity provider session token abuse');
     expect(dev[0].trajectory).toBe('Accelerating');
     expect(dev[0].watch).toBe('Escalate when a public PoC lands.');
+  });
+
+  test.each(TRAJECTORY_VALUES)('preserves the approved %s trajectory state', trajectory => {
+    const explanation = trajectory === 'Stalled'
+      ? 'not accelerating until a second source confirms movement.'
+      : 'supporting explanation.';
+    const md = `## DEVELOPING SITUATIONS
+
+### Example developing situation
+**Trajectory:** ${trajectory} — ${explanation}
+**Watch criteria:** Escalate when the observable lands.`;
+
+    expect(parseDeveloping(md)[0].trajectory).toBe(trajectory);
+  });
+
+  test('does not relabel an unrecognized trajectory as an approved state', () => {
+    const md = `## DEVELOPING SITUATIONS
+
+### Example developing situation
+**Trajectory:** Unclear — reporting is still contradictory.
+**Watch criteria:** Escalate when two independent sources agree.`;
+
+    expect(parseDeveloping(md)[0].trajectory).toBe('');
   });
 });
 

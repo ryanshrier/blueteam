@@ -16,6 +16,22 @@ let settingsReady = Promise.resolve(); // resolves once aiEnabled is known, so t
 let searchTimer = null; // module-scoped so route changes/unmount can cancel a pending archive search
 let recoveredBriefTimer = null; // a recovered generation must never pull the operator away after leaving Briefing
 
+/** Normalize the string and object forms accepted by the generation-error event. */
+export function generationFailureModel(payload) {
+  const structured = payload !== null && typeof payload === 'object';
+  const draft = structured && typeof payload.recoverableDraft === 'string'
+    ? payload.recoverableDraft
+    : '';
+  return {
+    message: structured ? (payload.message || '') : payload,
+    aiDisabled: Boolean(structured && payload.aiDisabled),
+    code: structured ? (payload.code || '') : '',
+    streamLost: Boolean(structured && payload.streamLost),
+    accumulatedText: structured ? (payload.accumulatedText || '') : '',
+    recoverableDraft: draft.trim() ? draft : '',
+  };
+}
+
 export function render(main) {
   const firstMount = !initialized;   // animate the entrance once, not on every re-render
   main.innerHTML = `
@@ -26,7 +42,7 @@ export function render(main) {
           <p class="view-kicker">Daily Threat Landscape</p>
           <h1 class="view-title">Briefing</h1>
           <p class="view-sub" id="briefMeta"></p>
-          <p class="brief-provenance">AI-synthesized from sourced signals — verify CVE IDs, vendor names, dates, and links before acting</p>
+          <p class="brief-provenance">AI-generated from sourced signals — verify CVE IDs, vendor names, dates, and links before acting</p>
         </div>
         <span class="sr-only" id="briefSrLive" aria-live="polite"></span>
         <div class="briefing-toolbar">
@@ -40,13 +56,13 @@ export function render(main) {
               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
             </svg>
           </button>
-          <button class="btn-ghost brief-export-btn" id="briefExport" type="button" title="Open the newspaper edition" aria-label="Open newspaper edition">
+          <button class="btn-ghost brief-export-btn" id="briefExport" type="button" title="Preview the print edition" aria-label="Open print edition preview">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M6 9V2h12v7"></path>
               <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
               <rect x="6" y="14" width="12" height="8"></rect>
             </svg>
-            Edition
+            Print edition
           </button>
         </div>
       </header>
@@ -192,13 +208,14 @@ function setupStoreListeners() {
     // A failure must surface even when the operator has navigated away from
     // the Briefing view; silently swallowing it left them discovering the failure
     // (or worse, a stale/empty state with no explanation) only when they returned.
-    // Payload is a string for transient errors, or
-    // { message, code, aiDisabled, streamLost, accumulatedText }.
-    const aiDisabled = typeof payload === 'object' && payload?.aiDisabled;
-    const errorCode = (typeof payload === 'object' && payload?.code) || '';
-    const streamLost = typeof payload === 'object' && payload?.streamLost;
-    const accumulatedText = (typeof payload === 'object' && payload?.accumulatedText) || '';
-    let msg = typeof payload === 'object' ? (payload?.message || '') : payload;
+    // Payload is a string for transient errors, or a structured failure. The
+    // recoverable draft, when present, is the server-selected final attempt —
+    // never substitute the SSE accumulator, which may contain multiple retries.
+    const failure = generationFailureModel(payload);
+    const {
+      aiDisabled, code: errorCode, streamLost, accumulatedText, recoverableDraft,
+    } = failure;
+    let msg = failure.message;
     // Map common failures to plain, actionable language.
     if (errorCode === 'E006') {
       // Trust-gate failures are already actionable server messages. Preserve
@@ -242,6 +259,25 @@ function setupStoreListeners() {
         </div>
         ${accumulatedText ? renderDraftMarkdown(accumulatedText) : ''}
       `;
+      return;
+    }
+    if (recoverableDraft) {
+      // This draft failed the server's all-or-nothing publication gate. Render
+      // it through the no-live-links draft sanitizer, label it unmistakably,
+      // and keep it out of currentBrief/export/history state.
+      content.innerHTML = `
+        <div class="error-message recoverable-draft-notice" role="alert">
+          <strong>Draft not published</strong>
+          <span>${escapeHtml(msg)}</span>
+          <span class="recoverable-draft-caution">The draft below is unvalidated, was not saved to History, and is for review only.</span>
+          <button class="btn-ghost" id="retryGen">Retry</button>
+        </div>
+        <section class="recoverable-draft" aria-label="Unpublished briefing draft">
+          <p class="recoverable-draft-label">Unpublished draft · review only</p>
+          ${renderDraftMarkdown(recoverableDraft)}
+        </section>
+      `;
+      document.getElementById('retryGen')?.addEventListener('click', () => emit('generate-brief'));
       return;
     }
     content.innerHTML = `
@@ -440,10 +476,69 @@ function surfaceLoadedWarnings(content, persisted) {
 }
 
 let tocObserver = null;
+let tocBreakpointCleanup = null;
+
+// Keep the disclosure's open state aligned with the same breakpoint CSS uses.
+// The returned cleanup prevents route-to-route renders from retaining listeners
+// bound to detached <details> nodes. Exported for a DOM-light regression test.
+export function bindTocBreakpoint(mediaQuery, disclosure) {
+  if (!mediaQuery || !disclosure) return () => {};
+  const sync = event => {
+    disclosure.open = !Boolean(event?.matches ?? mediaQuery.matches);
+  };
+  sync(mediaQuery);
+
+  if (typeof mediaQuery.addEventListener === 'function') {
+    mediaQuery.addEventListener('change', sync);
+    return () => mediaQuery.removeEventListener?.('change', sync);
+  }
+  if (typeof mediaQuery.addListener === 'function') {
+    mediaQuery.addListener(sync);
+    return () => mediaQuery.removeListener?.(sync);
+  }
+  return () => {};
+}
+
+/**
+ * Move both viewport and keyboard/screen-reader focus to one TOC destination.
+ * Click navigation and a fragment restored after asynchronous Briefing loading
+ * share this path; URL mutation remains the caller's responsibility.
+ */
+export function activateTocLink({
+  link,
+  target,
+  toc = null,
+  disclosure = null,
+  compact = false,
+  behavior = 'smooth',
+} = {}) {
+  if (!link || !target) return false;
+  target.scrollIntoView?.({ behavior, block: 'start' });
+  target.setAttribute?.('tabindex', '-1');
+  target.focus?.({ preventScroll: true });
+  setActiveTocLink(link, toc);
+  if (compact && disclosure) disclosure.open = false;
+  return true;
+}
+
+/** Resolve only a fragment owned by this Briefing TOC. */
+export function findTocFragmentLink(links = [], hash = '') {
+  try {
+    const targetId = decodeURIComponent(String(hash || '').replace(/^#/, ''));
+    if (!targetId) return null;
+    return links.find(link => link?.dataset?.target === targetId) || null;
+  } catch {
+    return null;
+  }
+}
 
 function buildTOC(content) {
   const toc = document.getElementById('briefToc');
   if (!toc) return;
+  if (tocBreakpointCleanup) {
+    tocBreakpointCleanup();
+    tocBreakpointCleanup = null;
+  }
   const sections = extractSections(content);
   if (sections.length === 0) {
     toc.innerHTML = '';
@@ -458,27 +553,57 @@ function buildTOC(content) {
   // Keep the rail editorial, not exhaustive. Every signal remains deep-linkable,
   // but listing six long judgment headlines here turned navigation into a second,
   // cramped copy of the brief.
+  const compactQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(max-width: 560px)')
+    : null;
   toc.innerHTML = `
-    <div class="briefing-toc-label">In this briefing</div>
-    <ul>
-      ${sections.map(s => `<li>${link(s)}</li>`).join('')}
-    </ul>
+    <details class="briefing-toc-disclosure">
+      <summary class="briefing-toc-label">
+        <span class="toc-label-wide">In this briefing</span>
+        <span class="toc-label-compact">Jump to section</span>
+      </summary>
+      <ul>
+        ${sections.map(s => `<li>${link(s)}</li>`).join('')}
+      </ul>
+    </details>
   `;
 
+  const disclosure = toc.querySelector('.briefing-toc-disclosure');
+  if (compactQuery) tocBreakpointCleanup = bindTocBreakpoint(compactQuery, disclosure);
+  else if (disclosure) disclosure.open = true;
+
   const links = [...toc.querySelectorAll('a')];
+  const navigateLink = (a, { updateHash = false, behavior = 'smooth' } = {}) => {
+    const target = document.getElementById(a?.dataset?.target || '');
+    const activated = activateTocLink({
+      link: a,
+      target,
+      toc,
+      disclosure,
+      compact: Boolean(compactQuery?.matches),
+      behavior,
+    });
+    if (!activated || !updateHash) return activated;
+    try { history.replaceState(history.state, '', `#${encodeURIComponent(a.dataset.target)}`); } catch { /* non-critical */ }
+    return true;
+  };
   links.forEach(a => {
     a.addEventListener('click', (e) => {
       e.preventDefault();
-      const target = document.getElementById(a.dataset.target);
-      if (!target) return;
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      // Move focus to the destination so keyboard/SR users land there, not just visually.
-      target.setAttribute('tabindex', '-1');
-      target.focus({ preventScroll: true });
-      setActiveTocLink(a);
-      try { history.replaceState(history.state, '', `#${encodeURIComponent(a.dataset.target)}`); } catch { /* non-critical */ }
+      navigateLink(a, { updateHash: true });
     });
   });
+  let initialLink = links[0];
+  const fragmentLink = findTocFragmentLink(links, location.hash);
+  initialLink = fragmentLink || initialLink;
+  if (fragmentLink) {
+    // Direct history routes load the article after the browser's one-shot
+    // fragment pass. Once the matching heading exists, perform that navigation
+    // ourselves without rewriting a valid (or unrelated) URL fragment.
+    navigateLink(fragmentLink, { behavior: 'auto' });
+  } else {
+    setActiveTocLink(initialLink, toc);
+  }
 
   // Scrollspy — track the section in view, not just the last click.
   if (tocObserver) tocObserver.disconnect();
@@ -494,11 +619,14 @@ function buildTOC(content) {
   }
 }
 
-function setActiveTocLink(a) {
+function setActiveTocLink(a, toc = document.getElementById('briefToc')) {
   if (!a) return;
-  const toc = document.getElementById('briefToc');
-  toc?.querySelectorAll('a').forEach(x => x.classList.remove('active'));
+  toc?.querySelectorAll('a').forEach(x => {
+    x.classList.remove('active');
+    x.removeAttribute('aria-current');
+  });
   a.classList.add('active');
+  a.setAttribute('aria-current', 'location');
 }
 
 // Reading-progress fill — fraction of the briefing sheet scrolled past.
@@ -585,8 +713,8 @@ function announce(msg) {
   if (live) live.textContent = msg;
 }
 
-// Open the printable newspaper edition of the brief currently on screen (an in-app
-// preview with explicit Print/PDF and HTML-download actions). Guards on a real rendered
+// Open the print edition of the brief currently on screen (an in-app preview
+// with an explicit Print / Save PDF action). Guards on a real rendered
 // brief (a BLUF or a judgment) so a search-results / empty / progress view never
 // exports as a blank paper. Model provenance is passed explicitly from state.
 export function isBriefReadyForExport(content, currentBrief, isGenerating = false) {
@@ -604,7 +732,7 @@ function handleExport() {
   const content = document.getElementById('briefContent');
   const { currentBrief, isGenerating } = getState();
   if (!isBriefReadyForExport(content, currentBrief, isGenerating)) {
-    showToast('Generate or open a briefing before exporting', 'error');
+    showToast('Generate or open a briefing before opening its print edition', 'error');
     return;
   }
   try {
@@ -623,7 +751,7 @@ function handleExport() {
       warnings: currentBrief.warnings || [],
     });
   } catch {
-    showToast('Export failed', 'error');
+    showToast('Could not open print edition', 'error');
   }
 }
 
@@ -755,4 +883,8 @@ export function unmount() {
   }
   contentRenderToken++;
   if (tocObserver) { tocObserver.disconnect(); tocObserver = null; }
+  if (tocBreakpointCleanup) {
+    tocBreakpointCleanup();
+    tocBreakpointCleanup = null;
+  }
 }

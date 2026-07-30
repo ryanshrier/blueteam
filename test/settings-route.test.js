@@ -22,9 +22,22 @@ const AI_STATUS = { enabled: false, source: null, masked: null };
 // getOrganization mirrors server.js's real wiring (getEffectiveOrganization over
 // a config.json stand-in) rather than a fake stub, so these tests exercise the
 // actual merge behavior.
-function makeServer({ dataDir, loopback, authed, alertRules = [], orgConfig = {}, verifyKey = null }) {
+function makeServer({
+  dataDir,
+  loopback,
+  authed,
+  alertRules = [],
+  orgConfig = {},
+  verifyKey = null,
+  briefScheduleStatus = null,
+  onBriefScheduleChanged = null,
+}) {
   const app = express();
   app.use(express.json());
+  if (authed) app.use((_req, res, next) => {
+    res.locals.authenticated = true;
+    next();
+  });
   app.use('/api', createSettingsRouter({
     dataDir,
     getAiStatus: () => AI_STATUS,
@@ -32,8 +45,9 @@ function makeServer({ dataDir, loopback, authed, alertRules = [], orgConfig = {}
     verifyKey,
     getAlertRules: () => alertRules,
     getOrganization: () => getEffectiveOrganization(orgConfig),
+    getBriefScheduleStatus: () => briefScheduleStatus,
+    onBriefScheduleChanged,
     loopback,
-    authed,
   }));
   return new Promise((resolve) => {
     const server = app.listen(0, '127.0.0.1', () => {
@@ -279,6 +293,111 @@ describe('settings route — watch-terms + alert-rule surfacing', () => {
     expect(res.status).toBe(403);
     expect((await res.json()).code).toBe('E_EXPOSED');
     expect(getUserSettings().organization).toBeUndefined();
+  });
+
+  test('legacy settings migrate to a disabled schedule without persisting an opt-in', async () => {
+    saveUserSettings(dir, { anthropicKey: 'sk-ant-existing-key' });
+    ctx = await makeServer({
+      dataDir: dir,
+      loopback: true,
+      authed: false,
+      briefScheduleStatus: { outcome: 'disabled', attempts: 0 },
+    });
+    const body = await (await fetch(`${ctx.base}/api/settings`)).json();
+    expect(body.briefSchedule).toEqual({
+      enabled: false,
+      time: '05:00',
+      timezone: 'local',
+      missedRun: 'skip',
+      retryMinutes: 15,
+      maxAttempts: 3,
+    });
+    expect(body.briefScheduleStatus).toEqual({ outcome: 'disabled', attempts: 0 });
+    expect(getUserSettings().briefSchedule).toBeUndefined();
+  });
+
+  test('saving an API key does not enable or persist the daily schedule', async () => {
+    const onBriefScheduleChanged = jest.fn();
+    ctx = await makeServer({
+      dataDir: dir,
+      loopback: true,
+      authed: false,
+      onBriefScheduleChanged,
+    });
+    const response = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ anthropicKey: 'sk-ant-new-key' }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.briefSchedule.enabled).toBe(false);
+    expect(getUserSettings().briefSchedule).toBeUndefined();
+    // Rearming can unblock a separately opted-in schedule, but the key itself
+    // did not mutate enabled.
+    expect(onBriefScheduleChanged).toHaveBeenCalledTimes(1);
+  });
+
+  test('validates, persists, and rearms an explicitly enabled schedule', async () => {
+    const onBriefScheduleChanged = jest.fn();
+    ctx = await makeServer({
+      dataDir: dir,
+      loopback: true,
+      authed: false,
+      onBriefScheduleChanged,
+    });
+    const briefSchedule = {
+      enabled: true,
+      time: '06:30',
+      timezone: 'America/Chicago',
+      missedRun: 'catch-up',
+      retryMinutes: 20,
+      maxAttempts: 4,
+    };
+    const response = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ briefSchedule }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.briefSchedule).toEqual(briefSchedule);
+    expect(getUserSettings().briefSchedule).toEqual(briefSchedule);
+    expect(onBriefScheduleChanged).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    [{ enabled: 'yes' }, /enabled/],
+    [{ time: '25:00' }, /HH:MM/],
+    [{ timezone: 'Not/A-Timezone' }, /timezone/],
+    [{ missedRun: 'always' }, /missedRun/],
+    [{ retryMinutes: 0 }, /retryMinutes/],
+    [{ maxAttempts: 11 }, /maxAttempts/],
+  ])('rejects an unsafe schedule patch %j', async (briefSchedule, message) => {
+    ctx = await makeServer({ dataDir: dir, loopback: true, authed: false });
+    const response = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ briefSchedule }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(400);
+    expect(body.code).toBe('E_BRIEF_SCHEDULE');
+    expect(body.error).toMatch(message);
+    expect(getUserSettings().briefSchedule).toBeUndefined();
+    await new Promise(resolve => ctx.server.close(resolve));
+    ctx = null;
+  });
+
+  test('a non-loopback authenticated request can change the schedule, per request', async () => {
+    ctx = await makeServer({ dataDir: dir, loopback: false, authed: true });
+    const response = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ briefSchedule: { enabled: true } }),
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).briefSchedule.enabled).toBe(true);
   });
 });
 

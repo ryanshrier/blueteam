@@ -2,11 +2,11 @@
 //
 // The on-screen brief is a dark-mode digital memo (cards, tier rules, a
 // confidence gauge). A printout of that wastes ink and reads like a web page,
-// not a paper. This module instead opens a self-contained, SAME-ORIGIN
+// not a paper. This module instead opens an isolated, SAME-ORIGIN
 // edition: it CLONES the already-rendered, already-DOMPurify-sanitized
 // #briefContent and reskins its stable semantic classes (.bluf,
 // .brief-judgment-card.h{1,2,3}, .the-line, .c-action, .brief-judgment-meta,
-// .brief-sources-appendix) for warm paper — a centred nameplate, a folio rule,
+// .brief-sources-appendix) for a clean white page — a centred nameplate, a folio rule,
 // a readable single-column body, tier tags, pull quotes, and a source appendix.
 //
 // Why a separate document and not an `@media print` rule on the app:
@@ -21,12 +21,18 @@
 
 import { escapeHtml } from '../core/sanitize.js';
 import { executiveSummaryModel } from '../wall/wall-format.js';
+import {
+  normalizePackedBriefFields,
+  splitPackedBriefFieldHtml,
+} from './brief-renderer.js';
 
-// Keep srcdoc same-origin so self-hosted fonts, readiness checks, and the
-// parent-initiated print dialog continue to work. allow-modals is required for
-// print(); deliberately omit allow-scripts so a future sanitizer regression
-// cannot turn briefing content into executable code inside the preview.
-export const PRINT_IFRAME_SANDBOX = 'allow-same-origin allow-modals';
+// Keep srcdoc same-origin so self-hosted fonts, readiness checks, and the bounded
+// iframe print fallback continue to work. allow-modals is required for print();
+// citation anchors are app-created HTTP(S) links with rel=noopener, so permit
+// their explicit new-tab navigation to escape the non-scripted preview sandbox.
+// Deliberately omit allow-scripts so a future sanitizer regression cannot turn
+// briefing content into executable code inside the preview.
+export const PRINT_IFRAME_SANDBOX = 'allow-same-origin allow-modals allow-popups allow-popups-to-escape-sandbox';
 export const PRINT_DOCUMENT_CSP = [
   "default-src 'none'",
   "style-src 'self' 'unsafe-inline'",
@@ -42,26 +48,22 @@ export const PRINT_DOCUMENT_CSP = [
 
 // Transient nodes the live brief may carry that have no place in the artifact.
 // .brief-judgment-link is in-app Wire navigation — a dead anchor on paper, so strip it.
-// .brief-validation-warning (the on-screen banner) is stripped too — it doesn't fit the
-// broadsheet's visual language — but its content is NOT dropped: it renders as a
-// compact "Generation notes" line into the colophon so a flagged brief never prints as
-// a clean, authoritative paper with its known defects silently erased.
+// .brief-validation-warning is rebuilt below as a static Edition notes block,
+// including the complete warning text rather than a count-only live-app reference.
 const STRIP_SELECTOR = '.streaming-cursor, .brief-validation-warning, .gen-progress, .error-message, .briefing-status, .brief-judgment-link, .bjm-revises';
 
-// The model normally emits one labeled field per paragraph, but Markdown's
-// `breaks:true` mode can pack adjacent fields into one <p> separated by <br>s.
-// Keep this allowlist narrow so an intentional prose line-break is never turned
-// into a new paragraph just because it happens to start with bold text.
-const JUDGMENT_FIELD_LABELS = new Set([
-  'assessment', 'what happened', 'defender impact', 'relevance',
+// Field labels eligible for short-block pagination after shared normalization.
+const PAGINATION_FIELD_LABELS = new Set([
+  'assessment', 'what happened', 'defender impact', 'impact', 'relevance',
   'recommended actions', 'the line', 'confidence', 'decision window',
   'revises if', 'increases if', 'decreases if', 'act now',
-]);
-const PAGINATION_FIELD_LABELS = new Set([
-  ...JUDGMENT_FIELD_LABELS,
   'trajectory', 'watch criteria', 'the intersection', 'the cascade', 'the move',
 ]);
-const ATOMIC_FIELD_MAX_CHARS = 720;
+// Only genuinely short fields stay atomic. The former 720-character ceiling
+// made ten-line evidence paragraphs indivisible and left large holes on paper.
+const ATOMIC_FIELD_MAX_CHARS = 280;
+const ATOMIC_LIST_MAX_ITEMS = 3;
+const ATOMIC_LIST_MAX_CHARS = 640;
 
 function leadingHtmlFieldLabel(html) {
   const match = String(html || '').match(/^\s*<strong\b[^>]*>\s*([^<]+?)\s*<\/strong>\s*:?[\t ]*/i);
@@ -87,45 +89,43 @@ export function shouldKeepFieldParagraphTogether(html, textLength) {
     && length <= ATOMIC_FIELD_MAX_CHARS;
 }
 
-/**
- * Split a Markdown-packed judgment paragraph into field-sized HTML fragments.
- * Unlabelled continuation lines stay attached to the preceding field.
- * Exported for a DOM-free regression test; browser callers use the DOM wrapper
- * below so inline citation markup is preserved exactly.
- */
-export function splitPackedJudgmentFieldHtml(html) {
-  const source = String(html || '');
-  const parts = source.split(/<br\s*\/?>/i);
-  if (parts.length < 2) return [source];
-
-  const recognized = parts.filter(part => JUDGMENT_FIELD_LABELS.has(leadingHtmlFieldLabel(part))).length;
-  if (recognized < 2) return [source];
-
-  const groups = [];
-  for (const part of parts) {
-    if (JUDGMENT_FIELD_LABELS.has(leadingHtmlFieldLabel(part)) || groups.length === 0) {
-      groups.push(part);
-    } else {
-      groups[groups.length - 1] += `<br>${part}`;
-    }
-  }
-  return groups.filter(part => part.trim());
+export function shouldKeepShortListTogether(itemCount, textLength) {
+  const count = Number(itemCount);
+  const length = Number(textLength);
+  return Number.isInteger(count)
+    && count > 0
+    && count <= ATOMIC_LIST_MAX_ITEMS
+    && Number.isFinite(length)
+    && length > 0
+    && length <= ATOMIC_LIST_MAX_CHARS;
 }
 
-function normalizePackedJudgmentFields(root) {
-  root.querySelectorAll('.brief-judgment-card').forEach(card => {
-    [...card.children].filter(el => el.tagName === 'P').forEach(p => {
-      const fields = splitPackedJudgmentFieldHtml(p.innerHTML);
-      if (fields.length < 2) return;
-      for (const html of fields) {
-        const field = p.cloneNode(false);
-        field.innerHTML = html;
-        p.before(field);
-      }
-      p.remove();
+// Persisted warnings are the authoritative generation-time audit, but legacy or
+// manually edited archive files can acquire a client-derived structural warning
+// when rendered. Merge both sources before the live banner is stripped from the
+// clone so the Edition cannot print cleaner than the Briefing shown on screen.
+export function collectEditionWarnings(contentEl, persisted = []) {
+  const values = Array.isArray(persisted) ? [...persisted] : [];
+  if (contentEl?.querySelectorAll) {
+    contentEl.querySelectorAll('.brief-validation-warning li').forEach(li => {
+      values.push(li.textContent || '');
     });
-  });
+  }
+
+  const warnings = [];
+  const seen = new Set();
+  for (const value of values) {
+    const warning = String(value || '').trim();
+    if (!warning || seen.has(warning)) continue;
+    seen.add(warning);
+    warnings.push(warning);
+  }
+  return warnings;
 }
+
+// Keep the former public helper name for compatibility; screen and export now
+// use the same section-agnostic normalizer from brief-renderer.js.
+export const splitPackedJudgmentFieldHtml = splitPackedBriefFieldHtml;
 
 // Chromium may still fragment a heading even when break-after:avoid is set.
 // Give each non-lead story a small, genuinely atomic opening (headline,
@@ -152,6 +152,33 @@ function preparePrintPagination(root) {
     if (shouldKeepFieldParagraphTogether(p.innerHTML, p.textContent.trim().length)) {
       p.classList.add('np-field-unit');
     }
+
+    // Mark a short bold label immediately introducing a list (most often
+    // "Recommended actions:") for the bounded grouping pass below.
+    const next = p.nextElementSibling;
+    const onlyChild = p.children.length === 1 ? p.firstElementChild : null;
+    if (
+      next?.matches('ul, ol')
+      && onlyChild?.tagName === 'STRONG'
+      && p.textContent.trim().length <= 80
+    ) {
+      p.classList.add('np-list-intro');
+    }
+  });
+
+  // The prompt caps Recommended actions at three bullets. Keep a genuinely
+  // short label/list group atomic so neither a heading nor a lone bullet is
+  // stranded across a page turn. Unusually long lists remain pageable.
+  root.querySelectorAll('p.np-list-intro').forEach(intro => {
+    const list = intro.nextElementSibling;
+    if (
+      !list?.matches('ul, ol')
+      || !shouldKeepShortListTogether(list.children.length, list.textContent.trim().length)
+    ) return;
+    const group = root.ownerDocument.createElement('div');
+    group.className = 'np-short-list-group';
+    intro.before(group);
+    group.append(intro, list);
   });
 }
 
@@ -203,13 +230,14 @@ export function exportBriefNewspaper({
   readMins = null,
   warnings = [],
 }) {
+  const editionWarnings = collectEditionWarnings(contentEl, warnings);
   const clone = contentEl.cloneNode(true);
   clone.querySelectorAll(STRIP_SELECTOR).forEach(el => el.remove());
 
-  // Normalize the generated field structure before promoting the lead. Without
-  // this pass, a packed Assessment/What happened/Impact paragraph is mistaken
-  // for one giant centered standfirst.
-  normalizePackedJudgmentFields(clone);
+  // Re-run the shared normalization defensively before promoting the lead.
+  // Completed screen briefs already crossed this pass, while legacy/direct
+  // export callers may still provide packed fields.
+  normalizePackedBriefFields(clone);
 
   // Turn the three generated prose bullets into a compact decision brief. The
   // same pure model powers the Wall, so both surfaces agree on owners, actions,
@@ -235,7 +263,7 @@ export function exportBriefNewspaper({
   promoteLead(clone);
   preparePrintPagination(clone);
 
-  const { longDate, dateSlug } = resolveDate(datelineText, filename);
+  const { longDate } = resolveDate(datelineText, filename);
   const resolvedReadMins = resolveReadMins(readMins, metaText, clone.textContent || '');
   const freshness = formatGeneratedFreshness(generatedAt, metaText, longDate);
   // Model provenance is passed explicitly from state; the meta-line regex is only a
@@ -253,35 +281,39 @@ export function exportBriefNewspaper({
     readMins: resolvedReadMins,
     freshness,
     model: resolvedModel,
-    warningCount: Array.isArray(warnings) ? warnings.length : 0,
+    warnings: editionWarnings,
   });
 
-  // Render the broadsheet in an in-app overlay (an isolated, same-origin iframe),
-  // NOT a popup window. Popups are routinely blocked, which dropped the export to
-  // a raw-HTML download — the failure the operator actually hit. The iframe
-  // sandboxes the paper CSS from the app; the controls live OUTSIDE it so the
-  // printed page is clean; Print prints the iframe document directly (its own
-  // @media print rules apply), reliable in every browser with no popup permission.
+  // Render the edition in an in-app preview (an isolated, same-origin iframe).
+  // The iframe sandboxes the paper CSS from the app; the controls live outside it.
+  // An explicit Print/PDF click opens a top-level document synchronously, which is
+  // the reliable browser print target. The iframe remains a readable preview and
+  // a bounded fallback when popup policy refuses the top-level document.
   // A true modal dialog (not a div with role=toolbar): aria-modal, a labelled title,
   // focus moved in on open + trapped, and returned to the Export button on close.
   const returnFocusTo = document.activeElement;
-  const titleSlug = plateTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'briefing';
-  const overlay = document.createElement('div');
+  const overlay = document.createElement('dialog');
   overlay.className = 'np-overlay';
-  overlay.setAttribute('role', 'dialog');
+  // Redundant on browsers with native dialog semantics, but valuable to older
+  // fallback implementations and to app code that detects modal ownership via
+  // an explicit ARIA contract.
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-labelledby', 'npOvTitle');
   overlay.innerHTML = `
     <div class="np-overlay-bar">
-      <span class="np-overlay-title" id="npOvTitle">${escapeHtml(plateTitle)} edition — ${escapeHtml(longDate)}</span>
+      <span class="np-overlay-title" id="npOvTitle">${escapeHtml(plateTitle)} print edition — ${escapeHtml(longDate)}</span>
       <div class="np-overlay-actions">
-        <button type="button" class="np-ov-btn np-ov-print primary" aria-label="Print this edition or save it as a PDF" aria-busy="true" disabled>Print / PDF</button>
-        <button type="button" class="np-ov-link np-ov-download">Download HTML</button>
-        <button type="button" class="np-ov-btn np-ov-close" aria-label="Close export">Close</button>
+        <button type="button" class="np-ov-btn np-ov-print primary" aria-label="Print this edition or save it as a PDF" aria-busy="true" disabled>Print / Save PDF</button>
+        <button type="button" class="np-ov-btn np-ov-close" aria-label="Close print edition">Close</button>
       </div>
     </div>
-    <iframe class="np-frame" sandbox="${PRINT_IFRAME_SANDBOX}" title="${escapeHtml(plateTitle)} printable edition"></iframe>`;
+    <iframe class="np-frame" sandbox="${PRINT_IFRAME_SANDBOX}" title="${escapeHtml(plateTitle)} print edition preview"></iframe>`;
   document.body.appendChild(overlay);
+  // Native modal semantics make the app behind the preview inert and allow
+  // keyboard focus to enter the iframe; the former hand-rolled button-only trap
+  // made every citation in the preview unreachable.
+  if (typeof overlay.showModal === 'function') overlay.showModal();
+  else overlay.setAttribute('open', '');
 
   const frame = overlay.querySelector('.np-frame');
   const printBtn = overlay.querySelector('.np-ov-print');
@@ -291,10 +323,22 @@ export function exportBriefNewspaper({
   // until both the iframe load event and document.fonts.ready have settled.
   const printReady = gatePrintUntilReady(frame, printBtn);
   const doPrint = async () => {
-    if (printBtn.disabled) return;
+    // Open the top-level print document synchronously from the click gesture,
+    // then wait for its own fonts. This avoids browsers printing a blank iframe
+    // or the parent app when frame printing fails.
+    const opened = await printTopLevelDocument(html);
+    if (opened) return;
+
+    // Popup policies can still refuse a new top-level document. The already
+    // loaded preview remains a bounded fallback; never print the parent shell.
     await printReady;
-    try { frame.contentWindow.focus(); frame.contentWindow.print(); }
-    catch { window.print(); }   // fallback: app @media print hides all but the overlay
+    try {
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    } catch {
+      // Leave the preview open so the operator can use the browser's print
+      // command rather than unexpectedly printing the application shell.
+    }
   };
 
   // Export opens a readable preview first. Printing is a separate explicit action:
@@ -302,32 +346,77 @@ export function exportBriefNewspaper({
   // effect instead of an artifact the reader could inspect.
   frame.srcdoc = html;   // same-origin; /fonts.css and the paper CSS resolve inside it
 
+  let unbindPrintShortcut = () => {};
   const close = () => {
+    unbindPrintShortcut();
+    unbindPrintShortcut = () => {};
+    if (overlay.open && typeof overlay.close === 'function') overlay.close();
     overlay.remove();
-    document.removeEventListener('keydown', onKey);
     if (returnFocusTo && typeof returnFocusTo.focus === 'function') returnFocusTo.focus();
   };
-  const onKey = (e) => {
-    if (e.key === 'Escape') { close(); return; }
-    if (e.key === 'Tab') {   // trap Tab within the dialog's own controls
-      const f = [...overlay.querySelectorAll('button:not(:disabled)')];
-      if (!f.length) return;
-      const first = f[0], last = f[f.length - 1], a = document.activeElement;
-      if (e.shiftKey && (a === first || !overlay.contains(a))) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && (a === last || !overlay.contains(a))) { e.preventDefault(); first.focus(); }
-    }
-  };
-  document.addEventListener('keydown', onKey);
 
+  // Ctrl/Cmd+P from the parent dialog must not print the fixed-height iframe
+  // shell. Send it through the same top-level document path as the visible
+  // Print / Save PDF action. A shortcut pressed inside the iframe remains owned by that
+  // document and prints the white Edition directly.
+  unbindPrintShortcut = bindEditionPrintShortcut(document, overlay, doPrint);
   overlay.querySelector('.np-ov-close').addEventListener('click', close);
-  overlay.querySelector('.np-ov-download').addEventListener('click', () => downloadHtml(html, `${titleSlug}-${dateSlug}.html`));
+  overlay.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    close();
+  });
   printBtn.addEventListener('click', doPrint);
-  // Print is disabled until the iframe/fonts settle, so focus the first usable
+  // Print is disabled until the iframe/fonts settle, so focus the usable Close
   // control now; the primary action joins the tab order as soon as it is ready.
-  overlay.querySelector('.np-ov-download').focus();
+  overlay.querySelector('.np-ov-close').focus();
 }
 
 // ── helpers ──
+
+/**
+ * Print from a real top-level document created synchronously by the user's
+ * Print / Save PDF click. Top-level printing is substantially more reliable than
+ * asking a browser to print a sandboxed iframe, especially on Safari.
+ * `openWindow` is injectable for the DOM-free unit test.
+ */
+export async function printTopLevelDocument(html, openWindow = null, maxFontWaitMs = 4_000) {
+  let target;
+  try {
+    const opener = openWindow || (() => window.open('', '_blank'));
+    target = opener();
+    if (!target?.document) return false;
+
+    target.document.open();
+    target.document.write(String(html || ''));
+    target.document.close();
+
+    const fontsReady = target.document.fonts?.ready;
+    if (fontsReady) {
+      await new Promise(resolve => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          resolve();
+        };
+        const timeoutId = setTimeout(finish, Math.max(0, Number(maxFontWaitMs) || 0));
+        Promise.resolve(fontsReady).then(finish, finish);
+      });
+    }
+    target.focus?.();
+    if (typeof target.print !== 'function') {
+      target.close?.();
+      return false;
+    }
+    target.addEventListener?.('afterprint', () => target.close?.(), { once: true });
+    target.print();
+    return true;
+  } catch {
+    try { target?.close?.(); } catch { /* non-critical cleanup */ }
+    return false;
+  }
+}
 
 export async function waitForPrintableFrame(frame) {
   try {
@@ -366,6 +455,31 @@ export function gatePrintUntilReady(frame, button, maxWaitMs = 8_000) {
       }
     }, { once: true });
   });
+}
+
+/**
+ * Route the browser's ordinary Print shortcut through the Edition's reliable
+ * top-level print path while its dialog is open. Closing the dialog removes the
+ * listener and restores normal parent-document printing.
+ */
+export function bindEditionPrintShortcut(doc, dialog, printEdition) {
+  if (!doc?.addEventListener || !dialog || typeof printEdition !== 'function') {
+    return () => {};
+  }
+
+  const onKeydown = event => {
+    const printChord = (event?.ctrlKey || event?.metaKey)
+      && !event?.altKey
+      && !event?.shiftKey
+      && String(event?.key || '').toLowerCase() === 'p';
+    if (!dialog.open || event?.defaultPrevented || !printChord) return;
+    event.preventDefault?.();
+    if (event?.repeat) return;
+    void printEdition();
+  };
+
+  doc.addEventListener('keydown', onKeydown);
+  return () => doc.removeEventListener?.('keydown', onKeydown);
 }
 
 function readingTime(text) {
@@ -445,12 +559,14 @@ function promoteLead(root) {
   const heading = children.find(el => el.tagName === 'H3');
   const meta = children.find(el => el.classList.contains('brief-judgment-meta'));
   if (heading) head.appendChild(heading);
+  // Classification and confidence are a byline for the judgment, so they must
+  // precede the Assessment deck rather than appearing as an afterthought below it.
+  if (meta) head.appendChild(meta);
   if (assessment) {
     assessment.innerHTML = stripAssessmentLabelHtml(assessment.innerHTML);
     assessment.classList.add('np-lead-deck');
     head.appendChild(assessment);
   }
-  if (meta) head.appendChild(meta);
   for (const el of children) {
     if (el !== heading && el !== assessment && el !== meta) body.appendChild(el);
   }
@@ -539,7 +655,7 @@ function structureExecutiveSummary(root) {
   list.replaceWith(panel);
 }
 
-// Long-form date for the folio + a yyyy-mm-dd slug for the download filename.
+// Long-form date for the folio.
 // Prefer the brief's own dateline (carries the weekday the model wrote); fall
 // back to the filename's date; finally to whatever the dateline said verbatim.
 function resolveDate(datelineText, filename) {
@@ -552,32 +668,39 @@ function resolveDate(datelineText, filename) {
     if (!Number.isNaN(dt.getTime())) {
       return {
         longDate: dt.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
-        dateSlug: iso,
       };
     }
   }
   const fallback = datelineText.replace(/^[^·]*·\s*/, '').trim() || 'Threat Landscape Briefing';
-  return { longDate: fallback, dateSlug: 'briefing' };
+  return { longDate: fallback };
 }
 
-function downloadHtml(html, name) {
-  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-}
-
-// The whole self-contained broadsheet document. Inline CSS so it prints with
-// nothing missing; /fonts.css linked same-origin for the same typefaces the
-// app uses (Newsreader serif · JetBrains Mono).
-export function buildDocument({ bodyHtml, plateTitle, plateSubtitle, longDate, readMins, freshness, model, warningCount = 0 }) {
+// The standalone same-origin print document. Presentation CSS is inline;
+// /fonts.css supplies the same self-hosted faces as the app.
+export function buildDocument({
+  bodyHtml,
+  plateTitle,
+  plateSubtitle,
+  longDate,
+  readMins,
+  freshness,
+  model,
+  warnings = [],
+  warningCount = 0,
+}) {
   const modelNote = model ? ` Model: ${escapeHtml(formatModelLabel(model))}.` : '';
-  const validationNote = warningCount > 0
-    ? `<span class="np-validation-note"> Generation notes: ${warningCount} automated ${warningCount === 1 ? 'check needs' : 'checks need'} review in the live briefing.</span>`
+  const safeWarnings = Array.isArray(warnings)
+    ? warnings.map(value => String(value || '').trim()).filter(Boolean)
+    : [];
+  const resolvedWarningCount = safeWarnings.length || Math.max(0, Number(warningCount) || 0);
+  const validationBlock = safeWarnings.length
+    ? `<aside class="np-validation" aria-labelledby="npValidationTitle">
+        <strong id="npValidationTitle">Edition notes — review before distribution</strong>
+        <ul>${safeWarnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>
+      </aside>`
+    : '';
+  const validationNote = resolvedWarningCount > 0
+    ? `<span class="np-validation-note"> Generation notes: ${resolvedWarningCount} automated ${resolvedWarningCount === 1 ? 'check requires' : 'checks require'} review${safeWarnings.length ? ' above' : ' in the live briefing'}.</span>`
     : '';
   return `<!DOCTYPE html>
 <html lang="en">
@@ -585,7 +708,7 @@ export function buildDocument({ bodyHtml, plateTitle, plateSubtitle, longDate, r
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="${PRINT_DOCUMENT_CSP}">
-<title>${escapeHtml(plateTitle)} edition — ${escapeHtml(longDate)}</title>
+<title>${escapeHtml(plateTitle)} print edition — ${escapeHtml(longDate)}</title>
 <link rel="stylesheet" href="/fonts.css">
 <style>
 ${NEWSPAPER_CSS}
@@ -602,16 +725,18 @@ ${NEWSPAPER_CSS}
       </div>
       <div class="np-folio">
         <span class="np-folio-date">${escapeHtml(longDate)}</span>
-        <span class="np-folio-end">${escapeHtml(freshness)} · AI-assisted</span>
+        <span class="np-folio-end">${escapeHtml(freshness)} · AI-generated</span>
       </div>
     </header>
+
+    ${validationBlock}
 
     <div class="np-body brief-content">
       ${bodyHtml}
     </div>
 
     <footer class="np-colophon">
-      ${escapeHtml(plateTitle)} · AI-assisted synthesis from sourced signals.${modelNote}
+      ${escapeHtml(plateTitle)} · AI-generated synthesis from sourced signals.${modelNote}
       Verify every CVE ID, vendor name, date, and link before acting.
       ${validationNote}
     </footer>
@@ -622,10 +747,10 @@ ${NEWSPAPER_CSS}
 }
 
 // Paper skin. Every visual is defined from scratch (the app's stylesheet is not
-// loaded here), reskinning the brief's semantic classes for a warm edition.
+// loaded here), reskinning the brief's semantic classes for a white edition.
 export const NEWSPAPER_CSS = `
 :root{
-  --paper:#f6f3ea; --paper-edge:#e7e1d2; --desk:#d7d2c5;
+  --paper:#fff; --paper-edge:#d8dce3; --desk:#e5e7eb;
   --ink:#1a1714; --ink-2:#3a352e; --ink-3:#5e574c; --ink-faint:#6f675a;   /* faint ink darkened to ~5:1 on paper — clears WCAG AA for the 9-10px colophon/byline */
   --rule:#1a1714; --hair:rgba(26,23,20,.18); --hair-2:rgba(26,23,20,.34);
   --accent:#1d4ed8;
@@ -638,7 +763,7 @@ body{
   color:var(--ink);
   font-family:'Newsreader',Georgia,'Times New Roman',serif;
   font-optical-sizing:auto;
-  -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  -webkit-print-color-adjust:economy; print-color-adjust:economy;
   padding:30px 16px 64px;
 }
 
@@ -650,9 +775,8 @@ body{
   padding:46px 56px 52px;
 }
 
-/* Handling caveat — defense-doc convention: the same banner top and bottom,
-   so a loose page is never read as cleared-for-distribution, and the AI-synthesized
-   "verify before acting" posture rides on the artifact itself, not just the screen. */
+/* Handling caveat at the document boundaries keeps the AI-generated
+   "verify before acting" posture on the artifact itself, not only the app. */
 .np-handling{
   margin:0 0 14px; padding:0 0 7px; text-align:center;
   border-bottom:1px solid var(--rule);
@@ -688,6 +812,18 @@ body{
 }
 .np-folio-date{ color:var(--ink); font-weight:600; letter-spacing:.1em; }
 .np-folio-end{ text-align:right; }
+.np-validation{
+  max-width:74ch; margin:0 auto 20px; padding:10px 12px;
+  border:1px solid var(--hair-2); break-inside:avoid-page;
+  font-family:'JetBrains Mono',ui-monospace,monospace;
+  font-size:11px; line-height:1.5; color:var(--ink-2);
+}
+.np-validation strong{
+  display:block; margin-bottom:5px; text-transform:uppercase;
+  font-size:10px; letter-spacing:.1em; color:var(--t2);
+}
+.np-validation ul{ margin:0; padding-left:1.35em; }
+.np-validation li{ margin:2px 0; }
 
 /* ── Body ──
    One readable column at a comfortable measure in both preview and print. This
@@ -747,10 +883,12 @@ body{
 
 /* Executive decision brief — facts establish the situation once, then a clean
    owner queue answers who moves next. Shared deadlines print at queue level. */
-.np-exec-panel{ column-span:all; margin:0 0 24px; break-inside:avoid; }
+.np-exec-panel{ column-span:all; margin:0 0 24px; break-inside:auto; }
 .np-exec-facts{ display:grid; grid-template-columns:1fr 1fr; border-bottom:1px solid var(--rule); }
 .np-exec-fact{ padding:12px 14px 13px 0; }
-.np-exec-fact + .np-exec-fact{ border-left:1px solid var(--hair); padding-left:14px; }
+.np-exec-fact:nth-child(even){ border-left:1px solid var(--hair); padding-left:14px; }
+.np-exec-fact:nth-child(n+3){ border-top:1px solid var(--hair); }
+.np-exec-fact:last-child:nth-child(odd){ grid-column:1 / -1; }
 .np-exec-fact-label,
 .np-exec-queue-head,
 .np-exec-common-due,
@@ -805,12 +943,14 @@ body{
   color:var(--accent); margin-bottom:9px;
 }
 .np-lead-head > h3{
-  font-size:clamp(27px,3.4vw,40px); line-height:1.07; margin:0 0 10px;
+  font-size:clamp(27px,3.4vw,40px); line-height:1.07; margin:0 0 8px;
   text-align:center; hyphens:none; break-after:avoid;
 }
-.np-lead-head .brief-judgment-meta{ text-align:center; margin:12px 0 0; }
-.np-lead-deck{
-  max-width:56ch; margin:6px auto 0;
+.np-lead-head .brief-judgment-meta{ text-align:center; margin:0 0 10px; }
+/* Match the body paragraph rule's scope so its margin cannot pin this narrower
+   standfirst to the left edge while only the text inside appears centred. */
+.np-body .np-lead-deck{
+  max-width:56ch; margin:0 auto;
   font-size:18px; line-height:1.45; color:var(--ink-2); text-align:center;
 }
 .np-lead-deck strong{ color:var(--ink); }
@@ -838,32 +978,34 @@ body{
 .np-body .bjm-confidence::before{ content:none; }
 .np-body .bjm-confidence{ margin-right:12px; }
 .np-body .bjm-window::before{ content:'· '; }
+.np-body .bjm-window-label{ font-weight:700; }
+.np-body .bjm-window-label::after{ content:' · '; }
 .np-body .bjm-window[data-edition-date]::after{
   content:' · as of ' attr(data-edition-date); color:var(--ink-faint);
 }
 /* "The line" — serif pull-quote carried by type, not another left rail. */
 .np-body .the-line{
-  break-inside:avoid; position:relative; margin:15px 0; padding:6px 0 6px 22px;
+  break-inside:avoid; position:relative; margin:15px 0; padding:6px 0;
   font-style:italic; font-weight:600; font-size:16px; line-height:1.42;
   color:var(--ink); text-align:left; hyphens:none;
 }
 .np-body .the-line::before{
-  content:'“'; position:absolute; left:0; top:0;
-  font-style:normal; font-weight:700; font-size:1.5em; line-height:1; color:var(--accent);
+  content:none;
 }
 
 /* Action directive ("Act now") — the closing climax, set as a compact top-ruled
    note rather than a third left-highlight treatment. */
 .np-body .c-action{
+  display:block;
   break-inside:avoid; margin:14px 0 4px; padding:9px 0 0;
   border-top:2px solid var(--accent); background:none;
 }
 .np-body .c-action-label{
-  display:block; margin-bottom:4px;
+  display:block; width:100%; margin-bottom:4px;
   font-family:'JetBrains Mono',ui-monospace,monospace;
   font-size:9.5px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--accent);
 }
-.np-body .c-action-text{ font-weight:600; color:var(--ink); }
+.np-body .c-action-text{ display:block; width:100%; font-weight:600; color:var(--ink); }
 
 /* Numbered inline citations + the sources column */
 .np-body .brief-cite{
@@ -905,38 +1047,73 @@ body{
 }
 .np-validation-note{ color:var(--t2); font-weight:700; text-transform:none; letter-spacing:.02em; }
 /* ── Print ── */
-@page{ size:letter portrait; margin:14mm; background:#f6f3ea; }
+/* Modern Chromium prints these restrained running folios in the page margin.
+   Engines without margin-box support ignore the nested rules; the document's
+   masthead, colophon, and handling footer remain a complete fallback. */
+@page{
+  size:auto;
+  margin:14mm;
+  @bottom-left{
+    content:'BlueTeam.News · Print edition';
+    font-family:'JetBrains Mono',ui-monospace,monospace;
+    font-size:7pt; letter-spacing:.08em; text-transform:uppercase; color:#5e574c;
+  }
+  @bottom-right{
+    content:'Page ' counter(page) ' of ' counter(pages);
+    font-family:'JetBrains Mono',ui-monospace,monospace;
+    font-size:7pt; letter-spacing:.08em; text-transform:uppercase; color:#5e574c;
+  }
+}
 @media print{
-  html,body{ background:var(--paper); }
+  html,body{ background:#fff; }
   body{ padding:0; }
-  /* Print is the same warm, single-column edition as the preview. Only the
-     simulated desk/sheet chrome is removed; @page supplies recurring margins. */
-  .paper{ max-width:none; margin:0; padding:0; border:none; box-shadow:none; background:var(--paper); }
+  /* Print is a white, ink-efficient version of the single-column preview.
+     Only the simulated desk/sheet chrome is removed; @page supplies margins. */
+  .paper{ max-width:none; margin:0; padding:0; border:none; box-shadow:none; background:#fff; }
+  .np-body{ max-width:none; font-size:11pt; line-height:1.5; orphans:2; widows:2; }
+  .np-handling{ font-size:8pt; }
+  .np-ear, .np-folio{ font-size:8pt; }
+  .np-body .brief-sources-appendix{ font-size:8.5pt; }
+  .np-colophon{ font-size:8pt; line-height:1.55; }
+  .np-validation{ font-size:8.5pt; }
+  .np-validation strong{ font-size:8pt; }
+  .np-body code{ background:none; }
   .no-print{ display:none !important; }
   /* Long stories and the Sources list may cross pages instead of leaving a
      mostly empty predecessor. Keep only local reading units together. */
   .np-body .brief-judgment-card, .np-body .brief-sources-appendix{ break-inside:auto; page-break-inside:auto; }
+  .np-body li{ break-inside:auto; page-break-inside:auto; }
   .np-body h2, .np-body h3, .np-body .brief-judgment-meta{
     break-after:avoid-page; page-break-after:avoid;
   }
   .np-body h3, .np-body .np-judgment-opening, .np-body p.np-field-unit{
     break-inside:avoid-page; page-break-inside:avoid;
   }
+  .np-body p.np-list-intro{
+    break-after:avoid-page; page-break-after:avoid;
+  }
+  .np-body p.np-list-intro + ul,
+  .np-body p.np-list-intro + ol{
+    break-before:avoid-page; page-break-before:avoid;
+  }
+  .np-body .np-short-list-group{
+    break-inside:avoid-page; page-break-inside:avoid;
+  }
   .np-body h2 + *, .np-body .brief-sources-heading + .brief-sources-appendix{
     break-before:avoid-page; page-break-before:avoid;
   }
-  .np-lead-head, .np-body .bluf,
+  .np-lead-head, .np-body .bluf, .np-exec-facts,
   .np-body .brief-judgment-meta, .np-body .c-action, .np-body .the-line,
-  .np-body blockquote, .np-body table, .np-body tr, .np-body li{
+  .np-body blockquote, .np-body tr, .np-exec-actions > li{
     break-inside:avoid-page; page-break-inside:avoid;
   }
-  .np-body p{ orphans:4; widows:4; }
+  .np-body p{ orphans:2; widows:2; }
   a[href]{ color:var(--ink) !important; border-bottom:none !important; }
 }
 
 /* Narrow screens — this artifact is read on screen before it's printed; drop
    the masthead ears (they crowd a phone), stack the plate, and tighten the sheet. */
-@media (max-width:760px){
+@media screen and (max-width:760px){
   body{ padding:8px 6px 28px; }
   .paper{ padding:18px 16px 24px; }
   .np-handling{ margin-bottom:9px; padding-bottom:4px; font-size:8px; letter-spacing:.16em; }
@@ -950,13 +1127,14 @@ body{
   .np-body .bluf p{ font-size:clamp(18px,5.5vw,22px); }
   .np-body h2{ margin:18px 0 11px; }
   .np-exec-facts{ grid-template-columns:1fr; }
-  .np-exec-fact + .np-exec-fact{ border-left:0; border-top:1px solid var(--hair); padding-left:0; }
+  .np-exec-fact:nth-child(even){ border-left:0; padding-left:0; }
+  .np-exec-fact:nth-child(n+2){ border-top:1px solid var(--hair); }
   .np-exec-actions > li{ grid-template-columns:24px minmax(0,1fr); }
   .np-exec-action-due{ grid-column:2; max-width:none; padding-top:0; text-align:left; }
   .np-body .brief-judgment-card.np-lead{ margin-bottom:18px; padding-bottom:15px; }
   .np-lead-head{ margin-bottom:10px; }
   .np-lead-head > h3{ font-size:clamp(22px,6.6vw,31px); }
-  .np-lead-deck{ font-size:16.5px; }
+  .np-body .np-lead-deck{ font-size:16.5px; }
 }
 
 @media (prefers-reduced-motion: reduce){ *{ animation:none !important; } }

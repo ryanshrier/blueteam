@@ -10,5 +10,6 @@ export default {
   moduleNameMapper: {
     '^/vendor/purify\\.es\\.mjs$': '<rootDir>/node_modules/dompurify/dist/purify.es.mjs',
     '^/vendor/marked\\.esm\\.js$': '<rootDir>/node_modules/marked/lib/marked.esm.js',
+    '^/vendor/brief-schema\\.js$': '<rootDir>/lib/brief-schema.js',
   },
 };

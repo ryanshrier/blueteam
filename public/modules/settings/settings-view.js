@@ -5,18 +5,20 @@ import { fetchSettings, saveSettings, verifyKey } from '../core/api.js';
 import { escapeHtml } from '../core/sanitize.js';
 import { ACCENTS, getThemePreference, getAccent, applyTheme, applyAccent } from '../core/theme.js';
 import { emit } from '../core/store.js';
+import { syncScheduleControlState } from './schedule-form.js';
 
 let feedbackTimer = null;
 let armTimer = null;       // two-step Remove-key disarm timer
 let watchTermsTimer = null; // watch-terms feedback auto-dismiss
 let orgFeedbackTimer = null; // organization-profile feedback auto-dismiss
+let scheduleFeedbackTimer = null;
 
 export function render(main) {
   main.innerHTML = `
     <div class="settings">
       <header class="settings-head">
         <h1>Settings</h1>
-        <p class="settings-sub">Settings are stored on this machine. The AI Briefing is the one feature that sends data off it — see below.</p>
+        <p class="settings-sub">Settings are stored on this machine. The AI controls below are the only paths to Anthropic; source collection and optional webhooks have separate <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md#network-behavior" target="_blank" rel="noopener noreferrer">documented outbound paths</a>.</p>
       </header>
 
       <section class="settings-card" aria-labelledby="set-ai">
@@ -40,6 +42,49 @@ export function render(main) {
         <div class="settings-row-actions">
           <button class="btn-ghost-sm destructive" id="clearKey" type="button">Remove key</button>
           <span class="settings-feedback" id="keyFeedback" role="status" aria-live="polite"></span>
+        </div>
+      </section>
+
+      <section class="settings-card" aria-labelledby="set-schedule">
+        <h2 id="set-schedule">Scheduled Briefing</h2>
+        <p class="settings-note">Off by default. Adding an API key does not enable unattended generation. Turn this on only if you want a billable Briefing generated automatically.</p>
+        <div class="settings-status" id="scheduleStatus" data-state="loading" role="status" aria-live="polite">Checking…</div>
+        <label class="schedule-toggle" for="scheduleEnabled">
+          <input id="scheduleEnabled" type="checkbox" disabled>
+          <span>
+            <strong>Generate automatically</strong>
+            <small>Explicit opt-in; you can still generate manually while this is off.</small>
+          </span>
+        </label>
+        <div class="schedule-grid">
+          <label>
+            <span class="settings-label">Time</span>
+            <input id="scheduleTime" class="settings-input" type="time" value="05:00" disabled>
+          </label>
+          <label>
+            <span class="settings-label">Timezone</span>
+            <input id="scheduleTimezone" class="settings-input" type="text" value="local" placeholder="local or America/Chicago" maxlength="100" spellcheck="false" disabled>
+          </label>
+          <label>
+            <span class="settings-label">If a run was missed</span>
+            <select id="scheduleMissedRun" class="settings-input" disabled>
+              <option value="skip">Skip it</option>
+              <option value="catch-up">Catch up after startup</option>
+            </select>
+          </label>
+          <label>
+            <span class="settings-label">Retry delay (minutes)</span>
+            <input id="scheduleRetry" class="settings-input" type="number" min="1" max="1440" step="1" value="15" disabled>
+          </label>
+          <label>
+            <span class="settings-label">Maximum attempts</span>
+            <input id="scheduleAttempts" class="settings-input" type="number" min="1" max="10" step="1" value="3" disabled>
+          </label>
+        </div>
+        <p class="settings-help">Use <code>local</code> for the server machine’s timezone, or an IANA name such as <code>America/Chicago</code>. Failed runs stop at the attempt limit; partial or invalid drafts are never published.</p>
+        <div class="settings-row-actions">
+          <button class="btn-primary" id="saveSchedule" type="button" disabled>Save schedule</button>
+          <span class="settings-feedback" id="scheduleFeedback" role="status" aria-live="polite"></span>
         </div>
       </section>
 
@@ -238,6 +283,120 @@ export function render(main) {
   }
   revealBtn.addEventListener('click', () => syncReveal(input.type === 'password'));
 
+  // ── Scheduled Briefing — persisted server-side and explicitly opt-in ──
+  const scheduleEnabledEl = main.querySelector('#scheduleEnabled');
+  const scheduleTimeEl = main.querySelector('#scheduleTime');
+  const scheduleTimezoneEl = main.querySelector('#scheduleTimezone');
+  const scheduleMissedRunEl = main.querySelector('#scheduleMissedRun');
+  const scheduleRetryEl = main.querySelector('#scheduleRetry');
+  const scheduleAttemptsEl = main.querySelector('#scheduleAttempts');
+  const scheduleSaveBtn = main.querySelector('#saveSchedule');
+  const scheduleStatusEl = main.querySelector('#scheduleStatus');
+  const scheduleFeedbackEl = main.querySelector('#scheduleFeedback');
+  const scheduleFields = [
+    scheduleEnabledEl,
+    scheduleTimeEl,
+    scheduleTimezoneEl,
+    scheduleMissedRunEl,
+    scheduleRetryEl,
+    scheduleAttemptsEl,
+  ];
+  let scheduleAvailable = false;
+  let scheduleSaving = false;
+
+  function syncScheduleControls() {
+    syncScheduleControlState({
+      fields: scheduleFields,
+      saveButton: scheduleSaveBtn,
+      available: scheduleAvailable,
+      saving: scheduleSaving,
+    });
+  }
+  // The HTML starts disabled to cover the parse-to-module gap; repeat the state
+  // synchronously here so future markup changes cannot reopen the early-save race.
+  syncScheduleControls();
+
+  function setScheduleFeedback(msg, { sticky = false } = {}) {
+    clearTimeout(scheduleFeedbackTimer);
+    scheduleFeedbackEl.textContent = msg || '';
+    if (msg && !sticky) {
+      scheduleFeedbackTimer = setTimeout(() => { scheduleFeedbackEl.textContent = ''; }, 5000);
+    }
+  }
+
+  function paintSchedule(schedule, state) {
+    if (!schedule) {
+      scheduleAvailable = false;
+      syncScheduleControls();
+      scheduleStatusEl.dataset.state = 'off';
+      scheduleStatusEl.textContent = 'Schedule settings are unavailable to this client.';
+      return;
+    }
+    scheduleAvailable = true;
+    syncScheduleControls();
+    scheduleEnabledEl.checked = Boolean(schedule.enabled);
+    scheduleTimeEl.value = schedule.time || '05:00';
+    scheduleTimezoneEl.value = schedule.timezone || 'local';
+    scheduleMissedRunEl.value = schedule.missedRun || 'skip';
+    scheduleRetryEl.value = String(schedule.retryMinutes || 15);
+    scheduleAttemptsEl.value = String(schedule.maxAttempts || 3);
+
+    if (!schedule.enabled) {
+      scheduleStatusEl.dataset.state = 'off';
+      scheduleStatusEl.textContent = 'Off — automatic generation is not armed.';
+      return;
+    }
+    scheduleStatusEl.dataset.state = 'on';
+    const outcome = String(state?.outcome || 'scheduled').replaceAll('-', ' ');
+    const attempts = Number.isInteger(state?.attempts)
+      ? ` · ${state.attempts}/${schedule.maxAttempts} attempts`
+      : '';
+    let next = '';
+    if (state?.nextAttemptAt) {
+      const at = new Date(state.nextAttemptAt);
+      if (Number.isFinite(at.getTime())) next = ` · next ${at.toLocaleString()}`;
+    }
+    const lastError = state?.lastError ? ` · ${state.lastError}` : '';
+    scheduleStatusEl.textContent = `On — ${outcome}${attempts}${next}${lastError}`;
+  }
+
+  scheduleSaveBtn.addEventListener('click', async () => {
+    if (!scheduleAvailable || scheduleSaving) return;
+    const retryMinutes = Number(scheduleRetryEl.value);
+    const maxAttempts = Number(scheduleAttemptsEl.value);
+    if (!Number.isInteger(retryMinutes) || retryMinutes < 1 || retryMinutes > 1440) {
+      setScheduleFeedback('Retry delay must be a whole number from 1 to 1440.', { sticky: true });
+      return;
+    }
+    if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) {
+      setScheduleFeedback('Maximum attempts must be a whole number from 1 to 10.', { sticky: true });
+      return;
+    }
+    const briefSchedule = {
+      enabled: scheduleEnabledEl.checked,
+      time: scheduleTimeEl.value,
+      timezone: scheduleTimezoneEl.value.trim() || 'local',
+      missedRun: scheduleMissedRunEl.value,
+      retryMinutes,
+      maxAttempts,
+    };
+    scheduleSaving = true;
+    syncScheduleControls();
+    setScheduleFeedback('Saving…', { sticky: true });
+    try {
+      const response = await saveSettings({ briefSchedule });
+      paintSchedule(response.briefSchedule, response.briefScheduleStatus);
+      setScheduleFeedback(response.briefSchedule?.enabled
+        ? 'Saved and armed.'
+        : 'Saved. Automatic generation is off.');
+    } catch (err) {
+      setScheduleFeedback(err.message || 'Could not save the schedule.', { sticky: true });
+    } finally {
+      scheduleSaving = false;
+      syncScheduleControls();
+    }
+  });
+
   // ── Appearance — single-select radio groups with roving tabindex + arrow keys ──
   const seg = main.querySelector('#themeSeg');
   function paintTheme() {
@@ -408,7 +567,8 @@ export function render(main) {
     watchTerms = Array.isArray(d.watchTerms) ? d.watchTerms : (rulesTrusted ? [] : null);
     paintTerms();
     paintOrg(d.organization);   // populate from a trusted GET; blank fields on an untrusted client
-  }).catch(() => { paintRules(null); paintTerms(); paintOrg(null); });
+    paintSchedule(d.briefSchedule, d.briefScheduleStatus);
+  }).catch(() => { paintRules(null); paintTerms(); paintOrg(null); paintSchedule(null, null); });
 }
 
 // Arrow-key navigation for a radiogroup: Left/Up and Right/Down move the selection
@@ -431,4 +591,10 @@ function wireRovingRadios(container, itemSelector, select) {
   });
 }
 
-export function unmount() { clearTimeout(feedbackTimer); clearTimeout(armTimer); clearTimeout(watchTermsTimer); clearTimeout(orgFeedbackTimer); }
+export function unmount() {
+  clearTimeout(feedbackTimer);
+  clearTimeout(armTimer);
+  clearTimeout(watchTermsTimer);
+  clearTimeout(orgFeedbackTimer);
+  clearTimeout(scheduleFeedbackTimer);
+}

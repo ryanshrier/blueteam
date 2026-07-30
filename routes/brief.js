@@ -1,23 +1,40 @@
 // BlueTeam.News — briefing generation (SSE) + history + search routes.
 
 import { Router } from 'express';
+import { timingSafeEqual } from 'crypto';
 import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join, resolve, sep } from 'path';
 import { getConfig, getHorizonName } from '../lib/config.js';
 import { getFreshRun } from '../lib/refresher.js';
 import { buildSystemPrompt, buildUserPrompt } from '../lib/prompts.js';
-import { saveBrief, loadRecentBriefs, extractContinuityContext, extractBluf, briefDateFromFilename, localDateISO } from '../lib/history.js';
+import {
+  saveBrief,
+  loadRecentBriefs,
+  extractContinuityContext,
+  extractBluf,
+  briefDateFromFilename,
+  localDateISO,
+  scheduledBriefFilename,
+  scheduledBriefJobKey,
+} from '../lib/history.js';
 import { validateBrief, countHorizons, hasHardFail, hasTrustCriticalFailure } from '../lib/validation.js';
 import { buildGroundingManifest, delinkUnallowlistedMarkdownUrls, visibleHeadlineEvidence } from '../lib/grounding.js';
-import { parseJudgments } from '../lib/brief-schema.js';
+import {
+  parseJudgments, WATCHLIST_MIN_ITEMS, WATCHLIST_MAX_ITEMS,
+} from '../lib/brief-schema.js';
 import { getEffectiveOrganization } from '../lib/user-settings.js';
 import {
   saveBriefMeta, getBriefMeta, indexBrief, searchBriefs,
   countKEVAddedToday, getRecentKEV, getKEVSet, getKEVDueDates,
+  completeScheduledBriefJob, getScheduledBriefJob,
 } from '../lib/db.js';
 import { dispatchBriefWebhook } from '../lib/alerts.js';
 import { log } from '../lib/logger.js';
 import { localhostBaseUrl, normalizePublicBaseUrl } from '../lib/public-url.js';
+import {
+  deferBriefGenerationAccounting,
+  finalizeBriefGenerationAccounting,
+} from '../lib/middleware.js';
 
 // Adaptive thinking lifts synthesis-and-judgment quality, but only some models
 // accept it — Haiku 4.5 (the cost fallback) 400s on the param. Gate by model so
@@ -68,6 +85,10 @@ export function applyThinking(params, model, effort) {
       if (Object.keys(params.output_config).length === 0) delete params.output_config;
     }
   }
+}
+
+function reducedRecoveryThinkingEffort(effort) {
+  return effort === 'low' || effort === 'off' ? 'off' : 'low';
 }
 
 /**
@@ -151,18 +172,36 @@ export async function streamWithRecovery(anthropic, params, { timeoutMs = 180_00
   let streamError = null;
   let stopReason = null;
   const usage = { input_tokens: 0, output_tokens: 0 };
+  const abortController = new AbortController();
+  const boundedTimeoutMs = Math.max(1, Number(timeoutMs) || 1);
+  const timeoutMarker = Symbol('generation-timeout');
+  let genTimeout;
 
   try {
-    stream = await anthropic.messages.stream(params);
+    const streamResult = await Promise.race([
+      Promise.resolve().then(() => anthropic.messages.stream(params, {
+        signal: abortController.signal,
+        timeout: boundedTimeoutMs,
+        maxRetries: 0,
+      })),
+      new Promise(resolve => {
+        genTimeout = setTimeout(() => {
+          timedOut = true;
+          abortController.abort();
+          try { stream?.controller?.abort(); } catch { /* best effort */ }
+          resolve(timeoutMarker);
+        }, boundedTimeoutMs);
+      }),
+    ]);
+    if (streamResult === timeoutMarker) {
+      log.warn('stream', `Generation timeout (${boundedTimeoutMs / 1000}s) before the stream opened`);
+      return { text: fullText, error: null, timedOut: true, usage, stopReason };
+    }
+    stream = streamResult;
   } catch (err) {
+    clearTimeout(genTimeout);
     return { text: fullText, error: err, timedOut: false, usage };
   }
-
-  const genTimeout = setTimeout(() => {
-    timedOut = true;
-    log.warn('stream', `Generation timeout (${timeoutMs / 1000}s) — saving partial briefing`);
-    try { stream.controller?.abort(); } catch { /* best effort */ }
-  }, timeoutMs);
 
   try {
     for await (const event of stream) {
@@ -188,6 +227,9 @@ export async function streamWithRecovery(anthropic, params, { timeoutMs = 180_00
     }
   } finally {
     clearTimeout(genTimeout);
+    if (timedOut) {
+      log.warn('stream', `Generation timeout (${boundedTimeoutMs / 1000}s) — partial draft discarded`);
+    }
   }
 
   return { text: fullText, error: streamError, timedOut, usage, stopReason };
@@ -199,6 +241,7 @@ export function safeErrorMsg(err) {
   const msg = (err?.message || '').trim()
     .replace(/sk-ant-[A-Za-z0-9_-]+/g, '[REDACTED]');
   if (!msg) return 'Internal server error';
+  if (err?.code === 'E_EVIDENCE') return msg.slice(0, 300);
   if (/API key|not configured|rate limit|overloaded|529|timeout|timed out|model|refus|not found|404|400|401|403|429|5\d\d/i.test(msg)) {
     return msg.slice(0, 300);
   }
@@ -215,7 +258,99 @@ function parseWarnings(json) {
   catch { return []; }
 }
 
-export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldown, publicBaseUrl = null, localPort = process.env.PORT || 3000 }) {
+const SCHEDULED_TOKEN_HEADER = 'x-blueteam-scheduled-token';
+
+function tokenMatches(provided, expected) {
+  if (typeof provided !== 'string' || typeof expected !== 'string' || !expected) return false;
+  const actual = Buffer.from(provided);
+  const wanted = Buffer.from(expected);
+  return actual.length === wanted.length && timingSafeEqual(actual, wanted);
+}
+
+function parseScheduledJob(req, scheduledJobToken) {
+  if (!tokenMatches(req.get(SCHEDULED_TOKEN_HEADER), scheduledJobToken)) return null;
+  const source = req.body?.scheduledJob;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw Object.assign(new Error('Scheduled briefing context is missing.'), { code: 'E_SCHEDULE_CONTEXT' });
+  }
+  const editionDate = typeof source.editionDate === 'string' ? source.editionDate : '';
+  const expectedJobKey = scheduledBriefJobKey(editionDate);
+  if (source.jobKey !== expectedJobKey) {
+    throw Object.assign(new Error('Scheduled briefing job key does not match its edition date.'), { code: 'E_SCHEDULE_CONTEXT' });
+  }
+  const timezone = typeof source.timezone === 'string' ? source.timezone : '';
+  if (!timezone || timezone.length > 100) {
+    throw Object.assign(new Error('Scheduled briefing timezone is invalid.'), { code: 'E_SCHEDULE_CONTEXT' });
+  }
+  if (timezone !== 'local') {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+    } catch {
+      throw Object.assign(new Error('Scheduled briefing timezone is invalid.'), { code: 'E_SCHEDULE_CONTEXT' });
+    }
+  }
+  return { jobKey: expectedJobKey, editionDate, timezone };
+}
+
+function sendCompletedBrief(res, payload) {
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.write(`data: ${JSON.stringify({ briefComplete: true, ...payload })}\n\n`);
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
+
+function recoverScheduledPublication(historyDir, scheduledJob) {
+  const filename = scheduledBriefFilename(scheduledJob.editionDate);
+  let recorded = null;
+  try {
+    recorded = getScheduledBriefJob(scheduledJob.jobKey);
+  } catch (err) {
+    // The deterministic archive remains the primary no-repay marker if SQLite
+    // is temporarily unavailable during restart recovery.
+    log.warn('brief', `Scheduled job lookup failed; checking its archive directly: ${err.message}`);
+  }
+  if (recorded && (
+    recorded.edition_date !== scheduledJob.editionDate
+    || recorded.timezone !== scheduledJob.timezone
+    || recorded.filename !== filename
+  )) {
+    throw Object.assign(
+      new Error(`Scheduled briefing job ${scheduledJob.jobKey} is bound to inconsistent publication metadata.`),
+      { code: 'E_SCHEDULE_STATE' },
+    );
+  }
+
+  const target = join(historyDir, filename);
+  if (!existsSync(target)) return null;
+  const text = readFileSync(target, 'utf-8');
+  const completedAt = recorded?.completed_at || statSync(target).mtime.toISOString();
+  try {
+    completeScheduledBriefJob({
+      jobKey: scheduledJob.jobKey,
+      editionDate: scheduledJob.editionDate,
+      timezone: scheduledJob.timezone,
+      filename,
+      completedAt,
+    });
+  } catch (err) {
+    log.warn('brief', `Scheduled job completion reconciliation failed: ${err.message}`);
+  }
+  return { filename, text, completedAt };
+}
+
+export function createBriefRouter({
+  getAnthropic,
+  rotateKey,
+  historyDir,
+  cooldown,
+  publicBaseUrl = null,
+  localPort = process.env.PORT || 3000,
+  scheduledJobToken = '',
+  trackGeneration = () => () => {},
+}) {
   const router = Router();
   const outwardBaseUrl = normalizePublicBaseUrl(publicBaseUrl) || localhostBaseUrl(localPort);
 
@@ -230,6 +365,48 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
 
   // ── POST /brief — generate, streaming via SSE ──
   router.post('/brief', async (req, res) => {
+    // Both stacked generation limiters reserve capacity before this route. Hold
+    // settlement until the handler really finishes: an SSE close does not stop
+    // the paid generation or its publication work.
+    deferBriefGenerationAccounting(res);
+    try {
+    let scheduledJob = null;
+    try {
+      scheduledJob = parseScheduledJob(req, scheduledJobToken);
+    } catch (err) {
+      return res.status(400).json({
+        error: err.message,
+        code: err.code || 'E_SCHEDULE_CONTEXT',
+      });
+    }
+    const editionContext = scheduledJob
+      ? { date: scheduledJob.editionDate, timezone: scheduledJob.timezone, scheduled: true }
+      : { date: localDateISO(), timezone: 'local', scheduled: false };
+
+    if (scheduledJob) {
+      try {
+        const recovered = recoverScheduledPublication(historyDir, scheduledJob);
+        if (recovered) {
+          log.info('brief', `Scheduled briefing ${scheduledJob.jobKey} already published - returning ${recovered.filename} without provider spend`);
+          sendCompletedBrief(res, {
+            text: recovered.text,
+            filename: recovered.filename,
+            timestamp: recovered.completedAt,
+            partial: false,
+            replayed: true,
+            jobKey: scheduledJob.jobKey,
+          });
+          return;
+        }
+      } catch (err) {
+        log.error('brief', `Scheduled briefing recovery failed: ${err.message}`);
+        return res.status(500).json({
+          error: 'Scheduled briefing recovery failed.',
+          code: err.code || 'E_SCHEDULE_STATE',
+        });
+      }
+    }
+
     let anthropic = getAnthropic();
     if (!anthropic) {
       return res.status(503).json({
@@ -238,15 +415,33 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
       });
     }
     if (generating) {
-      return res.status(429).json({ error: 'Briefing generation in progress — please wait', code: 'E001' });
+      res.setHeader('Retry-After', '15');
+      return res.status(429).json({
+        error: 'A Briefing is already being generated.',
+        code: 'E_GENERATION_ACTIVE',
+        retryAfterSeconds: 15,
+      });
     }
     if (!cooldown.check('brief', 15000)) {
-      return res.status(429).json({ error: 'Briefing generation in progress — please wait', code: 'E001' });
+      const retryAfterSeconds = typeof cooldown.retryAfterSeconds === 'function'
+        ? cooldown.retryAfterSeconds('brief', 15000)
+        : 15;
+      res.setHeader('Retry-After', String(Math.max(1, retryAfterSeconds)));
+      return res.status(429).json({
+        error: 'The previous Briefing generation just finished. Wait before starting another.',
+        code: 'E_GENERATION_COOLDOWN',
+        retryAfterSeconds: Math.max(1, retryAfterSeconds),
+      });
     }
     generating = true;
-
-    const config = getConfig();
-    const s = config.analysisSettings || {};
+    let finishTrackedGeneration = () => {};
+    try {
+      const finish = trackGeneration();
+      if (typeof finish === 'function') finishTrackedGeneration = finish;
+    } catch (err) {
+      // Lifecycle tracking is a shutdown aid, not permission to fail a request.
+      log.warn('brief', `Generation lifecycle tracking failed to start: ${err.message}`);
+    }
 
     req.socket?.setTimeout?.(0);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -279,9 +474,44 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
     }, 20000);
 
     try {
+      const config = getConfig();
+      const s = config.analysisSettings || {};
+      const genTimeoutMs = (s.generationTimeoutSec ?? 180) * 1000;
+      const generationDeadline = Date.now() + genTimeoutMs;
+      const withinGenerationDeadline = async (promise, stage) => {
+        const remainingMs = generationDeadline - Date.now();
+        if (remainingMs <= 0) {
+          const err = new Error(`Briefing generation timed out during ${stage}.`);
+          err.code = 'E_GENERATION_TIMEOUT';
+          throw err;
+        }
+        let deadlineTimer;
+        try {
+          return await Promise.race([
+            Promise.resolve(promise),
+            new Promise((_, reject) => {
+              deadlineTimer = setTimeout(() => {
+                const err = new Error(`Briefing generation timed out during ${stage}.`);
+                err.code = 'E_GENERATION_TIMEOUT';
+                reject(err);
+              }, remainingMs);
+            }),
+          ]);
+        } finally {
+          clearTimeout(deadlineTimer);
+        }
+      };
+
       // Stage 1 — landscape data (reuses the background run when fresh)
       send({ progress: 'Collecting landscape data...', stage: 'fetching' });
-      const run = await getFreshRun(5 * 60_000);
+      const evidenceMaxAgeMs = Math.max(
+        15 * 60_000,
+        (s.refreshMinutes ?? 10) * 3 * 60_000,
+      );
+      const run = await withinGenerationDeadline(getFreshRun(5 * 60_000, {
+        minHeadlines: 5,
+        maxAgeMs: evidenceMaxAgeMs,
+      }), 'evidence refresh');
       const headlines = run.headlines || [];
       send({ progress: `${headlines.length} scored headlines (${run.stats?.enriched || 0} enriched)`, stage: 'scoring' });
 
@@ -295,17 +525,24 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
       // team profile, regions) over config.json's defaults — a scoped copy so
       // the rest of this handler keeps reading the unmodified config.
       const promptConfig = { ...config, organization: getEffectiveOrganization(config) };
-      const systemPrompt = buildSystemPrompt(promptConfig);
+      const systemPrompt = buildSystemPrompt(promptConfig, editionContext);
       const groundTruth = buildGroundTruth(run);
       const groundingManifest = buildGroundingManifest({ headlines, extraSourceText: groundTruth });
       const userPrompt = buildUserPrompt({
-        headlines, continuityContext, groundTruth, config: promptConfig, groundingManifest,
+        headlines,
+        continuityContext,
+        groundTruth,
+        config: promptConfig,
+        groundingManifest,
+        editionContext,
       });
 
       const preferredModel = s.preferredModel || 'claude-sonnet-5';
       const fallbackModel = s.model || 'claude-haiku-4-5';
       let modelUsed = preferredModel;
-      const genTimeoutMs = (s.generationTimeoutSec ?? 180) * 1000;
+      // One wall-clock budget covers stream setup, key rotation, model
+      // fallback, and corrective validation retries. Each SDK call also gets
+      // an AbortSignal and maxRetries:0 inside streamWithRecovery.
       const genStart = performance.now();
       let chunkSeq = 0;
 
@@ -319,12 +556,20 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
       applyThinking(modelParams, preferredModel, thinkingEffort);
 
       const onChunk = (chunk) => send({ text: chunk, seq: chunkSeq++ });
+      let providerAttemptCount = 0;
+      const runProviderAttempt = client => {
+        providerAttemptCount++;
+        return streamWithRecovery(client, modelParams, {
+          timeoutMs: Math.max(1, generationDeadline - Date.now()),
+          onChunk,
+        });
+      };
 
       // From here on the request may incur provider cost. Rate limiters inspect
-      // this marker on response finish/close so aborting the SSE connection
+      // this marker when the route finalizes so aborting the SSE connection
       // cannot refund a generation that continues in the background and saves.
       res.locals.briefGenerationAttempted = true;
-      let result = await streamWithRecovery(anthropic, modelParams, { timeoutMs: genTimeoutMs, onChunk });
+      let result = await runProviderAttempt(anthropic);
       if (result.stopReason === 'refusal') {
         throw new Error('Claude refused this briefing request. Review the source mix and retry.');
       }
@@ -351,7 +596,7 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
         if (rotated) {
           log.warn('brief', `${modelUsed} auth rejected — retrying with secondary API key`);
           anthropic = rotated;
-          result = await streamWithRecovery(anthropic, modelParams, { timeoutMs: genTimeoutMs, onChunk });
+          result = await runProviderAttempt(anthropic);
           if (result.stopReason === 'refusal') {
             throw new Error('Claude refused this briefing request. Review the source mix and retry.');
           }
@@ -375,7 +620,7 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
           modelParams.model = fallbackModel;
           applyThinking(modelParams, fallbackModel, thinkingEffort);
           send({ text: `*[Generated with ${fallbackModel} — preferred model unavailable]*\n\n` });
-          result = await streamWithRecovery(anthropic, modelParams, { timeoutMs: genTimeoutMs, onChunk });
+          result = await runProviderAttempt(anthropic);
           if (result.stopReason === 'refusal') {
             throw new Error('Claude refused this briefing request. Review the source mix and retry.');
           }
@@ -386,8 +631,11 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
         }
       }
 
-      // Empty or degenerate output is a failure regardless of error state
-      if (result.text.length < 100) {
+      // Empty or degenerate output is normally a terminal provider failure.
+      // `max_tokens` is the exception: adaptive reasoning can consume the
+      // budget before much visible text is emitted, and the bounded lower-
+      // effort recovery below exists specifically to repair that outcome.
+      if (result.text.length < 100 && result.stopReason !== 'max_tokens') {
         const err = result.error || new Error(
           result.timedOut
             ? 'Generation timed out before the model produced content.'
@@ -401,10 +649,10 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
       const elapsed = ((performance.now() - genStart) / 1000).toFixed(1);
       let wordCount = fullBrief.trim().split(/\s+/).length;
 
-      // Stage 4 — validate, with one automatic corrective retry. Structural
-      // hard-fails preserve their existing warn/save behavior after the retry;
-      // factual grounding failures do not publish if they remain unresolved.
-      const genDate = localDateISO();
+      // Stage 4 — validate, with one automatic corrective retry. Unresolved
+      // structural or factual trust failures remain recoverable drafts and are
+      // never published as completed Briefings.
+      const genDate = editionContext.date;
       const validationSource = { groundingManifest, kevSet: getKEVSet() };
       const audit = draft => validateBrief(draft, genDate, validationSource);
       let validation = audit(fullBrief);
@@ -428,19 +676,42 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
         trustFail = hasTrustCriticalFailure(warnings);
       }
 
-      if ((hardFail || trustFail) && !result.error && !result.timedOut) {
+      const stoppedAtOutputLimit = result.stopReason === 'max_tokens';
+      // Token-limit recovery shares the existing single corrective-retry slot.
+      // If key rotation or model fallback already consumed a second provider
+      // call, never turn a max_tokens result into a third call.
+      const outputLimitRetryAvailable = !stoppedAtOutputLimit || providerAttemptCount < 2;
+      if ((hardFail || trustFail || stoppedAtOutputLimit)
+          && outputLimitRetryAvailable && !result.error && !result.timedOut) {
         correctiveRetryAttempted = true;
         const correctiveWarnings = warnings.filter(warning => (
           hasHardFail([warning]) || hasTrustCriticalFailure([warning])
         ));
-        log.warn('brief', `Corrective validation retry (${correctiveWarnings.join('; ')})`);
-        send({ progress: 'Retrying — correcting source verification or required structure...', stage: 'generating' });
-        modelParams.messages = [
-          { role: 'user', content: userPrompt },
-          { role: 'assistant', content: fullBrief },
-          { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}. Regenerate the full brief from the top in the exact same format. Use only CVEs and URLs in the current-source input; a source marked URL unavailable must have a plain [Source Name, Date] citation with no link. Never contradict verified KEV status.` },
-        ];
-        const retryResult = await streamWithRecovery(anthropic, modelParams, { timeoutMs: genTimeoutMs, onChunk });
+        if (stoppedAtOutputLimit) {
+          const recoveryEffort = reducedRecoveryThinkingEffort(thinkingEffort);
+          applyThinking(modelParams, modelUsed, recoveryEffort);
+          log.warn('brief', `Output-token recovery retry (${thinkingEffort} → ${recoveryEffort} thinking)`);
+          send({ progress: 'Retrying — reducing thinking effort to complete every section...', stage: 'generating' });
+          const failedChecks = correctiveWarnings.length
+            ? ` It also failed these checks: ${correctiveWarnings.join('; ')}.`
+            : '';
+          // Do not resend the 16k-token partial draft: the original current-source
+          // prompt plus precise failures is sufficient and leaves more context for
+          // a concise, complete replacement.
+          modelParams.messages = [{
+            role: 'user',
+            content: `${userPrompt}\n\nRECOVERY INSTRUCTION: The previous attempt exhausted the configured output-token limit and was discarded.${failedChecks} Regenerate the full brief from the top in the exact same format, but be concise enough to finish every required section, including ${WATCHLIST_MIN_ITEMS}–${WATCHLIST_MAX_ITEMS} complete Watchlist bullets. Use only CVEs and URLs in the current-source input; a source marked URL unavailable must have a plain [Source Name, Date] citation with no link. Never contradict verified KEV status.`,
+          }];
+        } else {
+          log.warn('brief', `Corrective validation retry (${correctiveWarnings.join('; ')})`);
+          send({ progress: 'Retrying — correcting source verification or required structure...', stage: 'generating' });
+          modelParams.messages = [
+            { role: 'user', content: userPrompt },
+            { role: 'assistant', content: fullBrief },
+            { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}. Regenerate the full brief from the top in the exact same format. Use only CVEs and URLs in the current-source input; a source marked URL unavailable must have a plain [Source Name, Date] citation with no link. Never contradict verified KEV status.` },
+          ];
+        }
+        const retryResult = await runProviderAttempt(anthropic);
         retryResult.usage = {
           input_tokens: result.usage.input_tokens + retryResult.usage.input_tokens,
           output_tokens: result.usage.output_tokens + retryResult.usage.output_tokens,
@@ -475,35 +746,57 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
         trustFail = hasTrustCriticalFailure(warnings);
       }
 
-      // A brief is partial when the generation timed out OR a mid-stream error
-      // (network reset, mid-stream overloaded) truncated it after content had
-      // already streamed — that error is captured in result.error but previously
-      // only the timeout path ever set the partial flag, so a cut-off brief was
-      // saved, announced as complete, and promoted to the Wall with no marker.
-      const isPartial = result.timedOut || !!result.error;
+      // A brief is partial when the generation timed out, a mid-stream error
+      // interrupted it, OR the provider stopped at the configured output-token
+      // ceiling. `max_tokens` is a normal SDK stop reason rather than an error,
+      // but publishing it as complete can leave the final Watchlist (or any
+      // other trailing section) cut off mid-sentence.
+      const outputLimitReached = result.stopReason === 'max_tokens';
+      const isPartial = result.timedOut || !!result.error || outputLimitReached;
       if (result.error) {
         warnings.push(`Generation was interrupted mid-stream: ${safeErrorMsg(result.error)}`);
+      }
+      if (outputLimitReached) {
+        warnings.push('Generation reached the configured output-token limit before completion');
       }
       if (warnings.length) {
         log.warn('brief', `Validation warnings: ${warnings.join('; ')}`);
       }
 
-      if (trustFail) {
-        const blocking = warnings.filter(warning => hasTrustCriticalFailure([warning]));
+      // Publication is all-or-nothing. A partial stream or a structurally
+      // invalid draft is returned to the operator for recovery, but is never
+      // archived, indexed, sent to a webhook, or announced as a successful
+      // scheduled edition.
+      if (isPartial || hardFail || trustFail) {
+        const blocking = warnings.filter(warning => (
+          hasHardFail([warning]) || hasTrustCriticalFailure([warning])
+        ));
         const costUsd = estimateCostUsd(modelUsed, result.usage?.input_tokens, result.usage?.output_tokens);
         const retryState = correctiveRetryAttempted
           ? 'after one corrective retry'
           : 'and a corrective retry could not be completed';
-        const message = `Draft was not published because source verification still failed ${retryState}: ${blocking.join('; ')}. Refresh the landscape data or correct the source input, then generate again.`;
+        let code = 'E_VALIDATION';
+        let message = `Draft was not published because required validation still failed ${retryState}: ${blocking.join('; ')}. Correct the source input or draft structure, then generate again.`;
+        if (trustFail) {
+          code = 'E006';
+          message = `Draft was not published because source verification still failed ${retryState}: ${blocking.join('; ')}. Refresh the landscape data or correct the source input, then generate again.`;
+        } else if (isPartial) {
+          code = 'E_PARTIAL_GENERATION';
+          message = outputLimitReached
+            ? 'Draft was not published because generation reached the configured output-token limit before completing the Briefing. Raise analysisSettings.maxTokens in config.json or reduce the Briefing scope, then generate again.'
+            : result.timedOut
+              ? 'Draft was not published because generation exceeded the end-to-end timeout.'
+              : 'Draft was not published because the provider stream was interrupted.';
+        }
         log.error('brief', message);
         send({
           error: message,
-          code: 'E006',
+          code,
           draft: fullBrief,
           model: modelUsed,
           tokens: (result.usage?.input_tokens || 0) + (result.usage?.output_tokens || 0),
           costUsd,
-          validation: { warnings, hardFail, trustFail: true },
+          validation: { warnings, hardFail, trustFail },
         });
         if (clientConnected) {
           try { res.end(); } catch { /* client gone */ }
@@ -511,8 +804,26 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
         return;
       }
 
-      const filename = saveBrief(historyDir, fullBrief);
       const generatedAt = new Date().toISOString();
+      const filename = saveBrief(historyDir, fullBrief, {
+        date: genDate,
+        scheduled: Boolean(scheduledJob),
+      });
+      if (scheduledJob) {
+        try {
+          completeScheduledBriefJob({
+            jobKey: scheduledJob.jobKey,
+            editionDate: scheduledJob.editionDate,
+            timezone: scheduledJob.timezone,
+            filename,
+            completedAt: generatedAt,
+          });
+        } catch (jobErr) {
+          // The atomically published -00 archive remains the durable replay
+          // marker. A restart reconstructs this row before any provider call.
+          log.warn('brief', `Scheduled job completion marker failed (archive is durable): ${jobErr.message}`);
+        }
+      }
       // Index synchronously (better-sqlite3 is synchronous and fast): the brief is
       // searchable the instant we tell the client it's done, and an index failure
       // surfaces in this brief's warnings instead of vanishing into a log line.
@@ -546,7 +857,13 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
         title: j.title, tier: getHorizonName(config, j.horizon), confidence: j.confidence,
       }));
       dispatchBriefWebhook(
-        { date: genDate, bluf: extractBluf(fullBrief), judgments, link: `${outwardBaseUrl}/briefing/${encodeURIComponent(filename)}` },
+        {
+          date: genDate,
+          bluf: extractBluf(fullBrief),
+          judgments,
+          link: `${outwardBaseUrl}/briefing/${encodeURIComponent(filename)}`,
+          warnings: [...warnings],
+        },
         config,
       ).catch(err => log.warn('brief', `Brief webhook dispatch failed (non-blocking): ${err.message}`));
 
@@ -563,6 +880,7 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
         briefComplete: true, text: fullBrief, filename,
         timestamp: generatedAt, partial: isPartial,
         model: modelUsed,
+        ...(scheduledJob ? { jobKey: scheduledJob.jobKey } : {}),
         tokens: (result.usage?.input_tokens || 0) + (result.usage?.output_tokens || 0),
         costUsd,
         validation: warnings.length ? { warnings, hardFail } : null,
@@ -572,13 +890,21 @@ export function createBriefRouter({ getAnthropic, rotateKey, historyDir, cooldow
       }
     } catch (err) {
       log.error('brief', `Generation error: ${err.message}`);
-      send({ error: safeErrorMsg(err) });
+      send({
+        error: safeErrorMsg(err),
+        ...(err?.code ? { code: err.code } : {}),
+        ...(err?.details ? { details: err.details } : {}),
+      });
       if (clientConnected) {
         try { res.end(); } catch { /* client gone */ }
       }
     } finally {
       clearInterval(heartbeat);
       generating = false;
+      try { finishTrackedGeneration(); } catch { /* shutdown tracking is best effort */ }
+    }
+    } finally {
+      finalizeBriefGenerationAccounting(res);
     }
   });
 

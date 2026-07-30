@@ -37,6 +37,32 @@ describe('readSSEStream error classification', () => {
     expect(reader.cancel).toHaveBeenCalledTimes(1);
   });
 
+  test('preserves the server-selected unpublished draft separately from streamed attempts', async () => {
+    const reader = {
+      read: jest.fn().mockResolvedValueOnce({
+        done: false,
+        value: encode(
+          'data: {"text":"First attempt"}\n\n'
+          + 'data: {"text":"Second attempt"}\n\n'
+          + 'data: {"error":"Output limit reached","code":"E_PARTIAL_GENERATION",'
+          + '"draft":"Second attempt only","validation":{"hardFail":false}}\n\n'
+        ),
+      }),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const err = await caught(readSSEStream(responseWithReader(reader), {}));
+
+    expect(err).toMatchObject({
+      message: 'Output limit reached',
+      code: 'E_PARTIAL_GENERATION',
+      accumulatedText: 'First attemptSecond attempt',
+      recoverableDraft: 'Second attempt only',
+      validation: { hardFail: false },
+    });
+    expect(err.streamLost).toBeUndefined();
+  });
+
   test('marks a reader rejection as a lost stream and retains partial text', async () => {
     const reader = {
       read: jest.fn()

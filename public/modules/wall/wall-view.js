@@ -4,7 +4,8 @@
 // that read the daily brief — The Briefing (BLUF + in-brief) and Key Judgments
 // (with the "line", confidence, decision window) —
 // interleaved with The Wire (live scored signals). Editorial serif headlines,
-// warm cream ink, the decision facts as chips. Updates and rotates on a timer.
+// warm cream ink, explicit decision timing, and restrained evidence badges.
+// Updates and rotates on a timer.
 
 import { escapeHtml } from '../core/sanitize.js';
 import { fetchLandscape, fetchHeadlines, fetchBrief, fetchEdition, fetchHealth } from '../core/api.js';
@@ -13,7 +14,7 @@ import { setState } from '../core/store.js';
 // /vendor/brief-schema.js): the section names, field labels, and parse helpers
 // live there so the Wall and the server can never drift. The Wall keeps its own
 // rendering; only its parsing sources this module.
-import { parseBrief } from '/vendor/brief-schema.js';
+import { formatDecisionWindow, parseBrief } from '/vendor/brief-schema.js';
 
 import { TIER_NAMES } from '../core/tiers.js';
 // The Wall's own pure rotation/parsing helpers, extracted so they carry no
@@ -24,7 +25,7 @@ import { TIER_NAMES } from '../core/tiers.js';
 import {
   buildPages as buildPagesPure, splitBluf, cvssFrom, cleanSummary,
   relAge, isFresh, formatBriefDateStamp, isBriefStale, staleAfterSec,
-  executiveSummaryModel,
+  executiveSummaryModel, actionDisplayModel,
 } from './wall-format.js';
 import { renderKevSection } from './wall-kev.js';
 // The broadsheet's terse region labels (its own editorial shortening — the pack's
@@ -54,7 +55,7 @@ const NEWS_PAGE_MS = 18_000;
 // page kind sits for its own read time. Falls back to NEWS_PAGE_MS for any kind.
 const PAGE_DWELL_MS = {
   bluf: 12_000, execsummary: 18_000, judgment: 22_000, convergence: 20_000,
-  developing: 18_000, kev: 16_000, wire: 18_000, empty: 8_000,
+  developing: 18_000, kev: 16_000, wire: 18_000, brieferror: 10_000, empty: 8_000,
 };
 
 // The folio slug doubles as the running section label: section identity lives in
@@ -64,7 +65,7 @@ const SECTION_LABELS = {
   bluf: 'The BLUF', execsummary: 'EXECUTIVE SUMMARY', judgment: 'KEY JUDGMENT',
   developing: 'DEVELOPING SITUATIONS', convergence: 'CONVERGENCE',
   kev: 'KEV · NEWLY ADDED',
-  wire: 'THE WIRE', empty: 'Cyber Defense Intelligence',
+  wire: 'THE WIRE', brieferror: 'BRIEFING STATUS', empty: 'Cyber Defense Intelligence',
 };
 // Page kinds sourced from the parsed brief, i.e. everything that must never
 // be read as live-generated: these carry the brief's own as-of date in the slug so
@@ -82,6 +83,7 @@ let paused = false;        // operator-held rotation (Space); auto-advance froze
 let keyHandler = null;     // non-kiosk manual-advance/pause keydown, bound on mount, removed on unmount
 let briefDoc = null;       // { bluf, execSummary[], stories[], developing[], convergence[], watchlist[], date }
 let briefDocFile = null;   // brief filename currently loaded
+let briefLoadError = false; // latest saved Briefing exists but could not be fetched/parsed
 let lastFlipAt = 0;        // timestamp of the last renderPage attempt (success or caught failure); updateLiveline watches this for a stalled flip chain
 
 export function mount(layer) {
@@ -120,6 +122,7 @@ export function unmount() {
   newsPages = [];
   briefDoc = null;
   briefDocFile = null;
+  briefLoadError = false;
   lastFlipAt = 0;
   lastKnownServerBootMs = null;   // re-baseline on remount rather than reloading against a stale comparison
   lastQuietHourReloadDay = null;
@@ -151,7 +154,33 @@ async function poll() {
     renderNews();
     checkKioskSelfReload();   // after a good landscape fetch, so a reload never races an outage
   } catch {
-    /* keep last good render */
+    // Preserve a last-known-good board during a transient refresh failure. On
+    // first load there is no such board, so say that the source refresh failed
+    // instead of leaving "Assembling today’s edition" spinning indefinitely.
+    if (!landscape && mounted) {
+      const body = document.getElementById('nbBody');
+      if (body) {
+        const fallback = wallStateHtml(
+          'Source refresh unavailable',
+          'No current landscape has loaded.',
+          'The Wall will retry automatically.',
+          'error'
+        );
+        body.innerHTML = fallback;
+        body.dataset.pageHtml = fallback;
+      }
+      const integrity = document.getElementById('nbIntegrity');
+      if (integrity) {
+        integrity.textContent = 'SOURCE UNAVAILABLE';
+        integrity.dataset.status = 'warn';
+      }
+      const liveWord = document.getElementById('nbLiveWord');
+      if (liveWord) {
+        liveWord.textContent = 'RETRYING';
+        liveWord.dataset.status = 'warn';
+      }
+      document.getElementById('nbLiveDot')?.setAttribute('data-status', 'warn');
+    }
   }
 }
 
@@ -202,7 +231,7 @@ async function checkKioskSelfReload() {
 // editorial sections that fully read the daily brief — The Briefing (BLUF +
 // in-brief), Key Judgments (with the punchy "line", confidence, decision
 // window), the 72-Hour Watchlist — interleaved with The Wire (live signals).
-// Editorial serif headlines, warm cream ink, the decision facts as chips.
+// Editorial serif headlines, warm cream ink, and explicit decision timing.
 // ══════════════════════════════════════════════════════════
 
 function mountNews(layer) {
@@ -298,13 +327,23 @@ function renderNews() {
 // Load + parse the latest brief once per filename; rebuild pages when it lands.
 function ensureBrief() {
   const f = landscape.brief && landscape.brief.filename;
-  if (!f) { briefDoc = null; briefDocFile = null; return; }
+  if (!f) {
+    briefDoc = null;
+    briefDocFile = null;
+    briefLoadError = false;
+    return;
+  }
   if (f === briefDocFile) return;
   briefDocFile = f;
   fetchBrief(f).then(d => {
     if (!mounted || briefDocFile !== f) return;
     briefDoc = parseBrief(d.content || '');
+    briefLoadError = false;
     briefDoc.date = (landscape.brief && landscape.brief.date) || '';
+    // The archive endpoint supplies the persisted generation instant (falling
+    // back to file mtime for legacy briefs). Keep it alongside the date-only
+    // edition label so freshness can use real elapsed time when it is known.
+    briefDoc.generatedAt = d.generatedAt || d.meta?.generated_at || '';
     newsPages = buildPages();
     if (newsPage >= newsPages.length) newsPage = 0;
     if (!paused) renderPage();   // a new brief landing must not swap content under a held page either; togglePause's resume path catches it up
@@ -317,6 +356,7 @@ function ensureBrief() {
     // than lingering and throwing when renderSection reads a null briefDoc.
     briefDoc = null;
     briefDocFile = null;
+    briefLoadError = true;
     newsPages = buildPages();
     if (newsPage >= newsPages.length) newsPage = 0;
     if (!paused) renderPage();
@@ -327,7 +367,7 @@ function ensureBrief() {
 // module's own briefDoc/landscape state so every existing call site (renderNews,
 // ensureBrief, renderPageUnsafe, togglePause) is unchanged.
 function buildPages() {
-  return buildPagesPure(briefDoc, landscape);
+  return buildPagesPure(briefDoc, landscape, { briefLoadError });
 }
 
 // A bare exception anywhere in the render path used to kill the self-scheduling
@@ -343,7 +383,12 @@ function renderPage() {
     console.error('[wall] renderPage failed — rendering fallback and continuing rotation:', err);
     const body = document.getElementById('nbBody');
     if (body) {
-      const fallback = '<div class="nb-empty">Pipeline starting — signals surface as the feeds respond.</div>';
+      const fallback = wallStateHtml(
+        'Display error',
+        'This page could not be rendered.',
+        'Rotation will continue and retry on the next refresh.',
+        'error'
+      );
       body.innerHTML = fallback;
       body.dataset.pageHtml = fallback;   // keep the fingerprint in sync so the next poll's diff isn't comparing against stale content
     }
@@ -375,7 +420,7 @@ function renderPageUnsafe() {
     const briefKind = BRIEF_KINDS.has(page.kind);
     const briefStamp = briefKind ? formatBriefDateStamp(briefDoc?.date) : '';
     slugEl.textContent = briefStamp ? `${label} · ${briefStamp}` : label;
-    slugEl.dataset.status = briefKind && isBriefStale(briefDoc?.date) ? 'warn' : 'live';
+    slugEl.dataset.status = briefKind && isBriefStale(briefDoc?.date, briefDoc?.generatedAt) ? 'warn' : 'live';
   }
   // While held, the pager carries the PAUSED affordance beside the folio count
   // so the state is legible at 10 ft; the .nb-paused class lets the styles freeze the
@@ -530,9 +575,22 @@ function renderSection(def) {
   // (see ensureBrief's catch) must never reach splitBluf(null.bluf) or similar —
   // fall back to the empty page rather than throwing inside the setTimeout flip chain.
   if (BRIEF_KINDS.has(def.kind) && !briefDoc) {
-    return '<div class="nb-empty">Pipeline starting — the brief populates once the first signals are in.</div>';
+    return wallStateHtml(
+      'Brief unavailable',
+      'The saved Briefing could not be loaded.',
+      'Live landscape pages remain in rotation while the Wall retries.',
+      'warn'
+    );
   }
   switch (def.kind) {
+    case 'brieferror':
+      return wallStateHtml(
+        'Brief unavailable',
+        'The saved Briefing could not be loaded.',
+        'Live landscape pages remain in rotation while the Wall retries.',
+        'warn'
+      );
+
     // The cover: the day's thesis as a newspaper front-page lead — eyebrow →
     // towering headline (the claim) → standfirst deck (the detail). Splitting the
     // one BLUF sentence into headline + deck is what fills the page AND lets the
@@ -603,7 +661,7 @@ function renderSection(def) {
     case 'judgment': {
       const s = (briefDoc.stories || [])[def.idx];
       if (!s) return '<div class="nb-empty">—</div>';
-      return `<section class="nb-section nb-judgment-page">${judgmentHtml(s)}</section>`;
+      return `<section class="nb-section nb-judgment-page">${judgmentHtml(s, briefDoc?.date)}</section>`;
     }
 
     // The live status board: what is moving, which way, and the escalation trigger.
@@ -656,20 +714,39 @@ function renderSection(def) {
 
     // The live wire — demoted: one compact page, the evidence the brief is built on.
     case 'wire': {
-      const sigs = (landscape.signals || []).slice(0, WIRE_MAX);
-      return `<section class="nb-section"><div class="nb-feed">${sigs.map((s, i) => wireStoryHtml(s, i === 0)).join('')}</div></section>`;
+      return wirePageHtml(landscape.signals || []);
     }
 
     default:
-      return '<div class="nb-empty">Pipeline starting — the brief populates once the first signals are in.</div>';
+      return wallStateHtml(
+        'Waiting for evidence',
+        'No Briefing or scored signals are available yet.',
+        'The Wall will update after the next successful refresh.'
+      );
   }
+}
+
+function wallStateHtml(kicker, title, detail, tone = 'waiting') {
+  return `<div class="nb-empty nb-state nb-state-${escapeHtml(tone)}">
+    <span class="nb-state-kicker">${escapeHtml(kicker)}</span>
+    <strong>${escapeHtml(title)}</strong>
+    <span>${escapeHtml(detail)}</span>
+  </div>`;
 }
 
 // One Developing Situation row: color-keyed trajectory token + name + trip-line.
 function developingHtml(d) {
   const v = (d.trajectory || '').toLowerCase();
-  const cls = v.startsWith('accel') ? 'accel' : v.startsWith('decel') ? 'decel' : v.startsWith('inflect') ? 'inflect' : '';
-  const glyph = cls === 'accel' ? '▲' : cls === 'decel' ? '▼' : cls === 'inflect' ? '◆' : '•';
+  const cls = v.startsWith('accel') ? 'accel'
+    : v.startsWith('decel') ? 'decel'
+      : v.startsWith('inflect') ? 'inflect'
+        : v.startsWith('stall') ? 'stalled'
+          : '';
+  const glyph = cls === 'accel' ? '▲'
+    : cls === 'decel' ? '▼'
+      : cls === 'inflect' ? '◆'
+        : cls === 'stalled' ? '■'
+          : '•';
   return `
     <div class="nb-dev">
       <span class="nb-traj ${cls}">${glyph} ${escapeHtml(d.trajectory || 'Tracking')}</span>
@@ -680,14 +757,9 @@ function developingHtml(d) {
     </div>`;
 }
 
-// The Key-Judgment page as a broadsheet FRONT-PAGE LEAD (claim·reasoning·
-// directive + hero tier). A top-to-bottom stack of full-width bands: a tier
-// rail (the 200ms moment) → the dominant claim that OWNS the vertical slack as
-// broadsheet air → a lower fold (reasoning | directive) that is emitted ONLY when
-// it has content. No side-by-side columns above the fold, so no column can strand
-// an L-shaped void beside it — the cardinal failure of the old triptych, cured
-// structurally. Tier hue is tier-only (rail/disc); --paper-accent is the directive
-// mark only — never crossed.
+// The Key-Judgment page as a broadsheet front-page lead: claim + standfirst,
+// a compact analytic ledger (horizon / decision / confidence), then the proof
+// and directive at the fold. The tier is one fact, not an alert-sized emblem.
 // The publishers behind this judgment, matched conservatively: only by an exact
 // CVE id against the full scored-headline list (allHeadlines — landscape.signals
 // is capped to the top 14, too narrow to find most judgments' source articles).
@@ -706,32 +778,75 @@ function judgmentSources(s) {
   return [...names].slice(0, 4);   // a few reporting-source labels, not an exhaustive list that inflates the aside
 }
 
-function judgmentHtml(s) {
+function decisionBriefDateLabel(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+  if (!match) return '';
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+  if (
+    date.getUTCFullYear() !== Number(match[1])
+    || date.getUTCMonth() + 1 !== Number(match[2])
+    || date.getUTCDate() !== Number(match[3])
+  ) return '';
+  return date.toLocaleDateString('en-US', {
+    month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  });
+}
+
+export function judgmentHtml(s, briefDate = '') {
   // Coerce horizon to a valid tier — a missing/out-of-range value would render an
   // unstyled pip with no tier name, silently misrepresenting the signal.
   const h = [1, 2, 3].includes(s.horizon) ? s.horizon : 2;
   if (h !== s.horizon) console.warn('[wall] judgment with invalid horizon:', s.horizon, '—', s.title);
 
-  // Chips sit as a kicker line above the claim (decision window + KEV) — the
-  // rail above is tier identity only, so it never competes with the headline
-  // for the page's width.
-  const chips = [
-    s.decision ? `<span class="nb-tag urgent">${escapeHtml(s.decision)}</span>` : '',
-    s.isKEV ? `<span class="nb-badge kev">KEV${s.kevCVE ? ` ${escapeHtml(s.kevCVE)}` : ''}</span>` : '',
-  ].join('');
-
-  // The one this-shift action — the climax, marked as the directive by the blue
-  // left rule (.c-action), never a role/owner tag. Suppressed cleanly when the
-  // signal has no this-shift action (NEVER fabricated). The .c-action-label kicker
-  // ("Act now") the Briefing emits is INTENTIONALLY omitted here: this is a
-  // passive 10-ft board whose rail already carries the decision-window chip, and
-  // the blue rule alone reads as "directive" across the room — the load-bearing
-  // parts (rule · wash · accent · imperative) stay identical to the memo's.
-  const act = s.actionShift
-    ? `<div class="nb-act c-action"><span class="nb-act-text nb-clamp nb-clamp-3">${escapeHtml(s.actionShift.imperative)}</span></div>`
+  // Two independent axes: the tier names the judgment's analytic horizon,
+  // while Decision says when the operator should decide/initiate the first
+  // response. The source Markdown intentionally stays terse; expand it here so
+  // "7 days" can never read as incident age, a prediction, or a countdown.
+  const decision = formatDecisionWindow(s.decision);
+  const decisionDate = decision.relative ? decisionBriefDateLabel(briefDate) : '';
+  const decisionAria = decisionDate
+    ? `Decision window: ${decision.display.toLowerCase()}, measured from the ${decisionDate} Briefing`
+    : `Decision window: ${decision.display}`;
+  const decisionHtml = decision.display
+    ? `<div class="nb-jfact nb-jdecision${decision.legacy ? ' is-legacy' : ''}" aria-label="${escapeHtml(decisionAria)}">
+        <dt>Decision</dt>
+        <dd>${escapeHtml(decision.display)}</dd>
+      </div>`
     : '';
-  const reasoning = s.assessment
-    ? `<p class="nb-jbody"><span class="nb-clamp nb-clamp-4">${escapeHtml(s.assessment)}</span></p>`
+  const confidence = String(s.confidence || '').trim();
+  const facts = `<dl class="nb-jfacts" aria-label="Judgment timing and confidence">
+    <div class="nb-jfact">
+      <dt>Horizon</dt>
+      <dd class="h${h}"><i class="h-pip h${h}" aria-hidden="true"></i>${escapeHtml(TIER_NAMES[h] || '')}</dd>
+    </div>
+    ${decisionHtml}
+    ${confidence ? `<div class="nb-jfact nb-jconfidence"><dt>Confidence</dt><dd>${escapeHtml(confidence)}</dd></div>` : ''}
+  </dl>`;
+
+  // The one this-shift action — the climax, marked by the blue directive rule.
+  // Its parsed owner and target sit outside the clamped imperative so the board
+  // never drops accountability or timing when the instruction is long.
+  const action = actionDisplayModel(s.actionShift);
+  const act = action.imperative || action.owner || action.target
+    ? `<div class="nb-act c-action">
+        ${action.owner ? `<span class="nb-act-owner">${escapeHtml(action.owner)}</span>` : ''}
+        ${action.imperative ? `<span class="nb-act-text nb-clamp nb-clamp-3">${escapeHtml(action.imperative)}</span>` : ''}
+        ${action.target ? `<span class="nb-act-target"><small>Recommended target</small><strong>${escapeHtml(action.target)}</strong></span>` : ''}
+      </div>`
+    : '';
+
+  const sources = judgmentSources(s);
+  const evidence = s.isKEV || sources.length
+    ? `<div class="nb-jevidence" aria-label="Matched evidence">
+        ${s.isKEV ? `<span class="nb-evidence-kev">KEV${s.kevCVE ? ` · ${escapeHtml(s.kevCVE)}` : ''}</span>` : ''}
+        ${sources.length ? `<span class="nb-evidence-sources"><b>${sources.length === 1 ? 'Source' : 'Sources'}</b> ${sources.map(escapeHtml).join(' · ')}</span>` : ''}
+      </div>`
+    : '';
+  const reasoning = s.assessment || evidence
+    ? `<div class="nb-jreasoning">
+        ${s.assessment ? `<p class="nb-jbody"><span class="nb-clamp nb-clamp-4">${escapeHtml(s.assessment)}</span></p>` : ''}
+        ${evidence}
+      </div>`
     : '';
   // The FOLD (reasoning | directive) is emitted ONLY when at least one of the two
   // exists — so a bordered-but-empty ledger or a stranded gutter can never appear.
@@ -739,8 +854,6 @@ function judgmentHtml(s) {
   const fold = (reasoning || act)
     ? `<footer class="nb-jfold${reasoning && act ? '' : ' is-single'}">${reasoning}${act}</footer>`
     : '';
-
-  const sources = judgmentSources(s);
 
   return `
     <article class="nb-judgment nb-lead">
@@ -751,12 +864,7 @@ function judgmentHtml(s) {
             ${s.line ? `<p class="nb-standfirst"><span class="nb-clamp nb-clamp-3">${escapeHtml(s.line)}</span></p>` : ''}
           </div>
           <div class="nb-jhead-aside">
-            <div class="nb-jrail-tier">
-              <span class="nb-jdisc h${h}"><i class="h-pip h${h}"></i></span>
-              <span class="nb-hero-tier h${h}">${TIER_NAMES[h] || ''}</span>
-            </div>
-            ${chips ? `<div class="nb-jrail-chips">${chips}</div>` : ''}
-            ${sources.length ? `<div class="nb-jsources"><span class="nb-jsources-label">Sources</span><ul>${sources.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul></div>` : ''}
+            ${facts}
           </div>
         </div>
       </div>
@@ -822,6 +930,11 @@ function wireStoryHtml(s, isLead) {
       <div class="nb-c-age">${age ? `<span class="nb-age${fresh ? ' fresh' : ''}">${fresh ? 'NEW · ' : ''}${escapeHtml(age)}</span>` : '<span class="nb-age nb-age-none" title="No publication date on the source item">—</span>'}</div>
     </article>
   `;
+}
+
+export function wirePageHtml(signals = []) {
+  const sigs = (Array.isArray(signals) ? signals : []).slice(0, WIRE_MAX);
+  return `<section class="nb-section"><div class="nb-feed">${sigs.map((s, i) => wireStoryHtml(s, i === 0)).join('')}</div></section>`;
 }
 
 // ── Brief parsing ──
@@ -936,6 +1049,14 @@ function updateLiveline() {
     el.dataset.status = 'warn';
     if (dot) dot.dataset.status = 'warn';
     setLiveWord('STALLED', true);
+    setBoardStale(true);
+    return;
+  }
+  if (briefLoadError) {
+    el.textContent = `BRIEF UNAVAILABLE · FEEDS ${ok}/${total} · UPDATED ${ago}`;
+    el.dataset.status = 'warn';
+    if (dot) dot.dataset.status = 'warn';
+    setLiveWord('DEGRADED', true);
     setBoardStale(true);
     return;
   }

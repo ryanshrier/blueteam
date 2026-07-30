@@ -7,6 +7,9 @@ import { Router } from 'express';
 import {
   saveUserSettings, getUserSettings, stripControl, MAX_WATCH_TERMS, MAX_TERM_LEN,
   MAX_ORG_SECTOR_LEN, MAX_ORG_PROFILE_LEN, MAX_ORG_REGIONS, MAX_ORG_REGION_LEN,
+  getBriefScheduleSettings, isValidTimeZone,
+  MIN_BRIEF_RETRY_MINUTES, MAX_BRIEF_RETRY_MINUTES,
+  MIN_BRIEF_ATTEMPTS, MAX_BRIEF_ATTEMPTS,
 } from '../lib/user-settings.js';
 import { log } from '../lib/logger.js';
 
@@ -97,9 +100,64 @@ function validateOrganization(input) {
   return { organization };
 }
 
-export function createSettingsRouter({ dataDir, getAiStatus, refreshAi, verifyKey, getAlertRules, getOrganization, loopback = true, authed = false }) {
+function validateBriefSchedule(input) {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return { error: 'briefSchedule must be an object.' };
+  }
+  const allowed = new Set(['enabled', 'time', 'timezone', 'missedRun', 'retryMinutes', 'maxAttempts']);
+  const unknown = Object.keys(input).find(key => !allowed.has(key));
+  if (unknown) return { error: `Unknown briefSchedule field: ${unknown}.` };
+  if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
+    return { error: 'briefSchedule.enabled must be a boolean.' };
+  }
+  if (input.time !== undefined && (
+    typeof input.time !== 'string'
+    || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(input.time)
+  )) {
+    return { error: 'briefSchedule.time must use 24-hour HH:MM format.' };
+  }
+  if (input.timezone !== undefined && !isValidTimeZone(input.timezone)) {
+    return { error: 'briefSchedule.timezone must be "local" or a valid IANA timezone.' };
+  }
+  if (input.missedRun !== undefined && !['skip', 'catch-up'].includes(input.missedRun)) {
+    return { error: 'briefSchedule.missedRun must be "skip" or "catch-up".' };
+  }
+  if (input.retryMinutes !== undefined && (
+    !Number.isInteger(input.retryMinutes)
+    || input.retryMinutes < MIN_BRIEF_RETRY_MINUTES
+    || input.retryMinutes > MAX_BRIEF_RETRY_MINUTES
+  )) {
+    return { error: `briefSchedule.retryMinutes must be an integer from ${MIN_BRIEF_RETRY_MINUTES} to ${MAX_BRIEF_RETRY_MINUTES}.` };
+  }
+  if (input.maxAttempts !== undefined && (
+    !Number.isInteger(input.maxAttempts)
+    || input.maxAttempts < MIN_BRIEF_ATTEMPTS
+    || input.maxAttempts > MAX_BRIEF_ATTEMPTS
+  )) {
+    return { error: `briefSchedule.maxAttempts must be an integer from ${MIN_BRIEF_ATTEMPTS} to ${MAX_BRIEF_ATTEMPTS}.` };
+  }
+  return {
+    briefSchedule: getBriefScheduleSettings({
+      briefSchedule: { ...getBriefScheduleSettings(), ...input },
+    }),
+  };
+}
+
+export function createSettingsRouter({
+  dataDir,
+  getAiStatus,
+  refreshAi,
+  verifyKey,
+  getAlertRules,
+  getOrganization,
+  getBriefScheduleStatus,
+  onBriefScheduleChanged,
+  loopback = true,
+}) {
   const router = Router();
-  const trusted = () => loopback || authed;
+  // Authentication is a property of this request, not of the process. A
+  // configured API_SECRET must never make every request implicitly trusted.
+  const trusted = res => loopback || res.locals.authenticated === true;
 
   router.get('/settings', (req, res) => {
     const s = getAiStatus();
@@ -107,11 +165,15 @@ export function createSettingsRouter({ dataDir, getAiStatus, refreshAi, verifyKe
     // Alert rules + saved watch-terms are surfaced ONLY to a trusted caller
     // (loopback or API_SECRET-authed) — an untrusted network client sees just the
     // read-only note, never the operator's configured rules or keywords.
-    if (trusted()) {
+    if (trusted(res)) {
       const rules = (typeof getAlertRules === 'function' ? getAlertRules() : null) || [];
       payload.alertRules = rules.map(r => ({ pattern: String(r.pattern), boost: Number(r.boost) || 0, source: 'config' }));
       payload.watchTerms = Array.isArray(getUserSettings().watchTerms) ? [...getUserSettings().watchTerms] : [];
       payload.organization = typeof getOrganization === 'function' ? getOrganization() : {};
+      payload.briefSchedule = getBriefScheduleSettings();
+      payload.briefScheduleStatus = typeof getBriefScheduleStatus === 'function'
+        ? getBriefScheduleStatus()
+        : null;
     }
     res.json(payload);
   });
@@ -120,7 +182,7 @@ export function createSettingsRouter({ dataDir, getAiStatus, refreshAi, verifyKe
   // works (not just that it's well-formed). Same write-gate as POST /settings since
   // it accepts a key in the body. Returns { valid: true|false|null, error?, note? }.
   router.post('/settings/verify', async (req, res) => {
-    if (!loopback && !authed) {
+    if (!trusted(res)) {
       return res.status(403).json({ error: 'Verifying a key over the network requires API_SECRET (or run on loopback).', code: 'E_EXPOSED' });
     }
     if (typeof verifyKey !== 'function') {
@@ -152,11 +214,12 @@ export function createSettingsRouter({ dataDir, getAiStatus, refreshAi, verifyKe
     let keyAction = null;
     let watchTermCount = null;
     let organizationChanged = false;
+    let scheduleChanged = false;
 
     if (Object.prototype.hasOwnProperty.call(body, 'anthropicKey')) {
       // Never let an unauthenticated network client write or clear the key —
       // only loopback, or an API_SECRET-authed request, may change it.
-      if (!loopback && !authed) {
+      if (!trusted(res)) {
         return res.status(403).json({
           error: 'Setting the API key over the network requires API_SECRET (or run on loopback).',
           code: 'E_EXPOSED',
@@ -189,7 +252,7 @@ export function createSettingsRouter({ dataDir, getAiStatus, refreshAi, verifyKe
     if (Object.prototype.hasOwnProperty.call(body, 'watchTerms')) {
       // Same write-gate as the key: watch-terms are operator config, not public
       // input — an untrusted network client must not seed the scoring pipeline.
-      if (!trusted()) {
+      if (!trusted(res)) {
         return res.status(403).json({
           error: 'Setting watch-terms over the network requires API_SECRET (or run on loopback).',
           code: 'E_EXPOSED',
@@ -206,7 +269,7 @@ export function createSettingsRouter({ dataDir, getAiStatus, refreshAi, verifyKe
     if (Object.prototype.hasOwnProperty.call(body, 'organization')) {
       // Same write-gate as watchTerms/anthropicKey — the organization profile
       // shapes the Briefing's Relevance judgment, not public input.
-      if (!trusted()) {
+      if (!trusted(res)) {
         return res.status(403).json({
           error: 'Setting the organization profile over the network requires API_SECRET (or run on loopback).',
           code: 'E_EXPOSED',
@@ -221,21 +284,46 @@ export function createSettingsRouter({ dataDir, getAiStatus, refreshAi, verifyKe
       organizationChanged = true;
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, 'briefSchedule')) {
+      if (!trusted(res)) {
+        return res.status(403).json({
+          error: 'Setting the briefing schedule over the network requires API_SECRET (or run on loopback).',
+          code: 'E_EXPOSED',
+        });
+      }
+      const { briefSchedule, error } = validateBriefSchedule(body.briefSchedule);
+      if (error) return res.status(400).json({ error, code: 'E_BRIEF_SCHEDULE' });
+      patch.briefSchedule = briefSchedule;
+      scheduleChanged = true;
+    }
+
     if (Object.keys(patch).length > 0) {
       saveUserSettings(dataDir, patch);
       if (keyAction) refreshAi();
       if (keyAction) log.info('settings', `Operator Anthropic key ${keyAction}`); // never logs key material
       if (watchTermCount !== null) log.info('settings', `Operator watch-terms updated (${watchTermCount})`);
       if (organizationChanged) log.info('settings', 'Operator organization profile updated');
+      if (scheduleChanged) log.info('settings', `Daily briefing schedule ${patch.briefSchedule.enabled ? 'enabled' : 'disabled'} (${patch.briefSchedule.time}, ${patch.briefSchedule.timezone})`);
+      // A key change may unblock an already-enabled schedule, but it never
+      // enables one: the persisted briefSchedule.enabled flag remains the gate.
+      if ((scheduleChanged || keyAction) && typeof onBriefScheduleChanged === 'function') {
+        try { onBriefScheduleChanged(); } catch (err) {
+          log.error('settings', `Rearming daily briefing schedule failed: ${err.message}`);
+        }
+      }
     }
 
     const s = getAiStatus();
     const out = { ok: true, ai: { enabled: s.enabled, keySource: s.source, keyMasked: s.masked } };
     // Echo the saved watch-terms/organization back to a trusted caller so the
     // client reflects the server-normalized values without a second GET.
-    if (trusted()) {
+    if (trusted(res)) {
       out.watchTerms = Array.isArray(getUserSettings().watchTerms) ? [...getUserSettings().watchTerms] : [];
       out.organization = typeof getOrganization === 'function' ? getOrganization() : {};
+      out.briefSchedule = getBriefScheduleSettings();
+      out.briefScheduleStatus = typeof getBriefScheduleStatus === 'function'
+        ? getBriefScheduleStatus()
+        : null;
     }
     res.json(out);
   });
