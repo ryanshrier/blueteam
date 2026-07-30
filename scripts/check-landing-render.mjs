@@ -309,7 +309,12 @@ async function launchBrowser(browserPath) {
           delay(3_000).then(() => child.kill()),
         ]);
       }
-      await rm(profile, { force: true, recursive: true });
+      await rm(profile, {
+        force: true,
+        maxRetries: 10,
+        recursive: true,
+        retryDelay: 100,
+      });
     },
   };
 }
