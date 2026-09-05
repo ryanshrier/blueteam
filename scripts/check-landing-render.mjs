@@ -338,8 +338,25 @@ function pngDimensions(base64) {
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
 }
 
+// A long command can extend beyond a phone while remaining readable inside
+// its own horizontal scroller. Measure the painted horizontal bounds after
+// ancestor overflow clipping; still check the scroller itself and page width.
+// Self-contained so this exact helper can run in Node tests and the page.
+export function visibleHorizontalBounds(element, getStyle = globalThis.getComputedStyle) {
+  let { left, right } = element.getBoundingClientRect();
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (!/^(auto|scroll|hidden|clip)$/.test(getStyle(ancestor).overflowX)) continue;
+    const clip = ancestor.getBoundingClientRect();
+    left = Math.max(left, clip.left);
+    right = Math.min(right, clip.right);
+    if (right <= left) return null;
+  }
+  return { left, right };
+}
+
 const METRICS_EXPRESSION = String.raw`
 (() => {
+  const visibleHorizontalBounds = ${visibleHorizontalBounds.toString()};
   const visible = element => {
     if (!element) return false;
     const style = getComputedStyle(element);
@@ -352,16 +369,15 @@ const METRICS_EXPRESSION = String.raw`
     element.querySelector('img')?.alt ||
     '';
   const overflow = [...document.body.querySelectorAll('*')]
-    .filter(element => {
-      const rect = element.getBoundingClientRect();
-      return visible(element) && (rect.left < -1 || rect.right > innerWidth + 1);
-    })
+    .filter(visible)
+    .map(element => ({ element, bounds: visibleHorizontalBounds(element) }))
+    .filter(({ bounds }) => bounds && (bounds.left < -1 || bounds.right > innerWidth + 1))
     .slice(0, 8)
-    .map(element => ({
+    .map(({ element, bounds }) => ({
       element: element.tagName.toLowerCase() + (element.id ? '#' + element.id : '') +
         ([...element.classList].length ? '.' + [...element.classList].join('.') : ''),
-      left: Math.round(element.getBoundingClientRect().left),
-      right: Math.round(element.getBoundingClientRect().right),
+      left: Math.round(bounds.left),
+      right: Math.round(bounds.right),
     }));
   const productProof =
     [...document.images].find(image => /briefing|print edition/i.test(image.alt)) ||

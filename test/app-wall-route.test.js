@@ -28,7 +28,9 @@ globalThis.document = {
 globalThis.window = { location: { pathname: '/wall', search: '' }, scrollTo: jest.fn(), addEventListener: jest.fn() };
 jest.useFakeTimers();
 setState({ mode: 'wall' });
-const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+// Dynamic import/linking takes different microtask turns across supported Node
+// runtimes. Wait for the behavior under test; a missing mount still times out.
+const nextMount = () => new Promise(resolve => { mount.mockImplementationOnce(resolve); });
 
 afterAll(() => {
   jest.clearAllTimers();
@@ -39,23 +41,27 @@ afterAll(() => {
 
 describe('Wall route presentation changes', () => {
   test('switches kiosk/operator on query changes, but keeps a held operator page on same-route navigation', async () => {
+    const initialMount = nextMount();
     await import('../public/app.js');
-    await settle();
+    await expect(initialMount).resolves.toBe(region);
     expect(mount).toHaveBeenCalledTimes(1);
 
+    const operatorMount = nextMount();
     window.location.search = '?operator';
     emit('route-changed', { mode: 'wall' });
-    await settle();
+    await expect(operatorMount).resolves.toBe(region);
     expect(mount).toHaveBeenCalledTimes(2);
     expect(unmount).toHaveBeenCalledTimes(1);
 
     emit('route-changed', { mode: 'wall' });
-    await settle();
+    // With Wall already cached, the route listener and its query comparison
+    // run synchronously. A same-query event must not request another mount.
     expect(mount).toHaveBeenCalledTimes(2);
 
+    const kioskMount = nextMount();
     window.location.search = '?kiosk';
     emit('route-changed', { mode: 'wall' });
-    await settle();
+    await expect(kioskMount).resolves.toBe(region);
     expect(mount).toHaveBeenCalledTimes(3);
     expect(unmount).toHaveBeenCalledTimes(2);
   });
