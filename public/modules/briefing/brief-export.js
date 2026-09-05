@@ -20,7 +20,7 @@
 // dynamic strings we compose (date, filename, model) are escaped, defensively.
 
 import { escapeHtml } from '../core/sanitize.js';
-import { executiveSummaryModel } from '../wall/wall-format.js';
+import { structureExecutiveSummary } from './brief-executive.js';
 import {
   normalizePackedBriefFields,
   splitPackedBriefFieldHtml,
@@ -50,12 +50,12 @@ export const PRINT_DOCUMENT_CSP = [
 // .brief-judgment-link is in-app Wire navigation — a dead anchor on paper, so strip it.
 // .brief-validation-warning is rebuilt below as a static Edition notes block,
 // including the complete warning text rather than a count-only live-app reference.
-const STRIP_SELECTOR = '.streaming-cursor, .brief-validation-warning, .gen-progress, .error-message, .briefing-status, .brief-judgment-link, .bjm-revises';
+const STRIP_SELECTOR = '.streaming-cursor, .brief-validation-warning, .gen-progress, .error-message, .briefing-status, .brief-judgment-tools, .brief-copy-decision, .brief-judgment-link, .bjm-revises';
 
 // Field labels eligible for short-block pagination after shared normalization.
 const PAGINATION_FIELD_LABELS = new Set([
   'assessment', 'what happened', 'defender impact', 'impact', 'relevance',
-  'recommended actions', 'the line', 'confidence', 'decision window',
+  'recommended actions', 'the line', 'confidence', 'likelihood', 'decision window',
   'revises if', 'increases if', 'decreases if', 'act now',
   'trajectory', 'watch criteria', 'the intersection', 'the cascade', 'the move',
 ]);
@@ -272,6 +272,19 @@ export function exportBriefNewspaper({
   const resolvedModel = model || (metaText.match(/claude-[\w.-]+/i) || [])[0] || '';
 
   protectUnbreakableTokens(clone);
+  // Long authored units must be able to cross a page. Short callouts retain the
+  // existing keep-together treatment; no text is shortened to fit the paper.
+  clone.querySelectorAll('.bluf, .np-lead-head, .np-exec-facts, .c-action, .the-line, .np-exec-actions > li').forEach(el => {
+    if ((el.textContent || '').length > 700) el.classList.add('np-flow-long');
+  });
+  clone.querySelectorAll('.brief-sources-appendix a.source-link').forEach(link => {
+    const href = link.getAttribute('href') || '';
+    if (!/^https?:\/\//i.test(href) || link.textContent.trim() === href) return;
+    const url = clone.ownerDocument.createElement('span');
+    url.className = 'np-source-url';
+    url.textContent = href;
+    link.parentElement.appendChild(url);
+  });
 
   const html = buildDocument({
     bodyHtml: clone.innerHTML,
@@ -303,9 +316,10 @@ export function exportBriefNewspaper({
     <div class="np-overlay-bar">
       <span class="np-overlay-title" id="npOvTitle">${escapeHtml(plateTitle)} print edition — ${escapeHtml(longDate)}</span>
       <div class="np-overlay-actions">
-        <button type="button" class="np-ov-btn np-ov-print primary" aria-label="Print this edition or save it as a PDF" aria-busy="true" disabled>Print / Save PDF</button>
+        <button type="button" class="np-ov-btn np-ov-print primary" aria-label="Print this edition or save it as a PDF" aria-busy="true" disabled>Preparing edition…</button>
         <button type="button" class="np-ov-btn np-ov-close" aria-label="Close print edition">Close</button>
       </div>
+      <p class="np-overlay-status" role="status" hidden></p>
     </div>
     <iframe class="np-frame" sandbox="${PRINT_IFRAME_SANDBOX}" title="${escapeHtml(plateTitle)} print edition preview"></iframe>`;
   document.body.appendChild(overlay);
@@ -336,8 +350,9 @@ export function exportBriefNewspaper({
       frame.contentWindow.focus();
       frame.contentWindow.print();
     } catch {
-      // Leave the preview open so the operator can use the browser's print
-      // command rather than unexpectedly printing the application shell.
+      const status = overlay.querySelector('.np-overlay-status');
+      status.hidden = false;
+      status.textContent = 'Printing could not start. Allow pop-ups for this site, then try Print / Save PDF again.';
     }
   };
 
@@ -430,6 +445,7 @@ export async function waitForPrintableFrame(frame) {
 
 export function gatePrintUntilReady(frame, button, maxWaitMs = 8_000) {
   button.disabled = true;
+  button.textContent = 'Preparing edition…';
   button.setAttribute?.('aria-busy', 'true');
   return new Promise(resolve => {
     let settled = false;
@@ -439,6 +455,7 @@ export function gatePrintUntilReady(frame, button, maxWaitMs = 8_000) {
       settled = true;
       if (timeoutId) clearTimeout(timeoutId);
       button.disabled = false;
+      button.textContent = 'Print / Save PDF';
       button.removeAttribute?.('aria-busy');
       resolve();
     };
@@ -498,7 +515,7 @@ function resolveReadMins(preferred, metaText, text) {
   return readingTime(text);
 }
 
-function formatGeneratedFreshness(generatedAt, metaText, longDate) {
+export function formatGeneratedFreshness(generatedAt, metaText, longDate) {
   const metaLead = String(metaText || '').split('·')[0].trim();
   const source = generatedAt || (/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/i.test(metaLead) ? metaLead : '');
   if (source) {
@@ -508,6 +525,7 @@ function formatGeneratedFreshness(generatedAt, metaText, longDate) {
         hour: '2-digit',
         minute: '2-digit',
         hourCycle: 'h23',
+        timeZone: 'UTC',
         timeZoneName: 'short',
       });
       return `Generated ${time}`;
@@ -571,88 +589,6 @@ function promoteLead(root) {
     if (el !== heading && el !== assessment && el !== meta) body.appendChild(el);
   }
   card.replaceChildren(head, body);
-}
-
-function structureExecutiveSummary(root) {
-  const heading = [...root.querySelectorAll('h2')]
-    .find(el => /^\s*EXECUTIVE SUMMARY\b/i.test(el.textContent || ''));
-  const list = heading?.nextElementSibling;
-  if (!heading || !list || !/^(?:UL|OL)$/.test(list.tagName)) return;
-
-  const items = [...list.children].filter(el => el.tagName === 'LI').map(li => {
-    const lead = li.querySelector('strong')?.textContent || '';
-    const copy = li.cloneNode(true);
-    copy.querySelector('strong')?.remove();
-    return { lead, tail: (copy.textContent || '').replace(/^\s*:\s*/, '').trim() };
-  });
-  const model = executiveSummaryModel(items);
-  const facts = [model.threat, model.exposure, ...model.context].filter(Boolean).slice(0, 3);
-  if (!facts.length && !model.decisions.length) return;
-
-  heading.textContent = 'EXECUTIVE SUMMARY \u2014 SHIFT DECISIONS';
-  const panel = root.ownerDocument.createElement('section');
-  panel.className = 'np-exec-panel';
-
-  if (facts.length) {
-    const factGrid = root.ownerDocument.createElement('div');
-    factGrid.className = 'np-exec-facts';
-    facts.forEach((fact, index) => {
-      const row = root.ownerDocument.createElement('div');
-      row.className = `np-exec-fact${index === 0 ? ' is-primary' : ''}`;
-      const eyebrow = root.ownerDocument.createElement('span');
-      eyebrow.className = 'np-exec-fact-label';
-      eyebrow.textContent = `${String(index + 1).padStart(2, '0')}  ${fact.label}`;
-      const text = root.ownerDocument.createElement('p');
-      text.textContent = fact.text;
-      row.append(eyebrow, text);
-      factGrid.appendChild(row);
-    });
-    panel.appendChild(factGrid);
-  }
-
-  if (model.decisions.length) {
-    const queue = root.ownerDocument.createElement('div');
-    queue.className = 'np-exec-queue';
-    const queueHead = root.ownerDocument.createElement('div');
-    queueHead.className = 'np-exec-queue-head';
-    const queueLabel = root.ownerDocument.createElement('span');
-    queueLabel.textContent = 'Decision queue';
-    queueHead.appendChild(queueLabel);
-    if (model.commonDeadline) {
-      const due = root.ownerDocument.createElement('span');
-      due.className = 'np-exec-common-due';
-      due.textContent = `Due ${model.commonDeadline}`;
-      queueHead.appendChild(due);
-    }
-    queue.appendChild(queueHead);
-    const actions = root.ownerDocument.createElement('ol');
-    actions.className = 'np-exec-actions';
-    model.decisions.slice(0, 4).forEach((decision, index) => {
-      const item = root.ownerDocument.createElement('li');
-      const number = root.ownerDocument.createElement('span');
-      number.className = 'np-exec-action-index';
-      number.textContent = String(index + 1).padStart(2, '0');
-      const task = root.ownerDocument.createElement('div');
-      task.className = 'np-exec-action-task';
-      const owner = root.ownerDocument.createElement('strong');
-      owner.textContent = decision.owner;
-      const action = root.ownerDocument.createElement('p');
-      action.textContent = decision.action;
-      task.append(owner, action);
-      item.append(number, task);
-      if (decision.deadline && !model.commonDeadline) {
-        const due = root.ownerDocument.createElement('span');
-        due.className = 'np-exec-action-due';
-        due.textContent = decision.deadline;
-        item.appendChild(due);
-      }
-      actions.appendChild(item);
-    });
-    queue.appendChild(actions);
-    panel.appendChild(queue);
-  }
-
-  list.replaceWith(panel);
 }
 
 // Long-form date for the folio.
@@ -794,7 +730,7 @@ body{
 }
 .np-ear{
   font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:10px; line-height:1.55; letter-spacing:.2em; text-transform:uppercase;
+  font-size:11px; line-height:1.55; letter-spacing:.1em; text-transform:uppercase;
   color:var(--ink-3);
 }
 .np-ear-left{ text-align:left; } .np-ear-right{ text-align:right; }
@@ -808,7 +744,7 @@ body{
   border-top:1px solid var(--rule); border-bottom:3px double var(--rule);
   padding:6px 1px; margin-top:5px;
   font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3);
+  font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3);
 }
 .np-folio-date{ color:var(--ink); font-weight:600; letter-spacing:.1em; }
 .np-folio-end{ text-align:right; }
@@ -842,9 +778,9 @@ body{
 .np-body code{
   font-family:'JetBrains Mono',ui-monospace,monospace; font-size:.86em;
   background:rgba(26,23,20,.06); padding:1px 4px; border-radius:3px;
-  white-space:nowrap; word-break:keep-all; overflow-wrap:normal; hyphens:none;
+  white-space:normal; word-break:normal; overflow-wrap:anywhere; hyphens:none;
 }
-.np-body .np-nowrap{ white-space:nowrap; word-break:keep-all; overflow-wrap:normal; hyphens:none; }
+.np-body .np-nowrap{ display:inline-block; max-width:100%; vertical-align:baseline; white-space:normal; word-break:normal; overflow-wrap:anywhere; hyphens:none; }
 .np-body hr{ display:none; }   /* sections are delimited by banners / story rules */
 .np-body ul, .np-body ol{ margin:0 0 11px; padding-left:1.3em; }
 .np-body li{ margin:0 0 6px; break-inside:avoid; }
@@ -864,6 +800,7 @@ body{
   margin:0 auto; max-width:46ch; text-align:center; hyphens:none;
   font-size:clamp(19px,2.1vw,25px); line-height:1.36; font-weight:500; color:var(--ink);
 }
+.np-body .bluf.np-flow-long p{ max-width:60ch; text-align:left; font-size:21px; line-height:1.45; }
 
 /* Section banners — centred label between rules (h2 carries an id + sometimes
    .brief-exec-heading / .brief-sources-heading; styled uniformly here) */
@@ -871,14 +808,14 @@ body{
   column-span:all; margin:24px 0 14px; padding:6px 0; text-align:center;
   border-top:1px solid var(--rule); border-bottom:1px solid var(--rule);
   font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:12px; font-weight:700; letter-spacing:.24em; text-transform:uppercase; color:var(--ink);
+  font-size:12px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:var(--ink);
   break-after:avoid-page; page-break-after:avoid;   /* a banner never lands alone at the foot of a page */
 }
 /* Executive Summary restates the BLUF — keep it a quiet sub-banner on paper too, so
    the read flows BLUF → Key Judgments without a redundant equal-weight stop. */
 .np-body h2.brief-exec-heading{
   border-top:none; border-bottom:1px solid var(--hair);
-  font-size:10.5px; color:var(--ink-3); padding:2px 0 5px; margin-top:16px;
+  font-size:12px; color:var(--ink); padding:5px 0; margin-top:16px;
 }
 
 /* Executive decision brief — facts establish the situation once, then a clean
@@ -895,7 +832,7 @@ body{
 .np-exec-action-index,
 .np-exec-action-due{
   font-family:'JetBrains Mono',ui-monospace,monospace; text-transform:uppercase;
-  font-size:9px; font-weight:700; letter-spacing:.16em; color:var(--ink-3);
+  font-size:10.5px; font-weight:700; letter-spacing:.08em; color:var(--ink-3);
 }
 .np-exec-fact-label{ display:block; margin-bottom:5px; color:var(--accent); }
 .np-exec-fact p{ margin:0; font-size:14px; line-height:1.46; color:var(--ink-2); }
@@ -904,13 +841,16 @@ body{
 .np-exec-common-due{ color:var(--accent); letter-spacing:.1em; }
 .np-exec-actions{ list-style:none; margin:0 !important; padding:0 !important; }
 .np-exec-actions > li{
-  display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:10px; align-items:start;
-  margin:0 !important; padding:8px 0; border-top:1px solid var(--hair);
+  display:grid; grid-template-columns:28px minmax(0,1fr) minmax(120px,20%); gap:12px; align-items:start;
+  margin:0 !important; padding:11px 0; border-top:1px solid var(--hair);
 }
 .np-exec-action-index{ padding-top:2px; color:var(--accent); }
-.np-exec-action-task strong{ display:block; margin-bottom:1px; font-size:13.5px; }
-.np-exec-action-task p{ margin:0; font-size:13.5px; line-height:1.4; color:var(--ink-2); }
-.np-exec-action-due{ max-width:17ch; padding-top:2px; text-align:right; color:var(--ink-2); letter-spacing:.06em; }
+.np-exec-action-task{ min-width:0; }
+.np-exec-action-task strong{ display:block; margin-bottom:3px; font-size:15px; }
+.np-exec-action-task p{ margin:0; font-size:15px; line-height:1.5; color:var(--ink-2); }
+.np-exec-action-due{ padding-top:2px; text-align:left; color:var(--ink-2); letter-spacing:.02em; line-height:1.5; }
+.np-exec-due-label{ display:block; color:var(--ink-3); font-size:9px; margin-bottom:3px; }
+.np-exec-action-task:last-child{ grid-column:2 / -1; }
 
 /* Story (Key Judgment / Convergence card) — a clean editorial block separated
    by a horizontal hairline. The tier chip already carries the classification;
@@ -973,7 +913,7 @@ body{
 .np-body .brief-judgment-meta{
   display:block; break-inside:avoid; margin:0 0 9px;
   font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-3);
+  font-size:11px; line-height:1.5; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-3);
 }
 .np-body .bjm-confidence::before{ content:none; }
 .np-body .bjm-confidence{ margin-right:12px; }
@@ -1006,22 +946,25 @@ body{
   font-size:9.5px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--accent);
 }
 .np-body .c-action-text{ display:block; width:100%; font-weight:600; color:var(--ink); }
+.np-body .brief-action-target{ display:block; margin-top:5px; font-size:13px; font-weight:500; color:var(--ink-2); }
+.np-body .c-action-text .brief-action-owner{ display:block; margin-bottom:4px; }
 
 /* Numbered inline citations + the sources column */
 .np-body .brief-cite{
-  font-family:'JetBrains Mono',ui-monospace,monospace; font-size:.62em;
+  font-family:'JetBrains Mono',ui-monospace,monospace; font-size:.72em;
   vertical-align:super; color:var(--accent); margin-left:1px;
 }
 .np-body .brief-cite a.brief-cite-link{
   color:var(--accent); border-bottom:none; text-decoration:none; padding:0 1px;
 }
 .np-body .brief-sources-appendix{
-  font-family:'JetBrains Mono',ui-monospace,monospace; font-size:10.5px; line-height:1.5;
+  font-family:'JetBrains Mono',ui-monospace,monospace; font-size:12px; line-height:1.6;
   padding-left:2.2em;
 }
 .np-body .brief-sources-appendix li{ color:var(--ink-2); }
 .np-body .brief-sources-heading + .brief-sources-appendix{ break-before:avoid-page; page-break-before:avoid; }
 .np-body .brief-sources-appendix a{ border-bottom:none; overflow-wrap:anywhere; word-break:normal; }
+.np-source-url{ display:block; overflow-wrap:anywhere; color:var(--ink-3); font-size:11px; line-height:1.5; margin:3px 0 8px; }
 
 /* Closing-thought blockquote */
 .np-body blockquote{
@@ -1031,8 +974,8 @@ body{
 }
 
 /* Tables (rare, but the contract allows them) */
-.np-body table{ width:100%; border-collapse:collapse; margin:10px 0; font-size:12px; }
-.np-body th, .np-body td{ text-align:left; padding:5px 8px; border-bottom:1px solid var(--hair); }
+.np-body table{ width:100%; table-layout:fixed; border-collapse:collapse; margin:10px 0; font-size:12px; }
+.np-body th, .np-body td{ text-align:left; padding:5px 8px; border-bottom:1px solid var(--hair); overflow-wrap:anywhere; }
 .np-body th{
   font-family:'JetBrains Mono',ui-monospace,monospace; font-size:9.5px;
   letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3);
@@ -1042,8 +985,8 @@ body{
 .np-colophon{
   margin-top:26px; padding-top:13px; border-top:3px double var(--rule);
   font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:9.5px; letter-spacing:.06em; line-height:1.8; text-transform:uppercase;
-  color:var(--ink-faint); text-align:center;
+  font-size:11px; letter-spacing:.01em; line-height:1.65;
+  color:var(--ink-3); text-align:left;
 }
 .np-validation-note{ color:var(--t2); font-weight:700; text-transform:none; letter-spacing:.02em; }
 /* ── Print ── */
@@ -1108,6 +1051,7 @@ body{
     break-inside:avoid-page; page-break-inside:avoid;
   }
   .np-body p{ orphans:2; widows:2; }
+  .np-body .np-flow-long{ break-inside:auto; page-break-inside:auto; }
   a[href]{ color:var(--ink) !important; border-bottom:none !important; }
 }
 

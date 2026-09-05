@@ -6,7 +6,8 @@ const state = {
   // Wire is the canonical default landing: the analyst's working surface and the
   // router's fallback. Store init, router fallback, header home, and Esc all align to it.
   mode: 'wire',              // briefing | wire | wall
-  currentBrief: null,        // { filename, content, timestamp }
+  currentBrief: null,        // selected saved edition: { filename, content, timestamp, ... }
+  lastGeneratedBrief: null,  // background result; does not change the reader's selection
   landscape: null,           // latest /api/landscape payload
   landscapeStale: false,     // true after N consecutive poll failures (dead pipeline)
   isGenerating: false,

@@ -4,7 +4,7 @@ import { getState, setState, emit } from '../core/store.js';
 import { generateBrief } from '../core/api.js';
 
 /** Read an SSE response, dispatching text/progress/completion events. */
-export async function readSSEStream(response, { onText, onProgress, onComplete }) {
+export async function readSSEStream(response, { onText, onProgress, onComplete, onReset }) {
   const decoder = new TextDecoder();
   let buffer = '';
   let accumulated = '';
@@ -75,6 +75,10 @@ export async function readSSEStream(response, { onText, onProgress, onComplete }
           if (typeof data.draft === 'string') failure.recoverableDraft = data.draft;
           throw failure;
         }
+        if (data.reset === true) {
+          accumulated = '';
+          if (onReset) onReset();
+        }
         if (data.progress && onProgress) { onProgress(data.progress, data.stage); continue; }
         if (data.briefComplete) {
           if (onComplete) onComplete(data);
@@ -129,6 +133,7 @@ export async function startGeneration() {
 
     const fullText = await readSSEStream(res, {
       onText: (accumulated, chunk) => emit('brief-streaming', { accumulated, chunk }),
+      onReset: () => emit('brief-stream-reset'),
       onProgress: (progressMsg, stage) => emit('generation-progress', { progressMsg, stage }),
       onComplete: (data) => {
         const text = data.text || '';
@@ -139,12 +144,21 @@ export async function startGeneration() {
           return;
         }
         completed = true;
-        const timestamp = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+        const timestamp = data.timestamp || null;
+        const brief = {
+          filename: data.filename || null, content: text, timestamp, generatedAt: timestamp,
+          model: data.model || null, costUsd: data.costUsd ?? null,
+          inputManifest: data.inputManifest || null, warnings: data.validation?.warnings || [],
+          wordCount: text.trim().split(/\s+/).filter(Boolean).length,
+        };
         setState({
           isGenerating: false,
-          currentBrief: { filename: data.filename || null, content: text, timestamp, model: data.model || null, costUsd: data.costUsd ?? null },
+          lastGeneratedBrief: brief,
+          // Generation is independent of the reader's selected edition. The
+          // /briefing/new view selects this result when it still owns the view.
+          currentBrief: getState().currentBrief || brief,
         });
-        emit('brief-generated', { text, filename: data.filename, timestamp, partial: data.partial, validation: data.validation, model: data.model, tokens: data.tokens, costUsd: data.costUsd });
+        emit('brief-generated', { brief, text, filename: data.filename, timestamp, partial: data.partial, validation: data.validation, model: data.model, tokens: data.tokens, costUsd: data.costUsd });
       },
     });
 

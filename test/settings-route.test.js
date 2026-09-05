@@ -1,12 +1,12 @@
 import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import express from 'express';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createSettingsRouter, MAX_ANTHROPIC_KEY_BYTES } from '../routes/settings.js';
 import {
-  loadUserSettings, getUserSettings, saveUserSettings, getEffectiveOrganization,
-  MAX_ORG_REGION_LEN,
+  loadUserSettings, getUserSettings, saveUserSettings, getEffectiveOrganization, getEffectiveWatchProfile,
+  MAX_ORG_REGION_LEN, getUserSettingsStatus,
 } from '../lib/user-settings.js';
 
 // The route surfaces alert rules + literal watch-terms + the effective
@@ -45,6 +45,7 @@ function makeServer({
     verifyKey,
     getAlertRules: () => alertRules,
     getOrganization: () => getEffectiveOrganization(orgConfig),
+    getWatchProfile: () => getEffectiveWatchProfile(orgConfig),
     getBriefScheduleStatus: () => briefScheduleStatus,
     onBriefScheduleChanged,
     loopback,
@@ -71,19 +72,108 @@ describe('settings route — watch-terms + alert-rule surfacing', () => {
   test('GET on a trusted caller surfaces alertRules (source:config) and watchTerms', async () => {
     saveUserSettings(dir, { watchTerms: ['Fortinet'] });
     ctx = await makeServer({ dataDir: dir, loopback: true, authed: false, alertRules: [{ pattern: 'zero.?day', boost: 5 }] });
-    const body = await (await fetch(`${ctx.base}/api/settings`)).json();
+    const res = await fetch(`${ctx.base}/api/settings`);
+    expect(res.headers.get('vary')).toContain('Authorization');
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    const body = await res.json();
     expect(body.alertRules).toEqual([{ pattern: 'zero.?day', boost: 5, source: 'config' }]);
     expect(body.watchTerms).toEqual(['Fortinet']);
+  });
+
+  test('a corrupted settings file preserves last-good settings and refuses an unrelated save, then recovers after restore', async () => {
+    saveUserSettings(dir, { watchTerms: ['Fortinet'], briefSchedule: { enabled: true } });
+    const path = join(dir, 'settings.local.json');
+    const corrupt = '{"anthropicKey":"private-fragment';
+    writeFileSync(path, corrupt);
+    loadUserSettings(dir);
+    expect(getUserSettings().watchTerms).toEqual(['Fortinet']);
+    expect(getUserSettingsStatus()).toMatchObject({ status: 'error', usingLastGood: true, errorCode: 'INVALID_JSON' });
+    ctx = await makeServer({ dataDir: dir, loopback: true, authed: false });
+    const diagnostic = await (await fetch(`${ctx.base}/api/settings`)).json();
+    expect(diagnostic.storage.status).toBe('error');
+    expect(JSON.stringify(diagnostic)).not.toContain('private-fragment');
+    const failed = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organization: { sector: 'Healthcare' } }),
+    });
+    expect(failed.status).toBe(503);
+    expect((await failed.json()).code).toBe('E_SETTINGS_LOAD');
+    expect(readFileSync(path, 'utf8')).toBe(corrupt);
+    writeFileSync(path, JSON.stringify({ watchTerms: ['Restored'], briefSchedule: { enabled: true } }));
+    const saved = saveUserSettings(dir, { organization: { sector: 'Healthcare' } });
+    expect(saved.watchTerms).toEqual(['Restored']);
+    expect(saved.briefSchedule.enabled).toBe(true);
+    expect(getUserSettingsStatus().status).toBe('ok');
+  });
+
+  test.each(['null', '[]', 'broken JSON'])('invalid initial settings %s are preserved and cannot be replaced by a patch', contents => {
+    const path = join(dir, 'settings.local.json');
+    writeFileSync(path, contents);
+    expect(loadUserSettings(dir)).toEqual({});
+    expect(getUserSettingsStatus()).toMatchObject({ status: 'error', usingLastGood: false });
+    expect(() => saveUserSettings(dir, { watchTerms: ['new'] })).toThrow(/Restore valid/);
+    expect(readFileSync(path, 'utf8')).toBe(contents);
   });
 
   test('GET on an untrusted caller omits alertRules, watchTerms, and organization entirely', async () => {
     saveUserSettings(dir, { watchTerms: ['Fortinet'] });
     ctx = await makeServer({ dataDir: dir, loopback: false, authed: false, alertRules: [{ pattern: 'x', boost: 1 }] });
-    const body = await (await fetch(`${ctx.base}/api/settings`)).json();
+    const res = await fetch(`${ctx.base}/api/settings`);
+    expect(res.headers.get('vary')).toContain('Authorization');
+    expect(res.headers.get('cache-control')).toBeNull();
+    const body = await res.json();
     expect(body.ai).toBeDefined();
     expect('alertRules' in body).toBe(false);
     expect('watchTerms' in body).toBe(false);
     expect('organization' in body).toBe(false);
+    expect('watchProfile' in body).toBe(false);
+  });
+
+  test('unified profile saves atomically and echoes the legacy technology view', async () => {
+    saveUserSettings(dir, { watchTerms: ['Legacy'], organization: { sector: 'Healthcare' } });
+    ctx = await makeServer({ dataDir: dir, loopback: true, orgConfig: { organization: { regions: ['US'] } } });
+    const response = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ watchProfile: { technologies: [' C++ ', 'c++'], intelligenceQuestions: ['Is exposure confirmed?'], preferredHorizons: [2] } }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.watchTerms).toEqual(['C++']);
+    expect(body.watchProfile).toMatchObject({ technologies: ['C++'], sectors: ['Healthcare'], regions: ['US'], preferredHorizons: [2] });
+    expect(getUserSettings().watchTerms).toEqual(['Legacy']);
+    expect(getUserSettings().briefSchedule).toBeUndefined();
+  });
+
+  test('invalid profile rejects the complete request without changing an existing key', async () => {
+    saveUserSettings(dir, { anthropicKey: 'sk-ant-existing', watchTerms: ['Legacy'] });
+    ctx = await makeServer({ dataDir: dir, loopback: true });
+    const response = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ anthropicKey: 'sk-ant-replacement', watchProfile: { technologies: [42] } }),
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe('E_WATCHPROFILE');
+    expect(getUserSettings()).toEqual({ anthropicKey: 'sk-ant-existing', watchTerms: ['Legacy'] });
+  });
+
+  test.each([false, true])('watch profile network writes require request authentication (%s)', async (authed) => {
+    ctx = await makeServer({ dataDir: dir, loopback: false, authed });
+    const response = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ watchProfile: { technologies: ['Fortinet'] } }),
+    });
+    expect(response.status).toBe(authed ? 200 : 403);
+    if (authed) expect(getUserSettings().watchProfile.technologies).toEqual(['Fortinet']);
+    else expect(getUserSettings().watchProfile).toBeUndefined();
+  });
+
+  test('rejects conflicting unified and legacy representations without saving either', async () => {
+    ctx = await makeServer({ dataDir: dir, loopback: true });
+    const response = await fetch(`${ctx.base}/api/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ watchProfile: { technologies: ['Fortinet'] }, watchTerms: ['Citrix'] }),
+    });
+    expect(response.status).toBe(400);
+    expect(getUserSettings()).toEqual({});
   });
 
   test('POST watch-terms normalizes (trim, dedupe, drop empties) and persists', async () => {

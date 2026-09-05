@@ -5,12 +5,14 @@
 
 import { Router } from 'express';
 import {
-  saveUserSettings, getUserSettings, stripControl, MAX_WATCH_TERMS, MAX_TERM_LEN,
+  saveUserSettings, stripControl, MAX_WATCH_TERMS, MAX_TERM_LEN,
   MAX_ORG_SECTOR_LEN, MAX_ORG_PROFILE_LEN, MAX_ORG_REGIONS, MAX_ORG_REGION_LEN,
   getBriefScheduleSettings, isValidTimeZone,
   MIN_BRIEF_RETRY_MINUTES, MAX_BRIEF_RETRY_MINUTES,
   MIN_BRIEF_ATTEMPTS, MAX_BRIEF_ATTEMPTS,
+  getEffectiveWatchProfile, getUserSettingsStatus,
 } from '../lib/user-settings.js';
+import { validateWatchProfile } from '../lib/watch-profile.js';
 import { log } from '../lib/logger.js';
 
 // Anthropic keys are currently far smaller than this. Keep enough headroom for
@@ -150,6 +152,7 @@ export function createSettingsRouter({
   verifyKey,
   getAlertRules,
   getOrganization,
+  getWatchProfile,
   getBriefScheduleStatus,
   onBriefScheduleChanged,
   loopback = true,
@@ -158,17 +161,24 @@ export function createSettingsRouter({
   // Authentication is a property of this request, not of the process. A
   // configured API_SECRET must never make every request implicitly trusted.
   const trusted = res => loopback || res.locals.authenticated === true;
+  const effectiveProfile = () => typeof getWatchProfile === 'function'
+    ? getWatchProfile()
+    : getEffectiveWatchProfile({ organization: typeof getOrganization === 'function' ? getOrganization() : {} });
 
   router.get('/settings', (req, res) => {
+    res.vary('Authorization');
     const s = getAiStatus();
     const payload = { ai: { enabled: s.enabled, keySource: s.source, keyMasked: s.masked } };
     // Alert rules + saved watch-terms are surfaced ONLY to a trusted caller
     // (loopback or API_SECRET-authed) — an untrusted network client sees just the
     // read-only note, never the operator's configured rules or keywords.
     if (trusted(res)) {
+      res.set('Cache-Control', 'private, no-store');
+      payload.storage = getUserSettingsStatus();
       const rules = (typeof getAlertRules === 'function' ? getAlertRules() : null) || [];
       payload.alertRules = rules.map(r => ({ pattern: String(r.pattern), boost: Number(r.boost) || 0, source: 'config' }));
-      payload.watchTerms = Array.isArray(getUserSettings().watchTerms) ? [...getUserSettings().watchTerms] : [];
+      payload.watchProfile = effectiveProfile();
+      payload.watchTerms = [...payload.watchProfile.technologies];
       payload.organization = typeof getOrganization === 'function' ? getOrganization() : {};
       payload.briefSchedule = getBriefScheduleSettings();
       payload.briefScheduleStatus = typeof getBriefScheduleStatus === 'function'
@@ -215,6 +225,17 @@ export function createSettingsRouter({
     let watchTermCount = null;
     let organizationChanged = false;
     let scheduleChanged = false;
+    let watchProfileChanged = false;
+
+    if (Object.prototype.hasOwnProperty.call(body, 'watchProfile')) {
+      if (!trusted(res)) return res.status(403).json({ error: 'Setting the watch profile over the network requires API_SECRET (or run on loopback).', code: 'E_EXPOSED' });
+      // Do not accept two conflicting representations in one atomic update.
+      if (Object.hasOwn(body, 'watchTerms') || Object.hasOwn(body, 'organization')) return res.status(400).json({ error: 'Send watchProfile separately from legacy watchTerms or organization fields.', code: 'E_WATCHPROFILE' });
+      const { watchProfile, error } = validateWatchProfile(body.watchProfile);
+      if (error) return res.status(400).json({ error, code: 'E_WATCHPROFILE' });
+      patch.watchProfile = watchProfile;
+      watchProfileChanged = true;
+    }
 
     if (Object.prototype.hasOwnProperty.call(body, 'anthropicKey')) {
       // Never let an unauthenticated network client write or clear the key —
@@ -298,11 +319,19 @@ export function createSettingsRouter({
     }
 
     if (Object.keys(patch).length > 0) {
-      saveUserSettings(dataDir, patch);
+      try {
+        saveUserSettings(dataDir, patch);
+      } catch (err) {
+        if (err.code === 'E_SETTINGS_LOAD') {
+          return res.status(503).json({ error: err.message, code: err.code, storage: getUserSettingsStatus() });
+        }
+        throw err;
+      }
       if (keyAction) refreshAi();
       if (keyAction) log.info('settings', `Operator Anthropic key ${keyAction}`); // never logs key material
       if (watchTermCount !== null) log.info('settings', `Operator watch-terms updated (${watchTermCount})`);
       if (organizationChanged) log.info('settings', 'Operator organization profile updated');
+      if (watchProfileChanged) log.info('settings', 'Operator watch profile updated');
       if (scheduleChanged) log.info('settings', `Daily briefing schedule ${patch.briefSchedule.enabled ? 'enabled' : 'disabled'} (${patch.briefSchedule.time}, ${patch.briefSchedule.timezone})`);
       // A key change may unblock an already-enabled schedule, but it never
       // enables one: the persisted briefSchedule.enabled flag remains the gate.
@@ -318,7 +347,8 @@ export function createSettingsRouter({
     // Echo the saved watch-terms/organization back to a trusted caller so the
     // client reflects the server-normalized values without a second GET.
     if (trusted(res)) {
-      out.watchTerms = Array.isArray(getUserSettings().watchTerms) ? [...getUserSettings().watchTerms] : [];
+      out.watchProfile = effectiveProfile();
+      out.watchTerms = [...out.watchProfile.technologies];
       out.organization = typeof getOrganization === 'function' ? getOrganization() : {};
       out.briefSchedule = getBriefScheduleSettings();
       out.briefScheduleStatus = typeof getBriefScheduleStatus === 'function'

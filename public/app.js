@@ -13,6 +13,7 @@ const viewCache = {};
 let renderGeneration = 0;
 let landscapeTimer = null;
 let activeView = null;
+let wallOperatorMode = null;
 
 // Tear down the currently-mounted view (its timers, listeners, GPU context)
 // before mounting the next. Every view module may expose an unmount().
@@ -33,12 +34,27 @@ function focusViewRegion(region) {
   try { target.focus({ preventScroll: true }); } catch { target.focus(); }
 }
 
+function renderViewError(main, mode, err) {
+  const label = {wire:'Wire', briefing:'Briefing', settings:'Settings', wall:'Wall'}[mode] || 'View';
+  main.innerHTML = `<section class="view-load-state" role="alert">
+    <p class="view-kicker">Unable to open</p><h1 class="view-title">${label}</h1>
+    <p>The application could not load this view. Reload to try again.</p>
+    <button type="button" class="btn-primary" id="retryView">Reload view</button>
+    <details><summary>Technical details</summary><p>${escapeHtml(err?.message || 'Unknown load error')}</p></details>
+  </section>`;
+  main.querySelector('#retryView')?.addEventListener('click', () => window.location.reload());
+  focusViewRegion(main);
+}
+
 async function renderView(mode) {
   const main = document.getElementById('main');
   const wallLayer = document.getElementById('wallLayer');
   if (!main || !wallLayer) return;
 
   const thisRender = ++renderGeneration;
+  // Wall presentation mode belongs to the query, which can change without a
+  // surface transition (G then L from a kiosk, or browser Back).
+  wallOperatorMode = mode === 'wall' ? new URLSearchParams(window.location.search).has('operator') : null;
 
   // Tear down whatever view is currently active before mounting the next.
   teardownActiveView();
@@ -66,8 +82,7 @@ async function renderView(mode) {
       document.body.classList.remove('wall-active');
       wallLayer.classList.add('hidden');
       wallLayer.setAttribute('aria-hidden', 'true');
-      main.innerHTML = `<div class="error-message">Failed to load view: ${escapeHtml(err.message)}</div>`;
-      focusViewRegion(main);
+      renderViewError(main, mode, err);
     }
     return;
   }
@@ -76,6 +91,9 @@ async function renderView(mode) {
   document.body.classList.remove('wall-active');
   wallLayer.classList.add('hidden');
   wallLayer.setAttribute('aria-hidden', 'true');
+
+  const destination = {wire:'Wire', settings:'Settings', briefing:'Briefing'}[mode] || 'Briefing';
+  main.innerHTML = `<section class="view-load-state" role="status"><p class="view-kicker">Opening</p><h1 class="view-title">${destination}</h1><p>Loading ${destination.toLowerCase()}…</p></section>`;
 
   let viewModule;
   try {
@@ -97,8 +115,7 @@ async function renderView(mode) {
     if (thisRender !== renderGeneration) return;
     console.error(`[app] failed to load view "${mode}":`, err);
     try { viewModule?.unmount?.(); } catch { /* continue rendering the error state */ }
-    main.innerHTML = `<div class="error-message">Failed to load view: ${escapeHtml(err.message)}</div>`;
-    focusViewRegion(main);
+    renderViewError(main, mode, err);
   }
 }
 
@@ -134,6 +151,11 @@ async function boot() {
   initInfotips();
 
   on('mode-changed', renderView);
+  on('route-changed', ({ mode }) => {
+    if (mode === 'wall' && wallOperatorMode !== new URLSearchParams(window.location.search).has('operator')) {
+      renderView('wall');
+    }
+  });
 
   on('generate-brief', async () => {
     if (getState().isGenerating) return;

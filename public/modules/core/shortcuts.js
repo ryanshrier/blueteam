@@ -70,7 +70,7 @@ function handleKeydown(e) {
     clearTimeout(gTimer);
     if (key === 'b') { e.preventDefault(); navigate('/briefing'); return; }
     if (key === 'w') { e.preventDefault(); navigate('/wire'); return; }
-    if (key === 'l') { e.preventDefault(); navigate('/wall'); return; }
+    if (key === 'l') { e.preventDefault(); navigate('/wall?operator'); return; }
     // #82 — Settings was only mouse-reachable (the header gear); the G-chord
     // covered B/W/L but not S, leaving the help overlay's keyboard map unable
     // to reach a core destination.

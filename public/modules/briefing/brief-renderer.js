@@ -2,8 +2,12 @@
 // Transforms the model's markdown structure into styled components:
 // BLUF card, horizon tags, "the line" callouts, section anchors.
 
-import { formatDecisionWindow } from '/vendor/brief-schema.js';
+import { formatDecisionWindow, judgmentCertainty } from '/vendor/brief-schema.js';
 import { TIER_NAMES } from '../core/tiers.js';
+import { structureExecutiveSummary } from './brief-executive.js';
+
+// Distinguish the generated citation ledger from any authored Sources section.
+export const CITATION_APPENDIX_LABEL = 'References';
 
 // A tier is the judgment's analytic classification, not an instruction. The
 // explicit **Act now:** action remains the sole source of that directive; using
@@ -11,6 +15,81 @@ import { TIER_NAMES } from '../core/tiers.js';
 // and seven-day Decision windows.
 export function briefTierLabel(horizon) {
   return TIER_NAMES[horizon] || `HORIZON ${horizon}`;
+}
+
+export function judgmentSignalLink(text, tier) {
+  const cve = (String(text || '').match(/CVE-\d{4}-\d{4,7}/i) || [])[0]?.toUpperCase();
+  if (cve) return { href: `/wire?q=${encodeURIComponent(cve)}`, label: `Search current Wire for ${cve} →` };
+  const label = TIER_NAMES[tier];
+  return label
+    ? { href: `/wire?h=${encodeURIComponent(tier)}`, label: `Browse ${label[0]}${label.slice(1).toLowerCase()} signals →` }
+    : { href: '/wire', label: 'Browse current Wire →' };
+}
+
+/** Plain-text handoff from a saved judgment. Keep the authored action intact:
+ * its owner and target may be embedded in prose and must not be guessed. */
+export function decisionCopyText({ title = '', action = '', recommendations = [], decisionWindow = '', certainty = '', sources = [], editionUrl = '', editionLabel = '' } = {}) {
+  const actions = recommendations.filter(value => typeof value === 'string' && value.trim());
+  if ((!String(action).trim() && !actions.length) || !/^https?:\/\//i.test(editionUrl)) return '';
+  const lines = [title ? `Decision — ${title}` : 'Decision', ''];
+  if (action) lines.push(`Act now: ${action}`);
+  if (actions.length) lines.push('Recommended actions:', ...actions.map(value => `- ${value}`));
+  if (decisionWindow) lines.push(`Decision window: ${decisionWindow}`);
+  if (certainty) lines.push(certainty);
+  const seen = new Set();
+  const cited = sources.filter(source => {
+    if (!/^https?:\/\//i.test(source?.href || '') || seen.has(source.href)) return false;
+    seen.add(source.href);
+    return true;
+  });
+  if (cited.length) lines.push('', 'Cited sources:', ...cited.map(source => `${source.label || source.href}: ${source.href}`));
+  lines.push('', editionLabel || 'Saved Briefing edition', editionUrl,
+    'AI-generated from sourced signals. Verify the cited evidence before acting.');
+  return lines.join('\n');
+}
+
+export function authoredText(element) {
+  if (!element) return '';
+  const clone = element.cloneNode(true);
+  clone.querySelectorAll('.brief-cite').forEach(cite => {
+    const link = cite.querySelector('.brief-cite-link');
+    // New editions retain the authored anchor beside the numeric reference.
+    // Legacy rendered cards still need the stored label restored here.
+    cite.replaceWith(cite.dataset.labelRetained === 'true' ? '' : (link?.dataset.sourceLabel || link?.getAttribute('href') || ''));
+  });
+  return clone.textContent.trim().replace(/\s+/g, ' ');
+}
+
+/** Wrap only explicit, spaced owner/action/target syntax. Keep every original
+ * character and every sanitized inline link; uncertain prose remains prose. */
+export function actionRoleHtml(html) {
+  const source = String(html || '');
+  if (/brief-action-owner|brief-action-target/.test(source)) return source;
+  const match = source.match(/^([^<>]{1,80}?)(\s+[—–]\s+)([\s\S]+)$/);
+  if (!match) return source;
+  let body = match[3];
+  const tail = body.match(/(\s+[—–]\s+)([^<>]+)$/);
+  if (tail && /\b(?:\d{4}-\d{2}-\d{2}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d|today|tomorrow|tonight|(?:this|next)\s+shift|within\s+\d+\s+(?:hours?|days?)|close of business)\b/i.test(tail[2])) {
+    body = body.slice(0, tail.index) + `<span class="brief-action-target">${tail[0]}</span>`;
+  }
+  return `<strong class="brief-action-owner">${match[1]}</strong>${match[2]}${body}`;
+}
+
+export function decisionCardContent(card) {
+  return {
+    title: authoredText(card.querySelector('h3')),
+    action: authoredText(card.querySelector('.c-action-text')),
+    recommendations: [...card.querySelectorAll('.brief-recommended-actions')].flatMap(element =>
+      ['UL', 'OL'].includes(element.tagName)
+        ? [...element.children].filter(child => child.tagName === 'LI').map(authoredText)
+        : [authoredText(element).replace(/^Recommended actions:?\s*/i, '')]
+    ).filter(Boolean),
+    decisionWindow: card.querySelector('.bjm-window')?.dataset.decisionWindow || '',
+    certainty: authoredText(card.querySelector('.brief-certainty')),
+    sources: [...card.querySelectorAll('.brief-cite-link')].map(link => ({
+      href: link.getAttribute('href') || '', label: link.dataset.sourceLabel || '',
+    })),
+  };
 }
 
 // The model emits a compact Markdown document, and marked's `breaks:true` mode
@@ -180,23 +259,6 @@ function liftTheLine(el) {
   }
 }
 
-// Metadata rationale is conventionally separated with a top-level em/en dash.
-// Do not split on a dash inside parentheses: a decision such as
-// "Monitor (chronic exposure — upgrades required)" is one complete label.
-function metadataSummary(value) {
-  const text = String(value || '').trim();
-  let depth = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
-    else if (ch === ')' || ch === ']' || ch === '}') depth = Math.max(0, depth - 1);
-    else if (depth === 0 && (ch === '—' || ch === '–') && /\s/.test(text[i - 1] || '') && /\s/.test(text[i + 1] || '')) {
-      return text.slice(0, i).trim();
-    }
-  }
-  return text;
-}
-
 function editionDate(container) {
   const mastheadText = [...container.querySelectorAll('h1, h3')]
     .slice(0, 2)
@@ -242,7 +304,7 @@ export function decisionWindowDuplicatesAction(windowValue, actionValues = []) {
   return !!windowKey && actionValues.some(value => normalizeDeadline(actionDeadlineSuffix(value)) === windowKey);
 }
 
-export function applySemanticStyling(container) {
+export function applySemanticStyling(container, { decisionControls = false } = {}) {
   // Establish one field structure for the live view, streaming snapshots, and
   // the printable edition before any later pass moves metadata or callouts.
   normalizePackedBriefFields(container);
@@ -286,11 +348,11 @@ export function applySemanticStyling(container) {
     }
   });
 
-  // 2b. Judgment metadata bar — lift Confidence + Decision window into a
+  // 2b. Judgment metadata bar — lift the Decision window into a
   // compact visual line under each signal heading. Legacy briefs may still carry
   // a "Revises if" field; consume it with the metadata block but do not render it.
   // It was useful generation scaffolding, not part of the finished edition.
-  const DISPLAY_META_LABELS = ['confidence', 'decision window'];
+  const DISPLAY_META_LABELS = ['decision window'];
   const RETIRED_LABELS = ['revises if', 'increases if', 'decreases if'];
   const asOfDate = editionDate(container);
   container.querySelectorAll('h3').forEach(h3 => {
@@ -301,7 +363,7 @@ export function applySemanticStyling(container) {
     h3.innerHTML = h3.innerHTML.replace(/^\s*Signal\s+\d+\s*[—–:\-]?\s*/i, '');
     const tierChip = h3.querySelector('.c-chip');
     tierChip?.remove();
-    let confidence = '', windowLabel = '', windowSource = '';
+    let windowLabel = '', windowSource = '';
     const metadataNodes = [];
     let n = h3.nextElementSibling;
     while (n && !['H3', 'H2', 'HR'].includes(n.tagName)) {
@@ -311,9 +373,7 @@ export function applySemanticStyling(container) {
       // a packed block matched only its first <strong> and silently dropped the rest.
       const segs = fieldSegments(n);
       for (const { label, value } of segs) {
-        if (label === 'confidence' && !confidence) {
-          confidence = metadataSummary(value);   // term + band ("Likely (55–80%)"); drop the top-level " — basis" tail
-        } else if (label === 'decision window' && !windowLabel) {
+        if (label === 'decision window' && !windowLabel) {
           // Decision timing is operational content, not rationale. Preserve the
           // source value for archived compatibility; presentation below makes its
           // relation explicit without converting it into a deadline.
@@ -324,17 +384,10 @@ export function applySemanticStyling(container) {
       if (segs.some(s => DISPLAY_META_LABELS.includes(s.label))) metadataNodes.push(n);
       n = n.nextElementSibling;
     }
-    if (tierChip || confidence || windowLabel) {
+    if (tierChip || windowLabel) {
       const bar = document.createElement('div');
       bar.className = 'brief-judgment-meta';
       if (tierChip) bar.appendChild(tierChip);
-      if (confidence) {
-        const c = document.createElement('span');
-        c.className = 'bjm-confidence';
-        c.textContent = confidence;
-        c.setAttribute('aria-label', `Confidence: ${confidence}`);
-        bar.appendChild(c);
-      }
       if (windowLabel) {
         const presentedWindow = formatDecisionWindow(windowSource || windowLabel);
         if (presentedWindow.display) {
@@ -367,6 +420,17 @@ export function applySemanticStyling(container) {
     metadataNodes.forEach(el => stripLabeledSegments(el, DISPLAY_META_LABELS));
   });
 
+  // Preserve the complete authored certainty statement and its links in the
+  // reading flow. Only its label changes; probability is not evidence confidence.
+  container.querySelectorAll('strong').forEach(strong => {
+    if (!/^confidence:?$/i.test(strong.textContent.trim())) return;
+    const host = strong.closest('p, li');
+    const field = fieldSegments(host).find(item => item.label === 'confidence');
+    if (!field) return;
+    strong.textContent = `${judgmentCertainty(field.value).label}:`;
+    host.classList.add('brief-certainty');
+  });
+
   // Archived editions may contain these internal confidence-adjustment prompts.
   // Consume them wherever they occur, including inside a mixed packed paragraph.
   container.querySelectorAll('p, li').forEach(el => stripLabeledSegments(el, RETIRED_LABELS));
@@ -374,16 +438,14 @@ export function applySemanticStyling(container) {
   // 3. "The line" → callout
   container.querySelectorAll('p, li').forEach(liftTheLine);
 
-  // 4. Source citations — keep the prose clean by replacing the model's full
-  // inline source label with one clickable superscript reference. Hover, keyboard
-  // focus, and tap expose the exact URL through the shared infotip primitive; the
-  // full human-readable label remains in the Sources appendix below.
+  // 4. Preserve the authored link text: it can be the grammatical subject of a
+  // sentence, not just a citation label. Add a numbered reference beside it.
   // DOMPurify already stripped dangerous hrefs; only http(s) links reach this path.
   // Numbering is deduped by href so one source keeps one number.
   const sources = [];                 // [{ href, label }] in first-seen order
   const numberByHref = new Map();
   container.querySelectorAll('a[href]').forEach(a => {
-    if (a.closest('.brief-cite, .brief-sources-appendix')) return;
+    if (a.closest('.brief-cite, .brief-sources-appendix') || a.classList.contains('brief-cite-label')) return;
     const href = a.getAttribute('href') || '';
     if (!/^https?:/i.test(href)) return;
     let n = numberByHref.get(href);
@@ -405,13 +467,18 @@ export function applySemanticStyling(container) {
     ref.rel = 'noopener noreferrer';
     ref.textContent = `[${n}]`;
     ref.dataset.tip = href;
+    ref.dataset.sourceLabel = source?.label || source?.host || href;
     ref.tabIndex = 0;
     ref.setAttribute('aria-label', `Source ${n}: ${source?.label || source?.host || href}. Opens ${href} in a new tab.`);
 
     const sup = document.createElement('sup');
     sup.className = 'brief-cite';
+    sup.dataset.labelRetained = 'true';
     sup.appendChild(ref);
-    a.replaceWith(sup);
+    a.classList.add('brief-cite-label');
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.after(sup);
   });
 
   // 5. Section heading IDs for the TOC
@@ -431,6 +498,8 @@ export function applySemanticStyling(container) {
       h2.classList.add('brief-exec-heading');
     }
   });
+
+  structureExecutiveSummary(container, { prefix: 'brief' });
 
   // 6. Judgment cards — wrap each Signal (heading + metadata bar + body +
   // the line) in a bounded card with a tier left-rule, so each judgment is a
@@ -455,20 +524,12 @@ export function applySemanticStyling(container) {
     }
     collect.forEach(el => card.appendChild(el));
 
-    // A quiet "View signals →" nav link at the card foot, deep-linking
-    // to the Wire pre-filtered to this judgment. Prefer the card's own CVE (an exact
-    // q= substring match on the ledger); fall back to the tier horizon filter (h=) when
-    // the judgment names no CVE, so the link always lands somewhere relevant. This is
-    // trusted app HTML — the CVE/tier are model/derived tokens, never user input — but
-    // encodeURIComponent keeps the hash well-formed regardless.
-    const cve = (card.textContent.match(/CVE-\d{4}-\d{4,7}/i) || [])[0];
-    const href = cve
-      ? `/wire?q=${encodeURIComponent(cve.toUpperCase())}`
-      : `/wire?h=${encodeURIComponent(tier || '1')}`;
+    // Current-feed navigation is distinct from the archived citations above.
+    const destination = judgmentSignalLink(card.textContent, tier);
     const link = document.createElement('a');
     link.className = 'brief-judgment-link';
-    link.href = href;
-    link.textContent = 'View signals →';
+    link.href = destination.href;
+    link.textContent = destination.label;
     card.appendChild(link);
   });
 
@@ -477,6 +538,17 @@ export function applySemanticStyling(container) {
   // .nb-act) and make it the card's closing climax, so "what do I do this shift"
   // is the visual answer rather than one bullet buried in the recommendations.
   container.querySelectorAll('.brief-judgment-card').forEach(card => {
+    // Mark only content explicitly introduced as Recommended actions. Other
+    // lists in the judgment are evidence or context, not invented directives.
+    card.querySelectorAll('strong').forEach(strong => {
+      if (!/^recommended actions:?$/i.test(strong.textContent.trim())) return;
+      const host = strong.closest('p, li');
+      if (!host) return;
+      const value = fieldSegments(host).find(field => field.label === 'recommended actions')?.value;
+      if (value) host.classList.add('brief-recommended-actions');
+      const list = host.querySelector('ul, ol') || host.nextElementSibling;
+      if (list && ['UL', 'OL'].includes(list.tagName)) list.classList.add('brief-recommended-actions');
+    });
     if (card.querySelector('.c-action')) return;
     let actLi = null;
     for (const li of card.querySelectorAll('li')) {
@@ -494,9 +566,31 @@ export function applySemanticStyling(container) {
     const list = actLi.closest('ul, ol');
     actLi.remove();
     if (list && !list.querySelector('li')) list.remove();   // drop a list emptied by the lift
-    // The action directive is the story's climax, but the "View signals" nav link (step 6)
+    // The action directive is the story's climax, but the current-feed link (step 6)
     // is trailing chrome — keep it the true card foot by inserting the block before it.
     card.insertBefore(block, card.querySelector('.brief-judgment-link'));
+  });
+
+  container.querySelectorAll('.brief-judgment-card').forEach(card => {
+    const link = card.querySelector('.brief-judgment-link');
+    if (!link || link.closest('.brief-judgment-tools')) return;
+    const tools = document.createElement('div');
+    tools.className = 'brief-judgment-tools';
+    card.appendChild(tools);
+    const decision = decisionCardContent(card);
+    if (decisionControls && (decision.action || decision.recommendations.length)) {
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'btn-ghost brief-copy-decision';
+      copy.dataset.copyDecision = 'true';
+      copy.textContent = 'Copy decision';
+      tools.appendChild(copy);
+    }
+    tools.appendChild(link);
+  });
+
+  container.querySelectorAll('.c-action-text, .brief-recommended-actions > li').forEach(el => {
+    el.innerHTML = actionRoleHtml(el.innerHTML);
   });
 
   // Decision-window metadata is useful when it adds timing information. When
@@ -517,8 +611,8 @@ export function applySemanticStyling(container) {
   if (sources.length && !container.querySelector('.brief-sources-appendix')) {
     const heading = document.createElement('h2');
     heading.className = 'brief-sources-heading';
-    heading.id = 'section-sources';   // so the TOC includes it (it's a real section, not accidentally dropped)
-    heading.textContent = 'Sources';
+    heading.id = 'section-sources';   // preserve existing links to the generated appendix
+    heading.textContent = CITATION_APPENDIX_LABEL;
     const ol = document.createElement('ol');
     ol.className = 'brief-sources-appendix';
     for (const s of sources) {

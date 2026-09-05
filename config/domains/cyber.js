@@ -60,17 +60,15 @@ export const cyberPack = {
       { name: 'Akira', aliases: [], region: 'crime' },
       { name: 'Qilin', aliases: ['Agenda'], region: 'crime' },
       { name: 'Play', aliases: ['PlayCrypt'], region: 'crime' },
-      { name: 'Medusa', aliases: ['MedusaLocker'], region: 'crime' },
+      { name: 'Medusa', aliases: [], region: 'crime' },
+      { name: 'MedusaLocker', aliases: [], region: 'crime' },
       { name: 'INC Ransom', aliases: ['INC Ransomware'], region: 'crime' },
       { name: 'DragonForce', aliases: [], region: 'crime' },
       { name: 'Hunters International', aliases: [], region: 'crime' },
       { name: '8Base', aliases: [], region: 'crime' },
       { name: 'Rhysida', aliases: [], region: 'crime' },
-      // Known caveat: matched via lib/enrichment.js's `\d`-detection convention
-      // (see PATTERN_ACTOR_SHAPE), so the leaderboard label reads the literal
-      // family name ("Storm-\d{4}"), not the specific cluster matched ("Storm-1234")
-      // — good enough to register the family's activity; a follow-up could thread
-      // the actual regex capture through to the display label.
+      // Generic matchers emit the actual observed designator ("Storm-1234").
+      // A designator already mapped above belongs to its named actor instead.
       { name: 'Storm-\\d{4}', aliases: [], region: 'unattributed' },
       { name: 'UNC\\d{3,5}', aliases: [], region: 'unattributed' },
     ],
@@ -117,7 +115,7 @@ export const cyberPack = {
       max: 10,
       bands: { critical: 1, high: 0.75, medium: 0.5, low: 0.25 },
     },
-    rationale: { verified: 'KEV-verified', critical: 'active exploitation', elevated: 'elevated threat activity', severityLabel: 'CVSS' },
+    rationale: { verified: 'KEV-verified', critical: 'urgent reporting (heuristic)', elevated: 'elevated threat language (heuristic)', severityLabel: 'CVSS' },
   },
 
   // The edition-specific landscape panels cyber surfaces — the
@@ -154,10 +152,11 @@ export const cyberPack = {
   // mention "ransomware" or carry a bare CVE number don't jump the SOC queue.
   urgencyLexicon: {
     critical: [
-      'zero.?day', 'active.?exploit', 'actively.?exploit', 'exploited.?in.?the.?wild',
+      'active.?exploit', 'actively.?exploit', 'exploited.?in.?the.?wild',
       'emergency.?directive', 'breach.?confirm',
     ],
     elevated: [
+      'zero.?day',
       'critical.?vuln', 'rce\\b', 'remote.?code.?exec', 'emergency.?patch',
       'proposed.?rule', 'indictment', 'ransomware',
       'malware', 'apt\\d', 'threat.?actor', 'data.?leak', 'patch.?tuesday', 'phishing.?campaign',
@@ -234,8 +233,8 @@ export const cyberPack = {
     },
     grounding: {
       specifics: 'Every CVE ID, CVSS score, version number, date, count, dollar figure, and named actor',
-      systemFactsNote: 'the KEV count',
-      verifiedCatalog: 'KEV is verified, not inferred. When a headline is flagged "⚠ CISA KEV: CVE-XXXX-XXXXX", that CVE\'s KEV membership is confirmed against the catalog — cite that exact CVE verbatim in the relevant judgment (in "What happened" and, where it drives the action, the this-shift action). Do not paraphrase, drop, or substitute it, and never label a different CVE as KEV when the verified one was provided.',
+      systemFactsNote: 'the KEV count and captured per-CVE FCEB remediation dates. The captured CISA KEV record controls the current federal deadline even when a publisher passage gives an older or different date. Repeat that captured date exactly and keep it separate from this organization\'s recommended target; if the catalog date is unavailable, omit the federal deadline',
+      verifiedCatalog: 'KEV is verified, not inferred. When a headline is flagged "⚠ CISA KEV: CVE-XXXX-XXXXX", that CVE\'s KEV membership is confirmed against the catalog — cite that exact CVE verbatim in the relevant judgment (in "What happened" and, where it drives the action, the this-shift action). Do not paraphrase, drop, or substitute it, and never label a different CVE as KEV when the verified one was provided. A CVSS score needs its own supporting passage among that signal\'s "What happened" citations. Preserve the exact CVE-to-score pairing. Cite NVD when NVD supplies the score; a CISA catalog listing alone does not support a numeric score. If none of the cited passages supplies the value, omit it instead of borrowing a score from memory or another vulnerability.',
       sourceFreshness: 'A source establishes status only on its publication or update date. Date-box patch, exploitation, victim-count, and availability claims unless a current source explicitly carries them through the briefing date.',
       certaintyLanguage: 'Words such as "confirmed," "first," "fully autonomous," and "no fix" must match the cited evidence and confidence band; a single vendor claim without independent validation must be attributed as a report or assessment.',
       deadlineScopeInstruction: 'Put external deadlines here with their authority and scope. A CISA KEV due date must read, for example, "CISA FCEB remediation due July 16, 2026"; it is not automatically this organization\'s target. Preserve the source\'s precision: a date-only deadline never gains a clock time or timezone.',

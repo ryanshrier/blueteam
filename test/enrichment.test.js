@@ -88,17 +88,37 @@ describe('matchActors — refreshed alias coverage', () => {
 
   test('UNC3944 resolves to Scattered Spider', () => {
     const out = matchActors('UNC3944 breaches helpdesk via social engineering', '');
-    expect(out.map(a => a.name)).toContain('Scattered Spider');
+    expect(out).toEqual([{ name: 'Scattered Spider', region: 'crime', basis: 'title' }]);
   });
 
   test('a generic Storm-#### interim designator is tagged unattributed', () => {
     const out = matchActors('Storm-1234 phishing campaign targets finance sector', '');
-    expect(out.find(a => a.region === 'unattributed')).toBeDefined();
+    expect(out).toEqual([{ name: 'Storm-1234', region: 'unattributed', basis: 'title' }]);
   });
 
   test('a generic UNC##### interim designator is tagged unattributed', () => {
     const out = matchActors('UNC5221 exploits edge device zero-day', '');
-    expect(out.find(a => a.region === 'unattributed')).toBeDefined();
+    expect(out).toEqual([{ name: 'UNC5221', region: 'unattributed', basis: 'title' }]);
+  });
+
+  test('retains the actual interim name and body provenance in the BREEZE COMET report', () => {
+    expect(matchActors('Financially Motivated Threat Actor BREEZE COMET Targets Brazil',
+      'GTIG tracks this activity as BREEZE COMET (formerly UNC5669).'))
+      .toEqual([{ name: 'UNC5669', region: 'unattributed', basis: 'mention' }]);
+  });
+
+  test('distinct interim clusters stay distinct and repeated body mentions do not duplicate a title tag', () => {
+    expect(matchActors('UNC5221 and UNC5669 target edge devices', 'UNC5221 uses credential theft.'))
+      .toEqual([
+        { name: 'UNC5221', region: 'unattributed', basis: 'title' },
+        { name: 'UNC5669', region: 'unattributed', basis: 'title' },
+      ]);
+  });
+
+  test('drops a negated interim designator and preserves a known explicit cluster', () => {
+    expect(matchActors('Breach is not linked to UNC5221', '')).toEqual([]);
+    expect(matchActors('UNC3886 targets network devices', ''))
+      .toEqual([{ name: 'UNC3886', region: 'CN', basis: 'title' }]);
   });
 });
 

@@ -213,7 +213,7 @@ describe('refresher — getFreshRun staleness boundary', () => {
 
   test('returns a fresh adequate evidence set', async () => {
     runIntelligencePipelineMock.mockResolvedValue({
-      headlines: Array.from({ length: 5 }, (_, i) => ({ title: `signal ${i}` })),
+      headlines: Array.from({ length: 5 }, (_, i) => ({ title: `signal ${i}`, retrievedAt: new Date().toISOString() })),
       stats: {},
     });
     const run = await refresher.getFreshRun(60_000, {

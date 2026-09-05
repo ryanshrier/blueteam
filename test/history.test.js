@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, utimesSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -8,6 +8,7 @@ import {
   extractContinuityContext,
   extractSignalTitles,
   loadRecentBriefs,
+  listBriefEditions,
   localDateISO,
   saveBrief,
   scheduledBriefFilename,
@@ -204,6 +205,17 @@ describe('loadRecentBriefs — per-day dedup', () => {
     writeFileSync(join(dir, 'brief-2026-06-21-01.md'), 'day before');
     writeFileSync(join(dir, 'brief-2026-06-23-01.md'), 'day after');
 
+    // Legacy archives have filesystem timestamps rather than generation
+    // metadata. Model those actual publication times deterministically.
+    for (let i = 1; i <= 5; i++) {
+      const time = new Date(`2026-06-22T0${i}:00:00Z`);
+      utimesSync(join(dir, `brief-2026-06-22-0${i}.md`), time, time);
+    }
+    for (const day of ['21', '23']) {
+      const time = new Date(`2026-06-${day}T05:00:00Z`);
+      utimesSync(join(dir, `brief-2026-06-${day}-01.md`), time, time);
+    }
+
     const briefs = loadRecentBriefs(dir, 5);
     const dates = briefs.map(b => b.date);
 
@@ -215,6 +227,24 @@ describe('loadRecentBriefs — per-day dedup', () => {
     const jun22 = briefs.find(b => b.filename.startsWith('brief-2026-06-22'));
     expect(jun22.filename).toBe('brief-2026-06-22-05.md');
     expect(jun22.content).toBe('content 5');
+  });
+
+  test('publication metadata selects a later scheduled edition over an earlier manual counter', () => {
+    const manual = 'brief-2026-09-05-01.md';
+    const scheduled = 'brief-2026-09-05-00.md';
+    writeFileSync(join(dir, manual), 'early manual');
+    writeFileSync(join(dir, scheduled), 'later scheduled');
+    const getMeta = filename => ({ generated_at: filename === manual ? '2026-09-05T04:00:00Z' : '2026-09-05T05:00:00Z' });
+    expect(listBriefEditions(dir, { getMeta }).map(edition => edition.filename)).toEqual([scheduled, manual]);
+    expect(loadRecentBriefs(dir, 5, { getMeta })[0]).toMatchObject({ filename: scheduled, content: 'later scheduled' });
+  });
+
+  test('a verified manifest supplies completion chronology when database metadata is absent', () => {
+    const manual = saveBrief(dir, 'manual', { date: '2026-09-05', manifest: { schemaVersion: 1, generatedAt: '2026-09-05T04:00:00Z' } });
+    const scheduled = saveBrief(dir, 'scheduled', { date: '2026-09-05', scheduled: true, manifest: { schemaVersion: 1, generatedAt: '2026-09-05T05:00:00Z' } });
+    const futureTime = new Date('2026-09-07T00:00:00Z');
+    utimesSync(join(dir, manual), futureTime, futureTime);
+    expect(listBriefEditions(dir).map(edition => edition.filename)).toEqual([scheduled, manual]);
   });
 
   test('depth limits distinct days, not raw file count', () => {

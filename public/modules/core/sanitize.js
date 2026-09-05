@@ -39,7 +39,19 @@ export const SEARCH_SNIPPET_CONFIG = {
   ALLOW_DATA_ATTR: false,
   ALLOW_ARIA_ATTR: false,
 };
-export const sanitizeSearchSnippet = (html) => DOMPurify.sanitize(html, SEARCH_SNIPPET_CONFIG);
+// Search indexes the original Markdown. Remove document furniture from excerpts
+// without removing a highlighted hit; the mark-only sanitizer remains last.
+export function cleanSearchExcerpt(value) {
+  return String(value ?? '').split(/\r?\n/)
+    .filter(line => /<mark\b/i.test(line) || !/^\s*#{1,6}\s*(?:BlueTeam\.News|Threat Landscape Briefing(?:\s*[·—–|:-].*)?)\s*#*\s*$/i.test(line))
+    .join('\n')
+    .replace(/(^|\n)\s{0,3}#{1,6}[ \t]+/g, '$1')
+    .replace(/(^|\n)\s*(?:[-*+]\s+|\d+[.)]\s+|>\s*)/g, '$1')
+    .replace(/!?\[([^\]\n]+)\]\([^\n]*?\)/g, '$1')
+    .replace(/\*\*|__|~~|`/g, '')
+    .replace(/\s+/g, ' ').trim();
+}
+export const sanitizeSearchSnippet = (html) => DOMPurify.sanitize(cleanSearchExcerpt(html), SEARCH_SNIPPET_CONFIG);
 
 export function escapeHtml(str) {
   // Guard on null/undefined, NOT falsiness: a numeric 0 (a score or count of

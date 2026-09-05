@@ -64,6 +64,7 @@ import {
   loadUserSettings,
   getUserSettings,
   getEffectiveOrganization,
+  getEffectiveWatchProfile,
   getBriefScheduleSettings,
 } from './lib/user-settings.js';
 import { APP_VERSION } from './lib/version.js';
@@ -492,8 +493,9 @@ app.use('/api', createBriefRouter({
   localPort: PORT,
   scheduledJobToken: SCHEDULED_JOB_TOKEN,
   trackGeneration: () => briefGenerationTracker.begin(),
+  loopback: IS_LOOPBACK,
 }));
-app.use('/api', createLandscapeRouter({ historyDir: HISTORY_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL }));
+app.use('/api', createLandscapeRouter({ historyDir: HISTORY_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL, loopback: IS_LOOPBACK }));
 app.use('/api', createSettingsRouter({
   dataDir: DATA_DIR,
   getAiStatus,
@@ -501,6 +503,7 @@ app.use('/api', createSettingsRouter({
   verifyKey: verifyAnthropicKey,
   getAlertRules: () => getConfig().alertRules,
   getOrganization: () => getEffectiveOrganization(getConfig()),
+  getWatchProfile: () => getEffectiveWatchProfile(getConfig()),
   getBriefScheduleStatus: getDailyBriefScheduleStatus,
   onBriefScheduleChanged: armDailyBriefSchedule,
   loopback: IS_LOOPBACK,

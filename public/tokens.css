@@ -120,15 +120,17 @@
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
   --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
 
-  --type-3xs: 9px;    /* micro annotation: the KEV timeline date-ends only — smallest legible tabular label */
-  --type-2xs: 10px;   /* canonical micro-label: mono chips, kickers, badges */
-  --type-xs: 11px;
-  --type-sm: 13px;
-  --type-base: 15px;
-  --type-md: 17px;
-  --type-lg: 20px;
-  --type-xl: 28px;
-  --type-2xl: 34px;   /* operator-UI display: view titles, section heads — the scale's ceiling in use */
+  /* Interface roles follow the reader's default text size. Keep micro labels
+     above the former 9–10px sizes; the Wall retains its fluid display ladder. */
+  --type-3xs: 0.6875rem;
+  --type-2xs: 0.6875rem;
+  --type-xs: 0.75rem;
+  --type-sm: 0.8125rem;
+  --type-base: 0.9375rem;
+  --type-md: 1.0625rem;
+  --type-lg: 1.25rem;
+  --type-xl: 1.75rem;
+  --type-2xl: 2.125rem;
 
   /* Fluid display ladder — the Wall's broadsheet voice, named so every headline
      role references the SYSTEM, not a raw inline clamp. vw/vh-fluid for a 16:9
@@ -174,7 +176,7 @@
 
   /* Focus + selection are pinned to brand-blue and NOT overridden by a custom
      accent — keyboard/kiosk focus must stay one stable hue, never a signal color. */
-  --focus: #3b82f6;
+  --focus: #93c5fd;
   --selection-rgb: 59, 130, 246;
   /* The 2px inner gap is a token so focusable controls on lighter grounds
      (cards, overlays) can override it to blend, instead of painting a dark-navy halo. */
@@ -243,6 +245,10 @@
    ============================================ */
 :root[data-theme="light"] {
   color-scheme: light;
+  --focus: #1d4ed8;
+  --ink-on-h1: #ffffff;
+  --ink-on-h2: #ffffff;
+  --ink-on-h3: #ffffff;
 
   --bg-primary: #f5f7fb;
   --bg-secondary: #eef1f7;

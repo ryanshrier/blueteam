@@ -3,6 +3,27 @@
 // The view layer imports these and wraps their output in markup; nothing here touches
 // the document, window, or `location`.
 
+import { formatBriefLabel } from '../core/brief-date.js';
+
+// The saved edition may predate today's feed. Bind its label and destination
+// to the same snapshot so a reader always opens the edition that was named.
+export function briefingLinkModel(brief) {
+  if (!brief || typeof brief !== 'object') return null;
+  const date = formatBriefLabel(brief.filename || brief.date);
+  return {
+    text: `Latest briefing${date ? ` · ${date}` : ''} →`,
+    href: brief.filename ? `/briefing/${encodeURIComponent(brief.filename)}` : '/briefing',
+  };
+}
+
+// Match Wall and pipeline policy: warn after two refresh windows, retaining a
+// twenty-minute floor for fast schedules and legacy responses without cadence.
+export function isFeedStale(ageSeconds, refreshMinutes) {
+  const cadence = Number(refreshMinutes);
+  const thresholdMinutes = Number.isFinite(cadence) && cadence > 0 ? Math.max(20, cadence * 2) : 20;
+  return !Number.isFinite(ageSeconds) || ageSeconds > thresholdMinutes * 60;
+}
+
 // ── The deep-link contract: which filter/sort values are valid in the hash. ──
 export const VALID_HORIZONS = new Set(['all', '1', '2', '3']);
 export const VALID_SORTS = new Set(['relevance', 'newest']);
@@ -35,18 +56,17 @@ export function parseCveData(cveData) {
 }
 
 // ── Filtering / sorting — pure over (headlines, filters, sortMode). ──
-// dismissedKeys (a Set of sigKey() identities) is ALWAYS applied, independent
-// of the "Unread" toggle: a dismissed signal is hidden from every view until the undo
-// chip restores it. filters.unread additionally hides anything in readKeys (a Set of
-// sigKey() identities the analyst has already seen/opened). Both sets default to
-// empty so a caller that doesn't pass them gets the same behavior unchanged.
+// dismissedKeys identifies the Hidden subset; the ordinary view excludes it.
+// Unread composes with either view and does not change visibility preferences.
+// Both identity sets default to empty when omitted.
 export function filterSignals(headlines, filters = {}, sortMode = 'relevance') {
   let items = (Array.isArray(headlines) ? headlines : []).slice();
   if (filters.horizon && filters.horizon !== 'all') items = items.filter(h => String(h.horizon) === String(filters.horizon));
   if (filters.critical) items = items.filter(h => h.urgency === 'critical');
   if (filters.kev) items = items.filter(h => h.isKEV);
   const dismissedKeys = filters.dismissedKeys instanceof Set ? filters.dismissedKeys : null;
-  if (dismissedKeys && dismissedKeys.size) items = items.filter(h => !dismissedKeys.has(sigKey(h)));
+  if (filters.hidden) items = items.filter(h => dismissedKeys?.has(sigKey(h)));
+  else if (dismissedKeys && dismissedKeys.size) items = items.filter(h => !dismissedKeys.has(sigKey(h)));
   if (filters.unread) {
     const readKeys = filters.readKeys instanceof Set ? filters.readKeys : null;
     if (readKeys) items = items.filter(h => !readKeys.has(sigKey(h)));
@@ -71,7 +91,7 @@ export function filterSignals(headlines, filters = {}, sortMode = 'relevance') {
 // ── Deep-link query ⇄ state. Parse is defensive: any unknown or malformed param
 // falls back to its default rather than throwing. ──
 export function parseWireQuery(search) {
-  const out = { horizon: 'all', critical: false, kev: false, unread: false, sort: 'relevance', q: '' };
+  const out = { horizon: 'all', critical: false, kev: false, unread: false, hidden: false, sort: 'relevance', q: '' };
   const s = typeof search === 'string' ? search : '';
   const query = s.startsWith('?') ? s.slice(1) : s;
   if (!query) return out;
@@ -82,6 +102,7 @@ export function parseWireQuery(search) {
   out.critical = params.get('critical') === '1';
   out.kev = params.get('kev') === '1';
   out.unread = params.get('unread') === '1';   // deep-linkable like critical/kev
+  out.hidden = params.get('hidden') === '1';
   const sort = params.get('sort');
   if (sort != null && VALID_SORTS.has(sort)) out.sort = sort;
   // Free-text query, trimmed and capped at 100 chars (a deep-link, not a payload).
@@ -96,6 +117,7 @@ export function serializeWireUrl(filters = {}, sortMode = 'relevance') {
   if (filters.critical) params.set('critical', '1');
   if (filters.kev) params.set('kev', '1');
   if (filters.unread) params.set('unread', '1');
+  if (filters.hidden) params.set('hidden', '1');
   if (sortMode && sortMode !== 'relevance') params.set('sort', sortMode);
   const q = typeof filters.q === 'string' ? filters.q.trim() : '';
   if (q) params.set('q', q);   // write the free-text filter so a searched view deep-links

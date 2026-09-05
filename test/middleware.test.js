@@ -55,6 +55,7 @@ function makeServer({
   app.post('/api/brief', (req, res) => res.json({ ok: true }));
   app.post('/api/refresh', (req, res) => res.json({ ok: true }));
   app.post('/api/settings', (req, res) => res.json({ ok: true }));
+  app.post('/api/settings/verify', (req, res) => res.json({ ok: true }));
   app.delete('/api/settings', (req, res) => res.json({ ok: true }));
   app.get('/nonce-probe', (req, res) => res.json({ nonce: res.locals.nonce }));
   return new Promise((resolve) => {
@@ -405,6 +406,22 @@ describe('contentTypeCheck — every state-changing /api/ POST requires applicat
   beforeEach(async () => { ctx = await makeServer({}); });
   afterEach(async () => { if (ctx?.server) await new Promise((r) => ctx.server.close(r)); });
 
+  test.each(['/api/brief', '/API/brief', '/aPi/refresh', '/API/settings/VERIFY'])('the composed guards reject simple cross-origin writes to %s', async path => {
+    const response = await fetch(`${ctx.base}${path}`, {
+      method: 'POST', headers: { Origin: 'https://attacker.example', 'Content-Type': 'text/plain' }, body: '{}',
+    });
+    expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('E010');
+    const sameOrigin = await fetch(`${ctx.base}${path}`, {
+      method: 'POST', headers: { Origin: ctx.base, 'Content-Type': 'text/plain' }, body: '{}',
+    });
+    expect(sameOrigin.status).toBe(415);
+    const valid = await fetch(`${ctx.base}${path}`, {
+      method: 'POST', headers: { Origin: ctx.base, 'Content-Type': 'application/json' }, body: '{}',
+    });
+    expect(valid.status).toBe(200);
+  });
+
   test('POST /api/settings without Content-Type is 415', async () => {
     const res = await fetch(`${ctx.base}/api/settings`, { method: 'POST', body: '{}' });
     expect(res.status).toBe(415);
@@ -474,6 +491,18 @@ describe('nonce — a fresh value on every request', () => {
     const body = await res.json();
     const csp = res.headers.get('content-security-policy');
     expect(csp).toContain(`'nonce-${body.nonce}'`);
+  });
+
+  test('HTTP loopback does not upgrade assets to an absent HTTPS listener even in production', async () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const response = await fetch(`${ctx.base}/nonce-probe`);
+      expect(response.headers.get('content-security-policy')).not.toContain('upgrade-insecure-requests');
+    } finally {
+      if (previous === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous;
+    }
   });
 });
 

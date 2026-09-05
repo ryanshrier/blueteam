@@ -17,6 +17,28 @@ async function caught(promise) {
 }
 
 describe('readSSEStream error classification', () => {
+  test('a replacement marker resets draft text before progress and later chunks', async () => {
+    const onText = jest.fn();
+    const onReset = jest.fn();
+    const onProgress = jest.fn();
+    const reader = {
+      read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(
+        'data: {"text":"Discarded full draft"}\n\n'
+        + 'data: {"reset":true,"progress":"Retrying","stage":"generating"}\n\n'
+        + 'data: {"text":"Replacement only"}\n\n'
+      ) }).mockRejectedValueOnce(new TypeError('connection lost')),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    };
+    await expect(readSSEStream(responseWithReader(reader), { onText, onReset, onProgress })).rejects.toMatchObject({
+      streamLost: true, accumulatedText: 'Replacement only',
+    });
+    expect(onReset).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith('Retrying', 'generating');
+    expect(onText.mock.calls).toEqual([
+      ['Discarded full draft', 'Discarded full draft'], ['Replacement only', 'Replacement only'],
+    ]);
+  });
+
   test('preserves a server-sent provider error instead of calling it a lost connection', async () => {
     const reader = {
       read: jest.fn().mockResolvedValueOnce({

@@ -57,13 +57,13 @@
     { "url": "https://labs.watchtowr.com/rss/", "source": "watchTowr Labs", "category": "vuln-research", "horizon": 1, "weight": 1.3, "deepExtract": true },
     { "url": "https://security.paloaltonetworks.com/rss.xml", "source": "Palo Alto Security Advisories", "category": "vendor-advisory", "horizon": 1, "weight": 1.4 },
 
-    { "url": "https://cyberscoop.com/feed/", "source": "CyberScoop", "category": "cyber-policy", "horizon": 2, "weight": 1.0 },
-    { "url": "https://www.schneier.com/feed/", "source": "Schneier on Security", "category": "security-analysis", "horizon": 2, "weight": 1.4, "deepExtract": true },
+    { "url": "https://cyberscoop.com/feed/", "source": "CyberScoop", "category": "cyber-policy", "horizon": 3, "weight": 1.0 },
+    { "url": "https://www.schneier.com/feed/", "source": "Schneier on Security", "category": "security-analysis", "horizon": 3, "weight": 1.4, "deepExtract": true },
     { "url": "https://www.theregister.com/security/headlines.atom", "source": "The Register", "category": "enterprise-tech", "horizon": 2, "weight": 1.0 },
     { "url": "https://unit42.paloaltonetworks.com/feed/", "source": "Unit 42", "category": "threat-research", "horizon": 2, "weight": 1.2, "deepExtract": true },
     { "url": "https://www.crowdstrike.com/blog/feed/", "source": "CrowdStrike Research", "category": "vendor-research", "horizon": 2, "weight": 1.2 },
     { "url": "https://www.sentinelone.com/labs/feed/", "source": "SentinelLABS", "category": "threat-research", "horizon": 2, "weight": 1.1 },
-    { "url": "https://www.nist.gov/blogs/cybersecurity-insights/rss.xml", "source": "NIST Cybersecurity", "category": "standards", "horizon": 2, "weight": 1.1 },
+    { "url": "https://www.nist.gov/blogs/cybersecurity-insights/rss.xml", "source": "NIST Cybersecurity", "category": "standards", "horizon": 3, "weight": 1.1 },
     { "url": "https://research.checkpoint.com/feed/", "source": "Check Point Research", "category": "threat-research", "horizon": 2, "weight": 1.2, "deepExtract": true },
 
     { "url": "https://projectzero.google/feed.xml", "source": "Google Project Zero", "category": "vuln-research", "horizon": 2, "weight": 1.3 },
@@ -103,7 +103,7 @@
     "maxCVEEnrichments": 8,
     "headlineArchiveDays": 14,
     "generationTimeoutSec": 300,
-    "thinkingEffort": "medium",
+    "thinkingEffort": "low",
     "horizonWeights": {
       "horizon1": 0.45,
       "horizon2": 0.4,

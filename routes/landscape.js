@@ -2,7 +2,7 @@
 
 import { Router } from 'express';
 import { createHash } from 'crypto';
-import { readFileSync, readdirSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join } from 'path';
 import { buildLandscape, pipelineStaleAfterMs } from '../lib/landscape.js';
 import { getKEVDueDates, getBriefMeta } from '../lib/db.js';
@@ -10,10 +10,13 @@ import { getLatestRun, refreshNow, getRunAgeMs } from '../lib/refresher.js';
 import { parseBluf, parseSignalTitles } from '../lib/brief-schema.js';
 import { getConfig, getConfigVersion, getHorizonName } from '../lib/config.js';
 import { getDomainPack, getBrief } from '../lib/domain.js';
-import { briefDateFromFilename } from '../lib/history.js';
+import { briefDateFromFilename, listBriefEditions } from '../lib/history.js';
 import { log } from '../lib/logger.js';
 import { PUBLIC_APP_NAME } from '../lib/identity.js';
 import { normalizePublicBaseUrl, requestBaseUrl } from '../lib/public-url.js';
+import { getSourceEvidence } from '../lib/evidence.js';
+import { getEffectiveWatchProfile } from '../lib/user-settings.js';
+import { evaluateApplicability } from '../lib/watch-profile.js';
 
 // How many top-scored signals each feed publishes by default, and the hard cap
 // a caller's own ?limit= may not exceed.
@@ -89,17 +92,15 @@ export function normalizeScoreComponents(sc) {
 
 function loadLatestBriefSummary(historyDir) {
   try {
-    const files = readdirSync(historyDir)
-      .filter(f => f.startsWith('brief-') && f.endsWith('.md'))
-      .sort().reverse();
-    if (files.length === 0) return null;
-
-    const filename = files[0];
+    const edition = listBriefEditions(historyDir, { getMeta: getBriefMeta, limit: 1 })[0];
+    if (!edition) return null;
+    const { filename } = edition;
     const content = readFileSync(join(historyDir, filename), 'utf-8');
     return {
       filename,
       revision: createHash('sha256').update(content).digest('hex'),
       date: briefDateFromFilename(filename),
+      generatedAt: edition.generatedAt,
       bluf: parseBluf(content),
       judgments: parseSignalTitles(content).slice(0, 6),
     };
@@ -175,7 +176,7 @@ export function _resetLandscapeMemoForTests() {
   landscapeMemo = null;
 }
 
-export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = null }) {
+export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = null, loopback = false }) {
   const router = Router();
   const canonicalPublicBaseUrl = normalizePublicBaseUrl(publicBaseUrl);
 
@@ -208,13 +209,32 @@ export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = nu
     }
   });
 
+  // Retained public reporting uses the same API access boundary as Wire.
+  // Missing/pruned evidence is explicit; no publisher fetch happens on a read.
+  router.get('/evidence/:sourceId', (req, res) => {
+    if (!/^src_[a-f0-9]{64}$/.test(req.params.sourceId)) {
+      return res.status(400).json({ error: 'Invalid source identity', code: 'E_EVIDENCE_ID' });
+    }
+    try {
+      const evidence = getSourceEvidence(req.params.sourceId);
+      if (!evidence) return res.status(404).json({ error: 'Source evidence is unavailable or outside retention', code: 'E_EVIDENCE_MISSING' });
+      res.set('Cache-Control', 'no-store').json(evidence);
+    } catch (err) {
+      log.warn('evidence', `Evidence read failed: ${err.message}`);
+      res.status(503).json({ error: 'Evidence storage is unavailable', code: 'E_EVIDENCE_UNAVAILABLE' });
+    }
+  });
+
   // ── GET /headlines — scored headlines for the wire view ──
   router.get('/headlines', (req, res) => {
+    res.vary('Authorization');
     const run = getLatestRun();
     if (!run) {
       return res.json({ generatedAt: null, ageSeconds: null, headlines: [] });
     }
     const headlines = run.headlines || [];
+    const profile = loopback || res.locals.authenticated === true ? getEffectiveWatchProfile(getConfig()) : null;
+    if (profile) res.set('Cache-Control', 'private, no-store');
 
     // One batched join of kev_cache.due_date for every KEV CVE in the run,
     // rather than a lookup per row. Tolerate a not-ready DB (empty map).
@@ -254,6 +274,8 @@ export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = nu
           originalHorizon: h.originalHorizon || null,
           alertMatched: Boolean(h.alertMatched),
           sources: h.sources || null,
+          evidence: h.evidence || [],
+          ...(profile ? { applicability: evaluateApplicability(h, profile) } : {}),
         };
       }),
     });
@@ -369,20 +391,16 @@ export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = nu
   router.get('/briefs.xml', (req, res) => {
     try {
       const base = baseUrl(req, canonicalPublicBaseUrl);
-      const files = readdirSync(historyDir)
-        .filter(f => f.startsWith('brief-') && f.endsWith('.md'))
-        .sort().reverse().slice(0, 30);
+      const editions = listBriefEditions(historyDir, { getMeta: getBriefMeta, limit: 30 });
 
-      const entries = files.map(filename => {
-        const date = briefDateFromFilename(filename);
-        const meta = getBriefMeta(filename);
+      const entries = editions.map(({ filename, date, meta, generatedAt }) => {
         let bluf = meta?.bluf || '';
         if (!bluf) {
           // Legacy brief that predates the meta table — same fallback /briefs uses.
           try { bluf = parseBluf(readFileSync(join(historyDir, filename), 'utf-8')) || ''; } catch { /* skip */ }
         }
         const link = `${base}/briefing/${encodeURIComponent(filename)}`;
-        const pubDate = !Number.isNaN(Date.parse(date)) ? new Date(date).toUTCString() : null;
+        const pubDate = new Date(generatedAt).toUTCString();
         return [
           '    <item>',
           `      <title>${PUBLIC_APP_NAME} Briefing — ${escapeXml(date)}</title>`,
@@ -394,8 +412,8 @@ export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = nu
         ].filter(Boolean).join('\n');
       }).join('\n');
 
-      const latestDate = files.length ? briefDateFromFilename(files[0]) : null;
-      const updated = latestDate && !Number.isNaN(Date.parse(latestDate))
+      const latestDate = editions[0]?.generatedAt;
+      const updated = latestDate
         ? new Date(latestDate).toUTCString()
         : new Date().toUTCString();
 

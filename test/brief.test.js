@@ -23,8 +23,10 @@ import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { CISA_KEV_CATALOG_URL } from '../lib/grounding.js';
+import { listBriefEditions as realListBriefEditions, saveBrief as realSaveBrief } from '../lib/history.js';
 import { createBriefGenerationTracker } from '../lib/brief-lifecycle.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
+import { generationManifestFilename, sha256 } from '../lib/generation-manifest.js';
 
 const getConfigMock = jest.fn();
 const getFreshRunMock = jest.fn();
@@ -43,6 +45,8 @@ const getKEVDueDatesMock = jest.fn(() => ({}));
 const getScheduledBriefJobMock = jest.fn(() => null);
 const completeScheduledBriefJobMock = jest.fn();
 const dispatchBriefWebhookMock = jest.fn(() => Promise.resolve());
+const generationMetadata = new Map();
+const setMetaMock = jest.fn((key, value) => generationMetadata.set(key, value));
 
 jest.unstable_mockModule('../lib/config.js', () => ({
   getConfig: getConfigMock,
@@ -54,6 +58,7 @@ jest.unstable_mockModule('../lib/refresher.js', () => ({
 jest.unstable_mockModule('../lib/history.js', () => ({
   saveBrief: saveBriefMock,
   loadRecentBriefs: loadRecentBriefsMock,
+  listBriefEditions: realListBriefEditions,
   extractContinuityContext: extractContinuityContextMock,
   extractBluf: extractBlufMock,
   localDateISO: (d = new Date()) => new Date(d).toISOString().slice(0, 10),
@@ -70,6 +75,8 @@ jest.unstable_mockModule('../lib/history.js', () => ({
   },
 }));
 jest.unstable_mockModule('../lib/db.js', () => ({
+  getMeta: key => generationMetadata.get(key) ?? null,
+  setMeta: setMetaMock,
   saveBriefMeta: saveBriefMetaMock,
   getBriefMeta: getBriefMetaMock,
   indexBrief: indexBriefMock,
@@ -104,21 +111,31 @@ One sharp judgment about today's landscape that fits comfortably under budget.
 
 ## EXECUTIVE SUMMARY
 
-- A high-level bullet for leadership.
+- **Threat:** The reported change needs review.
+- **Exposure:** Applicability is unknown pending inventory checks.
+- **Required decisions:** Operations — verify applicability — recommended target July 3, 2026.
 
 ## KEY JUDGMENTS
 
 ### Signal 1 — [Horizon 1] Something happened
 **Assessment:** It matters to the floor today.
 **Confidence:** Likely (55-80%) — reported by one source.
+**What happened:** The source reports a change. [Feed A, date unavailable]
+**Defender impact:** Check applicability before changing systems.
+**Recommended actions:**
+- Operations — verify applicability — recommended target July 3, 2026.
 **The line:** A sharp line a manager can repeat verbatim.
-**Decision window:** This week.
+**Decision window:** 7 days.
 
 ### Signal 2 — [Horizon 2] Something else happened
 **Assessment:** It matters operationally.
 **Confidence:** Likely (55-80%) — reported by one source.
+**What happened:** The source reports a change. [Feed A, date unavailable]
+**Defender impact:** Check applicability before changing systems.
+**Recommended actions:**
+- Operations — verify applicability — recommended target July 3, 2026.
 **The line:** Another sharp line.
-**Decision window:** Next 30 days.
+**Decision window:** 30 days.
 
 ---
 
@@ -126,6 +143,7 @@ One sharp judgment about today's landscape that fits comfortably under budget.
 
 ### Two things intersect
 **The intersection:** Where they meet, named in plain prose.
+**The cascade:** If exposure continues, delayed review extends risk.
 **The move:** Observe the trend for another cycle.
 
 ---
@@ -210,9 +228,12 @@ function makeServer({
   localPort = 3000,
   scheduledJobToken = '',
   trackGeneration,
+  loopback = true,
+  authenticated = false,
 } = {}) {
   const app = express();
   app.use(express.json());
+  app.use((req, res, next) => { res.locals.authenticated = authenticated; next(); });
   const cooldown = { check: cooldownCheck };
   app.use('/api', createBriefRouter({
     getAnthropic,
@@ -223,6 +244,7 @@ function makeServer({
     localPort,
     scheduledJobToken,
     trackGeneration,
+    loopback,
   }));
   return new Promise((resolve) => {
     const server = app.listen(0, '127.0.0.1', () => {
@@ -241,6 +263,8 @@ async function readSSE(res) {
 }
 
 beforeEach(() => {
+  generationMetadata.clear();
+  setMetaMock.mockReset().mockImplementation((key, value) => generationMetadata.set(key, value));
   getConfigMock.mockReset().mockReturnValue({ analysisSettings: {}, horizons: {}, organization: {} });
   getFreshRunMock.mockReset().mockResolvedValue({ headlines: [{ title: 'A headline', horizon: 1, source: 'Feed A' }], stats: { enriched: 1 } });
   saveBriefMock.mockReset().mockReturnValue('brief-2026-07-02.md');
@@ -256,6 +280,60 @@ beforeEach(() => {
 describe('POST /api/brief — happy path SSE framing', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test('fails before any paid provider call when initial accounting cannot be saved', async () => {
+    setMetaMock.mockImplementation(() => { throw new Error('read-only disk'); });
+    const stream = jest.fn(textStream(GOOD_BRIEF));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.find(event => event.error)?.code).toBe('E_GENERATION_LEDGER');
+    expect(stream).not.toHaveBeenCalled();
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    const response = await fetch(`${ctx.base}/api/brief/status`);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ persistence: 'error', active: false });
+  });
+
+  test('aborts provider work on a usage-checkpoint failure and does not retry', async () => {
+    let writes = 0;
+    setMetaMock.mockImplementation((key, value) => {
+      if (++writes >= 3) throw new Error('disk full');
+      generationMetadata.set(key, value);
+    });
+    const abort = jest.fn();
+    const stream = jest.fn(async () => ({
+      controller: { abort },
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'message_start', message: { usage: { input_tokens: 100, output_tokens: 0 } } };
+        yield { type: 'content_block_delta', delta: { text: GOOD_BRIEF } };
+      },
+    }));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.find(event => event.error)?.code).toBe('E_GENERATION_LEDGER');
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(abort).toHaveBeenCalled();
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    expect((await (await fetch(`${ctx.base}/api/brief/status`)).json()).latest.status).toBe('interrupted');
+  });
+
+  test('recovers a saved edition from its verified receipt if the final accounting update fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'brief-ledger-recovery-'));
+    saveBriefMock.mockImplementation(realSaveBrief);
+    setMetaMock.mockImplementation((key, value) => {
+      if (JSON.parse(value).jobs.at(-1).status === 'complete') throw new Error('ledger write failed');
+      generationMetadata.set(key, value);
+    });
+    try {
+      ctx = await makeServer({ getAnthropic: () => fakeAnthropic(textStream(GOOD_BRIEF)), historyDir: dir });
+      const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      const completed = events.find(event => event.briefComplete);
+      expect(completed).toBeTruthy();
+      expect(completed.validation.warnings.join(' ')).toMatch(/accounting could not be updated/);
+      const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+      expect(status).toMatchObject({ persistence: 'error', latest: { status: 'complete', filename: completed.filename, recoveredFromArchive: true } });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
 
   test('emits progress events then a briefComplete payload with the full brief', async () => {
     ctx = await makeServer({ getAnthropic: () => fakeAnthropic(textStream(GOOD_BRIEF)) });
@@ -425,10 +503,11 @@ describe('POST /api/brief - scheduled job idempotency and edition context', () =
       filename: 'brief-2026-07-02-00.md',
       jobKey: 'daily-brief:2026-07-02',
     });
-    expect(saveBriefMock).toHaveBeenCalledWith('/fake/history', GOOD_BRIEF, {
+    expect(saveBriefMock).toHaveBeenCalledWith('/fake/history', GOOD_BRIEF, expect.objectContaining({
       date: '2026-07-02',
       scheduled: true,
-    });
+      manifest: expect.objectContaining({ schemaVersion: 1, generationId: expect.any(String) }),
+    }));
     expect(saveBriefMetaMock).toHaveBeenCalledWith(expect.objectContaining({ date: '2026-07-02' }));
     expect(completeScheduledBriefJobMock).toHaveBeenCalledWith(expect.objectContaining({
       jobKey: 'daily-brief:2026-07-02',
@@ -442,6 +521,34 @@ describe('POST /api/brief - scheduled job idempotency and edition context', () =
 describe('POST /api/brief — model fallback', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test('prices billable discarded preferred-model tokens separately from fallback tokens', async () => {
+    const anthropic = fakeAnthropic(async params => {
+      if (params.model !== 'claude-sonnet-5') return textStream(GOOD_BRIEF)();
+      return {
+        controller: { abort() {} },
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'message_start', message: { usage: { input_tokens: 1000, output_tokens: 0 } } };
+          yield { type: 'content_block_delta', delta: { text: 'Discarded draft content' } };
+          yield { type: 'message_delta', usage: { output_tokens: 1000 } };
+          const error = new Error('Overloaded');
+          error.status = 529;
+          throw error;
+        },
+      };
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(complete?.costUsd).toBeCloseTo(0.012 + 0.0011, 8);
+    expect(complete?.tokens).toBe(2300);
+    const resetIndex = events.findIndex(event => event.reset === true);
+    expect(resetIndex).toBeGreaterThan(events.findIndex(event => event.text === 'Discarded draft content'));
+    expect(resetIndex).toBeLessThan(events.findIndex(event => event.briefComplete));
+    const manifest = saveBriefMock.mock.calls[0][2].manifest;
+    expect(manifest.providerAttempts.map(attempt => attempt.costUsd)).toEqual([0.012, 0.0011]);
+    expect(manifest.costEstimate.usd).toBeCloseTo(complete.costUsd, 8);
+  });
 
   test('a 529 on the preferred model falls back to the configured fallback model and still completes', async () => {
     getConfigMock.mockReturnValue({
@@ -505,6 +612,7 @@ describe('POST /api/brief — secondary-key rotation on auth failure', () => {
     const events = await readSSE(res);
     const complete = events.find(e => e.briefComplete);
     expect(rotateCalls).toBe(1);
+    expect(events.filter(event => event.reset === true)).toHaveLength(1);
     expect(complete).toBeTruthy();
     expect(complete.model).toBe('claude-sonnet-5'); // same model, new key
     expect(complete.text).toContain('THREAT LANDSCAPE BRIEFING');
@@ -653,10 +761,11 @@ describe('POST /api/brief — corrective retry recovery', () => {
 
     expect(calls).toBe(2);
     expect(attempts).toEqual([
-      { maxTokens: 16000, thinking: { type: 'adaptive' }, effort: 'medium' },
       { maxTokens: 16000, thinking: { type: 'adaptive' }, effort: 'low' },
+      { maxTokens: 16000, thinking: { type: 'disabled' }, effort: undefined },
     ]);
     expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
+    expect(events.find(event => event.progress?.includes('reducing thinking effort'))?.reset).toBe(true);
     expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
     expect(saveBriefMock).toHaveBeenCalledWith(
       '/fake/history',
@@ -690,8 +799,8 @@ describe('POST /api/brief — output-token publication gate', () => {
 
     expect(calls).toBe(2);
     expect(attempts).toEqual([
-      { maxTokens: 16000, effort: 'medium', messageCount: 1 },
       { maxTokens: 16000, effort: 'low', messageCount: 1 },
+      { maxTokens: 16000, effort: undefined, messageCount: 1 },
     ]);
     expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
     expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
@@ -720,8 +829,8 @@ describe('POST /api/brief — output-token publication gate', () => {
 
     expect(calls).toBe(2);
     expect(attempts).toEqual([
-      { effort: 'medium', messageCount: 1 },
       { effort: 'low', messageCount: 1 },
+      { effort: undefined, messageCount: 1 },
     ]);
     expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
     expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
@@ -763,6 +872,63 @@ describe('POST /api/brief — output-token publication gate', () => {
 describe('POST /api/brief — grounding publication gate', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test.each([false, true])('uses captured KEV dates through corrective retry (corrected: %s)', async corrected => {
+    const cves = ['CVE-2026-83548', 'CVE-2026-83549'];
+    getKEVSetMock.mockReturnValue(new Set(cves));
+    getKEVDueDatesMock.mockReturnValue(Object.fromEntries(cves.map(cve => [cve, {
+      date_added: '2026-09-02', due_date: '2026-09-05',
+    }])));
+    const claim = 'CVE-2026-83548 and CVE-2026-83549 are in CISA KEV; both have FCEB remediation due September 16, 2026.';
+    getFreshRunMock.mockResolvedValue({ headlines: [{ title: cves.join(' and '), source: 'Feed A', description: claim, horizon: 1 }], stats: { enriched: 1 } });
+    const wrong = GOOD_BRIEF.replace('The source reports a change.', claim);
+    const correct = wrong.replace('September 16, 2026', 'September 5, 2026');
+    const requests = [];
+    const stream = jest.fn(async params => {
+      requests.push(params);
+      // A refresh while the provider runs must not change this edition's facts.
+      getKEVDueDatesMock.mockReturnValue(Object.fromEntries(cves.map(cve => [cve, {
+        date_added: '2026-09-02', due_date: '2026-09-16',
+      }])));
+      return textStream(requests.length === 2 && corrected ? correct : wrong)();
+    });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(requests[0].messages)).toContain('FCEB remediation due 2026-09-05');
+    expect(JSON.stringify(requests[1].messages)).toContain('contradicts the captured CISA KEV date 2026-09-05');
+    if (corrected) {
+      expect(events.find(event => event.briefComplete)?.text).toBe(correct);
+      const manifest = saveBriefMock.mock.calls[0][2].manifest;
+      expect(manifest.verification.kevTiming).toEqual(Object.fromEntries(cves.map(cve => [cve, {
+        dateAdded: '2026-09-02', dueDate: '2026-09-05', scope: 'FCEB', precision: 'day',
+      }])));
+    } else {
+      const blocked = events.find(event => event.code === 'E006');
+      expect(blocked.validation.trustFail).toBe(true);
+      expect(blocked.validation.warnings.filter(warning => warning.includes('FCEB remediation deadline'))).toHaveLength(2);
+      expect(events.some(event => event.briefComplete)).toBe(false);
+      expect(saveBriefMock).not.toHaveBeenCalled();
+      expect(indexBriefMock).not.toHaveBeenCalled();
+      expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+    }
+  });
+
+  test.each([
+    ['missing judgment evidence', GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', '')],
+    ['incomplete decision product', '# Brief\n## BLUF\nCheck exposure.\n## KEY JUDGMENTS\n### Signal 1\nCheck.\n## WATCHLIST\n- One\n- Two\n- Three\n- Four\n- Five\n'],
+  ])('never publishes %s after the corrective retry also fails', async (_label, text) => {
+    const stream = jest.fn(textStream(text));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(events.some(event => event.briefComplete)).toBe(false);
+    expect(events.find(event => event.error)?.error).toMatch(/not published/i);
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    expect(indexBriefMock).not.toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+    expect(completeScheduledBriefJobMock).not.toHaveBeenCalled();
+  });
 
   test('retries an ungrounded CVE once, publishes the corrected draft, and accounts for both calls', async () => {
     const firstDraft = GOOD_BRIEF + '\n\nCVE-2099-99999 requires immediate remediation.';
@@ -811,7 +977,7 @@ describe('POST /api/brief — grounding publication gate', () => {
   test('de-links the blank-link ColdFusion citation without spending a retry', async () => {
     const f = BRIEF_GROUNDING_REGRESSION;
     getFreshRunMock.mockResolvedValue({ headlines: [f.coldFusionHeadline], stats: { enriched: 1 } });
-    const linkedDraft = GOOD_BRIEF + `\n\n[Help Net Security, July 7](${f.inventedColdFusionUrl})`;
+    const linkedDraft = GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', '[Help Net Security, July 7, 2026]') + `\n\n[Help Net Security, July 7](${f.inventedColdFusionUrl})`;
     let calls = 0;
     const anthropic = fakeAnthropic(async () => {
       calls++;
@@ -837,7 +1003,7 @@ describe('POST /api/brief — grounding publication gate', () => {
       stats: { enriched: 1 },
     });
     getKEVSetMock.mockReturnValue(new Set(['CVE-2026-10520']));
-    const draft = GOOD_BRIEF + `\n\n[CISA KEV catalog](${CISA_KEV_CATALOG_URL})`;
+    const draft = GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', '[Vendor, date unavailable]') + `\n\n[CISA KEV catalog](${CISA_KEV_CATALOG_URL})`;
     ctx = await makeServer({ getAnthropic: () => fakeAnthropic(textStream(draft)) });
 
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
@@ -878,7 +1044,7 @@ describe('POST /api/brief — grounding publication gate', () => {
       headlines: [{ source: 'Feed', title: 'Source story', horizon: 1, link: 'https://example.com/allowed' }],
       stats: { enriched: 1 },
     });
-    const draft = GOOD_BRIEF + '\n\n<a href="https://example.com/allowed">Allowed source label</a>';
+    const draft = GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', '[Feed, date unavailable](https://example.com/allowed)') + '\n\n<a href="https://example.com/allowed">Allowed source label</a>';
     let calls = 0;
     const anthropic = fakeAnthropic(async () => {
       calls++;
@@ -901,7 +1067,7 @@ describe('POST /api/brief — grounding publication gate', () => {
       stats: { enriched: 1 },
     });
     getKEVSetMock.mockReturnValue(new Set(['CVE-2026-9999']));
-    const draft = GOOD_BRIEF + `\n- CISA adds ${cve} to KEV.`;
+    const draft = GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', '[Vendor, date unavailable]') + `\n- CISA adds ${cve} to KEV.`;
     let calls = 0;
     const anthropic = fakeAnthropic(async () => {
       calls++;
@@ -947,7 +1113,10 @@ describe('POST /api/brief — no API key / cooldown / in-flight lock', () => {
     const res = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
     expect(res.status).toBe(429);
     expect(res.headers.get('retry-after')).toBe('15');
-    expect((await res.json()).code).toBe('E_GENERATION_COOLDOWN');
+    expect(await res.json()).toMatchObject({
+      code: 'E_GENERATION_COOLDOWN',
+      error: 'A Briefing request was started recently. Wait before starting another.',
+    });
   });
 
   // A real in-flight lock, not just the 15s cooldown timestamp gate: a
@@ -1160,9 +1329,9 @@ describe('safeErrorMsg — redaction', () => {
 });
 
 describe('estimateCostUsd / supportsAdaptiveThinking — pure units', () => {
-  test('date-gates Sonnet 5 introductory pricing and uses exact current Haiku pricing', () => {
+  test('keeps Sonnet 5 permanent pricing and uses exact current Haiku pricing', () => {
     expect(estimateCostUsd('claude-sonnet-5', 1_000_000, 1_000_000, new Date('2026-08-31T12:00:00Z'))).toBeCloseTo(12);
-    expect(estimateCostUsd('claude-sonnet-5', 1_000_000, 1_000_000, new Date('2026-09-01T00:00:00Z'))).toBeCloseTo(18);
+    expect(estimateCostUsd('claude-sonnet-5', 1_000_000, 1_000_000, new Date('2026-09-01T00:00:00Z'))).toBeCloseTo(12);
     expect(estimateCostUsd('claude-haiku-4-5', 1_000_000, 1_000_000)).toBeCloseTo(6);
   });
 
@@ -1269,5 +1438,107 @@ describe('buildGroundTruth — KEV ground-truth facts', () => {
   test('a getKEVSet throw degrades to no ground-truth block rather than crashing generation', () => {
     getKEVSetMock.mockImplementation(() => { throw new Error('db locked'); });
     expect(() => buildGroundTruth({})).not.toThrow();
+  });
+});
+
+describe('generation manifests — publication and trusted retrieval', () => {
+  let ctx;
+  let dir;
+  afterEach(async () => {
+    if (ctx?.server) await new Promise(resolve => ctx.server.close(resolve));
+    ctx = null;
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  function savedFixture() {
+    dir = mkdtempSync(join(tmpdir(), 'blueteam-manifest-route-'));
+    const filename = 'brief-2026-09-05-01.md';
+    writeFileSync(join(dir, filename), GOOD_BRIEF);
+    const manifest = { schemaVersion: 1, generationId: 'test-generation', filename, outputSha256: sha256(GOOD_BRIEF), promptWatchProfile: { technologies: ['Fortinet'] } };
+    writeFileSync(join(dir, generationManifestFilename(filename)), JSON.stringify(manifest));
+    return { filename, manifest };
+  }
+
+  test.each([{ loopback: true, authenticated: false }, { loopback: false, authenticated: true }])('serves a matching receipt to a trusted caller %j', async trust => {
+    const { filename, manifest } = savedFixture();
+    ctx = await makeServer({ historyDir: dir, ...trust });
+    const response = await fetch(`${ctx.base}/api/brief/${filename}/manifest`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(await response.json()).toEqual(manifest);
+    const detail = await fetch(`${ctx.base}/api/brief/${filename}`).then(response => response.json());
+    expect(detail.inputManifest).toEqual({ status: 'available', url: `/api/brief/${filename}/manifest` });
+  });
+
+  test('does not disclose a local watch profile on an unauthenticated network deployment', async () => {
+    const { filename } = savedFixture();
+    ctx = await makeServer({ historyDir: dir, loopback: false });
+    const response = await fetch(`${ctx.base}/api/brief/${filename}/manifest`);
+    expect(response.status).toBe(403);
+    expect(await response.text()).not.toContain('Fortinet');
+  });
+
+  test('legacy editions return explicit unavailable status rather than fabricated lineage', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'blueteam-legacy-manifest-'));
+    const filename = 'brief-2026-09-04.md';
+    writeFileSync(join(dir, filename), GOOD_BRIEF);
+    ctx = await makeServer({ historyDir: dir });
+    const response = await fetch(`${ctx.base}/api/brief/${filename}/manifest`);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ code: 'E_MANIFEST_UNAVAILABLE' });
+    const detail = await fetch(`${ctx.base}/api/brief/${filename}`).then(response => response.json());
+    expect(detail.inputManifest.status).toBe('unavailable');
+  });
+
+  test.each(['..%2Fconfig.json', '..%5Csettings.local.json', 'brief-2026-09-05.md%2F..%2Fconfig.json'])('rejects traversal %s without exposing filesystem details', async path => {
+    savedFixture();
+    ctx = await makeServer({ historyDir: dir });
+    const response = await fetch(`${ctx.base}/api/brief/${path}/manifest`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Invalid filename' });
+  });
+
+  test('a corrupt or mismatched receipt fails closed with a path-free diagnostic', async () => {
+    const { filename } = savedFixture();
+    writeFileSync(join(dir, filename), 'Edited after publication');
+    ctx = await makeServer({ historyDir: dir });
+    const response = await fetch(`${ctx.base}/api/brief/${filename}/manifest`);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'Input manifest could not be verified.', code: 'E_MANIFEST_INVALID' });
+  });
+
+  test('a manifest publication error cannot emit completion, schedule completion, indexing, or a webhook', async () => {
+    saveBriefMock.mockImplementation(() => { throw Object.assign(new Error('write failed C:\\private\\briefs'), { code: 'ENOSPC' }); });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(textStream(GOOD_BRIEF)), scheduledJobToken: 'private-scheduler-token' });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-blueteam-scheduled-token': 'private-scheduler-token' },
+      body: JSON.stringify({ scheduledJob: { jobKey: 'daily-brief:2026-07-02', editionDate: '2026-07-02', timezone: 'local' } }),
+    }));
+    expect(events.some(event => event.briefComplete)).toBe(false);
+    expect(events.find(event => event.error)).toMatchObject({ code: 'ENOSPC', error: 'Generation failed — see server logs' });
+    expect(completeScheduledBriefJobMock).not.toHaveBeenCalled();
+    expect(indexBriefMock).not.toHaveBeenCalled();
+    expect(saveBriefMetaMock).not.toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+  });
+
+  test('captures original and corrective request fingerprints with validation history', async () => {
+    let calls = 0;
+    const requests = [];
+    const anthropic = fakeAnthropic(async params => {
+      requests.push(JSON.parse(JSON.stringify(params)));
+      calls++;
+      return textStream(calls === 1 ? GOOD_BRIEF + '\nCVE-2099-99999 is affected.' : GOOD_BRIEF)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.some(event => event.briefComplete)).toBe(true);
+    const manifest = saveBriefMock.mock.calls[0][2].manifest;
+    expect(manifest.providerAttempts).toHaveLength(2);
+    expect(manifest.providerAttempts.map(attempt => attempt.messagesSha256)).toEqual(requests.map(params => sha256(JSON.stringify(params.messages))));
+    expect(manifest.validation.length).toBeGreaterThanOrEqual(2);
+    expect(manifest.publicationValidation).toMatchObject({ hardFail: false, trustFail: false, partial: false });
+    expect(manifest.selectedEvidence[0].title).toBe('A headline');
   });
 });

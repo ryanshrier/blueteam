@@ -4,17 +4,95 @@ import { getState, setState, on, emit } from '../core/store.js';
 import { escapeHtml, sanitizeSearchSnippet } from '../core/sanitize.js';
 import { renderDraftMarkdown, renderMarkdown } from '../core/markdown.js';
 import { showToast } from '../core/toast.js';
-import { applySemanticStyling, extractSections } from './brief-renderer.js';
+import { applySemanticStyling, extractSections, decisionCardContent, decisionCopyText } from './brief-renderer.js';
 import { exportBriefNewspaper } from './brief-export.js';
+import { mountGenerationStatus } from './generation-status.js';
 import { fetchBriefs, fetchBrief, searchBriefs, fetchSettings } from '../core/api.js';
 import { navigate, resolveLocation } from '../core/router.js';
+import { formatBriefLabel, formatBriefPublication, archivePublishedAt } from '../core/brief-date.js';
 
 let initialized = false;
 let contentRenderToken = 0;
+let showingGeneration = false; // only the action route owns stream/completion paints
 let aiEnabled = true; // refreshed from /api/settings; gates the no-key guided path
+let aiKnown = false;
+let settingsLoading = false;
+let settingsRequest = 0;
 let settingsReady = Promise.resolve(); // resolves once aiEnabled is known, so the cold-start empty state never races to the wrong CTA
 let searchTimer = null; // module-scoped so route changes/unmount can cancel a pending archive search
 let recoveredBriefTimer = null; // a recovered generation must never pull the operator away after leaving Briefing
+let generationStatus = null;
+
+export function briefGenerateModel({ enabled, known, loading, generating }) {
+  if (generating) return { label: 'Generating…', disabled: true, action: '' };
+  if (loading) return { label: 'Checking AI availability…', disabled: true, action: '' };
+  if (!known) return { label: 'Check AI settings', disabled: false, action: 'settings' };
+  return enabled
+    ? { label: 'Generate briefing', disabled: false, action: 'generate' }
+    : { label: 'Enable AI in Settings', disabled: false, action: 'settings' };
+}
+
+function generationControlState() {
+  return briefGenerateModel({ enabled: aiEnabled, known: aiKnown, loading: settingsLoading, generating: getState().isGenerating });
+}
+
+function reflectBriefGenerate() {
+  const button = document.getElementById('briefGenerate');
+  if (!button) return;
+  const state = generationControlState();
+  button.textContent = state.label;
+  button.disabled = state.disabled;
+  const helper = document.getElementById('briefGenerateInput');
+  if (helper) helper.textContent = state.action === 'settings'
+    ? 'Configure AI access in Settings to generate a briefing.'
+    : 'Input: latest collected signals';
+  reflectDocumentActions();
+}
+
+function reflectDocumentActions() {
+  const content = document.getElementById('briefContent');
+  const { currentBrief, isGenerating } = getState();
+  const ready = isBriefReadyForExport(content, currentBrief, isGenerating);
+  const print = document.getElementById('briefExport');
+  if (print) print.disabled = !ready;
+  const copy = document.getElementById('briefCopyLink');
+  if (copy) copy.disabled = !ready || !currentBrief?.filename;
+}
+
+function leaveDocument(content) {
+  if (content._streamTimer) { clearTimeout(content._streamTimer); content._streamTimer = null; }
+  content._validatedBriefContent = null;
+  const toc = document.getElementById('briefToc');
+  if (toc) toc.innerHTML = '';
+  tocObserver?.disconnect();
+  tocScrollCleanup?.();
+  tocScrollCleanup = null;
+  tocBreakpointCleanup?.();
+  tocBreakpointCleanup = null;
+  for (const id of ['briefMeta', 'briefInputManifest']) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '';
+  }
+  reflectDocumentActions();
+}
+
+function renderLoadError(content, data) {
+  leaveDocument(content);
+  content.removeAttribute('aria-busy');
+  content.innerHTML = `<div class="error-message brief-load-error" role="alert">
+    <h2>Briefing could not load</h2>
+    <p>The saved edition is unavailable right now. Retry to request it again.</p>
+    <button type="button" class="btn-ghost" id="briefLoadRetry">Retry loading</button>
+  </div>`;
+  document.getElementById('briefLoadRetry')?.addEventListener('click', () => handleRoute(data));
+}
+
+function requestBriefGeneration() {
+  const state = generationControlState();
+  if (state.disabled) return;
+  if (state.action === 'settings') navigate('/settings');
+  else if (state.action === 'generate') emit('generate-brief');
+}
 
 /** Normalize the string and object forms accepted by the generation-error event. */
 export function generationFailureModel(payload) {
@@ -32,6 +110,26 @@ export function generationFailureModel(payload) {
   };
 }
 
+/** Keep local collection/request failures distinct from provider failures. */
+export function generationErrorMessage({ message, code }) {
+  if (code === 'E_EVIDENCE') {
+    // The server rejects inadequate evidence before any provider call. A new
+    // API key cannot repair collection, so point to the source-health surface.
+    return `${message || 'Current source evidence is unavailable.'} No AI generation was started. Check System health in Settings for source connectivity, then retry.`;
+  }
+  // Structured publication and local request-limit messages already identify
+  // their cause. Generic rate/network heuristics would erase that distinction.
+  if (code === 'E006' || code === 'E_API_RATE' || [
+    'E_GENERATION_ACTIVE', 'E_GENERATION_COOLDOWN',
+    'E_GENERATION_RATE', 'E_GENERATION_DAILY_LIMIT',
+  ].includes(code)) return message || 'The Briefing request could not proceed.';
+  if (/E001|in progress|already running|already generating/i.test(message)) return 'A briefing is already generating — wait for it to finish, then retry.';
+  if (/429|rate.?limit|overloaded|529/i.test(message)) return 'The model is rate-limited or overloaded right now. Wait a moment and retry.';
+  if (/timed out|timeout/i.test(message)) return 'Generation timed out. Retry, or reduce the brief size in config.';
+  if (/\b5\d\d\b|unavailable|network|failed to fetch/i.test(message)) return 'The briefing service is temporarily unavailable. Retry shortly.';
+  return message || 'Generation failed. Retry, or check the server logs.';
+}
+
 export function render(main) {
   const firstMount = !initialized;   // animate the entrance once, not on every re-render
   main.innerHTML = `
@@ -42,19 +140,30 @@ export function render(main) {
           <p class="view-kicker">Daily Threat Landscape</p>
           <h1 class="view-title">Briefing</h1>
           <p class="view-sub" id="briefMeta"></p>
+          <p class="brief-provenance" id="briefInputManifest"></p>
           <p class="brief-provenance">AI-generated from sourced signals — verify CVE IDs, vendor names, dates, and links before acting</p>
         </div>
         <span class="sr-only" id="briefSrLive" aria-live="polite"></span>
+        <div class="brief-generate-control">
+          <button class="btn-primary" id="briefGenerate" type="button" aria-describedby="briefGenerateInput" disabled>Checking AI availability…</button>
+          <p id="briefGenerateInput">Input: latest collected signals</p>
+        </div>
         <div class="briefing-toolbar">
-          <input class="search-input" id="briefSearch" type="search" placeholder="Search archive…" aria-label="Search briefings">
-          <select class="history-select" id="briefHistory" aria-label="Previous briefings">
+          <label class="brief-toolbar-field">Search archive
+            <input class="search-input" id="briefSearch" type="search" placeholder="Search archive…" aria-describedby="briefSearchHint">
+            <span class="brief-toolbar-hint" id="briefSearchHint" hidden>Enter at least 2 characters</span>
+          </label>
+          <label class="brief-toolbar-field">Past editions
+          <select class="history-select" id="briefHistory">
             <option value="">Past editions</option>
           </select>
+          </label>
           <button class="btn-ghost brief-copylink-btn" id="briefCopyLink" type="button" title="Copy a link to this briefing" aria-label="Copy link to this briefing">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
             </svg>
+            Copy link
           </button>
           <button class="btn-ghost brief-export-btn" id="briefExport" type="button" title="Preview the print edition" aria-label="Open print edition preview">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -67,6 +176,7 @@ export function render(main) {
         </div>
       </header>
 
+      <section class="brief-attempt-status" id="briefAttemptStatus" role="status" aria-live="polite" aria-label="Latest generation attempt" hidden></section>
       <div class="briefing-layout">
         <aside class="briefing-toc" id="briefToc" aria-label="Briefing sections"></aside>
         <article class="briefing-sheet${firstMount ? ' briefing-sheet--enter' : ''}">
@@ -84,6 +194,8 @@ export function render(main) {
   document.getElementById('briefSearch')?.addEventListener('input', (e) => {
     clearTimeout(searchTimer);
     const q = e.target.value.trim();
+    const hint = document.getElementById('briefSearchHint');
+    if (hint) hint.hidden = q.length !== 1;
     // Emptying the field restores the current/last brief immediately; a 1-char
     // fragment is a mid-type transient (below the server's 2-char floor), so hold.
     if (q.length === 0) { clearSearch(); return; }
@@ -92,12 +204,14 @@ export function render(main) {
   });
 
   document.getElementById('briefExport')?.addEventListener('click', handleExport);
+  document.getElementById('briefGenerate')?.addEventListener('click', requestBriefGeneration);
+  document.getElementById('briefContent')?.addEventListener('click', handleCopyDecision);
 
   // Copy a permalink to the current briefing (expected for a doc that may reach leadership).
   document.getElementById('briefCopyLink')?.addEventListener('click', async () => {
     const fn = getState().currentBrief?.filename;
     const url = fn ? `${location.origin}/briefing/${encodeURIComponent(fn)}` : location.href;
-    try { await navigator.clipboard.writeText(url); showToast('Link copied'); }
+    try { await navigator.clipboard.writeText(url); showToast('Link copied', 'success'); }
     catch { showToast('Could not copy link', 'error'); }
   });
 
@@ -112,14 +226,41 @@ export function render(main) {
 
   // Know whether the Generate CTA can succeed; if not, the empty state guides to Settings.
   // Keep the promise so handleRoute() can await it before the cold-start CTA decision.
-  settingsReady = fetchSettings().then(s => { aiEnabled = s?.ai?.enabled !== false; }).catch(() => {});
+  const request = ++settingsRequest;
+  settingsLoading = true;
+  reflectBriefGenerate();
+  settingsReady = fetchSettings().then(s => {
+    if (request !== settingsRequest) return;
+    aiKnown = typeof s?.ai?.enabled === 'boolean';
+    if (aiKnown) aiEnabled = s.ai.enabled;
+  }).catch(() => {
+    if (request === settingsRequest) aiKnown = false;
+  }).finally(() => {
+    if (request !== settingsRequest) return;
+    settingsLoading = false;
+    reflectBriefGenerate();
+  });
 
+  generationStatus?.stop();
+  generationStatus = mountGenerationStatus(document.getElementById('briefAttemptStatus'), {
+    isGenerating: () => getState().isGenerating,
+  });
   handleRoute();
   loadHistoryDropdown();
 }
 
 // ── Store event wiring (bound once — DOM is re-queried per event) ──
 function setupStoreListeners() {
+  on('generation-started', () => generationStatus?.refresh());
+  on('generating-changed', reflectBriefGenerate);
+  on('ai-status-changed', ai => {
+    // A newly saved/cleared key wins over an older settings request.
+    settingsRequest++;
+    settingsLoading = false;
+    aiKnown = typeof ai?.enabled === 'boolean';
+    if (aiKnown) aiEnabled = ai.enabled;
+    reflectBriefGenerate();
+  });
   on('route-changed', (data) => {
     if (data.mode === 'briefing') {
       // A pending debounced archive search belongs to the route it started on.
@@ -133,53 +274,75 @@ function setupStoreListeners() {
     }
   });
 
+  on('brief-stream-reset', () => {
+    const content = document.getElementById('briefContent');
+    if (!content || !showingGeneration) return;
+    // The server discarded its previous provider attempt. Cancel a coalesced
+    // paint before it can restore that draft while the replacement starts.
+    contentRenderToken++;
+    leaveDocument(content);
+    content._streamPending = '';
+    showProgressSkeleton(content, 'Starting replacement draft…');
+    announce('Previous draft replaced. Generating a new attempt.');
+  });
+
   // Render the latest streamed snapshot through the same semantic formatter used by
   // completed briefs. Rebuilding on every token is needlessly expensive, so rapid
   // chunks are coalesced into one paint; each paint reads _streamPending to ensure it
   // uses the newest text rather than the chunk that happened to start the timer.
   on('brief-streaming', ({ accumulated, chunk }) => {
     const content = document.getElementById('briefContent');
-    if (!content) return;
+    if (!content || !showingGeneration) return;
     // First chunk of a run (or a torn-down scaffold) → set up a document region plus
     // the cursor. Keeping the cursor outside the formatted snapshot prevents semantic
     // transforms (especially the final judgment card) from swallowing it.
     if (accumulated.length === chunk.length || !content.querySelector('#streamDocument')) {
-      content._validatedBriefContent = null;
-      content.innerHTML = '<div id="streamDocument"></div><span class="streaming-cursor"></span>';
+      leaveDocument(content);
+      content.innerHTML = '<p class="brief-draft-label">Draft · generating · not yet saved</p><div id="streamDocument"></div><span class="streaming-cursor"></span>';
       content.setAttribute('aria-busy', 'true');
       announce('Briefing generating');
     }
     content._streamPending = accumulated;
     if (!content._streamTimer) {
+      const token = contentRenderToken;
       content._streamTimer = setTimeout(() => {
         content._streamTimer = null;
+        if (!showingGeneration || token !== contentRenderToken) return;
         renderStreamSnapshot(content, content._streamPending || '');
       }, 300);   // smooth enough to read while bounding full-document DOM rebuilds
     }
   });
 
   on('generation-progress', ({ progressMsg }) => {
-    setGenStatus(progressMsg);
+    if (showingGeneration) setGenStatus(progressMsg);
   });
 
-  on('brief-generated', ({ text, timestamp, partial, validation, model, tokens, costUsd }) => {
+  on('brief-generated', ({ brief, filename, text, timestamp, partial, validation, model, tokens, costUsd }) => {
+    generationStatus?.refresh();
     // Generation runs in the background while the user may be browsing the
     // Wire, so #briefContent can be unmounted on completion. State (content, model,
     // warnings), history refresh, and the "saved" toast must land regardless — only
     // the actual DOM paint below needs the element to exist. Without this, a brief
     // that failed validation off-view re-renders clean later (warnings never stored),
     // and the operator never learns the save happened at all.
-    const wordCount = countWords(text);
-    setState({ currentBrief: {
-      ...getState().currentBrief,
+    const generatedBrief = brief || {
+      filename,
       content: text,
       timestamp,
       generatedAt: timestamp,
-      wordCount,
+      wordCount: countWords(text),
       model: model || null,
       costUsd: costUsd ?? null,
       warnings: validation?.warnings || [],
-    } });
+    };
+    setState({ lastGeneratedBrief: generatedBrief });
+    loadHistoryDropdown({ force: true });
+    showToast('Briefing saved', 'success');
+    const content = document.getElementById('briefContent');
+    if (!content || !showingGeneration) return;
+    contentRenderToken++;
+    showingGeneration = false;
+    setState({ currentBrief: generatedBrief });
     // Move the URL off /briefing/new once the brief has a real filename, so a
     // reload (or a copied/shared link) lands on the finished brief instead of the
     // now-stale "generating" route. replaceState (not navigate/pushState): this is a
@@ -189,22 +352,18 @@ function setupStoreListeners() {
     if (generatedFilename && window.location.pathname === '/briefing/new') {
       try { history.replaceState(history.state, '', `/briefing/${encodeURIComponent(generatedFilename)}`); } catch { /* non-critical */ }
     }
-    loadHistoryDropdown({ force: true });
-    showToast('Briefing saved');
-
-    const content = document.getElementById('briefContent');
-    if (!content) return;   // off-view: state is saved above; nothing left to paint
     if (content._streamTimer) { clearTimeout(content._streamTimer); content._streamTimer = null; }
     setGenStatus('');
 
     renderBriefContent(content, text);   // the one full semantic render, on completion
     announce('Briefing ready');
-    if (validation?.warnings?.length) renderValidationBanner(content, validation.warnings, validation.hardFail);
+    if (generatedBrief.warnings?.length) renderValidationBanner(content, generatedBrief.warnings, validation?.hardFail);
     const prov = `· AI-generated${model ? ` · ${formatModelLabel(model)}` : ''}${tokens ? ` · ${tokens.toLocaleString()} tokens` : ''}${Number.isFinite(costUsd) ? ` · ${formatCost(costUsd)}` : ''}`;
-    setMeta(`${timestamp}${partial ? ' · partial (generation timed out)' : ''} · ${readingTime(text)} ${prov}`);
+    setMeta(`${formatBriefPublication(getState().currentBrief)}${partial ? ' · partial (generation timed out)' : ''} · ${readingTime(text)} ${prov}`);
   });
 
   on('generation-error', (payload) => {
+    generationStatus?.refresh();
     // A failure must surface even when the operator has navigated away from
     // the Briefing view; silently swallowing it left them discovering the failure
     // (or worse, a stale/empty state with no explanation) only when they returned.
@@ -213,32 +372,26 @@ function setupStoreListeners() {
     // never substitute the SSE accumulator, which may contain multiple retries.
     const failure = generationFailureModel(payload);
     const {
-      aiDisabled, code: errorCode, streamLost, accumulatedText, recoverableDraft,
+      aiDisabled, streamLost, accumulatedText, recoverableDraft,
     } = failure;
-    let msg = failure.message;
-    // Map common failures to plain, actionable language.
-    if (errorCode === 'E006') {
-      // Trust-gate failures are already actionable server messages. Preserve
-      // them verbatim; CVE identifiers can contain digit sequences that look
-      // like HTTP status codes and must not be remapped as availability errors.
-    } else if (/E001|in progress|already running|already generating/i.test(msg)) msg = 'A briefing is already generating — wait for it to finish, then retry.';
-    else if (/429|rate.?limit|overloaded|529/i.test(msg)) msg = 'The model is rate-limited or overloaded right now. Wait a moment and retry.';
-    else if (/timed out|timeout/i.test(msg)) msg = 'Generation timed out. Retry, or reduce the brief size in config.';
-    else if (/\b5\d\d\b|unavailable|network|failed to fetch/i.test(msg)) msg = 'The briefing service is temporarily unavailable. Retry shortly.';
-    else if (!msg) msg = 'Generation failed. Retry, or check the server logs.';
+    const msg = generationErrorMessage(failure);
+    announce(aiDisabled ? 'AI Briefing is off'
+      : streamLost ? 'Connection lost — generation may still complete on the server'
+      : failure.code === 'E_EVIDENCE' ? 'Briefing did not start'
+      : 'Draft not published');
 
     // A dropped stream connection does not mean the server-side run failed; it
     // typically keeps generating and archives the brief. Poll once, ~30s out, and
     // auto-navigate to the newly-appeared brief if it shows up — so the operator
     // isn't left believing a completed brief simply vanished.
     const content = document.getElementById('briefContent');
-    if (!content) {
+    if (!content || !showingGeneration) {
       // Off-view: no DOM to paint an inline error into — a toast is the only signal
       // the operator gets until they return to the Briefing.
       showToast(aiDisabled ? 'AI Briefing is off — add a key in Settings.' : msg, 'error');
       return;
     }
-    content._validatedBriefContent = null;
+    leaveDocument(content);
     content.removeAttribute('aria-busy');
     if (streamLost) pollForRecoveredBrief();
     if (content._streamTimer) { clearTimeout(content._streamTimer); content._streamTimer = null; }
@@ -257,6 +410,7 @@ function setupStoreListeners() {
         <div class="error-message stream-lost">
           <span>Connection lost — the brief may still complete on the server. Checking History in about 30 seconds…</span>
         </div>
+        <p class="brief-draft-label">Draft · connection interrupted · not yet saved</p>
         ${accumulatedText ? renderDraftMarkdown(accumulatedText) : ''}
       `;
       return;
@@ -273,7 +427,7 @@ function setupStoreListeners() {
           <button class="btn-ghost" id="retryGen">Retry</button>
         </div>
         <section class="recoverable-draft" aria-label="Unpublished briefing draft">
-          <p class="recoverable-draft-label">Unpublished draft · review only</p>
+          <p class="recoverable-draft-label brief-draft-label">Unpublished draft · review only</p>
           ${renderDraftMarkdown(recoverableDraft)}
         </section>
       `;
@@ -293,9 +447,16 @@ function setupStoreListeners() {
 async function handleRoute(data = resolveLocation(window.location.pathname).data) {
   const content = document.getElementById('briefContent');
   if (!content) return;
+  generationStatus?.refresh();
 
   contentRenderToken++;
   const token = contentRenderToken;
+  showingGeneration = data?.action === 'generate' && getState().isGenerating;
+  clearTimeout(recoveredBriefTimer);
+  recoveredBriefTimer = null;
+  leaveDocument(content);
+  const search = document.getElementById('briefSearch');
+  if (search) search.value = '';
 
   // Generation in progress / requested → progress skeleton
   if (data?.action === 'generate') {
@@ -321,10 +482,10 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
     if (state.currentBrief?.filename === filename && state.currentBrief?.content) {
       renderBriefContent(content, state.currentBrief.content);
       surfaceLoadedWarnings(content, state.currentBrief.warnings);
-      setMeta(`${formatBriefLabel(filename)} · ${readingTime(state.currentBrief.content, state.currentBrief.wordCount)}${state.currentBrief.model ? ` · ${formatModelLabel(state.currentBrief.model)}` : ''}${Number.isFinite(state.currentBrief.costUsd) ? ` · ${formatCost(state.currentBrief.costUsd)}` : ''}`);
+      setMeta(`${formatBriefPublication(state.currentBrief)} · ${readingTime(state.currentBrief.content, state.currentBrief.wordCount)}${state.currentBrief.model ? ` · ${formatModelLabel(state.currentBrief.model)}` : ''}${Number.isFinite(state.currentBrief.costUsd) ? ` · ${formatCost(state.currentBrief.costUsd)}` : ''}`);
       return;
     }
-    content.innerHTML = '<div class="gen-progress"><span class="gen-progress-status">Loading briefing…</span></div>';
+    showProgressSkeleton(content, 'Loading briefing…');
     try {
       const briefData = await fetchBrief(filename);
       if (token !== contentRenderToken) return;
@@ -333,19 +494,20 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
         filename,
         content: briefData.content,
         timestamp: null,
-        generatedAt: briefData.generatedAt || briefData.meta?.generated_at || null,
+        generatedAt: archivePublishedAt(briefData),
         wordCount: briefData.meta?.word_count ?? null,
         model: briefData.meta?.model_used || null,
         costUsd: briefData.meta?.estimated_cost_usd ?? null,
+        inputManifest: briefData.inputManifest || null,
         warnings,
       } });
       renderBriefContent(content, briefData.content);
       surfaceLoadedWarnings(content, warnings);
-      setMeta(`${formatBriefLabel(filename)} · ${readingTime(briefData.content, briefData.meta?.word_count)}${briefData.meta?.model_used ? ` · ${formatModelLabel(briefData.meta.model_used)}` : ''}${Number.isFinite(briefData.meta?.estimated_cost_usd) ? ` · ${formatCost(briefData.meta.estimated_cost_usd)}` : ''}`);
+      setMeta(`${formatBriefPublication(getState().currentBrief)} · ${readingTime(briefData.content, briefData.meta?.word_count)}${briefData.meta?.model_used ? ` · ${formatModelLabel(briefData.meta.model_used)}` : ''}${Number.isFinite(briefData.meta?.estimated_cost_usd) ? ` · ${formatCost(briefData.meta.estimated_cost_usd)}` : ''}`);
       syncHistoryDropdown(filename);
     } catch {
       if (token !== contentRenderToken) return;
-      content.innerHTML = '<div class="error-message"><span>Failed to load this briefing.</span></div>';
+      renderLoadError(content, data);
     }
     return;
   }
@@ -354,10 +516,12 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
   const state = getState();
   if (state.currentBrief?.content) {
     renderBriefContent(content, state.currentBrief.content);
-    setMeta(state.currentBrief.timestamp || '');
+    surfaceLoadedWarnings(content, state.currentBrief.warnings);
+    setMeta(`${formatBriefPublication(state.currentBrief)} · ${readingTime(state.currentBrief.content, state.currentBrief.wordCount)}${state.currentBrief.model ? ` · ${formatModelLabel(state.currentBrief.model)}` : ''}${Number.isFinite(state.currentBrief.costUsd) ? ` · ${formatCost(state.currentBrief.costUsd)}` : ''}`);
     return;
   }
 
+  showProgressSkeleton(content, 'Loading archive…');
   try {
     const briefs = await fetchBriefs();
     if (token !== contentRenderToken) return;
@@ -365,14 +529,18 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
       navigate(`/briefing/${encodeURIComponent(briefs[0].filename)}`);
       return;
     }
-  } catch { /* fall through to empty state */ }
+  } catch {
+    if (token === contentRenderToken) renderLoadError(content, data);
+    return;
+  }
+  content.removeAttribute('aria-busy');
 
   // Wait for the real AI-enabled answer before choosing the cold-start CTA,
   // so a fresh server with no key never flashes "Generate" (which can't succeed)
   // before settling on "Add a key in Settings".
   await settingsReady;
   if (token !== contentRenderToken) return;
-  if (!aiEnabled) {
+  if (aiKnown && !aiEnabled) {
     renderAiOffState(content);
     return;
   }
@@ -381,16 +549,18 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
       <p class="empty-kicker">Daily Threat Landscape</p>
       <h2>No briefing yet</h2>
       <p>Generate the first threat landscape briefing from the latest scored signals.</p>
-      <button class="btn-primary" id="emptyGenerate">Generate Briefing</button>
+      <button class="btn-primary" id="emptyGenerate">${escapeHtml(generationControlState().label)}</button>
     </div>
   `;
-  document.getElementById('emptyGenerate')?.addEventListener('click', () => emit('generate-brief'));
+  document.getElementById('emptyGenerate')?.addEventListener('click', requestBriefGeneration);
 }
 
 // No-key guided setup: a Generate that 503s is a dead end. Send the operator to
 // Settings to add a key instead of offering a Retry that re-fails.
 function renderAiOffState(content) {
   aiEnabled = false;
+  aiKnown = true;
+  reflectBriefGenerate();
   content.innerHTML = `
     <div class="empty-state">
       <p class="empty-kicker">Daily Threat Landscape</p>
@@ -408,10 +578,11 @@ function renderBriefContent(content, text) {
   // document from an in-flight draft that happens to contain the same classes.
   content._validatedBriefContent = null;
   content.innerHTML = renderMarkdown(text);
-  applySemanticStyling(content);
+  applySemanticStyling(content, { decisionControls: Boolean(getState().currentBrief?.filename) });
   buildTOC(content);
   content._validatedBriefContent = text;
   content.removeAttribute('aria-busy');
+  reflectDocumentActions();
 }
 
 // A streaming snapshot is intentionally rebuilt from source markdown before each
@@ -477,6 +648,31 @@ function surfaceLoadedWarnings(content, persisted) {
 
 let tocObserver = null;
 let tocBreakpointCleanup = null;
+let tocScrollCleanup = null;
+
+// Intersection changes can stop before a smooth scroll reaches its final
+// offset. Observe the actual scroll frames too, with one layout read per frame.
+export function bindTocScroll(view, update) {
+  let frame = null;
+  let stopped = false;
+  const schedule = () => {
+    if (stopped || frame !== null) return;
+    frame = view.requestAnimationFrame(() => {
+      frame = null;
+      if (!stopped) update();
+    });
+  };
+  view.addEventListener('scroll', schedule, { passive: true });
+  view.addEventListener('resize', schedule, { passive: true });
+  schedule();
+  return () => {
+    stopped = true;
+    view.removeEventListener('scroll', schedule);
+    view.removeEventListener('resize', schedule);
+    if (frame !== null) view.cancelAnimationFrame(frame);
+    frame = null;
+  };
+}
 
 // Keep the disclosure's open state aligned with the same breakpoint CSS uses.
 // The returned cleanup prevents route-to-route renders from retaining listeners
@@ -513,11 +709,11 @@ export function activateTocLink({
   behavior = 'smooth',
 } = {}) {
   if (!link || !target) return false;
+  if (compact && disclosure) disclosure.open = false;
   target.scrollIntoView?.({ behavior, block: 'start' });
   target.setAttribute?.('tabindex', '-1');
   target.focus?.({ preventScroll: true });
   setActiveTocLink(link, toc);
-  if (compact && disclosure) disclosure.open = false;
   return true;
 }
 
@@ -532,9 +728,20 @@ export function findTocFragmentLink(links = [], hash = '') {
   }
 }
 
+// Prefer the most recent heading at the reading edge, then the first heading
+// below it. Observer entries are only changes, not the full set in the viewport.
+export function currentTocHeading(targets = [], readingEdge = 110) {
+  const positions = targets.map(target => ({ target, top: target.getBoundingClientRect().top }))
+    .filter(item => Number.isFinite(item.top));
+  return positions.filter(item => item.top <= readingEdge).at(-1)?.target
+    || positions[0]?.target || null;
+}
+
 function buildTOC(content) {
   const toc = document.getElementById('briefToc');
   if (!toc) return;
+  tocScrollCleanup?.();
+  tocScrollCleanup = null;
   if (tocBreakpointCleanup) {
     tocBreakpointCleanup();
     tocBreakpointCleanup = null;
@@ -609,12 +816,14 @@ function buildTOC(content) {
   if (tocObserver) tocObserver.disconnect();
   const byId = new Map(links.map(a => [a.dataset.target, a]));
   const targets = [...content.querySelectorAll('h2[id], h3[id]')].filter(el => byId.has(el.id));
+  const updateCurrentSection = () => {
+    const headerHeight = document.querySelector('.app-header')?.getBoundingClientRect().height || 86;
+    const current = currentTocHeading(targets, headerHeight + 25);
+    if (current) setActiveTocLink(byId.get(current.id));
+  };
+  if (targets.length) tocScrollCleanup = bindTocScroll(window, updateCurrentSection);
   if ('IntersectionObserver' in window && targets.length) {
-    tocObserver = new IntersectionObserver((entries) => {
-      const visible = entries.filter(en => en.isIntersecting)
-        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-      if (visible.length) setActiveTocLink(byId.get(visible[0].target.id));
-    }, { rootMargin: '-90px 0px -65% 0px', threshold: 0 });
+    tocObserver = new IntersectionObserver(updateCurrentSection, { rootMargin: '-90px 0px -65% 0px', threshold: 0 });
     targets.forEach(t => tocObserver.observe(t));
   }
 }
@@ -638,12 +847,19 @@ function updateReadingProgress() {
   const scrollable = rect.height - window.innerHeight;
   const progress = scrollable > 0 ? Math.min(1, Math.max(0, -rect.top / scrollable)) : 0;
   bar.style.transform = `scaleX(${progress})`;
+  // The final section can be shorter than the observer's top reading band.
+  // Reaching the document foot should still identify Sources as current.
+  if (rect.bottom <= window.innerHeight + 8 && rect.top < 0) {
+    const links = document.getElementById('briefToc')?.querySelectorAll('a');
+    if (links?.length) setActiveTocLink(links[links.length - 1]);
+  }
 }
 
-function showProgressSkeleton(content) {
+function showProgressSkeleton(content, label = '') {
   // Status text lives in the persistent #genStatus sibling (above #briefContent)
   // so it survives the innerHTML reset when the first streamed chunk lands.
-  content.innerHTML = `
+  content.setAttribute('aria-busy', 'true');
+  content.innerHTML = `${label ? `<p class="gen-progress-status" role="status">${escapeHtml(label)}</p>` : ''}
     <div class="gen-progress" aria-hidden="true">
       <div class="skeleton-line" style="width: 45%"></div>
       <div class="skeleton-line" style="width: 92%"></div>
@@ -656,7 +872,7 @@ function showProgressSkeleton(content) {
   `;
 }
 
-async function runSearch(query) {
+export async function runSearch(query) {
   const content = document.getElementById('briefContent');
   if (!content) return;
   // Capture the token BEFORE the await and bail if it's stale afterward,
@@ -665,10 +881,18 @@ async function runSearch(query) {
   // search can land after the user has already opened a different brief from
   // History and clobber it with stale search results.
   const token = ++contentRenderToken;
+  showingGeneration = false;
+  leaveDocument(content);
+  content.setAttribute('aria-busy', 'true');
+  content.innerHTML = `<p class="gen-progress-status" role="status">Searching archive for “${escapeHtml(query)}”…</p>`;
+  const meta = document.getElementById('briefMeta');
+  if (meta) meta.textContent = `Archive search · ${query}`;
   try {
     const results = await searchBriefs(query);
     if (token !== contentRenderToken) return;
     const count = results.length;
+    content.removeAttribute('aria-busy');
+    if (meta) meta.textContent = `${count} ${count === 1 ? 'result' : 'results'} · ${query}`;
     // Announce the result count to assistive tech — a silent content swap otherwise.
     announce(`${count} ${count === 1 ? 'match' : 'matches'} for ${query}`);
     const head = `
@@ -685,7 +909,8 @@ async function runSearch(query) {
           ${results.map(r => `
             <button class="search-result" data-filename="${escapeHtml(r.filename)}">
               <span class="search-result-date">${escapeHtml(formatBriefLabel(r.filename))}</span>
-              ${sanitizeSearchSnippet(r.snippet)}
+              <span class="search-result-snippet">${sanitizeSearchSnippet(r.snippet)}</span>
+              <span class="brief-search-open">Open edition →</span>
             </button>`).join('')}
         </div>`;
       content.querySelectorAll('.search-result').forEach(btn => {
@@ -695,7 +920,16 @@ async function runSearch(query) {
     // A way back: clear the field and re-render the current/last brief.
     document.getElementById('searchClear')?.addEventListener('click', clearSearch);
   } catch {
-    showToast('Search failed', 'error');
+    if (token !== contentRenderToken) return;
+    content.removeAttribute('aria-busy');
+    content.innerHTML = `<div class="error-message brief-search-error" role="alert">
+      <strong>Archive search could not finish</strong>
+      <p>Your query “${escapeHtml(query)}” is still in the search field. Try again or return to the briefing.</p>
+      <div class="brief-search-error-actions"><button type="button" class="btn-ghost" id="searchRetry">Retry search</button>
+      <button type="button" class="btn-ghost" id="searchClear">Back to briefing</button></div>
+    </div>`;
+    document.getElementById('searchRetry')?.addEventListener('click', () => runSearch(query));
+    document.getElementById('searchClear')?.addEventListener('click', clearSearch);
   }
 }
 
@@ -728,6 +962,36 @@ export function isBriefReadyForExport(content, currentBrief, isGenerating = fals
   return Boolean(content.querySelector('.bluf, .brief-judgment-card'));
 }
 
+export async function handleCopyDecision(event) {
+  const button = event.target.closest('[data-copy-decision]');
+  if (!button || button.disabled) return;
+  const content = document.getElementById('briefContent');
+  const card = button.closest('.brief-judgment-card');
+  const { currentBrief, isGenerating } = getState();
+  if (!card || !content?.contains(card) || !currentBrief?.filename || !isBriefReadyForExport(content, currentBrief, isGenerating)) {
+    showToast('Open a saved briefing before copying a decision', 'error');
+    return;
+  }
+  const headingId = card.querySelector('h3')?.id;
+  const editionUrl = `${location.origin}/briefing/${encodeURIComponent(currentBrief.filename)}${headingId ? `#${encodeURIComponent(headingId)}` : ''}`;
+  const text = decisionCopyText({ ...decisionCardContent(card), editionUrl, editionLabel: formatBriefPublication(currentBrief) });
+  if (!text) return;
+  button.disabled = true;
+  try {
+    await navigator.clipboard.writeText(text);
+    button.textContent = '✓ Decision copied';
+    clearTimeout(button._copyFeedbackTimer);
+    if (button.isConnected) button._copyFeedbackTimer = setTimeout(() => {
+      if (button.isConnected) button.textContent = 'Copy decision';
+    }, 1800);
+    showToast('Decision copied with its edition link', 'success');
+  } catch {
+    showToast('Could not copy decision. Select the authored actions to copy them manually.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function handleExport() {
   const content = document.getElementById('briefContent');
   const { currentBrief, isGenerating } = getState();
@@ -758,6 +1022,13 @@ function handleExport() {
 function setMeta(text) {
   const el = document.getElementById('briefMeta');
   if (el) el.textContent = text;
+  const host = document.getElementById('briefInputManifest');
+  const brief = getState().currentBrief;
+  if (host) host.innerHTML = brief?.filename
+    ? brief.inputManifest?.status === 'available'
+      ? `<a href="/api/brief/${encodeURIComponent(brief.filename)}/manifest" target="_blank" rel="noopener noreferrer">Inspect saved generation inputs (JSON) ↗</a>`
+      : 'Saved generation inputs unavailable for this edition.'
+    : '';
 }
 
 // Persistent generation status (sibling of #briefContent). Survives the content
@@ -802,27 +1073,16 @@ function formatCost(costUsd) {
   return `est. $${costUsd.toFixed(digits)}`;
 }
 
-// One date formatter for the meta line and history — an archived filename slug
-// ("brief-2026-06-29-01.md" → "2026-06-29-01") and a raw ISO date both render the
-// same way: "Jun 29, 2026", with a "· brief N" suffix when more than one ran that day.
-function formatBriefLabel(filename) {
-  const m = (filename || '').match(/(\d{4})-(\d{2})-(\d{2})(?:-(\d+))?/);
-  if (!m) return (filename || '').replace(/^brief-/, '').replace(/\.md$/, '');
-  const [, y, mo, d, seq] = m;
-  const dt = new Date(Number(y), Number(mo) - 1, Number(d));
-  const date = Number.isNaN(dt.getTime())
-    ? `${y}-${mo}-${d}`
-    : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  return seq && Number(seq) > 1 ? `${date} · brief ${Number(seq)}` : date;
-}
-
 async function loadHistoryDropdown({ force = false } = {}) {
   const dropdown = document.getElementById('briefHistory');
-  if (!dropdown) return;
+  if (!dropdown && !force) return;
   if (!force && dropdown.options.length > 1) return;
 
   try {
-    const briefs = await fetchBriefs();
+    const briefs = await fetchBriefs({ fresh: force });
+    // Refresh the archive cache after off-view completion too, but never paint
+    // a dropdown belonging to a detached mount.
+    if (!dropdown || dropdown !== document.getElementById('briefHistory')) return;
     if (!Array.isArray(briefs) || briefs.length === 0) return;
     const current = getState().currentBrief?.filename || '';
     // /briefs' `date` field has the sequence suffix stripped (routes/brief.js),
@@ -851,14 +1111,17 @@ function syncHistoryDropdown(filename) {
 // that actually succeeded doesn't get filed as "failed" by the operator.
 async function pollForRecoveredBrief() {
   clearTimeout(recoveredBriefTimer);
+  const token = contentRenderToken;
   let before = [];
   try { before = (await fetchBriefs()) || []; } catch { /* best-effort */ }
+  if (token !== contentRenderToken || !showingGeneration) return;
   const knownFilenames = new Set(before.map(b => b.filename));
 
   recoveredBriefTimer = setTimeout(async () => {
     recoveredBriefTimer = null;
     let after;
     try { after = await fetchBriefs({ fresh: true }); } catch { return; }
+    if (token !== contentRenderToken || !showingGeneration) return;
     if (!Array.isArray(after)) return;
     const recovered = after.find(b => !knownFilenames.has(b.filename));
     if (!recovered) return;   // still nothing new — leave the "connection lost" state as-is
@@ -872,6 +1135,11 @@ async function pollForRecoveredBrief() {
 // bound once for background generation events, but route/search requests started
 // by this mount must not repaint or replace state after the operator leaves.
 export function unmount() {
+  tocScrollCleanup?.();
+  tocScrollCleanup = null;
+  generationStatus?.stop();
+  generationStatus = null;
+  showingGeneration = false;
   clearTimeout(searchTimer);
   searchTimer = null;
   clearTimeout(recoveredBriefTimer);

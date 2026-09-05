@@ -16,8 +16,8 @@ describe('cyber enricher manifest', () => {
     // EPSS runs after CVE (reusing its extracted IDs). Article extraction then
     // precedes MITRE so body-only techniques are visible; IOC extraction remains
     // last because it consumes that same article body.
-    expect(cyberEnrichers.map(e => e.name)).toEqual(['kev', 'entities', 'cve', 'epss', 'article', 'mitre', 'iocs']);
-    expect(cyberEnrichers.filter(e => e.stage === 'pre').map(e => e.name)).toEqual(['kev', 'entities']);
+    expect(cyberEnrichers.map(e => e.name)).toEqual(['kev', 'entities', 'cached-cve', 'cached-epss', 'cve', 'epss', 'article', 'mitre', 'iocs']);
+    expect(cyberEnrichers.filter(e => e.stage === 'pre').map(e => e.name)).toEqual(['kev', 'entities', 'cached-cve', 'cached-epss']);
     expect(cyberEnrichers.filter(e => e.stage === 'post').map(e => e.name)).toEqual(['cve', 'epss', 'article', 'mitre', 'iocs']);
   });
 
@@ -27,7 +27,7 @@ describe('cyber enricher manifest', () => {
     expect(by.entities.failureKey).toBeUndefined();
     expect(by.mitre.failureKey).toBeUndefined();
     expect(by.cve).toMatchObject({ failureKey: 'CVE', limitKey: 'maxCVEEnrichments', limitDefault: 8 });
-    expect(by.epss.failureKey).toBeUndefined();
+    expect(by.epss.failureKey).toBe('EPSS');
     expect(by.epss).toMatchObject({ limitKey: 'maxEPSSLookups', limitDefault: 20 });
     expect(by.article).toMatchObject({ failureKey: 'article', limitKey: 'maxArticleExtractions', limitDefault: 10 });
     expect(by.iocs.failureKey).toBeUndefined();

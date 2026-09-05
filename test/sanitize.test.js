@@ -12,10 +12,15 @@
 // devDependency, which is not installed here.
 import { describe, test, expect } from '@jest/globals';
 import {
-  DRAFT_SANITIZE_CONFIG, escapeHtml, SANITIZE_CONFIG, SEARCH_SNIPPET_CONFIG,
+  DRAFT_SANITIZE_CONFIG, escapeHtml, SANITIZE_CONFIG, SEARCH_SNIPPET_CONFIG, cleanSearchExcerpt,
 } from '../public/modules/core/sanitize.js';
 
 describe('sanitizer policy', () => {
+  test('archive excerpts omit redundant masthead Markdown and retain the highlight boundary', () => {
+    expect(cleanSearchExcerpt('# BlueTeam.News\n### Threat Landscape Briefing — September 5, 2026\n\n## BLUF\n**Active** <mark>gateway</mark> exploitation.\n- Review [vendor guidance](https://example.test/advisory).'))
+      .toBe('BLUF Active <mark>gateway</mark> exploitation. Review vendor guidance.');
+    expect(cleanSearchExcerpt('# <mark>BlueTeam.News</mark>\n## Key Judgments')).toBe('<mark>BlueTeam.News</mark> Key Judgments');
+  });
   test('untrusted HTML cannot supply app identities, presentation hooks, data hooks, or ARIA overrides', () => {
     expect(SANITIZE_CONFIG.ALLOWED_ATTR).not.toEqual(expect.arrayContaining(['id', 'class']));
     expect(SANITIZE_CONFIG.ALLOW_DATA_ATTR).toBe(false);

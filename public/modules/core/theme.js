@@ -5,6 +5,17 @@
 
 const THEME_KEY = 'bt-theme';
 const ACCENT_KEY = 'bt-accent';
+// A blocked or full browser store must not disable Settings or theme painting.
+// Explicit choices still apply for this document when persistence is unavailable.
+const sessionPreferences = new Map();
+function readPreference(key) {
+  if (sessionPreferences.has(key)) return sessionPreferences.get(key);
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function writePreference(key, value) {
+  sessionPreferences.set(key, value);
+  try { localStorage.setItem(key, value); } catch { /* retain this document's choice */ }
+}
 export const DEFAULT_ACCENT = '#3b82f6'; // IBM blue — the Blue Team brand
 
 // Brand-chrome accents, deliberately disjoint from the load-bearing signal
@@ -36,7 +47,7 @@ function validAccent(hex) {
 // here rendered light on a light-OS box while the segment still read Dark). Dark
 // stays the fallback whenever the OS expresses no or a dark preference.
 export function getThemePreference() {
-  const v = localStorage.getItem(THEME_KEY);
+  const v = readPreference(THEME_KEY);
   if (v === 'light' || v === 'dark' || v === 'system') return v;
   return 'system';
 }
@@ -58,7 +69,7 @@ export function getTheme() {
 }
 
 export function getAccent() {
-  return validAccent(localStorage.getItem(ACCENT_KEY)) || DEFAULT_ACCENT;
+  return validAccent(readPreference(ACCENT_KEY)) || DEFAULT_ACCENT;
 }
 
 function relLum(r, g, b) {
@@ -139,7 +150,7 @@ function unwatchSystem() {
 // keeps tracking the OS), not the resolved theme.
 export function applyTheme(pref) {
   const p = pref === 'system' || pref === 'light' || pref === 'dark' ? pref : 'dark';
-  localStorage.setItem(THEME_KEY, p);
+  writePreference(THEME_KEY, p);
   if (p === 'system') {
     resolveAndPaint(systemPrefersLight() ? 'light' : 'dark');
     if (!systemMql && typeof matchMedia === 'function') {
@@ -160,6 +171,6 @@ export function applyAccent(hex) {
   s.setProperty('--brand', hex);
   s.setProperty('--brand-rgb', `${r}, ${g}, ${b}`);
   s.setProperty('--ink-on-brand', inkOnFor(hex));
-  localStorage.setItem(ACCENT_KEY, hex);
+  writePreference(ACCENT_KEY, hex);
   syncBrandText();
 }

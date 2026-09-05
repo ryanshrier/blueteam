@@ -3,8 +3,10 @@ import { judgmentHtml, wirePageHtml } from '/public/modules/wall/wall-view.js';
 import { renderMarkdown } from '/public/modules/core/markdown.js';
 import { applySemanticStyling } from '/public/modules/briefing/brief-renderer.js';
 import { exportBriefNewspaper } from '/public/modules/briefing/brief-export.js';
+import { formatBriefPublication } from '/public/modules/core/brief-date.js';
 import { FIXTURE_CASES, buildFixtureData } from './fixture-cases.js';
 import { MARKETING_BRIEF } from './marketing-brief.js';
+const marketingReadMins = Math.max(1, Math.ceil(MARKETING_BRIEF.trim().split(/\s+/).length / 220));
 
 const params = new URLSearchParams(location.search);
 const requested = params.get('state') || FIXTURE_CASES[0].id;
@@ -43,7 +45,7 @@ function renderWallFixture(id, fixtures) {
   const body = loading
     ? `<div class="nb-empty nb-opening">
         <span class="nb-opening-kicker">Preparing the watchfloor</span>
-        <strong>Assembling today’s edition</strong>
+        <strong>Loading the latest available information</strong>
         <span>Signals will surface as the feeds respond.</span>
       </div>`
     : judgment
@@ -54,25 +56,28 @@ function renderWallFixture(id, fixtures) {
 
   const warn = stale || loading;
   const integrity = loading
-    ? 'AWAITING FIRST RUN'
+    ? 'Loading source data'
     : stale
-      ? 'FEEDS 35/42 · UPDATED 2H'
-      : 'FEEDS 42/42 · UPDATED NOW';
-  const liveWord = loading ? 'AWAITING' : stale ? 'STALE' : 'LIVE';
+      ? 'Feeds 35/42 · Refreshed 2h ago'
+      : 'Feeds 42/42 · Refreshed 0s ago';
+  const liveWord = loading ? 'FEEDS LOADING' : stale ? 'FEEDS STALE' : 'FEEDS CURRENT';
 
   return `<div class="wall-layer">
     <main class="wall news-mode${stale ? ' nb-stale' : ''}" aria-label="${fixture.label}">
       <header class="nb-folio">
         <div class="nb-folio-id"><span class="nb-wordmark">BLUETEAM.NEWS</span></div>
-        <span class="nb-folio-slug">${loading ? 'CYBER DEFENSE INTELLIGENCE' : judgment ? 'KEY JUDGMENT · TUE, JUL 28' : wire ? 'THE WIRE' : 'KEV · NEWLY ADDED'}</span>
+        <div class="nb-folio-section">
+          <span class="nb-folio-slug">${loading ? 'Cyber Defense Intelligence' : judgment ? 'KEY JUDGMENT' : wire ? 'THE WIRE' : 'KEV · NEWLY ADDED'}</span>
+          <span class="nb-brief-stamp">${judgment ? formatBriefPublication({ date: '2026-07-28' }) : ''}</span>
+        </div>
         <div class="nb-folio-status">
           <span class="nb-integrity" data-status="${warn ? 'warn' : 'live'}">${integrity}</span>
           <span class="nb-folio-live"><span class="nb-live-dot" data-status="${warn ? 'warn' : 'live'}"></span>${liveWord} · <span>10:24</span></span>
         </div>
       </header>
       <div class="nb-dwell"><i style="transform:scaleX(.62)"></i></div>
-      <div class="nb-body" id="nbBody">${body}</div>
-      <footer class="nb-foot"><span class="nb-pager">${loading ? '—' : '1 / 1'}</span></footer>
+      <div class="nb-body" id="nbBody" tabindex="0" aria-label="Wall fixture content">${body}</div>
+      <footer class="nb-foot"><div class="nb-position"><span class="nb-playback">Static fixture</span><span class="nb-pager">${loading ? '—' : '1 / 1'}</span></div></footer>
     </main>
   </div>`;
 }
@@ -100,7 +105,7 @@ function renderWireLoading() {
     '<div class="wire-skel-row" aria-hidden="true"><span class="wsk-ring"></span><span class="wsk-lines"><i></i><i></i></span><span class="wsk-meta"></span></div>'
   ).join('');
   return `<section class="wire-view" aria-label="Wire loading fixture">
-    <header class="wire-head"><div><p class="view-kicker">Live signal feed</p><h1 class="view-title">Wire</h1><p class="view-sub">Every scored signal from the last pipeline run — ranked by defender relevance.</p></div><span class="wire-meta">Loading signals…</span></header>
+    <header class="wire-head"><div><p class="view-kicker">Signal Feed</p><h1 class="view-title">Wire</h1><p class="view-sub">Every scored signal from the last pipeline run — ranked by defender relevance.</p></div><span class="wire-meta">Loading signals…</span></header>
     <div class="wire-controls"><div class="wire-command-row"><div class="wire-search-wrap"><span class="search-input">Search title, CVE, vendor, actor…</span></div></div></div>
     <div class="wire-colhead"><span>SCORE</span><span>SIGNAL</span><span class="ch-meta">SOURCE · AGE</span></div>
     <div class="wire-list">${rows}</div>
@@ -159,7 +164,7 @@ function renderBriefShowcase() {
                     <div>
                       <p class="view-kicker">Synthetic demo · no live data</p>
                       <h1 class="view-title">Briefing</h1>
-                      <p class="view-sub">Jul 24, 2026 · 8 min read · Sonnet 5 · demo</p>
+                      <p class="view-sub">Jul 24, 2026 · ${marketingReadMins} min read · authored synthetic demo</p>
                       <p class="brief-provenance">Fictional fixture for product demonstration — not operational intelligence</p>
                     </div>
                     <div class="briefing-toolbar">
@@ -210,10 +215,10 @@ function setupBriefShowcase() {
 
   exportBriefNewspaper({
     contentEl: content,
-    filename: 'brief-2026-07-24-demo.md',
-    metaText: 'Jul 24, 2026 · 8 min read · Sonnet 5 · synthetic demo',
-    model: 'claude-sonnet-5',
-    readMins: 8,
+    filename: 'brief-2026-07-24-01.md',
+    metaText: `Jul 24, 2026 · ${marketingReadMins} min read · authored synthetic demo`,
+    model: 'synthetic-fixture',
+    readMins: marketingReadMins,
     warnings: [],
   });
 
@@ -272,7 +277,7 @@ function renderBriefFull() {
       <div>
         <p class="view-kicker">Synthetic demo · no live data</p>
         <h1 class="view-title">Briefing</h1>
-        <p class="view-sub">Jul 24, 2026 · 8 min read · Sonnet 5 · demo</p>
+        <p class="view-sub">Jul 24, 2026 · ${marketingReadMins} min read · authored synthetic demo</p>
         <p class="brief-provenance">Fictional fixture for product demonstration — not operational intelligence</p>
       </div>
       <div class="briefing-toolbar">

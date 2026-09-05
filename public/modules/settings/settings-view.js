@@ -6,21 +6,73 @@ import { escapeHtml } from '../core/sanitize.js';
 import { ACCENTS, getThemePreference, getAccent, applyTheme, applyAccent } from '../core/theme.js';
 import { emit } from '../core/store.js';
 import { syncScheduleControlState } from './schedule-form.js';
+import { mountSystemHealth } from './system-health.js';
 
 let feedbackTimer = null;
 let armTimer = null;       // two-step Remove-key disarm timer
-let watchTermsTimer = null; // watch-terms feedback auto-dismiss
-let orgFeedbackTimer = null; // organization-profile feedback auto-dismiss
+let profileFeedbackTimer = null;
+
 let scheduleFeedbackTimer = null;
+let stopSystemHealth = null;
+let mountVersion = 0;
 
 export function render(main) {
+  const version = ++mountVersion;
+  const ownsView = () => version === mountVersion;
+  stopSystemHealth?.();
   main.innerHTML = `
     <div class="settings">
       <header class="settings-head">
-        <h1>Settings</h1>
+        <h1 class="view-title">Settings</h1>
         <p class="settings-sub">Settings are stored on this machine. The AI controls below are the only paths to Anthropic; source collection and optional webhooks have separate <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md#network-behavior" target="_blank" rel="noopener noreferrer">documented outbound paths</a>.</p>
+        <nav class="settings-index" aria-label="Settings sections">
+          <a href="#set-profile">Watch profile</a><a href="#set-ai">AI Briefing</a><a href="#set-schedule">Schedule</a><a href="#set-theme">Appearance</a><a href="#systemHealth">System health</a>
+        </nav>
       </header>
+      <div class="settings-status" id="settingsStorageStatus" data-state="error" role="alert" hidden></div>
 
+      <section class="settings-card watch-profile" aria-labelledby="set-profile">
+        <h2 id="set-profile">Watch profile</h2>
+        <p class="settings-note">Start with the technologies and interests you follow. Wire explains literal matches without an API key. A watch is a declared interest; local exposure stays unknown until checked.</p>
+        <div class="settings-status" id="profileStatus" data-state="loading" role="status" aria-live="polite">Loading your profile…</div>
+        <label class="settings-label" for="profileTechnologies">Technologies and watch terms</label>
+        <textarea id="profileTechnologies" class="settings-input settings-textarea" rows="3" placeholder="Fortinet&#10;Microsoft 365&#10;C++" aria-describedby="profileTermsHelp" disabled></textarea>
+        <p class="settings-counter" id="profileTermCount">0 / 25 terms</p>
+        <p class="settings-help" id="profileTermsHelp">One literal term per line, up to 25. Existing watch terms are included. Matches can raise relevance; they do not confirm deployment or affected versions.</p>
+        <div class="profile-grid">
+          <label><span class="settings-label">Sectors</span><textarea id="profileSectors" class="settings-input settings-textarea" rows="2" placeholder="Healthcare" disabled></textarea></label>
+          <label><span class="settings-label">Operating regions</span><textarea id="profileRegions" class="settings-input settings-textarea" rows="2" placeholder="North America&#10;Europe" disabled></textarea></label>
+        </div>
+        <p class="settings-help">One sector or region per line. These are declared interests, not evidence of targeting.</p>
+        <details class="profile-details">
+          <summary>Questions, exclusions, and analytical horizons</summary>
+          <label class="settings-label" for="profileQuestions">Intelligence questions and topics</label>
+          <textarea id="profileQuestions" class="settings-input settings-textarea" rows="3" placeholder="Has the vendor changed the affected versions?" disabled></textarea>
+          <p class="settings-help">One per line. Questions guide the next optional Briefing; they never count as confirmed facts or literal technology matches.</p>
+          <label class="settings-label" for="profileExclusions">Lower-interest topics</label>
+          <textarea id="profileExclusions" class="settings-input settings-textarea" rows="2" placeholder="Product marketing" disabled></textarea>
+          <p class="settings-help">One per line, up to 25. Exclusions are advisory: Wire keeps matching reporting visible, and urgent threats remain eligible.</p>
+          <fieldset class="profile-horizons"><legend class="settings-label">Preferred analytical horizons</legend>
+            <label><input type="checkbox" data-profile-horizon="1" disabled> Tactical</label>
+            <label><input type="checkbox" data-profile-horizon="2" disabled> Operational</label>
+            <label><input type="checkbox" data-profile-horizon="3" disabled> Strategic</label>
+          </fieldset>
+          <p class="settings-help">Optional relevance preferences. All horizons remain visible; analytical horizon is separate from urgency.</p>
+          <label class="settings-label" for="profileTeam">Team context</label>
+          <textarea id="profileTeam" class="settings-input settings-textarea" rows="3" maxlength="512" placeholder="Mid-size security team supporting a hybrid estate" disabled></textarea>
+          <p class="settings-counter" id="profileTeamCount">0 / 512 characters</p>
+        </details>
+        <div class="settings-row-actions">
+          <button class="btn-primary" id="saveProfile" type="button" disabled>Save watch profile</button>
+          <span class="profile-save-state" id="profileSaveState" role="status"></span>
+          <span class="settings-feedback" id="profileFeedback" role="status" aria-live="polite"></span>
+        </div>
+        <p class="settings-help">Save to this machine. Matches update when Wire loads; ranking updates on the next collection refresh. Clearing a field removes that watch from this profile.</p>
+        <details class="profile-details"><summary>Server alert rules</summary>
+          <p class="settings-help">Additional priority rules configured in <code>config.json</code>.</p>
+          <div class="alert-rules-list" id="alertRules" role="status" aria-live="polite"></div>
+        </details>
+      </section>
       <section class="settings-card" aria-labelledby="set-ai">
         <h2 id="set-ai">AI Briefing</h2>
         <p class="settings-note">The optional daily Briefing is the only feature that calls the Anthropic API — your prompts and key are sent to Anthropic to generate it. The Wall and Wire never need one.</p>
@@ -36,7 +88,7 @@ export function render(main) {
             </button>
           </div>
           <button class="btn-ghost-sm" id="verifyKey" type="button" title="Make one tiny test call to confirm the key works">Verify</button>
-          <button class="btn-primary" id="saveKey" type="button">Save</button>
+          <button class="btn-primary" id="saveKey" type="button" disabled>Save</button>
         </div>
         <p class="settings-help" id="keyHelp">Stored locally in <code>data/settings.local.json</code> (gitignored). Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">console.anthropic.com</a>. Usage is billed to your Anthropic account; after generation, BlueTeam.News shows the model, token count, and estimated API cost.</p>
         <div class="settings-row-actions">
@@ -56,6 +108,7 @@ export function render(main) {
             <small>Explicit opt-in; you can still generate manually while this is off.</small>
           </span>
         </label>
+        <p class="schedule-preview" id="schedulePreview">Loading schedule…</p>
         <div class="schedule-grid">
           <label>
             <span class="settings-label">Time</span>
@@ -63,7 +116,8 @@ export function render(main) {
           </label>
           <label>
             <span class="settings-label">Timezone</span>
-            <input id="scheduleTimezone" class="settings-input" type="text" value="local" placeholder="local or America/Chicago" maxlength="100" spellcheck="false" disabled>
+            <input id="scheduleTimezone" class="settings-input" type="text" value="local" placeholder="local or America/Chicago" maxlength="100" spellcheck="false" aria-label="Timezone" aria-describedby="scheduleTimezoneHelp" disabled>
+            <span class="settings-help" id="scheduleTimezoneHelp">Use local for the server's timezone, or an IANA name such as America/Chicago.</span>
           </label>
           <label>
             <span class="settings-label">If a run was missed</span>
@@ -81,7 +135,7 @@ export function render(main) {
             <input id="scheduleAttempts" class="settings-input" type="number" min="1" max="10" step="1" value="3" disabled>
           </label>
         </div>
-        <p class="settings-help">Use <code>local</code> for the server machine’s timezone, or an IANA name such as <code>America/Chicago</code>. Failed runs stop at the attempt limit; partial or invalid drafts are never published.</p>
+        <p class="settings-help">Failed runs stop at the attempt limit; partial or invalid drafts are never published.</p>
         <div class="settings-row-actions">
           <button class="btn-primary" id="saveSchedule" type="button" disabled>Save schedule</button>
           <span class="settings-feedback" id="scheduleFeedback" role="status" aria-live="polite"></span>
@@ -90,6 +144,7 @@ export function render(main) {
 
       <section class="settings-card" aria-labelledby="set-theme">
         <h2 id="set-theme">Appearance</h2>
+        <p class="settings-note">Changes apply immediately on this browser.</p>
         <label class="settings-label" id="themeLabel">Theme</label>
         <div class="seg" id="themeSeg" role="radiogroup" aria-labelledby="themeLabel">
           <button type="button" class="seg-btn" role="radio" aria-checked="false" data-theme-choice="system">System</button>
@@ -103,37 +158,10 @@ export function render(main) {
         <p class="settings-help">Applies to the operator interface — header, Wire, and Briefing. The Wall keeps its watchfloor broadsheet palette.</p>
       </section>
 
-      <section class="settings-card" aria-labelledby="set-org">
-        <h2 id="set-org">Organization profile</h2>
-        <p class="settings-note">Drives the Briefing's "Relevance" judgment and sector framing — the main daily-value differentiator over a generic feed. Leave any field blank to fall back to the server's default profile.</p>
-        <label class="settings-label" for="orgSector">Sector</label>
-        <input id="orgSector" class="settings-input" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. Healthcare, Financial services" maxlength="120">
-        <label class="settings-label" for="orgProfile" style="margin-top:14px">Team profile</label>
-        <textarea id="orgProfile" class="settings-input settings-textarea" rows="3" spellcheck="true" placeholder="e.g. Mid-size enterprise SOC running a hybrid on-prem/cloud estate" maxlength="500"></textarea>
-        <label class="settings-label" for="orgRegions" style="margin-top:14px">Operating regions</label>
-        <input id="orgRegions" class="settings-input" type="text" autocomplete="off" spellcheck="false" placeholder="Comma-separated, e.g. US, EU" maxlength="200">
-        <p class="settings-help" id="orgHelp">Comma-separated list. Saved alongside the API key and applies to the next briefing generated.</p>
-        <div class="settings-row-actions">
-          <button class="btn-primary" id="saveOrg" type="button">Save profile</button>
-          <span class="settings-feedback" id="orgFeedback" role="status" aria-live="polite"></span>
-        </div>
-      </section>
-
-      <section class="settings-card alert-rules" aria-labelledby="set-alerts">
-        <h2 id="set-alerts">Alert rules</h2>
-        <p class="settings-note">Rules boost a signal's priority and stamp the <strong>ALERT MATCH</strong> chip. The built-in rules live in <code>config.json</code> (hot-reload on save); your watch-terms are stored locally and apply on the next refresh.</p>
-        <div class="alert-rules-list" id="alertRules" role="status" aria-live="polite"></div>
-        <label class="settings-label" id="watchLabel" for="watchInput" style="margin-top:18px">Watch-terms</label>
-        <div class="watch-terms" id="watchTerms"></div>
-        <div class="watch-add-row">
-          <input id="watchInput" class="settings-input" type="text" autocomplete="off" spellcheck="false" placeholder="Add a keyword (e.g. Fortinet)" aria-labelledby="watchLabel" maxlength="64">
-          <button class="btn-ghost-sm" id="watchAdd" type="button">Add</button>
-        </div>
-        <span class="settings-feedback" id="watchFeedback" role="status" aria-live="polite"></span>
-        <p class="settings-help">Literal keywords, matched case-insensitively against incoming signals — never regex. Up to 25 terms, each 1–64 characters.</p>
-      </section>
+      <section class="settings-card system-health" id="systemHealth" aria-labelledby="set-health" tabindex="-1"></section>
     </div>
   `;
+  stopSystemHealth = mountSystemHealth(main.querySelector('#systemHealth'));
 
   // ── AI key ──
   const input = main.querySelector('#apiKey');
@@ -170,7 +198,7 @@ export function render(main) {
     // input AND both buttons, and say why. Verify stays live — testing the active env
     // key is useful.
     input.disabled = envManaged;
-    saveBtn.disabled = envManaged;
+    saveBtn.disabled = envManaged || !input.value.trim().startsWith('sk-ant-');
     clearBtn.disabled = envManaged;
     disarmClear(); // a repaint (post-save or env notice) resets the arm state
     if (envManaged) {
@@ -184,7 +212,8 @@ export function render(main) {
     emit('ai-status-changed', ai);
   }
 
-  fetchSettings().then(d => paintStatus(d.ai)).catch(() => paintStatus(null));
+  fetchSettings().then(d => { if (ownsView()) paintStatus(d.ai); })
+    .catch(() => { if (ownsView()) paintStatus(null); });
 
   async function save(value) {
     setFeedback('Saving…', { sticky: true });
@@ -194,6 +223,7 @@ export function render(main) {
       if (!(d.ai?.keySource === 'env')) setFeedback(value ? 'Saved' : 'Removed');   // env path keeps its sticky notice
       input.setAttribute('aria-describedby', 'keyHelp');
       input.value = '';
+      saveBtn.disabled = true;
       syncReveal(false);
     } catch (err) {
       setFeedback(err.message || 'Save failed.', { sticky: true });
@@ -210,7 +240,7 @@ export function render(main) {
       setFeedback('Anthropic keys start with "sk-ant-" — check the paste.', { sticky: true });
       input.setAttribute('aria-describedby', 'keyHelp keyFeedback');
     } else {
-      if (!input.disabled) saveBtn.disabled = false;
+      if (!input.disabled) saveBtn.disabled = !v;
       input.setAttribute('aria-describedby', 'keyHelp');
       if ((feedback.textContent || '').startsWith('Anthropic keys start')) setFeedback('');
     }
@@ -303,6 +333,14 @@ export function render(main) {
   ];
   let scheduleAvailable = false;
   let scheduleSaving = false;
+  function paintSchedulePreview() {
+    const preview = main.querySelector('#schedulePreview');
+    if (!scheduleAvailable) { preview.textContent = 'Schedule unavailable.'; return; }
+    if (!scheduleEnabledEl.checked) { preview.textContent = 'Form preview: automatic generation would be off. Save schedule to apply changes. You can still generate a Briefing manually.'; return; }
+    const zone = scheduleTimezoneEl.value.trim() || 'local';
+    preview.textContent = `Form preview: every day at ${scheduleTimeEl.value || '—'} · ${zone === 'local' ? 'server local time' : zone}. Save schedule to apply changes.`;
+  }
+  scheduleFields.forEach(el => el.addEventListener('input', paintSchedulePreview));
 
   function syncScheduleControls() {
     syncScheduleControlState({
@@ -330,6 +368,7 @@ export function render(main) {
       syncScheduleControls();
       scheduleStatusEl.dataset.state = 'off';
       scheduleStatusEl.textContent = 'Schedule settings are unavailable to this client.';
+      paintSchedulePreview();
       return;
     }
     scheduleAvailable = true;
@@ -340,6 +379,7 @@ export function render(main) {
     scheduleMissedRunEl.value = schedule.missedRun || 'skip';
     scheduleRetryEl.value = String(schedule.retryMinutes || 15);
     scheduleAttemptsEl.value = String(schedule.maxAttempts || 3);
+    paintSchedulePreview();
 
     if (!schedule.enabled) {
       scheduleStatusEl.dataset.state = 'off';
@@ -428,149 +468,103 @@ export function render(main) {
   wireRovingRadios(swatches, '.swatch', chooseAccent);
   paintAccent();
 
-  // ── Organization profile — sector / team profile / regions, the inputs that
-  // drive the Briefing's "Relevance" judgment. Persisted the same way as the API
-  // key: POST /api/settings, gated on the same trusted-writer check watchTerms
-  // uses. A blank field falls back to config.json's default (getEffectiveOrganization
-  // in lib/user-settings.js merges the override over it wherever organization is read).
-  const orgSectorEl = main.querySelector('#orgSector');
-  const orgProfileEl = main.querySelector('#orgProfile');
-  const orgRegionsEl = main.querySelector('#orgRegions');
-  const orgSaveBtn = main.querySelector('#saveOrg');
-  const orgFeedback = main.querySelector('#orgFeedback');
-
-  function setOrgFeedback(msg) {
-    clearTimeout(orgFeedbackTimer);
-    orgFeedback.textContent = msg || '';
-    if (msg) orgFeedbackTimer = setTimeout(() => { orgFeedback.textContent = ''; }, 4000);
+  // One atomic profile save; controls stay disabled until a trusted read succeeds.
+  const profileCard = main.querySelector('.watch-profile');
+  const profileSave = main.querySelector('#saveProfile');
+  const profileStatus = main.querySelector('#profileStatus');
+  const profileFeedback = main.querySelector('#profileFeedback');
+  const profileFields = {
+    technologies: main.querySelector('#profileTechnologies'),
+    sectors: main.querySelector('#profileSectors'),
+    regions: main.querySelector('#profileRegions'),
+    intelligenceQuestions: main.querySelector('#profileQuestions'),
+    exclusions: main.querySelector('#profileExclusions'),
+  };
+  const profileTeam = main.querySelector('#profileTeam');
+  const horizonFields = [...profileCard.querySelectorAll('[data-profile-horizon]')];
+  let profileAvailable = false;
+  let savedProfileSignature = '';
+  const profileSignature = () => JSON.stringify([
+    ...Object.values(profileFields).map(el => el.value), profileTeam.value,
+    ...horizonFields.map(el => el.checked),
+  ]);
+  function paintProfileEditState() {
+    const terms = profileFields.technologies.value.split(/\r?\n/).map(t => t.trim()).filter(Boolean).length;
+    const counter = main.querySelector('#profileTermCount');
+    counter.textContent = `${terms} / 25 terms`;
+    counter.classList.toggle('over-limit', terms > 25);
+    main.querySelector('#profileTeamCount').textContent = `${profileTeam.value.length} / 512 characters`;
+    const state = main.querySelector('#profileSaveState');
+    const dirty = profileAvailable && profileSignature() !== savedProfileSignature;
+    state.dataset.dirty = String(dirty);
+    const label = profileAvailable ? dirty ? 'Unsaved changes' : 'Saved profile' : '';
+    if (state.textContent !== label) state.textContent = label;
   }
-
-  function paintOrg(org) {
-    orgSectorEl.value = (org && typeof org.sector === 'string') ? org.sector : '';
-    orgProfileEl.value = (org && typeof org.profile === 'string') ? org.profile : '';
-    orgRegionsEl.value = (org && Array.isArray(org.regions)) ? org.regions.join(', ') : '';
+  [...Object.values(profileFields), profileTeam, ...horizonFields].forEach(el => el.addEventListener('input', paintProfileEditState));
+  function setProfileControls(disabled) {
+    [...Object.values(profileFields), profileTeam, ...horizonFields, profileSave].forEach(el => { el.disabled = disabled; });
   }
-
-  orgSaveBtn.addEventListener('click', async () => {
-    const organization = {
-      sector: orgSectorEl.value.trim(),
-      profile: orgProfileEl.value.trim(),
-      regions: orgRegionsEl.value.split(',').map(r => r.trim()).filter(Boolean),
-    };
-    orgSaveBtn.disabled = true;
-    setOrgFeedback('Saving…');
+  function paintProfile(profile) {
+    profileAvailable = Boolean(profile && Array.isArray(profile.technologies));
+    setProfileControls(!profileAvailable);
+    profileStatus.dataset.state = profileAvailable ? 'info' : 'error';
+    profileStatus.textContent = profileAvailable
+      ? 'Declared interests · exposure requires an applicability check.'
+      : 'Watch profile unavailable. Use the local operator connection or authenticate.';
+    if (!profileAvailable) { paintProfileEditState(); return; }
+    Object.entries(profileFields).forEach(([key, el]) => { el.value = (profile[key] || []).join('\n'); });
+    profileTeam.value = profile.teamProfile || '';
+    horizonFields.forEach(el => { el.checked = (profile.preferredHorizons || []).includes(Number(el.dataset.profileHorizon)); });
+    savedProfileSignature = profileSignature();
+    paintProfileEditState();
+  }
+  function setProfileFeedback(message, sticky = false) {
+    clearTimeout(profileFeedbackTimer);
+    profileFeedback.textContent = message;
+    if (!sticky) profileFeedbackTimer = setTimeout(() => { profileFeedback.textContent = ''; }, 6000);
+  }
+  profileSave.addEventListener('click', async () => {
+    if (!profileAvailable || profileSave.disabled) return;
+    const watchProfile = Object.fromEntries(Object.entries(profileFields).map(([key, el]) => [key,
+      el.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean),
+    ]));
+    watchProfile.teamProfile = profileTeam.value.trim();
+    watchProfile.preferredHorizons = horizonFields.filter(el => el.checked).map(el => Number(el.dataset.profileHorizon));
+    setProfileControls(true);
+    setProfileFeedback('Saving…', true);
     try {
-      const d = await saveSettings({ organization });
-      if (d.organization) paintOrg(d.organization);   // trust the server's echoed/normalized values
-      setOrgFeedback('Saved');
+      const response = await saveSettings({ watchProfile });
+      paintProfile(response.watchProfile);
+      setProfileFeedback('Saved. Open Wire to inspect matches; ranking updates on the next refresh.');
     } catch (err) {
-      setOrgFeedback(err.message || 'Save failed.');
+      setProfileFeedback(err.message || 'Profile save failed. Your edits are still here.', true);
     } finally {
-      orgSaveBtn.disabled = false;
+      setProfileControls(!profileAvailable);
     }
   });
-
-  // ── Alert rules — read-only config rules + locally-stored literal watch-terms ──
-  // The extended GET/POST fields are gated server-side on loopback||authed; an untrusted
-  // client just gets a note and no list. Watch-terms are literal keywords (escaped to
-  // regex by the scorer, never accepted as regex here), so we treat and store them as
-  // plain strings and escape on render.
-  const rulesEl = main.querySelector('#alertRules');
-  const termsEl = main.querySelector('#watchTerms');
-  const watchInput = main.querySelector('#watchInput');
-  const watchAddBtn = main.querySelector('#watchAdd');
-  const watchFeedback = main.querySelector('#watchFeedback');
-  const MAX_TERMS = 25;
-  let watchTerms = null;   // null = untrusted client (fields omitted); array = editable
-  let rulesTrusted = false;
-
-  function setWatchFeedback(msg) {
-    clearTimeout(watchTermsTimer);
-    watchFeedback.textContent = msg || '';
-    if (msg) watchTermsTimer = setTimeout(() => { watchFeedback.textContent = ''; }, 4000);
-  }
-
   function paintRules(rules) {
-    if (!Array.isArray(rules)) {
-      rulesEl.innerHTML = '<p class="settings-help">Alert rules are configured in <code>config.json</code>.</p>';
-      return;
-    }
-    if (!rules.length) {
-      rulesEl.innerHTML = '<p class="settings-help">No alert rules configured.</p>';
-      return;
-    }
-    rulesEl.innerHTML = rules.map(r =>
-      `<div class="alert-rule-row"><span class="alert-rule-pattern">${escapeHtml(String(r.pattern))}</span><span class="alert-rule-boost">+${escapeHtml(String(r.boost))}</span></div>`
-    ).join('');
+    main.querySelector('#alertRules').innerHTML = !Array.isArray(rules)
+      ? '<p class="settings-help">Rules are available to the authenticated operator.</p>'
+      : rules.length ? rules.map(r => `<div class="alert-rule-row"><span class="alert-rule-pattern">${escapeHtml(String(r.pattern))}</span><span class="alert-rule-boost">+${escapeHtml(String(r.boost))}</span></div>`).join('')
+        : '<p class="settings-help">No server alert rules configured.</p>';
   }
-
-  function paintTerms() {
-    if (!Array.isArray(watchTerms)) {
-      // Untrusted client — the editor is not available; hide the add row's purpose.
-      termsEl.innerHTML = '<p class="settings-help">Watch-terms are available on the local operator machine.</p>';
-      watchInput.disabled = true;
-      watchAddBtn.disabled = true;
-      return;
-    }
-    termsEl.innerHTML = watchTerms.length
-      ? watchTerms.map((t, i) =>
-          `<button type="button" class="watch-term" data-idx="${i}" aria-label="Remove watch-term ${escapeHtml(t)}">${escapeHtml(t)} <span class="wt-x" aria-hidden="true">✕</span></button>`
-        ).join('')
-      : '<p class="settings-help">No watch-terms yet.</p>';
-    termsEl.querySelectorAll('.watch-term').forEach(btn => {
-      btn.addEventListener('click', () => removeTerm(Number(btn.dataset.idx)));
-    });
-  }
-
-  async function persistTerms() {
-    try {
-      const d = await saveSettings({ watchTerms });
-      // Trust the server's canonical (sanitized/deduped) list when it echoes it back.
-      if (Array.isArray(d.watchTerms)) watchTerms = d.watchTerms;
-      paintTerms();
-      setWatchFeedback('Saved — applies on the next refresh.');
-    } catch (err) {
-      setWatchFeedback(err.message || 'Could not save watch-terms.');
-    }
-  }
-
-  function addTerm() {
-    if (!Array.isArray(watchTerms)) return;
-    const raw = watchInput.value.trim();
-    if (!raw) { setWatchFeedback('Type a keyword first.'); return; }
-    if (raw.length > 64) { setWatchFeedback('Keep each term to 64 characters or fewer.'); return; }
-    if (watchTerms.length >= MAX_TERMS) { setWatchFeedback(`At most ${MAX_TERMS} watch-terms.`); return; }
-    if (watchTerms.some(t => t.toLowerCase() === raw.toLowerCase())) {
-      setWatchFeedback('That term is already on the list.');
-      watchInput.value = '';
-      return;
-    }
-    watchTerms = [...watchTerms, raw];
-    watchInput.value = '';
-    paintTerms();
-    persistTerms();
-  }
-
-  function removeTerm(idx) {
-    if (!Array.isArray(watchTerms) || idx < 0 || idx >= watchTerms.length) return;
-    watchTerms = watchTerms.filter((_, i) => i !== idx);
-    paintTerms();
-    persistTerms();
-  }
-
-  watchAddBtn.addEventListener('click', addTerm);
-  watchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addTerm(); } });
-
   fetchSettings().then(d => {
-    rulesTrusted = Array.isArray(d.alertRules);
+    if (!ownsView()) return;
+    const storageStatus = main.querySelector('#settingsStorageStatus');
+    if (storageStatus) {
+      storageStatus.hidden = d.storage?.status !== 'error';
+      storageStatus.textContent = d.storage?.status === 'error'
+        ? d.storage.message || 'Saved settings could not be read. Repair the settings file before saving changes.'
+        : '';
+    }
     paintRules(d.alertRules);
-    watchTerms = Array.isArray(d.watchTerms) ? d.watchTerms : (rulesTrusted ? [] : null);
-    paintTerms();
-    paintOrg(d.organization);   // populate from a trusted GET; blank fields on an untrusted client
+    paintProfile(d.watchProfile);
     paintSchedule(d.briefSchedule, d.briefScheduleStatus);
-  }).catch(() => { paintRules(null); paintTerms(); paintOrg(null); paintSchedule(null, null); });
+  }).catch(() => {
+    if (!ownsView()) return;
+    paintRules(null); paintProfile(null); paintSchedule(null, null);
+  });
 }
-
 // Arrow-key navigation for a radiogroup: Left/Up and Right/Down move the selection
 // (radio convention: moving focus selects), Home/End jump to the ends. Roving tabindex
 // is maintained by the caller's paint function.
@@ -592,9 +586,12 @@ function wireRovingRadios(container, itemSelector, select) {
 }
 
 export function unmount() {
+  mountVersion++;
+  stopSystemHealth?.();
+  stopSystemHealth = null;
   clearTimeout(feedbackTimer);
   clearTimeout(armTimer);
-  clearTimeout(watchTermsTimer);
-  clearTimeout(orgFeedbackTimer);
+  clearTimeout(profileFeedbackTimer);
+
   clearTimeout(scheduleFeedbackTimer);
 }

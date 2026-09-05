@@ -1,6 +1,8 @@
 import { describe, expect, jest, test } from '@jest/globals';
 import {
   activateTocLink,
+  currentTocHeading,
+  bindTocScroll,
   bindTocBreakpoint,
   findTocFragmentLink,
   generationFailureModel,
@@ -17,6 +19,50 @@ function renderedBrief({ renderedText = '', draft = false, structured = true } =
     },
   };
 }
+
+test('scrollspy keeps the heading at the reading edge when later sections are also visible', () => {
+  const heading = (id, top) => ({ id, getBoundingClientRect: () => ({ top }) });
+  const watch = heading('watchlist', 104);
+  const references = heading('references', 325);
+  expect(currentTocHeading([heading('earlier', -800), watch, references])).toBe(watch);
+  expect(currentTocHeading([watch, references], 340)).toBe(references);
+  expect(currentTocHeading([heading('previous', -200), heading('mobile-target', 138)], 145).id).toBe('mobile-target');
+});
+
+test('scroll frames select the settled target after observer intersections stop and clean up pending work', () => {
+  const listeners = new Map();
+  const frames = new Map();
+  let nextFrame = 0;
+  const view = {
+    addEventListener: (name, handler) => listeners.set(name, handler),
+    removeEventListener: (name, handler) => { if (listeners.get(name) === handler) listeners.delete(name); },
+    requestAnimationFrame: callback => { frames.set(++nextFrame, callback); return nextFrame; },
+    cancelAnimationFrame: frame => frames.delete(frame),
+  };
+  const convergence = { id: 'convergence', getBoundingClientRect: () => ({ top: -300 }) };
+  let watchTop = 93;
+  const watch = { id: 'watchlist', getBoundingClientRect: () => ({ top: watchTop }) };
+  let current;
+  const update = jest.fn(() => { current = currentTocHeading([convergence, watch], 79); });
+  const stop = bindTocScroll(view, update);
+  const flushFrame = () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback()); };
+  flushFrame();
+  expect(current).toBe(convergence);
+  // No new intersection event occurs, but smooth scrolling ends below 90px.
+  watchTop = 78.1875;
+  listeners.get('scroll')();
+  listeners.get('scroll')();
+  expect(frames.size).toBe(1);
+  flushFrame();
+  expect(current).toBe(watch);
+  expect(update).toHaveBeenCalledTimes(2);
+  listeners.get('resize')();
+  stop();
+  expect(listeners.size).toBe(0);
+  expect(frames.size).toBe(0);
+  flushFrame();
+  expect(update).toHaveBeenCalledTimes(2);
+});
 
 describe('Edition export readiness', () => {
   test('accepts only a completed render that matches the current brief', () => {
@@ -104,12 +150,12 @@ describe('Briefing TOC breakpoint behavior', () => {
       setAttribute: jest.fn(),
     };
     const toc = { querySelectorAll: () => [prior, link] };
+    const disclosure = { open: true };
     const target = {
-      scrollIntoView: jest.fn(),
+      scrollIntoView: jest.fn(() => { expect(disclosure.open).toBe(false); }),
       setAttribute: jest.fn(),
       focus: jest.fn(),
     };
-    const disclosure = { open: true };
 
     expect(activateTocLink({
       link,

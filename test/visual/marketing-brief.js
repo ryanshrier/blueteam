@@ -1,9 +1,20 @@
 // Deterministic, privacy-safe content for public product imagery.
 // This is intentionally fictional and must remain valid under the same
-// structural checks as a generated Briefing.
+// publication checks as a generated Briefing, using the fictional sources below.
+export const MARKETING_SOURCES = [
+  { source: 'Synthetic vendor advisory', title: 'Fictional gateway exercise advisory', date: '2026-07-24', link: '', horizon: 1,
+    description: 'In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory.' },
+  { source: 'Synthetic incident report', title: 'Fictional response exercise timeline', date: '2026-07-23', link: '', horizon: 2,
+    description: 'The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification.' },
+  { source: 'Synthetic exercise planning note', title: 'Fictional annual assurance proposal', date: '2026-07-24', link: '', horizon: 3,
+    description: 'The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet.' },
+];
+
 export const MARKETING_BRIEF = `# BlueTeam.News
 
 ### Threat Landscape Briefing · 2026-07-24 · Friday
+
+**Synthetic product demonstration.** All sources, systems, and events below are fictional. This authored fixture demonstrates the complete document and source trail; it is not a live assessment or a paid model run.
 
 ## BLUF
 
@@ -23,9 +34,9 @@ A synthetic identity-gateway incident shows how one sourced assessment becomes b
 
 **Assessment:** In this synthetic scenario, a confirmed authentication bypass makes unpatched internet-facing gateways the immediate operational priority.
 
-**Confidence:** Almost certain (95–99%) — based on the fictional vendor advisory and two corroborating demo reports.
+**Confidence:** Almost certain (95–99%) — based on the fictional vendor advisory and synthetic incident report.
 
-**What happened:** The example vendor published a corrected build after its test telemetry showed exploitation of exposed management interfaces.
+**What happened:** The example vendor published a corrected build after its test telemetry showed exploitation of exposed management interfaces. [Synthetic vendor advisory, July 24, 2026] [Synthetic incident report, July 23, 2026]
 
 **Defender impact:** Teams should identify every example gateway, verify the installed build, and inspect authentication and process-launch telemetry for the supplied synthetic patterns.
 
@@ -46,7 +57,7 @@ A synthetic identity-gateway incident shows how one sourced assessment becomes b
 
 **Confidence:** Likely (55–80%) — based on the synthetic incident timeline and the example environment map.
 
-**What happened:** The demo response team found gateway inventory in one system, identity events in another, and escalation ownership in a third.
+**What happened:** The demo response team found gateway inventory in one system, identity events in another, and escalation ownership in a third. [Synthetic incident report, July 23, 2026]
 
 **Defender impact:** A shared review should connect external exposure, identity events, asset ownership, and remediation evidence before the next exercise.
 
@@ -60,6 +71,26 @@ A synthetic identity-gateway incident shows how one sourced assessment becomes b
 **Decision window:** 30 days.
 
 **The line:** A patch closes the flaw; a joined evidence trail closes the decision.
+
+### Signal 3 — [Horizon 3] Repeated exercises can make evidence ownership a standing leadership decision
+
+**Assessment:** The fictional annual assurance proposal could turn a one-time response lesson into a sustained review of ownership and retained decision evidence.
+
+**Confidence:** Likely (55–80%) — the synthetic plan names the proposed annual review, while approval and funding remain unresolved.
+
+**What happened:** The fictional leadership team proposed an annual gateway exercise with an evidence owner and review date for each decision. The next planning review must choose an owner and retention period; neither is approved. [Synthetic exercise planning note, July 24, 2026]
+
+**Defender impact:** Leadership should decide which evidence must survive beyond a single incident so later exercises can test whether the operating model improved.
+
+**Relevance:** This is a fictional long-term assurance decision, not a claim about any real organization's controls.
+
+**Recommended actions:**
+
+- Leadership — choose an accountable exercise owner and proposed evidence-retention period — recommended target September 30, 2026.
+
+**Decision window:** This quarter.
+
+**The line:** Repetition becomes assurance only when the next review can inspect the earlier decision.
 
 ---
 
@@ -97,7 +128,17 @@ A synthetic identity-gateway incident shows how one sourced assessment becomes b
 
 ## SOURCES
 
-- [Synthetic vendor advisory, July 24, 2026]
-- [Synthetic incident report, 2026-07-23]
-- All names, systems, organizations, and events in this fixture are fictional.
+All three records below are authored demonstration evidence. Their URLs are unavailable because these publications do not exist. No link, publisher verification, real-world exploitation, or organizational exposure is implied.
+
+### Synthetic vendor advisory · July 24, 2026
+
+${MARKETING_SOURCES[0].description}
+
+### Synthetic incident report · July 23, 2026
+
+${MARKETING_SOURCES[1].description}
+
+### Synthetic exercise planning note · July 24, 2026
+
+${MARKETING_SOURCES[2].description}
 `;

@@ -15,14 +15,15 @@ import { TIER_NAMES } from './tiers.js';
 let overlay = null;         // the mounted overlay, or null when closed
 let returnFocusTo = null;   // element to restore focus to on close
 let onKey = null;           // the bound keydown handler, removed on close
+let previousBodyOverflow = '';
 
 // One trust affordance = one row: the visual token + what it certifies. Kept as
 // data so the copy sits next to the class it explains (honest instruments — the
 // legend can never drift from the real chips because it renders the same voice).
 const TRUST_ROWS = [
-  ['<span class="help-aff-solid">solid</span>', 'Verified fact — asserted by the source or a catalog.'],
+  ['<span class="help-aff-solid">solid</span>', 'Reported or catalog-sourced information. Read the label and cited source; this does not establish exposure in your environment.'],
   ['<span class="help-aff-dotted">dotted underline</span>', 'Heuristic auto-tag — matched by pattern, not confirmed.'],
-  ['<span class="help-aff-mono">×N</span>', 'Cross-source reporting — N distinct source identities carry a near-matched signal.'],
+  ['<span class="help-aff-mono">×N</span>', 'N distinct source identities carry a similar report. They may rely on the same underlying reporting.'],
   ['<span class="help-aff-mono">KEV</span>', 'On the CISA Known Exploited Vulnerabilities catalog.'],
   ['<span class="help-aff-mono">EXPLOIT</span>', 'Public exploit references exist.'],
 ];
@@ -30,17 +31,21 @@ const TRUST_ROWS = [
 // Tier legend — reuses the operational .c-chip voice (T1 red / T2 amber /
 // T3 violet) so the legend reads in the exact hues the Wire and Wall use.
 function tierLegend() {
+  const horizons = {1:'Near-term', 2:'Developing', 3:'Long-range'};
   return [1, 2, 3]
-    .map(n => `<span class="c-chip h${n}">${TIER_NAMES[n]}</span>`)
+    .map(n => `<p class="help-tier-row"><span class="c-chip h${n}">T${n} · ${TIER_NAMES[n]}</span><span>${horizons[n]}</span></p>`)
     .join('');
 }
 
 // Keyboard map — the chords wired in shortcuts.js and the Wall handler. `<kbd>`
 // caps mirror the mono machine-fact voice.
 const KEY_ROWS = [
-  ['<kbd class="help-kbd">G</kbd> then <kbd class="help-kbd">B</kbd> / <kbd class="help-kbd">W</kbd> / <kbd class="help-kbd">L</kbd> / <kbd class="help-kbd">S</kbd>', 'Briefing / Wire / waLL / Settings'],
+  ['<kbd class="help-kbd">G</kbd> then <kbd class="help-kbd">B</kbd> / <kbd class="help-kbd">W</kbd> / <kbd class="help-kbd">L</kbd> / <kbd class="help-kbd">S</kbd>', 'Briefing / Wire / Wall with controls / Settings'],
+  ['<kbd class="help-kbd">←</kbd> / <kbd class="help-kbd">→</kbd>', 'Wall: previous / next page, then hold for reading'],
+  ['<kbd class="help-kbd">Space</kbd>', 'Wall: pause / resume rotation'],
   ['<kbd class="help-kbd">Ctrl</kbd>/<kbd class="help-kbd">⌘</kbd> + <kbd class="help-kbd">Enter</kbd>', 'Generate briefing'],
   ['<kbd class="help-kbd">/</kbd>', 'Focus the active search field'],
+  ['<kbd class="help-kbd">J</kbd> / <kbd class="help-kbd">K</kbd>', 'Wire: next / previous signal'],
   ['<kbd class="help-kbd">?</kbd>', 'This help'],
   ['<kbd class="help-kbd">Esc</kbd>', 'Close help · exit the Wall'],
 ];
@@ -48,14 +53,16 @@ const KEY_ROWS = [
 function buildPanel() {
   return `
     <div class="help-panel" role="document">
-      <button type="button" class="help-close" aria-label="Close help">✕</button>
+      <div class="help-heading">
       <h2 class="help-title" id="helpTitle">How to read BlueTeam.News</h2>
+      <button type="button" class="help-close" aria-label="Close help">✕</button>
+      </div>
 
       <section class="help-section">
         <h3 class="help-section-h">The Wire columns</h3>
         <dl class="help-defs">
           <dt><span class="help-aff-mono">SCORE</span></dt>
-          <dd>0–100 defender relevance. Click a score to open the evidence ledger behind it.</dd>
+          <dd>0–100 ranking priority. Scores with an expansion indicator include a component breakdown; other scores are a summary value. A high score does not confirm exposure in your environment.</dd>
           <dt>SIGNAL</dt>
           <dd>The headline plus its decision chips — what it is and what it demands.</dd>
           <dt>SOURCE · AGE</dt>
@@ -68,12 +75,12 @@ function buildPanel() {
         <dl class="help-defs">
           ${TRUST_ROWS.map(([token, meaning]) => `<dt>${token}</dt><dd>${meaning}</dd>`).join('')}
         </dl>
+        <p class="help-note"><strong>Reading an assessment.</strong> Briefing assessments are generated interpretations of the cited reporting. Likelihood describes an estimated outcome; confidence describes the stated strength of the evidence. Read the supplied reasoning before acting.</p>
       </section>
 
       <section class="help-section">
         <h3 class="help-section-h">Tiers</h3>
-        <p class="help-tier-legend">${tierLegend()}</p>
-        <p class="help-tier-note">Tactical (near-term) · Operational (developing) · Strategic (long-range).</p>
+        <div class="help-tier-legend">${tierLegend()}</div>
       </section>
 
       <section class="help-section">
@@ -99,6 +106,8 @@ export function openHelp() {
   overlay.setAttribute('aria-labelledby', 'helpTitle');
   overlay.innerHTML = buildPanel();
   document.body.appendChild(overlay);
+  previousBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
 
   // Clicking the scrim (outside the panel) closes, like the export overlay.
   overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeHelp(); });
@@ -126,6 +135,7 @@ export function openHelp() {
 export function closeHelp() {
   if (!overlay) return;
   overlay.remove();
+  document.body.style.overflow = previousBodyOverflow;
   overlay = null;
   if (onKey) { document.removeEventListener('keydown', onKey); onKey = null; }
   if (returnFocusTo && typeof returnFocusTo.focus === 'function') returnFocusTo.focus();

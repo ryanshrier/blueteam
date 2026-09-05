@@ -13,6 +13,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = process.cwd();
 const DOCS = join(ROOT, 'docs');
@@ -34,7 +35,7 @@ function findOnPath(command) {
   return result.stdout.split(/\r?\n/).map(value => value.trim()).find(Boolean) ?? null;
 }
 
-function findBrowser() {
+export function findBrowser() {
   const configured = process.env.CHROME_PATH ?? process.env.BROWSER_PATH;
   if (configured) {
     if (!existsSync(configured)) throw new Error(`Configured browser does not exist: ${configured}`);
@@ -141,7 +142,7 @@ async function startStaticServer() {
   };
 }
 
-class CdpConnection {
+export class CdpConnection {
   constructor(webSocketUrl) {
     this.sequence = 0;
     this.pending = new Map();
@@ -243,7 +244,7 @@ class CdpConnection {
   }
 }
 
-async function launchBrowser(browserPath) {
+export async function launchBrowser(browserPath) {
   const profile = await mkdtemp(join(tmpdir(), 'blueteam-landing-browser-'));
   const args = [
     '--headless=new',
@@ -581,6 +582,7 @@ async function renderViewport(debugOrigin, origin, viewport) {
   }
 }
 
+async function main() {
 let staticServer;
 let browser;
 let infrastructureSkip;
@@ -631,3 +633,6 @@ if (infrastructureSkip) {
 } else {
   console.log('Landing render smoke passed at wide, desktop, laptop, tablet, and phone widths.');
 }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

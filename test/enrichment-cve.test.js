@@ -279,11 +279,11 @@ describe('enrichEPSS — exploitation-likelihood signal', () => {
     expect(h.epssCVE).toBe('CVE-2025-0008');
   });
 
-  test('a failed EPSS fetch degrades silently (no h.epss, no throw)', async () => {
+  test('a failed EPSS fetch is reported to the nonfatal stage runner', async () => {
     const cancel = jest.fn();
     safeFetchMock.mockResolvedValue(fakeResponse({ status: 500, cancel }));
     const h = { title: 'CVE-2025-0009 disclosed', description: '' };
-    await expect(enrichEPSS([h], 20)).resolves.toBeUndefined();
+    await expect(enrichEPSS([h], 20)).rejects.toThrow('EPSS unavailable');
     expect(h.epss).toBeUndefined();
     expect(cancel).toHaveBeenCalledTimes(1);
   });

@@ -29,6 +29,10 @@ RSS/Atom | Google News | CISA KEV | NVD | EPSS | Anthropic
 | `lib/net.js` | Undici transport, DNS pinning, redirect policy, and SSRF controls |
 | `lib/landscape.js` | Landscape data used by the Wire and Wall |
 | `lib/db.js` | SQLite persistence and FTS5 indexes |
+| `lib/evidence.js` | Stable source identity, bounded immutable excerpt revisions and text comparison |
+| `lib/watch-profile.js` | Unified declared context and literal applicability explanations |
+| `lib/generation-manifest.js` | Versioned allowlisted edition input receipts and integrity checks |
+| `lib/scoring-snapshot.js` | Collection-time scoring configuration snapshot for generation receipts |
 | `routes/brief.js` | Briefing generation stream, validation, history, and search |
 | `routes/landscape.js` | Landscape, headline, feed, and refresh endpoints |
 | `public/` | Browser application and static runtime assets |
@@ -49,6 +53,22 @@ Each score component remains available to the interface. Source diversity is inf
 
 Rolling signal history is stored in SQLite for trends such as actor frequency and headline velocity.
 
+Before grouping, collection now retains the original source members and stores
+source observations in additive SQLite tables (migration v7 → v8). URL identity
+and scoped publisher identifiers keep title changes associated; conservative
+fingerprints cover sources lacking both. Each feed representation compares its
+own title/excerpt against its predecessor, so RSS/search copies of one article
+do not manufacture alternating changes. The source store is bounded independently
+from the title-keyed trend archive. Feed excerpts are normalized source text,
+not full-document evidence or verified claims.
+
+The effective watch profile preserves legacy organization/watch settings and
+feeds scoring plus generation. Wire evaluates current declared matches against
+inspectable source passages and keeps local exposure unknown. Its dynamic match
+explanation may use a newer saved profile than a cached signal's score; the
+edition receipt separates collection and generation profiles to preserve that
+distinction. Profile details remain behind the existing trusted-operator gate.
+
 ## Briefing flow
 
 `routes/brief.js`:
@@ -62,6 +82,17 @@ Rolling signal history is stored in SQLite for trends such as actor frequency an
 7. indexes it in SQLite FTS5 for search.
 
 These checks reduce structural and grounding failures; they do not independently establish that generated prose is factually correct. Timeout recovery and model fallback are handled by the route.
+
+New publication writes a bounded versioned JSON input receipt before the Markdown
+archive completion marker. The receipt embeds source member passages, selected
+enrichment and revision references, effective profiles, scoring inputs,
+implementation/prompt hashes, model identities, attempt/validation records and
+the saved Markdown hash. Failed receipt writes cannot emit successful
+publication. Trust-gated reads validate the receipt and archive hash; legacy or
+externally edited archives explicitly lack matching historical evidence.
+Hash identities support traceability, not exact prompt/model replay. A process
+crash may leave an orphan receipt; durable job/outbox and filesystem recovery
+remain milestone 3. See [Evidence and relevance](evidence-and-relevance.md).
 
 Each key judgment carries two separate time concepts. Its Tactical,
 Operational, or Strategic tier is the analytic horizon; its Decision window

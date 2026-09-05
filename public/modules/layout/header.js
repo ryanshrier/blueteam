@@ -1,20 +1,16 @@
 // BlueTeam.News — application header: wordmark, nav, actions.
 
-import { getState, on, emit } from '../core/store.js';
+import { on } from '../core/store.js';
 import { navigate } from '../core/router.js';
-import { fetchSettings, fetchEdition } from '../core/api.js';
+import { fetchEdition } from '../core/api.js';
 import { openHelp } from '../core/help.js';
 
-// When no key is configured the Generate CTA would 503; until then it routes to
-// Settings as "Enable AI →" rather than misrepresenting an action that can't work.
-let aiEnabled = true;
+let headerObserver = null;
 
 export function initHeader() {
   const header = document.getElementById('appHeader');
   if (!header) return;
-
-  const isMac = navigator.platform?.includes('Mac');
-  const modKey = isMac ? '\u2318' : 'Ctrl';
+  headerObserver?.disconnect();
 
   header.innerHTML = `
     <div class="header-inner">
@@ -22,17 +18,11 @@ export function initHeader() {
         <span id="hdrWordmark">BLUETEAM.NEWS</span>
       </button>
       <nav class="header-nav" aria-label="Main navigation">
-        <button class="nav-btn" data-mode="briefing" title="Briefing (G then B)">BRIEFING</button>
         <button class="nav-btn active" data-mode="wire" aria-current="page" title="Wire (G then W)">WIRE</button>
-        <button class="nav-btn" data-mode="wall" title="The Wall — watchfloor broadsheet (G then L)">WALL</button>
+        <button class="nav-btn" data-mode="briefing" title="Briefing (G then B)">BRIEFING</button>
+        <button class="nav-btn" data-mode="wall" title="The Wall — reading and playback controls (G then L)">WALL</button>
       </nav>
       <div class="header-right">
-        <button class="btn-primary" id="hdrGenerate" title="Generate briefing (${modKey}+Enter)">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-          </svg>
-          <span id="hdrGenerateText">Generate</span>
-        </button>
         <button class="icon-btn" id="hdrHelp" title="Help (?)" aria-label="Help">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10"></circle>
@@ -52,13 +42,19 @@ export function initHeader() {
 
   document.getElementById('hdrHome')?.addEventListener('click', () => navigate('/wire'));
 
-  header.querySelectorAll('.nav-btn[data-mode]').forEach(btn => {
-    btn.addEventListener('click', () => navigate(`/${btn.dataset.mode}`));
-  });
+  // A compact header and larger user text can occupy more than one row.
+  const measureHeader = () => {
+    const height = header.getBoundingClientRect?.().height;
+    if (height > 0) document.documentElement?.style?.setProperty('--header-rendered-height', `${Math.ceil(height)}px`);
+  };
+  measureHeader();
+  if (typeof ResizeObserver !== 'undefined') {
+    headerObserver = new ResizeObserver(measureHeader);
+    headerObserver.observe(header);
+  }
 
-  document.getElementById('hdrGenerate')?.addEventListener('click', () => {
-    if (!aiEnabled) { navigate('/settings'); return; }
-    if (!getState().isGenerating) emit('generate-brief');
+  header.querySelectorAll('.nav-btn[data-mode]').forEach(btn => {
+    btn.addEventListener('click', () => navigate(btn.dataset.mode === 'wall' ? '/wall?operator' : `/${btn.dataset.mode}`));
   });
 
   document.getElementById('hdrHelp')?.addEventListener('click', () => openHelp());
@@ -78,24 +74,6 @@ export function initHeader() {
     else settingsButton?.removeAttribute('aria-current');
   });
 
-  on('generating-changed', (isGen) => {
-    const btn = document.getElementById('hdrGenerate');
-    const text = document.getElementById('hdrGenerateText');
-    if (btn) btn.disabled = isGen;
-    if (text) text.textContent = isGen ? 'Generating…' : (aiEnabled ? 'Generate' : 'Enable AI →');
-  });
-
-  // Read AI availability once on boot; relabel the CTA if no key is set.
-  fetchSettings()
-    .then(s => reflectAi(s?.ai?.enabled !== false))
-    .catch(() => { /* leave the default Generate CTA; the route still guides on 503 */ });
-
-  // Settings emits this after every save/clear/initial-load repaint, so the CTA
-  // relabels the moment an operator adds a key — without it, aiEnabled stayed
-  // false until a full page reload and the CTA kept bouncing back to Settings
-  // instead of generating.
-  on('ai-status-changed', (ai) => reflectAi(ai?.enabled !== false));
-
   // Apply the active edition's identity (wordmark + window title) from the pack,
   // so the app shell isn't hardcoded to a particular edition. Cyber resolves to
   // the public BlueTeam.News identity used by the briefing and exported artifact.
@@ -111,12 +89,4 @@ export function initHeader() {
       document.title = publicLabel;
     })
     .catch(() => { /* keep the default wordmark/title */ });
-}
-
-function reflectAi(enabled) {
-  aiEnabled = enabled;
-  const btn = document.getElementById('hdrGenerate');
-  const text = document.getElementById('hdrGenerateText');
-  if (btn) btn.title = enabled ? btn.title : 'Add an Anthropic key in Settings to enable AI briefings';
-  if (text && !getState().isGenerating) text.textContent = enabled ? 'Generate' : 'Enable AI →';
 }

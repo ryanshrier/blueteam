@@ -66,6 +66,9 @@ jobs:
       - name: Smoke-test landing page at desktop and phone widths
         run: npm run check:landing:render
 
+      - name: Verify production evidence and Settings fixtures in Chromium
+        run: npm run check:evidence:render
+
       - name: Check score-model gold bands
         run: npm run check:scoring
 
@@ -123,3 +126,18 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  release-ready:
+    name: Release readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [policy, test]
+    if: ${{ always() }}
+    steps:
+      - name: Require repository policy and every runtime job to pass
+        env:
+          POLICY_RESULT: ${{ needs.policy.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          test "$POLICY_RESULT" = success
+          test "$TEST_RESULT" = success

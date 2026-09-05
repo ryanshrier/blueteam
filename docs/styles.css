@@ -9,7 +9,7 @@
   font-style: normal;
   font-weight: 200 800;
   font-display: swap;
-  src: url("assets/fonts/newsreader-latin-wght-normal.woff2?v=1.0.3") format("woff2");
+  src: url("assets/fonts/newsreader-latin-wght-normal.woff2?v=1.1.0") format("woff2");
 }
 
 @font-face {
@@ -17,7 +17,7 @@
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("assets/fonts/inter-latin-wght-normal.woff2?v=1.0.3") format("woff2");
+  src: url("assets/fonts/inter-latin-wght-normal.woff2?v=1.1.0") format("woff2");
 }
 
 @font-face {
@@ -25,7 +25,7 @@
   font-style: normal;
   font-weight: 100 800;
   font-display: swap;
-  src: url("assets/fonts/jetbrains-mono-latin-wght-normal.woff2?v=1.0.3") format("woff2");
+  src: url("assets/fonts/jetbrains-mono-latin-wght-normal.woff2?v=1.1.0") format("woff2");
 }
 
 :root {
@@ -485,6 +485,14 @@ main {
   text-transform: uppercase;
 }
 
+.candidate-label {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .release-badge:hover {
   text-decoration: none;
 }
@@ -714,6 +722,13 @@ main {
   background: var(--bg-elev);
 }
 
+.surface-proof-evidence {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: 960px;
+  justify-self: center;
+}
+
 .surface-proof > a {
   display: block;
   overflow: hidden;
@@ -727,8 +742,8 @@ main {
 .surface-proof img {
   width: 100%;
   height: auto;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
+  aspect-ratio: 8 / 5;
+  object-fit: contain;
 }
 
 .surface-proof figcaption {
@@ -1141,10 +1156,10 @@ main {
   margin: 0;
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.06em;
+  font-size: 14px;
+  letter-spacing: 0.01em;
   line-height: 1.5;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .h-desc {
@@ -1689,7 +1704,7 @@ main {
   }
 
   .surface-proof img {
-    aspect-ratio: 4 / 3;
+    aspect-ratio: 8 / 5;
   }
 
   .code-toolbar {
@@ -1704,9 +1719,9 @@ main {
   }
 
   .code code {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
+    white-space: pre;
+    overflow-wrap: normal;
+    word-break: normal;
   }
 
   .facts {
@@ -1910,14 +1925,14 @@ main {
 }
 
 .error-brand {
-  margin-bottom: clamp(38px, 8vh, 76px);
+  margin-bottom: clamp(28px, 5vh, 48px);
 }
 
 .error-code {
   margin: 0 0 28px;
   color: var(--ink);
   font-family: var(--serif);
-  font-size: clamp(72px, 16vw, 144px);
+  font-size: clamp(64px, 12vw, 110px);
   line-height: 0.8;
 }
 
@@ -1933,3 +1948,6 @@ main {
   max-width: 30em;
   margin-bottom: 20px;
 }
+.setup-prerequisite { margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: var(--ink-2); }
+.demo-disclosure { font-family: var(--sans); font-size: 14px; line-height: 1.65; }
+.error-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }

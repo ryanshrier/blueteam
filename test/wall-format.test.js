@@ -2,10 +2,25 @@ import { describe, test, expect } from '@jest/globals';
 import {
   buildPages, JUDG_MAX, CONV_MAX, splitBluf, capitalizeFirst, cvssFrom, cleanSummary,
   relAge, relDayAge, isFresh, formatBriefDateStamp, isBriefStale, staleAfterSec,
-  executiveSummaryModel, actionDisplayModel,
+  executiveSummaryModel, actionDisplayModel, judgmentOverflowNote,
 } from '../public/modules/wall/wall-format.js';
 
 describe('buildPages', () => {
+  test('capped judgment rotations disclose the omitted usable judgments', () => {
+    expect(judgmentOverflowNote(Array.from({ length: 6 }, (_, i) => ({ title: `Claim ${i}` }))))
+      .toBe('First 5 of 6 judgments · Full edition in Briefing');
+    expect(judgmentOverflowNote([{}, ...Array.from({ length: 5 }, () => ({ title: 'Claim' }))])).toBe('');
+  });
+  test('omits whitespace, empty analytic shells and KEV records without a usable identity', () => {
+    expect(buildPages({ bluf: ' ', execSummary: [{}], stories: [{}], developing: [{}], convergence: [{ title: 'Convergence' }] }, {
+      signals: [{ title: ' ' }], kev: { recent: [{ cve: '', vendor: '', product: '' }] },
+    })).toEqual([{ kind: 'empty' }]);
+  });
+
+  test('skips unusable entries before applying caps and preserves original indices', () => {
+    expect(buildPages({ stories: [{}, { title: 'Complete claim' }], convergence: [{}, { cascade: 'Complete consequence' }] }, {}, { judgMax: 1, convMax: 1 }))
+      .toEqual([{ kind: 'judgment', idx: 1 }, { kind: 'convergence', idx: 1 }]);
+  });
   test('empty briefDoc + empty landscape yields the single empty fallback page', () => {
     expect(buildPages(null, {})).toEqual([{ kind: 'empty' }]);
     expect(buildPages(null, { kev: {}, signals: [] })).toEqual([{ kind: 'empty' }]);
@@ -37,7 +52,7 @@ describe('buildPages', () => {
 
   test('kev page appears only when landscape.kev.recent is non-empty', () => {
     expect(buildPages(null, { kev: { recent: [] } }).map(p => p.kind)).toEqual(['empty']);
-    expect(buildPages(null, { kev: { recent: [{ cve: 'CVE-1' }] } }).map(p => p.kind)).toEqual(['kev']);
+    expect(buildPages(null, { kev: { recent: [{ cve: 'CVE-2026-12345' }] } }).map(p => p.kind)).toEqual(['kev']);
   });
 
   test('wire page appears only when landscape.signals is non-empty, and always trails the brief', () => {
@@ -48,7 +63,7 @@ describe('buildPages', () => {
   test('the brief leads, KEV and wire are demoted to the end, in that order', () => {
     const pages = buildPages(
       { bluf: 'Thesis.', watchlist: ['w'] },
-      { kev: { recent: [{ cve: 'CVE-1' }] }, signals: [{ title: 'x' }] },
+      { kev: { recent: [{ cve: 'CVE-2026-12345' }] }, signals: [{ title: 'x' }] },
     );
     expect(pages.map(p => p.kind)).toEqual(['bluf', 'kev', 'wire']);
   });
@@ -56,7 +71,7 @@ describe('buildPages', () => {
   test('puts an explicit Briefing-load error ahead of still-usable live pages', () => {
     const pages = buildPages(
       null,
-      { kev: { recent: [{ cve: 'CVE-1' }] }, signals: [{ title: 'x' }] },
+      { kev: { recent: [{ cve: 'CVE-2026-12345' }] }, signals: [{ title: 'x' }] },
       { briefLoadError: true },
     );
     expect(pages.map(p => p.kind)).toEqual(['brieferror', 'kev', 'wire']);
@@ -134,15 +149,15 @@ describe('splitBluf', () => {
     expect(splitBluf(undefined)).toEqual({ headline: '', deck: '' });
   });
 
-  test('splits at the lead em-dash clause when the lead is headline-length (24-120 chars)', () => {
-    const lead = 'Fortinet FortiOS is the week’s most urgent surface';   // 51 chars — inside [24,120]
+  test('splits at a natural lead em-dash clause', () => {
+    const lead = 'Fortinet FortiOS is the week’s most urgent surface';
     const text = `${lead} — two CVEs are actively exploited, while Klue widens exposure.`;
     const { headline, deck } = splitBluf(text);
     expect(headline).toBe(lead);
     expect(deck).toBe('Two CVEs are actively exploited, while Klue widens exposure.');
   });
 
-  test('falls back to a sentence-boundary split (24-150 chars) when there is no clean dash break', () => {
+  test('splits at the first suitable sentence boundary', () => {
     const text = 'This is a long enough lead sentence to count as headline length. And here is the second sentence with more detail.';
     const { headline, deck } = splitBluf(text);
     expect(headline).toBe('This is a long enough lead sentence to count as headline length.');
@@ -154,7 +169,7 @@ describe('splitBluf', () => {
     expect(splitBluf(text)).toEqual({ headline: 'Short.', deck: '' });
   });
 
-  test('a dash break outside the [24,120] window is ignored in favor of the sentence-boundary branch', () => {
+  test('ignores a dash in an introductory fragment shorter than 24 characters', () => {
     // The dash sits at index 2 — below the 24-char floor — so it must not be treated as the headline break.
     const text = 'Hi — this whole clause is actually one long headline-length sentence here. Then a second sentence follows with detail.';
     const { headline } = splitBluf(text);
@@ -170,21 +185,24 @@ describe('splitBluf', () => {
     });
   });
 
-  test('uses a bounded word break for very long single-clause prose rather than silently clamping the whole thesis', () => {
+  test('preserves very long single-clause prose instead of splitting a grammatical phrase', () => {
     const text = 'A deliberately long synthetic thesis with no punctuation keeps extending through multiple operational qualifiers and contextual details so the cover still has to preserve the complete thought for a watchfloor reader who must understand the evidence before acting';
     const result = splitBluf(text);
-    expect(result.headline.length).toBeGreaterThanOrEqual(70);
-    expect(result.headline.length).toBeLessThanOrEqual(120);
-    expect(result.deck.length).toBeGreaterThan(0);
-    expect(`${result.headline} ${result.deck}`.toLowerCase()).toBe(text.toLowerCase());
+    expect(result).toEqual({ headline: text, deck: '' });
   });
 
-  test('keeps a long continuous BLUF grammatical across its typographic word break', () => {
+  test('keeps the complete subject and predicate before a later conjunction', () => {
     const text = 'Five actively exploited, KEV-listed SharePoint vulnerabilities and a Check Point management-plane bypass are already past their federal remediation deadlines, while an unattributed attack disabled water utilities across 30+ Minnesota communities — verify patch status today.';
     expect(splitBluf(text)).toEqual({
-      headline: 'Five actively exploited, KEV-listed SharePoint vulnerabilities and a Check Point management-plane bypass',
-      deck: 'are already past their federal remediation deadlines, while an unattributed attack disabled water utilities across 30+ Minnesota communities — verify patch status today.',
+      headline: 'Five actively exploited, KEV-listed SharePoint vulnerabilities and a Check Point management-plane bypass are already past their federal remediation deadlines',
+      deck: 'While an unattributed attack disabled water utilities across 30+ Minnesota communities — verify patch status today.',
     });
+  });
+  test('does not treat a list comma as an editorial boundary', () => {
+    const text = 'The coordinated investigation of identity infrastructure, remote access appliances and exposed backup systems must finish before the shift hands over its outstanding containment decisions to the next watch.';
+    expect(splitBluf(text)).toEqual({ headline: text, deck: '' });
+    const coordinatedList = 'The exposed remote access gateway, identity provider, and backup server require a coordinated response before the next shift inherits the unverified systems and outstanding containment work.';
+    expect(splitBluf(coordinatedList)).toEqual({ headline: coordinatedList, deck: '' });
   });
 });
 
@@ -256,6 +274,11 @@ describe('cvssFrom', () => {
 });
 
 describe('cleanSummary', () => {
+  test('preserves required actions after ordinary references to an article', () => {
+    const description = 'The vendor released a patch. The article confirms that credential rotation is also required before reconnecting the gateway.';
+    expect(cleanSummary(description)).toBe(description);
+    expect(cleanSummary('Read more logs before authorizing restoration.')).toBe('Read more logs before authorizing restoration.');
+  });
   test('strips WordPress "The post ... appeared first on ..." boilerplate', () => {
     expect(cleanSummary('The real gist. The post Foo appeared first on Bar.')).toBe('The real gist.');
   });

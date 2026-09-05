@@ -7,6 +7,7 @@ import {
   buildDocument,
   collectEditionWarnings,
   gatePrintUntilReady,
+  formatGeneratedFreshness,
   isAssessmentFieldHtml,
   printTopLevelDocument,
   shouldKeepFieldParagraphTogether,
@@ -91,6 +92,9 @@ describe('edition field normalization', () => {
 });
 
 describe('edition print contract', () => {
+  test('labels generated time in UTC consistently across local time zones', () => {
+    expect(formatGeneratedFreshness('2026-09-05T04:30:00Z', '', '')).toBe('Generated 04:30 UTC');
+  });
   test('routes Ctrl/Cmd+P through Edition printing only while the dialog is open', () => {
     let onKeydown;
     const doc = {

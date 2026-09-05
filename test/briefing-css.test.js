@@ -4,6 +4,15 @@ import { readFileSync } from 'node:fs';
 const appCss = readFileSync(new URL('../public/app.css', import.meta.url), 'utf8');
 
 describe('Briefing section spacing selectors', () => {
+  test('the narrow reading grid cannot inherit a wider intrinsic content minimum', () => {
+    expect(appCss).toMatch(/\.briefing-layout > \*\s*\{[^}]*min-width:\s*0;[^}]*max-width:\s*100%;/s);
+    expect(appCss).toMatch(/\.brief-content\s*\{[^}]*min-width:\s*0;[^}]*width:\s*100%;[^}]*overflow-wrap:\s*anywhere;/s);
+    expect(appCss).not.toMatch(/\.briefing-layout\s*\{[^}]*grid-template-columns:\s*1fr\s*;/s);
+  });
+  test('native print hides the app only when the print preview is actually open', () => {
+    expect(appCss).toContain('body:has(.np-overlay[open]) > *:not(.np-overlay)');
+    expect(appCss).not.toMatch(/(?:^|\n)\s*body\s*>\s*\*:not\(\.np-overlay\)/);
+  });
   test('gives the Sources heading enough specificity to override generic h2 rules', () => {
     expect(appCss).toMatch(/\.brief-content h2\.brief-sources-heading\s*\{[^}]*border-bottom:\s*0;[^}]*padding-bottom:\s*0;/s);
     expect(appCss).not.toMatch(/(?:^|\n)\.brief-sources-heading\s*\{/);

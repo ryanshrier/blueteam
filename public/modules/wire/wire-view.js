@@ -1,12 +1,16 @@
 // BlueTeam.News — wire view: dense scannable list of scored headlines.
 
 import { escapeHtml } from '../core/sanitize.js';
+import { captureWireFocus, restoreWireFocus } from './wire-focus.js';
+import { bindScoreDismissal } from './wire-popovers.js';
 import { fetchHeadlines, fetchLandscape } from '../core/api.js';
 import { on, off } from '../core/store.js';
 import { showToast } from '../core/toast.js';
 import { TIER_NAMES, TIERS } from '../core/tiers.js';
+import { openEvidenceInspector, closeEvidenceInspector, renderEvidenceContext } from './evidence-inspector.js';
+import { highlightWireText, renderWireDescription, wireIcon } from './wire-presentation.js';
 import {
-  dateMs, parseCveData, filterSignals, parseWireQuery, serializeWireUrl, toCsv, sigKey as fmtSigKey, CSV_COLUMNS,
+  dateMs, parseCveData, filterSignals, parseWireQuery, serializeWireUrl, toCsv, sigKey as fmtSigKey, CSV_COLUMNS, briefingLinkModel, isFeedStale,
 } from './wire-format.js';
 
 // Human-readable labels for the scoreComponents breakdown. Keys mirror the
@@ -23,14 +27,10 @@ const SCORE_LABELS = {
 };
 const SCORE_AXIS_ORDER = ['exploitation', 'severity', 'corroboration', 'recency', 'relevance'];
 
-// Mirror the Wall's freshness threshold (wall-view.js): past this the board can't
-// pass for live, so the Wire goes amber and reads STALE instead of a calm timestamp.
-const STALE_AFTER_SEC = 20 * 60;
-
 // Triage is two axes: which horizon (single-select) AND which attributes
 // (CRITICAL / KEV / Unread — independent toggles that compose). Sort is its own
 // axis. `q` is the free-text filter, composing over everything else.
-let filters = { horizon: 'all', critical: false, kev: false, unread: false, q: '' };
+let filters = { horizon: 'all', critical: false, kev: false, unread: false, hidden: false, q: '' };
 let sortMode = 'relevance'; // 'relevance' (server score order) | 'newest'
 
 // Per-signal analyst state (read/dismiss), persisted to localStorage keyed
@@ -38,8 +38,8 @@ let sortMode = 'relevance'; // 'relevance' (server score order) | 'newest'
 // once at module init and written back on every mutation:
 //   readKeys      — every signal the analyst has opened (via title click or the
 //                    score-breakdown affordance) or explicitly marked read.
-//   dismissedKeys — signals hidden from every view until the undo chip restores
-//                    them (a session-scoped soft-delete, not a data mutation).
+//   dismissedKeys — signals kept in Hidden until restored, independently of read
+//                    state. This browser preference does not change source data.
 const LS_READ_KEY = 'wire.readKeys';
 const LS_DISMISSED_KEY = 'wire.dismissedKeys';
 const LS_SEEN_KEY = 'wire.seenKeys';   // persist the NEW-tag baseline across reloads
@@ -51,7 +51,6 @@ let undoChipTimer = null;      // the undo chip is transient; auto-clears so it 
 
 let cachedHeadlines = [];
 let convergence = [];     // landscape.convergence — feeds the cross-source triage strip
-let briefReady = false;   // landscape.brief present → offer a quiet "Today's briefing →" link
 let lastGoodAt = 0;       // epoch ms of the last successful load — drives the reconnecting banner
 // Signal-arrival state, split into two lifetimes. seenKeys is the baseline of
 // signal identities; null until the first load so the initial 50 never all pulse.
@@ -81,6 +80,10 @@ let searchDebounce = null;
 // so the ticker can re-derive age without a network round-trip.
 let freshnessTimer = null;
 let lastLoadData = null;
+let initialLoadFailed = false;
+const expandedSummaries = new Set();
+let summaryObserver = null;
+let scoreDismissalCleanup = null;
 
 // localStorage read/write for the persisted key Sets (read/dismissed/seen).
 // Guarded: a private-browsing quota error or disabled storage must degrade to
@@ -119,17 +122,26 @@ function markRead(key, read) {
   saveKeySet(LS_READ_KEY, readKeys);
 }
 
-// Dismiss hides a signal from every view until undone. Dismissing is a
-// SESSION-SCOPED soft-hide (persisted so it survives reload, same as read/unread),
-// not a data mutation — the "N hidden" chip offers an immediate undo, and dismissed
-// keys are superseded automatically once a signal ages out of cachedHeadlines (no
-// separate GC needed: filterSignals only ever filters what's currently loaded).
+// Hidden signals remain recoverable after the instant Undo expires. The Hidden
+// view lists only records still available in the current feed.
 function dismissSignal(key) {
   if (!key) return;
   dismissedKeys.add(key);
   saveKeySet(LS_DISMISSED_KEY, dismissedKeys);
   lastDismissed = [key];
   showUndoChip();
+  renderList();
+}
+
+function restoreSignals(keys) {
+  keys.forEach(key => dismissedKeys.delete(key));
+  saveKeySet(LS_DISMISSED_KEY, dismissedKeys);
+  lastDismissed = lastDismissed.filter(key => dismissedKeys.has(key));
+  if (!lastDismissed.length) {
+    clearTimeout(undoChipTimer);
+    const undo = document.getElementById('wireUndoRow');
+    if (undo) undo.innerHTML = '';
+  }
   renderList();
 }
 
@@ -141,17 +153,12 @@ function showUndoChip() {
   if (!host) return;
   const n = lastDismissed.length;
   host.innerHTML = n
-    ? `<button class="wire-qchip wire-undo-chip" type="button">${n} hidden — <span class="wire-qclear" aria-hidden="true">Undo</span></button>`
+    ? `<button class="wire-qchip wire-undo-chip" type="button">${n} hidden — <span class="wire-qclear">Undo</span></button>`
     : '';
   if (!undoChipBound) {
     host.addEventListener('click', (e) => {
       if (!e.target.closest('.wire-undo-chip')) return;
-      lastDismissed.forEach(k => dismissedKeys.delete(k));
-      saveKeySet(LS_DISMISSED_KEY, dismissedKeys);
-      lastDismissed = [];
-      host.innerHTML = '';
-      clearTimeout(undoChipTimer);
-      renderList();
+      restoreSignals(lastDismissed);
     });
     undoChipBound = true;
   }
@@ -175,13 +182,13 @@ export function render(main) {
     <div class="wire-view">
       <header class="wire-head">
         <div>
-          <p class="view-kicker">Live Signal Feed</p>
+          <p class="view-kicker">Signal Feed</p>
           <h1 class="view-title">Wire</h1>
           <p class="view-sub">Every scored signal from the last pipeline run — ranked by defender relevance.</p>
         </div>
         <div class="wire-head-right">
-          <!-- Quiet cross-link into today's briefing; only wired when landscape.brief exists. -->
-          <a class="wire-brieflink" id="wireBriefLink" href="/briefing" hidden>Today’s briefing →</a>
+          <!-- The latest saved edition can predate the current feed. -->
+          <a class="wire-brieflink" id="wireBriefLink" href="/briefing" hidden>Latest briefing →</a>
           <span class="wire-meta" id="wireMeta">Loading signals…</span>
         </div>
       </header>
@@ -194,12 +201,12 @@ export function render(main) {
             <span class="wire-sr-only">Filter signals by text</span>
             <input id="wireSearch" class="wire-search" type="search" placeholder="Search title, CVE, vendor, actor…" autocomplete="off">
           </label>
-          <span class="wire-shown" id="wireShown"></span>
-          <details class="wire-export" id="wireExport">
-            <summary class="wire-export-trigger" aria-label="Export filtered signals">Export <span aria-hidden="true">▾</span></summary>
+          <span class="wire-shown" id="wireShown">Loading…</span>
+          <details class="wire-export is-disabled" id="wireExport">
+            <summary class="wire-export-trigger" aria-label="Export filtered signals" aria-disabled="true" tabindex="-1">Export <span aria-hidden="true">▾</span></summary>
             <div class="wire-export-menu" role="group" aria-label="Export format">
-              <button type="button" data-export="csv" title="Download the currently filtered signals as CSV">CSV</button>
-              <button type="button" data-export="json" title="Download the currently filtered signals as JSON">JSON</button>
+              <button type="button" data-export="csv" disabled title="Download the currently filtered signals as CSV">CSV <small>Spreadsheet</small></button>
+              <button type="button" data-export="json" disabled title="Download the currently filtered signals as JSON">JSON <small>Structured data</small></button>
             </div>
           </details>
         </div>
@@ -216,10 +223,11 @@ export function render(main) {
           <div class="wire-toggles" id="wireToggles" role="group" aria-label="Filter by attribute">
             <button type="button" class="wire-toggle" data-toggle="critical" aria-pressed="false">CRITICAL</button>
             <button type="button" class="wire-toggle" data-toggle="kev" aria-pressed="false">KEV</button>
-            <!-- Hide signals already marked read, so a re-visiting analyst sees only
-                 what's new/unhandled instead of re-scanning the whole list every shift. -->
+            <!-- Read records what has been opened; it does not mean resolved. -->
             <button type="button" class="wire-toggle" data-toggle="unread" aria-pressed="false">UNREAD</button>
+            <button type="button" class="wire-toggle" id="wireHidden" data-toggle="hidden" aria-pressed="false" title="Show hidden signals still available in the feed">Hidden (0)</button>
           </div>
+          <button type="button" class="wire-clear-control" id="wireClear" hidden>Clear filters</button>
           <label class="wire-sort" for="wireSort">
             <span class="wire-sort-label">SORT</span>
             <select class="wire-sort-select" id="wireSort" aria-label="Sort signals">
@@ -231,6 +239,7 @@ export function render(main) {
 
         <!-- Transient "N hidden — Undo" status for the most recent dismiss batch. -->
         <div class="wire-status-row" id="wireUndoRow"></div>
+        <div class="wire-hidden-notice" id="wireHiddenNotice"></div>
       </section>
 
       <!-- Single screen-reader announcer: speaks the filtered count, the
@@ -247,15 +256,16 @@ export function render(main) {
       <!-- The list needs its own heading (h1 → h3 skip otherwise); visually hidden. -->
       <h2 class="wire-list-heading sr-only">Signals</h2>
       <!-- Visible column header, aligned to the item grid (styles), decorative to AT. -->
-      <div class="wire-colhead" aria-hidden="true"><span class="ch-score">SCORE</span><span class="ch-lead">SIGNAL</span><span class="ch-meta">SOURCE · AGE</span></div>
+      <div class="wire-colhead" id="wireColumns" aria-hidden="true"><span class="ch-score" title="0–100 ranking priority">SCORE<small>0–100</small></span><span class="ch-lead">SIGNAL</span><span class="ch-meta">SOURCE · AGE</span></div>
 
-      <div class="wire-list" id="wireList" role="list" aria-busy="false" aria-label="Scored signals">
+      <div class="wire-list" id="wireList" role="list" aria-busy="true" aria-label="Scored signals">
         ${skeletonRows()}
       </div>
     </div>
   `;
 
   reflectControls(); // push restored filter/sort state onto the buttons
+  document.getElementById('wireClear')?.addEventListener('click', clearFilters);
   // A bare hash means in-memory filters (possibly non-default, carried over
   // from a prior mount) are authoritative; write them back onto the URL so a
   // reload or copied link right after a Wire→Briefing→Wire roundtrip agrees
@@ -289,6 +299,12 @@ export function render(main) {
     syncUrl();
     renderList();
   });
+  document.getElementById('wireHiddenNotice')?.addEventListener('click', (e) => {
+    if (e.target.closest('[data-restore-all]')) {
+      restoreSignals(cachedHeadlines.map(sigKey).filter(key => dismissedKeys.has(key)));
+      document.getElementById('wireHidden')?.focus();
+    }
+  });
 
   const sortSelect = document.getElementById('wireSort');
   sortSelect?.addEventListener('change', () => {
@@ -316,6 +332,9 @@ export function render(main) {
     if (menu) menu.open = false;
   });
 
+  scoreDismissalCleanup?.();
+  scoreDismissalCleanup = bindScoreDismissal(document.getElementById('wireList'));
+
   // At most one score breakdown open at a time. The panels are absolutely
   // positioned; stacking two overlaps the rows below. ('toggle' doesn't bubble, so
   // we catch it in the capture phase.)
@@ -336,10 +355,27 @@ export function render(main) {
   // the CVE id chip, copy-link, mark-read, and dismiss affordances are all rebuilt on
   // every renderList(), so bind once here rather than per-row.
   document.getElementById('wireList')?.addEventListener('click', (e) => {
+    const summaryBtn = e.target.closest('[data-summary]');
+    if (summaryBtn) {
+      const key = summaryBtn.dataset.summary;
+      const expanded = !expandedSummaries.has(key);
+      if (expanded) expandedSummaries.add(key); else expandedSummaries.delete(key);
+      const description = document.getElementById(summaryBtn.getAttribute('aria-controls'));
+      description?.classList.toggle('is-expanded', expanded);
+      summaryBtn.setAttribute('aria-expanded', String(expanded));
+      summaryBtn.textContent = expanded ? 'Show less' : 'Read full summary';
+      return;
+    }
+    const evidenceBtn = e.target.closest('[data-evidence]');
+    if (evidenceBtn) {
+      const headline = cachedHeadlines.find(item => sigKey(item) === evidenceBtn.dataset.evidence);
+      if (headline) { markRead(sigKey(headline), true); openEvidenceInspector(headline, evidenceBtn); }
+      return;
+    }
     const cveBtn = e.target.closest('[data-copy-cve]');
-    if (cveBtn) { copyToClipboard(cveBtn.dataset.copyCve, 'CVE copied'); return; }
+    if (cveBtn) { copyToClipboard(cveBtn.dataset.copyCve, 'CVE copied', cveBtn); return; }
     const linkBtn = e.target.closest('[data-copy-link]');
-    if (linkBtn) { copyToClipboard(linkBtn.dataset.copyLink, 'Link copied'); return; }
+    if (linkBtn) { copyToClipboard(linkBtn.dataset.copyLink, 'Link copied', linkBtn); return; }
     const readBtn = e.target.closest('[data-mark-read]');
     if (readBtn) {
       const key = readBtn.dataset.markRead;
@@ -349,6 +385,11 @@ export function render(main) {
     }
     const dismissBtn = e.target.closest('[data-dismiss]');
     if (dismissBtn) { dismissSignal(dismissBtn.dataset.dismiss); return; }
+    const restoreBtn = e.target.closest('[data-restore]');
+    if (restoreBtn) {
+      restoreSignals([restoreBtn.dataset.restore]);
+      return;
+    }
     // Clicking through to the article is investigating the signal; mark read
     // without forcing a re-render (the title link navigates away in a new tab, so
     // the dim state is only relevant on the NEXT render, e.g. after a filter toggle).
@@ -361,12 +402,17 @@ export function render(main) {
   // The empty-filter state's "Clear all filters" button lives in
   // #wireAboveList (rebuilt each renderList()); delegate once.
   document.getElementById('wireAboveList')?.addEventListener('click', (e) => {
+    if (e.target.closest('[data-wire-retry]')) { load(); return; }
+    if (e.target.closest('.wire-show-visible')) {
+      filters.hidden = false;
+      reflectControls();
+      syncUrl();
+      renderList();
+      document.getElementById('wireHidden')?.focus();
+      return;
+    }
     if (!e.target.closest('.wire-clear-filters')) return;
-    filters = { horizon: 'all', critical: false, kev: false, unread: false, q: '' };
-    sortMode = 'relevance';
-    reflectControls();
-    syncUrl();
-    renderList();
+    clearFilters();
   });
 
   // j/k (and Down/Up) move focus between rows, one stop per signal, instead
@@ -396,6 +442,11 @@ export function render(main) {
     renderList();
   }
   load();
+  if (typeof ResizeObserver !== 'undefined') {
+    summaryObserver?.disconnect();
+    summaryObserver = new ResizeObserver(updateSummaryControls);
+    summaryObserver.observe(document.getElementById('wireList'));
+  }
   clearInterval(refreshTimer);
   refreshTimer = setInterval(load, 5 * 60_000);
 
@@ -414,6 +465,11 @@ export function render(main) {
 
 export function unmount() {
   active = false;
+  scoreDismissalCleanup?.();
+  scoreDismissalCleanup = null;
+  summaryObserver?.disconnect();
+  summaryObserver = null;
+  closeEvidenceInspector();
   clearInterval(refreshTimer);
   refreshTimer = null;
   clearTimeout(warmupTimer);
@@ -473,6 +529,7 @@ function parseQuery() {
   filters.critical = p.critical;
   filters.kev = p.kev;
   filters.unread = p.unread;   // restore the deep-linked Unread toggle
+  filters.hidden = p.hidden;
   filters.q = p.q;   // restore the deep-linked free-text filter
   sortMode = p.sort;
 }
@@ -564,11 +621,21 @@ function triggerDownload(blob, filename) {
 // Shared clipboard write for the CVE-copy chip and the per-row copy-link
 // button. navigator.clipboard requires a secure context; on failure (denied
 // permission, insecure context) surface it rather than silently no-op'ing.
-async function copyToClipboard(text, okMessage) {
+async function copyToClipboard(text, okMessage, trigger) {
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
-    showToast(okMessage);
+    showToast(okMessage, 'success');
+    if (trigger?.isConnected) {
+      const label = trigger.getAttribute('aria-label');
+      trigger.classList.add('is-copied');
+      trigger.setAttribute('aria-label', okMessage);
+      setTimeout(() => {
+        if (!trigger.isConnected) return;
+        trigger.classList.remove('is-copied');
+        if (label) trigger.setAttribute('aria-label', label);
+      }, 1800);
+    }
   } catch {
     showToast('Could not copy to clipboard', 'error');
   }
@@ -591,16 +658,16 @@ function renderFreshnessMeta() {
     ? Math.max(0, reportedAge)
     : (Number.isFinite(generatedAtMs) ? Math.max(0, (lastLoadData.loadedAt - generatedAtMs) / 1000) : null);
   if (baseAge == null) {
-    meta.textContent = 'Refresh time unavailable';
+    meta.textContent = 'Feed refresh time unavailable';
     meta.classList.add('stale');
     return;
   }
   const elapsed = Math.max(0, (Date.now() - lastLoadData.loadedAt) / 1000);
   const ageSeconds = baseAge + elapsed;
-  const stale = ageSeconds > STALE_AFTER_SEC;
+  const stale = isFeedStale(ageSeconds, lastLoadData.refreshMinutes);
   meta.textContent = stale
-    ? `STALE — last refresh ${formatAge(ageSeconds)}`
-    : `Refreshed ${formatAge(ageSeconds)}`;
+    ? `Feeds stale — last refresh ${formatAge(ageSeconds)}`
+    : `Feeds refreshed ${formatAge(ageSeconds)}`;
   meta.classList.toggle('stale', stale);
 }
 
@@ -624,19 +691,26 @@ function tickFreshness() {
 }
 
 async function load() {
+  if (!lastLoadData) {
+    initialLoadFailed = false;
+    renderInitialState();
+  }
   document.getElementById('wireList')?.setAttribute('aria-busy', 'true'); // announce the swap to AT
   try {
     const data = await fetchHeadlines();
     if (!active) return; // view was torn down mid-request
     if (!Array.isArray(data?.headlines)) throw new TypeError('Malformed headlines response');
     cachedHeadlines = data.headlines.filter(h => h && typeof h === 'object');
+    for (const key of expandedSummaries) {
+      if (!cachedHeadlines.some(h => sigKey(h) === key)) expandedSummaries.delete(key);
+    }
     detectArrivals();
     lastGoodAt = Date.now();
     clearReconnecting();
     // Snapshot what the freshness ticker needs to re-derive age locally
     // (loadedAt anchors ageSeconds to wall-clock time so tickFreshness can add
     // elapsed seconds without another round-trip).
-    lastLoadData = { generatedAt: data?.generatedAt || null, ageSeconds: data?.ageSeconds, loadedAt: Date.now() };
+    lastLoadData = { generatedAt: data?.generatedAt || null, ageSeconds: data?.ageSeconds, loadedAt: Date.now(), refreshMinutes: lastLoadData?.refreshMinutes };
     renderFreshnessMeta();
     renderList();
     // Convergence is decoration over the list — never let its failure or absence
@@ -645,9 +719,20 @@ async function load() {
       .then(ls => {
         if (!active) return;
         convergence = Array.isArray(ls?.convergence) ? ls.convergence : [];
-        briefReady = !!(ls && ls.brief);   // reveal the "Today's briefing →" cross-link
+        // The same configured refresh cadence drives freshness on Wall. A slow
+        // healthy schedule must not read current there and stale in Wire.
+        const cadence = Number(ls?.pipeline?.refreshMinutes);
+        if (lastLoadData && Number.isFinite(cadence) && cadence > 0) lastLoadData.refreshMinutes = cadence;
+        renderFreshnessMeta();
+        const briefingLink = briefingLinkModel(ls?.brief);
         const link = document.getElementById('wireBriefLink');
-        if (link) link.hidden = !briefReady;
+        if (link) {
+          link.hidden = !briefingLink;
+          if (briefingLink) {
+            link.textContent = briefingLink.text;
+            link.href = briefingLink.href;
+          }
+        }
         renderList();
       })
       .catch(() => { /* leave the last-known convergence in place */ });
@@ -671,12 +756,61 @@ async function load() {
     if (cachedHeadlines.length || lastGoodAt) {
       showReconnecting();
     } else {
-      const list = document.getElementById('wireList');
-      const aboveList = document.getElementById('wireAboveList');
-      if (aboveList) aboveList.innerHTML = '<div class="wire-empty" role="status">Could not reach the server.</div>';
-      if (list) list.innerHTML = '';
+      initialLoadFailed = true;
+      renderInitialState();
     }
   }
+}
+
+function setExportAvailable(available) {
+  document.querySelectorAll('#wireExport [data-export]').forEach(btn => {
+    btn.disabled = !available;
+    btn.setAttribute('aria-disabled', String(!available));
+  });
+  const menu = document.getElementById('wireExport');
+  menu?.classList.toggle('is-disabled', !available);
+  const trigger = menu?.querySelector('summary');
+  if (trigger) {
+    trigger.setAttribute('aria-disabled', String(!available));
+    trigger.tabIndex = available ? 0 : -1;
+  }
+  if (!available && menu) menu.open = false;
+}
+
+function renderInitialState() {
+  const list = document.getElementById('wireList');
+  const above = document.getElementById('wireAboveList');
+  const meta = document.getElementById('wireMeta');
+  const shown = document.getElementById('wireShown');
+  const columns = document.getElementById('wireColumns');
+  if (list) {
+    list.setAttribute('aria-busy', String(!initialLoadFailed));
+    list.innerHTML = initialLoadFailed ? '' : skeletonRows();
+  }
+  if (columns) columns.hidden = initialLoadFailed;
+  if (meta) { meta.textContent = initialLoadFailed ? 'Feed unavailable' : 'Loading signals…'; meta.classList.toggle('stale', initialLoadFailed); }
+  if (shown) shown.textContent = initialLoadFailed ? 'Unavailable' : 'Loading…';
+  if (above) above.innerHTML = initialLoadFailed
+    ? '<div class="wire-empty wire-load-error" role="status"><h2>Signals could not be loaded</h2><p>Could not reach the server. Try the feed again.</p><button type="button" class="wire-retry" data-wire-retry>Retry feed</button></div>' : '';
+  setExportAvailable(false);
+}
+
+function clearFilters() {
+  filters = { horizon: 'all', critical: false, kev: false, unread: false, hidden: filters.hidden, q: '' };
+  sortMode = 'relevance';
+  reflectControls();
+  syncUrl();
+  renderList();
+  document.getElementById('wireSearch')?.focus();
+}
+
+function updateSummaryControls() {
+  document.querySelectorAll('#wireList .wire-summary').forEach(summary => {
+    const text = summary.querySelector('.wire-item-desc');
+    const button = summary.querySelector('[data-summary]');
+    if (!text || !button) return;
+    button.hidden = !text.classList.contains('is-expanded') && text.scrollHeight <= text.clientHeight + 1;
+  });
 }
 
 // Quiet "reconnecting — last good Xm ago" banner above the kept list.
@@ -727,7 +861,7 @@ function copyLinkBtn(h, href, cveInfo) {
   const cve = h.kevCVE || (cveInfo && cveInfo.cve) || '';
   const deepLink = href || (cve ? `${location.origin}/wire?q=${encodeURIComponent(cve)}` : '');
   if (!deepLink) return '';
-  return `<button type="button" class="wire-copy-link" data-copy-link="${escapeHtml(deepLink)}" title="Copy link to this signal" aria-label="Copy link to this signal">🔗</button>`;
+  return `<button type="button" class="wire-copy-link" data-copy-link="${escapeHtml(deepLink)}" title="Copy link to this signal" aria-label="Copy link to this signal">${wireIcon('copy')}</button>`;
 }
 
 // Diff the new load against the seen baseline. Fresh signals populate BOTH
@@ -757,8 +891,8 @@ function detectArrivals() {
 }
 
 function applyFilters(headlines) {
-  // dismissedKeys always applies (hides dismissed signals from every view);
-  // readKeys only narrows the result when the "Unread" toggle is on.
+  // Hidden selects dismissed records; the ordinary view excludes them. Read is
+  // a separate axis, narrowing either view only when Unread is selected.
   return filterSignals(headlines, { ...filters, dismissedKeys, readKeys }, sortMode);
 }
 
@@ -798,11 +932,28 @@ function rowDescription(h, cveInfo) {
 }
 
 function renderList() {
+  const clearControl = document.getElementById('wireClear');
+  if (clearControl) clearControl.hidden = !activeFilterSummary();
+  if (!lastLoadData) { renderInitialState(); return; }
   const list = document.getElementById('wireList');
   if (!list) return;
   list.setAttribute('aria-busy', 'false'); // the swap is done; release the AT busy state
 
   const items = applyFilters(cachedHeadlines);
+  const hiddenCount = cachedHeadlines.filter(h => dismissedKeys.has(sigKey(h))).length;
+  const availableCount = filters.hidden ? hiddenCount : cachedHeadlines.length - hiddenCount;
+  const hiddenControl = document.getElementById('wireHidden');
+  if (hiddenControl) {
+    hiddenControl.textContent = `Hidden (${hiddenCount})`;
+    hiddenControl.classList.toggle('active', filters.hidden);
+    hiddenControl.setAttribute('aria-pressed', String(filters.hidden));
+  }
+  const hiddenNotice = document.getElementById('wireHiddenNotice');
+  if (hiddenNotice) hiddenNotice.innerHTML = filters.hidden
+    ? `<p><strong>Hidden signals</strong><br>Filters apply. Restoring preserves read/unread state.</p>${hiddenCount ? `<div><button type="button" class="btn-ghost-sm wire-restore-all" data-restore-all title="Restore all ${hiddenCount} available hidden ${hiddenCount === 1 ? 'signal' : 'signals'}, regardless of the current filters">Restore all hidden (${hiddenCount})</button><small>Includes signals outside the current filters.</small></div>` : ''}`
+    : '';
+  list.setAttribute('aria-label', filters.hidden ? 'Hidden scored signals' : 'Scored signals');
+  list.classList.toggle('is-hidden-view', filters.hidden);
 
   // Preserve the analyst's place across the swap (the 5-min auto-refresh, or
   // a filter toggle): remember which score breakdowns were open (by signal key) and
@@ -814,21 +965,21 @@ function renderList() {
       .filter(Boolean),
   );
   const prevScroll = window.scrollY;
+  const savedFocus = captureWireFocus(list, document.activeElement);
 
   const shown = document.getElementById('wireShown');
+  const countNoun = `${filters.hidden ? 'hidden ' : ''}${availableCount === 1 ? 'signal' : 'signals'}`;
   if (shown) {
-    const filtered = items.length !== cachedHeadlines.length;
-    shown.textContent = cachedHeadlines.length
-      ? (filtered ? `${items.length} of ${cachedHeadlines.length} signals` : `${cachedHeadlines.length} signals`)
-      : '';
+    shown.textContent = items.length === availableCount
+      ? `${items.length} ${countNoun}` : `${items.length} of ${availableCount} ${countNoun}`;
   }
 
   // Speak the result: filtered count, active filters, and new arrivals.
   const announce = document.getElementById('wireAnnounce');
-  if (announce && cachedHeadlines.length) {
+  if (announce) {
     const filterWords = activeFilterSummary();
     const parts = [
-      `${items.length} of ${cachedHeadlines.length} signals`,
+      `${items.length} of ${availableCount} ${countNoun}`,
       filterWords ? `filtered by ${filterWords}` : '',
       arrivedCount ? `${arrivedCount} new` : '',
     ].filter(Boolean);
@@ -839,18 +990,9 @@ function renderList() {
   // An export with nothing to write is a dead click; disable the buttons
   // (an honest, visible state) rather than silently no-op'ing on a click.
   const empty = items.length === 0;
-  document.querySelectorAll('#wireExport [data-export]').forEach(btn => {
-    btn.disabled = empty;
-    btn.setAttribute('aria-disabled', String(empty));
-  });
-  const exportMenu = document.getElementById('wireExport');
-  const exportTrigger = exportMenu?.querySelector('summary');
-  exportMenu?.classList.toggle('is-disabled', empty);
-  if (exportTrigger) {
-    exportTrigger.setAttribute('aria-disabled', String(empty));
-    exportTrigger.tabIndex = empty ? -1 : 0;
-  }
-  if (empty && exportMenu) exportMenu.open = false;
+  setExportAvailable(!empty);
+  const columns = document.getElementById('wireColumns');
+  if (columns) columns.hidden = empty;
 
   // The convergence strip lives OUTSIDE #wireList (see #wireAboveList in the
   // template) so it never appears as a role="list" child.
@@ -862,17 +1004,22 @@ function renderList() {
       // to the screen-reader announcer) and offer a one-click reset instead of making
       // the analyst hunt the control row for whatever's still highlighted.
       const summary = activeFilterSummary();
-      const message = summary
-        ? `No signals match ${summary}.`
-        : (lastLoadData?.generatedAt
+      const message = filters.hidden && hiddenCount === 0
+        ? 'No hidden signals are available in the latest feed.'
+        : summary
+        ? `No signals found for these filters: ${summary}.`
+        : (hiddenCount && !filters.hidden
+          ? 'All available signals are hidden. Open Hidden to review or restore them.'
+          : lastLoadData?.generatedAt
           ? 'No signals were produced by the latest refresh.'
           : 'No signals yet — waiting for the first pipeline refresh.');
-      aboveList.innerHTML = `${convergenceStrip()}<div class="wire-empty">${escapeHtml(message)}${summary ? ' <button class="btn-ghost-sm wire-clear-filters" type="button">Clear all filters</button>' : ''}</div>`;
+      aboveList.innerHTML = `${filters.hidden ? '' : convergenceStrip()}<div class="wire-empty"><h2>${summary ? 'No matching signals' : filters.hidden ? 'No hidden signals' : 'No signals yet'}</h2><p>${escapeHtml(message)}</p><div class="wire-empty-actions">${summary ? '<button class="btn-ghost-sm wire-clear-filters" type="button">Clear filters</button>' : ''}${filters.hidden ? '<button class="wire-retry wire-show-visible" type="button">Show visible signals</button>' : ''}</div></div>`;
     }
     list.innerHTML = '';
+    restoreWireFocus(list, savedFocus, document.getElementById('wireSearch'));
     return;
   }
-  if (aboveList) aboveList.innerHTML = convergenceStrip();
+  if (aboveList) aboveList.innerHTML = filters.hidden ? '' : convergenceStrip();
 
   list.innerHTML = items.map((h, index) => {
     const age = relativeAge(h.date);
@@ -912,7 +1059,7 @@ function renderList() {
         // 600-1400 tab stops between headlines. The row itself is the one keyboard
         // stop (see the <article> tabindex + aria-description below); the hedge is
         // still reachable via mouse hover/tap through the delegated infotip listeners.
-        return `<span class="wire-actor heuristic${named ? '' : ' mention'}" data-tip="${escapeHtml(hedge)}" aria-label="${escapeHtml(hedge)}">${escapeHtml(name)}</span>`;
+        return `<span class="wire-actor heuristic${named ? '' : ' mention'}" data-tip="${escapeHtml(hedge)}" aria-label="${escapeHtml(hedge)}">${highlightWireText(name, filters.q)}</span>`;
       }).join(''),
     ].join('');
     // One keyboard stop per row (rather than one per chip); aria-description
@@ -924,10 +1071,11 @@ function renderList() {
     <article class="wire-item h${h.horizon}${urgency === 'critical' ? ' critical' : ''}${promoted ? ' promoted' : ''}${h.kevOverdue ? ' kev-overdue' : ''}${isRead ? ' is-read' : ''}${arrived}" role="listitem" aria-labelledby="${titleId}" data-key="${escapeHtml(key)}" tabindex="0"${rowDesc ? ` aria-description="${escapeHtml(rowDesc)}"` : ''}>
       ${scoreBlock(h)}
       <div class="wire-lead">
+        ${renderEvidenceContext(h)}
         <h3 class="wire-item-h">${href
-          ? `<a class="wire-item-title" id="${titleId}" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(h.title)}</a>`
-          : `<span class="wire-item-title" id="${titleId}">${escapeHtml(h.title)}</span>`}${isArrived ? '<span class="wire-new" aria-hidden="true">NEW</span>' : ''}</h3>
-        ${h.description ? `<p class="wire-item-desc">${escapeHtml(h.description)}</p>` : ''}
+          ? `<a class="wire-item-title" id="${titleId}" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${highlightWireText(h.title, filters.q)}</a>`
+          : `<span class="wire-item-title" id="${titleId}">${highlightWireText(h.title, filters.q)}</span>`}${isArrived ? '<span class="wire-new" aria-hidden="true">NEW</span>' : ''}</h3>
+        ${renderWireDescription(h.description, { id: `wire-desc-${index}`, key, expanded: expandedSummaries.has(key), query: filters.q })}
         <div class="wire-decision">
           <span class="wire-tier h${h.horizon}">${TIER_NAMES[h.horizon] || ''}</span>
           ${corroborationGlyph(h)}
@@ -935,21 +1083,24 @@ function renderList() {
           ${priorityChip(h)}
         </div>
         ${submeta ? `<div class="wire-submeta">${submeta}</div>` : ''}
+        <div class="wire-evidence-row"><button type="button" class="wire-inspect${h.evidence?.length ? '' : ' is-legacy'}" data-evidence="${escapeHtml(key)}">${h.evidence?.length ? `Inspect evidence <span class="wire-evidence-count">${h.evidence.length} retained ${h.evidence.length === 1 ? 'source' : 'sources'}</span>` : 'Evidence details'}</button>${h.evidence?.length ? '' : '<span class="wire-retention-note">No retained excerpt</span>'}${h.applicability ? '<span><strong>Exposure unknown</strong> · check applicability</span>' : ''}</div>
       </div>
       <div class="wire-meta-col">
-        <span class="wire-src">${escapeHtml(h.source || '')}</span>
+        <span class="wire-src">${highlightWireText(h.source || 'Unknown source', filters.q)}</span>
         ${ageEl(h, age)}
         <span class="wire-row-actions">
           ${copyLinkBtn(h, href, cveInfo)}
-          <!-- mark-read / dismiss: read is a quiet toggle (dim, not hidden);
-               dismiss removes the row from every view until the undo chip restores it. -->
-          <button type="button" class="wire-mark-read" data-mark-read="${escapeHtml(key)}" aria-pressed="${isRead}" title="${isRead ? 'Mark unread' : 'Mark read'}" aria-label="${isRead ? 'Mark unread' : 'Mark read'}">${isRead ? '●' : '○'}</button>
-          <button type="button" class="wire-dismiss" data-dismiss="${escapeHtml(key)}" title="Dismiss this signal" aria-label="Dismiss this signal">✕</button>
+          <!-- Read and visibility are independent browser preferences. -->
+          <button type="button" class="wire-mark-read" data-mark-read="${escapeHtml(key)}" aria-pressed="${isRead}" title="${isRead ? 'Mark unread' : 'Mark read'}" aria-label="${isRead ? 'Mark unread' : 'Mark read'}">${wireIcon(isRead ? 'read' : 'unread')}<span class="wire-read-label">${isRead ? 'Read' : 'Unread'}</span></button>
+          ${filters.hidden
+            ? `<button type="button" class="wire-restore" data-restore="${escapeHtml(key)}" title="Restore this signal to the visible feed">Restore</button>`
+            : `<button type="button" class="wire-dismiss" data-dismiss="${escapeHtml(key)}" title="Hide this signal" aria-label="Hide this signal">${wireIcon('hide')}</button>`}
         </span>
       </div>
     </article>
   `;
   }).join('');
+  updateSummaryControls();
 
   // Restore the breakdowns that were open before the swap, and the scroll
   // position, so the 5-min auto-refresh never yanks the analyst out of an
@@ -963,6 +1114,7 @@ function renderList() {
     });
   }
   if (prevScroll) window.scrollTo(0, prevScroll);
+  restoreWireFocus(list, savedFocus, document.getElementById('wireSearch'));
 }
 
 // Compact cross-source strip above the list, fed by
@@ -989,7 +1141,7 @@ function convergenceStrip() {
     : '';
   return `
     <div class="wire-converge" role="region" aria-label="Story clusters reported across distinct sources">
-      <span class="wire-converge-head">Cross-source<span class="wire-converge-count">${convergence.length} ${convergence.length === 1 ? 'cluster' : 'clusters'}</span></span>
+      <span class="wire-converge-head">Cross-source<span class="wire-converge-count">${convergence.length} ${convergence.length === 1 ? 'cluster' : 'clusters'}</span><span class="wire-converge-count">Across full feed</span></span>
       <div class="wire-converge-row">${cards}${overflow}</div>
     </div>`;
 }
@@ -1018,7 +1170,7 @@ function scoreBlock(h) {
     return `<div class="wire-score${conf}" data-band="${band}">${score}<span>SCORE</span></div>`;
   }
   const bars = SCORE_AXIS_ORDER
-    .filter(k => typeof comps[k] === 'number')
+    .filter(k => Number.isFinite(comps[k]))
     .map(k => {
       const pct = Math.round(Math.max(0, Math.min(1, comps[k])) * 100);
       return `<li class="wsb-axis"><span class="wsb-label">${escapeHtml(SCORE_LABELS[k] || humanizeKey(k))}</span><span class="wsb-bar"><i style="width:${pct}%"></i></span><span class="wsb-val">${pct}</span></li>`;
@@ -1029,8 +1181,8 @@ function scoreBlock(h) {
   const title = h.scoreRationale ? `${score}/100 — ${h.scoreRationale}` : `${score}/100`;
   return `
     <details class="wire-score has-breakdown${conf}" data-band="${band}" title="${escapeHtml(title)}">
-      <summary>${score}<span>SCORE</span></summary>
-      <ul class="wire-score-breakdown">${ledger}${bars || '<li class="wsb-axis"><span>No components</span></li>'}</ul>
+      <summary aria-label="Score ${score} of 100. Inspect ranking components">${score}<span>SCORE</span></summary>
+      <ul class="wire-score-breakdown">${ledger}<li class="wsb-scale">Evidence axes · 0–100</li>${bars || '<li class="wsb-axis"><span>No components</span></li>'}</ul>
     </details>`;
 }
 
@@ -1051,9 +1203,9 @@ function cveCluster(h, p = parseCveData(h.cveData)) {
   // The CVE id is the most frequent single exit action from the Wire (into a
   // ticket, a scanner query, Slack); make it a click-to-copy button rather than inert
   // text an analyst has to drag-select across a dense row of links and tooltip chips.
-  if (cve) parts.push(`<button type="button" class="cl-cve" data-copy-cve="${escapeHtml(cve)}" title="${escapeHtml(data || cve)}" aria-label="Copy ${escapeHtml(cve)}">${escapeHtml(cve)}</button>`);
+  if (cve) parts.push(`<button type="button" class="cl-cve" data-copy-cve="${escapeHtml(cve)}" title="${escapeHtml(data || cve)}" aria-label="Copy ${escapeHtml(cve)}">${highlightWireText(cve, filters.q)}${wireIcon('copy')}</button>`);
   if (cvss) {
-    parts.push(`<span class="cl-sev sev-${(sev || 'na').toLowerCase()}">${escapeHtml(cvss)}${sev ? ' ' + escapeHtml(sev.toUpperCase()) : ''}</span>`);
+    parts.push(`<span class="cl-sev sev-${(sev || 'na').toLowerCase()}">CVSS ${escapeHtml(cvss)}${sev ? ' ' + escapeHtml(sev.toUpperCase()) : ''}</span>`);
   } else if (cve && !h.isKEV) {
     // Infotip (hover/click-reachable via the delegated listeners); no
     // per-chip tabindex — see the wire-actor comment above for why.
@@ -1130,7 +1282,7 @@ function shortDate(dateStr) {
 function affectsChip(h, p = parseCveData(h.cveData)) {
   const affects = p.affects;
   if (!affects) return '';
-  return `<span class="wire-affects" title="Affected products (NVD CPE data)">Affects ${escapeHtml(affects)}</span>`;
+  return `<span class="wire-affects" title="Affected products (NVD CPE data)">Affects ${highlightWireText(affects, filters.q)}</span>`;
 }
 
 // One priority-reason chip by precedence — replaces the separate promoted / alert
@@ -1149,7 +1301,7 @@ function priorityChip(h) {
   }
   if (h.urgency === 'critical') {
     const t = 'Critical urgency — flagged by the pipeline for immediate attention';
-    return `<span class="wire-priority crit" data-tip="${t}" aria-label="${t}">CRITICAL</span>`;
+    return `<span class="wire-priority crit" data-tip="${t}" aria-label="${t}">CRITICAL URGENCY</span>`;
   }
   return '';
 }
@@ -1170,7 +1322,7 @@ function vendorChips(vendors) {
     // Infotip carries the same heuristic hedge as the aria-label
     // (hover/click-reachable); no per-chip tabindex.
     const t = `${name} — auto-tagged from headline text; vendor match is heuristic, verify with vendor advisories`;
-    return `<span class="wire-vendor heuristic" data-tip="${escapeHtml(t)}" aria-label="${escapeHtml(t)}">${escapeHtml(name)}</span>`;
+    return `<span class="wire-vendor heuristic" data-tip="${escapeHtml(t)}" aria-label="${escapeHtml(t)}">${highlightWireText(name, filters.q)}</span>`;
   }).join('');
 }
 
@@ -1213,10 +1365,9 @@ function corroborationGlyph(h) {
   const title = names.length
     ? `Reported by ${n} distinct sources · labels seen: ${names.join(', ')}`
     : `Reported by ${n} distinct sources`;
-  const shown = n > 9 ? '9+' : String(n);   // cap the glyph so an outlier count can't widen the decision row
   // Infotip (hover/click-reachable) carries the source trail; no native
   // title, no per-chip tabindex.
-  return `<span class="wire-corrob" data-tip="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"><span class="wc-rings" aria-hidden="true"></span>×${shown}</span>`;
+  return `<span class="wire-corrob" data-tip="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${n} sources</span>`;
 }
 
 function relativeAge(dateStr) {
