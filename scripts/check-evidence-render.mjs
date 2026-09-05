@@ -45,6 +45,20 @@ try {
     await connection.call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, ...(key === 'Enter' ? { text: '\r', unmodifiedText: '\r' } : {}), modifiers: shift ? 8 : 0, windowsVirtualKeyCode: key === 'Tab' ? 9 : key === 'Escape' ? 27 : 13 });
     await connection.call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, modifiers: shift ? 8 : 0 });
   }
+  async function assertDialogKeyboardTraversal(label) {
+    // The expectation is native document focus membership, independent of the
+    // application's tabbable-control helper. Repeated traversal crosses both
+    // ends of this fixed fixture's control sequence in each direction.
+    for (const shift of [false, true]) {
+      await evaluate('document.querySelector("[data-evidence-close]").focus()');
+      for (let i = 0; i < 12; i++) {
+        await key('Tab', 'Tab', shift);
+        const contained = await evaluate('document.querySelector(".evidence-dialog").contains(document.activeElement)');
+        if (!contained) console.error(`Evidence keyboard failure: ${label}, ${shift ? 'reverse' : 'forward'} Tab ${i + 1}`);
+        assert(contained, 'Tab stays in dialog');
+      }
+    }
+  }
   for (const width of [390, 1280]) for (const theme of ['dark', 'light']) {
     await connection.call('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: width < 500 });
     await navigate(`/wire?scenario=source-revision&theme=${theme}&capture&reducedMotion`);
@@ -60,7 +74,11 @@ try {
     assert(metrics.left >= 0 && metrics.right <= metrics.width + 1, `Dialog fits ${width}`);
     assert(metrics.scrollWidth <= metrics.clientWidth + 1, 'No internal horizontal overflow');
     assert(metrics.controls.every(height => height >= 44), 'Touch controls at least 44px');
-    for (let i = 0; i < 12; i++) { await key('Tab'); assert(await evaluate('document.querySelector(".evidence-dialog").contains(document.activeElement)'), 'Tab stays in dialog'); }
+    await assertDialogKeyboardTraversal(`${width}px ${theme}, initial disclosures`);
+    for (const expanded of [false, true]) {
+      await evaluate(`document.querySelectorAll('.evidence-dialog details').forEach(details => { details.open = ${expanded}; })`);
+      await assertDialogKeyboardTraversal(`${width}px ${theme}, disclosures ${expanded ? 'expanded' : 'collapsed'}`);
+    }
     if (process.env.EVIDENCE_SCREENSHOT_DIR) {
       const directory = resolve(process.env.EVIDENCE_SCREENSHOT_DIR);
       await mkdir(directory, { recursive: true });

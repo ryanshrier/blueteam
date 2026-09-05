@@ -1,5 +1,94 @@
-import { describe, expect, test } from '@jest/globals';
-import { renderEvidenceContext, renderApplicability, renderEvidenceRecord } from '../public/modules/wire/evidence-inspector.js';
+import { describe, expect, jest, test } from '@jest/globals';
+import { renderEvidenceContext, renderApplicability, renderEvidenceRecord, getEvidenceTabbables, trapEvidenceTab } from '../public/modules/wire/evidence-inspector.js';
+
+function focusFixture() {
+  const nodes = [];
+  const doc = { defaultView: { getComputedStyle: node => ({ visibility: node.visibility || 'visible' }) } };
+  const make = (tagName, name, parentElement = null, options = {}) => {
+    const node = { tagName, name, parentElement, children: [], tabIndex: 0, open: false,
+      ownerDocument: doc, focus: jest.fn(), getClientRects: () => [{}], ...options,
+      matches: () => Boolean(node.disabled), hasAttribute: name => name === 'tabindex' && Boolean(node.explicitTabIndex),
+      closest: () => { for (let item = node; item; item = item.parentElement) if (item.hidden || item.inert) return item; return null; },
+      contains: child => { for (let item = child; item; item = item.parentElement) if (item === node) return true; return false; },
+    };
+    parentElement?.children.push(node);
+    nodes.push(node);
+    return node;
+  };
+  const dialog = make('DIALOG', 'dialog');
+  dialog.querySelectorAll = () => nodes.filter(node => node !== dialog && node.tagName !== 'DETAILS' && node.tagName !== 'DIV');
+  const close = make('BUTTON', 'Close', dialog);
+  const why = make('DETAILS', 'applicability', dialog);
+  make('SUMMARY', 'Why it matters', why);
+  make('A', 'Hidden settings link', why);
+  make('SELECT', 'Source selector', dialog);
+  make('A', 'Original source', dialog);
+  const selected = make('DETAILS', 'selected revision', dialog, { open: true });
+  make('SUMMARY', 'Feed snapshot revision', selected);
+  const observation = make('DETAILS', 'selected observation', selected);
+  make('SUMMARY', 'Observation details', observation);
+  const earlier = make('DETAILS', 'earlier revision', dialog);
+  const earlierSummary = make('SUMMARY', 'Earlier retained revision', earlier);
+  const earlierObservation = make('DETAILS', 'earlier observation', earlier);
+  const concealedSummary = make('SUMMARY', 'Concealed observation details', earlierObservation);
+  return { dialog, make, close, earlier, earlierSummary, concealedSummary };
+}
+
+describe('evidence dialog keyboard boundaries', () => {
+  test('closed ancestor details excludes nested summary even when Chromium reports a layout rectangle', () => {
+    const ui = focusFixture();
+    expect(ui.concealedSummary.getClientRects()).toHaveLength(1);
+    expect(getEvidenceTabbables(ui.dialog).map(node => node.name)).toEqual([
+      'Close', 'Why it matters', 'Source selector', 'Original source',
+      'Feed snapshot revision', 'Observation details', 'Earlier retained revision',
+    ]);
+  });
+
+  test('forward and reverse Tab wrap at the actual last control as revisions expand and collapse', () => {
+    const ui = focusFixture();
+    const key = shiftKey => ({ key: 'Tab', shiftKey, preventDefault: jest.fn() });
+    const forward = key(false);
+    trapEvidenceTab(forward, ui.dialog, ui.earlierSummary);
+    expect(forward.preventDefault).toHaveBeenCalled();
+    expect(ui.close.focus).toHaveBeenCalledTimes(1);
+    trapEvidenceTab(key(true), ui.dialog, ui.close);
+    expect(ui.earlierSummary.focus).toHaveBeenCalledTimes(1);
+    ui.earlier.open = true;
+    const inside = key(false);
+    trapEvidenceTab(inside, ui.dialog, ui.earlierSummary);
+    expect(inside.preventDefault).not.toHaveBeenCalled();
+    trapEvidenceTab(key(false), ui.dialog, ui.concealedSummary);
+    expect(ui.close.focus).toHaveBeenCalledTimes(2);
+    trapEvidenceTab(key(true), ui.dialog, ui.close);
+    expect(ui.concealedSummary.focus).toHaveBeenCalledTimes(1);
+    ui.earlier.open = false;
+    trapEvidenceTab(key(true), ui.dialog, ui.close);
+    expect(ui.earlierSummary.focus).toHaveBeenCalledTimes(2);
+  });
+
+  test('only the first summary subtree of a closed disclosure remains eligible', () => {
+    const ui = focusFixture();
+    const summaryButton = ui.make('BUTTON', 'Action within summary', ui.earlierSummary);
+    const extraSummary = ui.make('SUMMARY', 'Additional summary', ui.earlier, { explicitTabIndex: true });
+    expect(getEvidenceTabbables(ui.dialog)).toContain(summaryButton);
+    expect(getEvidenceTabbables(ui.dialog)).not.toContain(extraSummary);
+  });
+
+  test('hidden, inert, disabled, negative tabindex and CSS-hidden controls are excluded', () => {
+    const ui = focusFixture();
+    const disabled = ui.make('BUTTON', 'Disabled', ui.dialog, { disabled: true });
+    const negative = ui.make('A', 'Programmatic only', ui.dialog, { tabIndex: -1 });
+    const hidden = ui.make('DIV', 'Hidden wrapper', ui.dialog, { hidden: true });
+    const hiddenControl = ui.make('BUTTON', 'Hidden child', hidden);
+    const inert = ui.make('DIV', 'Inert wrapper', ui.dialog, { inert: true });
+    const inertControl = ui.make('BUTTON', 'Inert child', inert);
+    const invisible = ui.make('BUTTON', 'Invisible', ui.dialog, { visibility: 'hidden' });
+    const noLayout = ui.make('BUTTON', 'No layout', ui.dialog, { getClientRects: () => [] });
+    const actual = getEvidenceTabbables(ui.dialog);
+    for (const control of [disabled, negative, hiddenControl, inertControl, invisible, noLayout]) expect(actual).not.toContain(control);
+    expect(actual).toContain(ui.close);
+  });
+});
 
 describe('retained evidence presentation', () => {
   test('separates declared relevance from exposure and escapes untrusted terms', () => {

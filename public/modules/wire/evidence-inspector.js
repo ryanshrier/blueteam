@@ -5,6 +5,43 @@ import * as api from '../core/api.js';
 let current = null;
 let requestId = 0;
 
+export function getEvidenceTabbables(dialog) {
+  const firstSummary = details => [...details.children].find(child => child.tagName === 'SUMMARY');
+  const controls = [...dialog.querySelectorAll('button, a[href], input, select, textarea, summary, [tabindex]')]
+    .filter(element => {
+      if (element.tabIndex < 0 || element.matches(':disabled') || element.closest('[hidden], [inert]')) return false;
+      if (!element.getClientRects().length) return false;
+      const style = element.ownerDocument.defaultView.getComputedStyle(element);
+      if (style.visibility === 'hidden' || style.visibility === 'collapse') return false;
+      if (element.tagName === 'SUMMARY' && !element.hasAttribute('tabindex')
+        && (element.parentElement?.tagName !== 'DETAILS' || firstSummary(element.parentElement) !== element)) return false;
+      // Chromium can report a nonempty rect for a nested summary hidden by a
+      // closed ancestor. Only that ancestor's first summary subtree is exposed.
+      for (let parent = element.parentElement; parent && parent !== dialog; parent = parent.parentElement) {
+        if (parent.tagName === 'DETAILS' && !parent.open) {
+          const summary = firstSummary(parent);
+          if (!summary || (summary !== element && !summary.contains(element))) return false;
+        }
+      }
+      return true;
+    });
+  // Match the native sequential order if a future control uses positive tabindex.
+  return controls.sort((a, b) => (a.tabIndex || Infinity) - (b.tabIndex || Infinity));
+}
+
+export function trapEvidenceTab(event, dialog, activeElement = document.activeElement) {
+  if (event.key !== 'Tab') return;
+  const controls = getEvidenceTabbables(dialog);
+  const index = controls.indexOf(activeElement);
+  if (!controls.length) {
+    event.preventDefault();
+    dialog.focus();
+  } else if (index < 0 || (!event.shiftKey && index === controls.length - 1) || (event.shiftKey && index === 0)) {
+    event.preventDefault();
+    controls[event.shiftKey ? controls.length - 1 : 0].focus();
+  }
+}
+
 function time(value) {
   const date = new Date(value);
   return value && Number.isFinite(date.getTime()) ? date.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : 'Unknown';
@@ -96,14 +133,7 @@ export function openEvidenceInspector(headline, trigger) {
   document.body.appendChild(dialog);
   const keyHandler = event => {
     event.stopPropagation();
-    if (event.key !== 'Tab') return;
-    const controls = [...dialog.querySelectorAll('button:not([disabled]), a[href], select:not([disabled]), summary')]
-      .filter(element => element.getClientRects().length);
-    const index = controls.indexOf(document.activeElement);
-    if (controls.length && (index < 0 || (!event.shiftKey && index === controls.length - 1) || (event.shiftKey && index === 0))) {
-      event.preventDefault();
-      controls[event.shiftKey ? controls.length - 1 : 0].focus();
-    }
+    trapEvidenceTab(event, dialog);
   };
   current = { dialog, trigger, keyHandler };
   dialog.addEventListener('keydown', keyHandler);
