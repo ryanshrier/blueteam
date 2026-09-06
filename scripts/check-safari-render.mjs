@@ -139,10 +139,14 @@ try {
   assert.deepEqual(report.wireSelection.filter(value => value.active || value.checked === 'true' || value.tabIndex === 0),
     [{ horizon: '1', active: true, checked: 'true', tabIndex: 0 }], 'Safari Wire selection appearance, radio state and keyboard entry agree with filtered rows');
   await record('wire-filtered');
-  await client.execute('window.__evidenceOpener = document.querySelector("[data-evidence]");');
   await client.click('.wire-item:has([data-evidence]) .wire-details > summary');
-  await until('document.querySelector("[data-evidence]").closest(".wire-details").open');
-  await client.click('[data-evidence]');
+  // Wide Wire layouts open the selected signal in the side inspector;
+  // narrow layouts retain the row disclosure. Follow the actual visible UI.
+  const evidenceScope = await client.execute('return innerWidth >= 1000;')
+    ? '#wireInspector:not([hidden])' : '.wire-details[open]';
+  await until(`document.querySelector('${evidenceScope} [data-evidence]')`);
+  await client.execute(`window.__evidenceOpener = document.querySelector('${evidenceScope} [data-evidence]');`);
+  await client.click(`${evidenceScope} [data-evidence]`);
   await until('document.querySelector(".evidence-dialog ins")');
   assert(await client.execute('return document.querySelector(".evidence-dialog").contains(document.activeElement);'), 'Evidence dialog owns initial focus');
   assert(await client.execute('return document.querySelector(".evidence-dialog del").textContent.includes("2.4.3") && document.querySelector(".evidence-dialog ins").textContent.includes("2.4.4");'), 'Actual retained revision changes are shown');
