@@ -34,13 +34,13 @@ import { tagMitre } from '../../lib/mitre.js';
 export const cyberEnrichers = [
   { name: 'kev', stage: 'pre', fn: enrichKEV, failureKey: 'KEV' },
   { name: 'entities', stage: 'pre', fn: tagEntities },
+  { name: 'cached-cve', stage: 'pre', fn: headlines => enrichCVEs(headlines, 0) },
+  { name: 'cached-epss', stage: 'pre', fn: headlines => enrichEPSS(headlines, 0) },
   { name: 'cve', stage: 'post', fn: enrichCVEs, failureKey: 'CVE', limitKey: 'maxCVEEnrichments', limitDefault: 8 },
   // Runs after 'cve' (reuses the CVE ids it already extracted — see enrichEPSS
-  // in lib/enrichment.js) and before 'article', which is unrelated. No
-  // failureKey: EPSS is a supplementary refinement of the exploitation axis,
-  // not a primary input (KEV + urgency lexicon still carry it on their own),
-  // so a failed EPSS fetch degrades silently rather than flagging the brief.
-  { name: 'epss', stage: 'post', fn: enrichEPSS, limitKey: 'maxEPSSLookups', limitDefault: 20 },
+  // in lib/enrichment.js) and before 'article', which is unrelated. A failure
+  // stays nonfatal but remains visible to consumers of missing context.
+  { name: 'epss', stage: 'post', fn: enrichEPSS, failureKey: 'EPSS', limitKey: 'maxEPSSLookups', limitDefault: 20 },
   { name: 'article', stage: 'post', fn: enrichArticleBodies, failureKey: 'article', limitKey: 'maxArticleExtractions', limitDefault: 10 },
   // Article bodies carry technique detail that is often absent from headlines.
   // Run the pure MITRE matcher after extraction, before the IOC consumer.

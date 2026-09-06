@@ -60,17 +60,15 @@ export const cyberPack = {
       { name: 'Akira', aliases: [], region: 'crime' },
       { name: 'Qilin', aliases: ['Agenda'], region: 'crime' },
       { name: 'Play', aliases: ['PlayCrypt'], region: 'crime' },
-      { name: 'Medusa', aliases: ['MedusaLocker'], region: 'crime' },
+      { name: 'Medusa', aliases: [], region: 'crime' },
+      { name: 'MedusaLocker', aliases: [], region: 'crime' },
       { name: 'INC Ransom', aliases: ['INC Ransomware'], region: 'crime' },
       { name: 'DragonForce', aliases: [], region: 'crime' },
       { name: 'Hunters International', aliases: [], region: 'crime' },
       { name: '8Base', aliases: [], region: 'crime' },
       { name: 'Rhysida', aliases: [], region: 'crime' },
-      // Known caveat: matched via lib/enrichment.js's `\d`-detection convention
-      // (see PATTERN_ACTOR_SHAPE), so the leaderboard label reads the literal
-      // family name ("Storm-\d{4}"), not the specific cluster matched ("Storm-1234")
-      // — good enough to register the family's activity; a follow-up could thread
-      // the actual regex capture through to the display label.
+      // Generic matchers emit the actual observed designator ("Storm-1234").
+      // A designator already mapped above belongs to its named actor instead.
       { name: 'Storm-\\d{4}', aliases: [], region: 'unattributed' },
       { name: 'UNC\\d{3,5}', aliases: [], region: 'unattributed' },
     ],
@@ -117,7 +115,7 @@ export const cyberPack = {
       max: 10,
       bands: { critical: 1, high: 0.75, medium: 0.5, low: 0.25 },
     },
-    rationale: { verified: 'KEV-verified', critical: 'active exploitation', elevated: 'elevated threat activity', severityLabel: 'CVSS' },
+    rationale: { verified: 'KEV-verified', critical: 'urgent reporting (heuristic)', elevated: 'elevated threat language (heuristic)', severityLabel: 'CVSS' },
   },
 
   // The edition-specific landscape panels cyber surfaces — the
@@ -154,10 +152,13 @@ export const cyberPack = {
   // mention "ransomware" or carry a bare CVE number don't jump the SOC queue.
   urgencyLexicon: {
     critical: [
-      'zero.?day', 'active.?exploit', 'actively.?exploit', 'exploited.?in.?the.?wild',
+      'active.?exploit', 'actively.?exploit', 'exploited.?in.?the.?wild',
+      '(?:attackers?|threat.?actors?)\\s+(?:are|is)\\s+exploit',
+      '(?:zero.?day|vulnerabilit(?:y|ies)|flaws?)\\s+(?:(?:is|are|being)\\s+)?exploited',
       'emergency.?directive', 'breach.?confirm',
     ],
     elevated: [
+      'zero.?day',
       'critical.?vuln', 'rce\\b', 'remote.?code.?exec', 'emergency.?patch',
       'proposed.?rule', 'indictment', 'ransomware',
       'malware', 'apt\\d', 'threat.?actor', 'data.?leak', 'patch.?tuesday', 'phishing.?campaign',
@@ -180,7 +181,7 @@ export const cyberPack = {
       subtitle: 'Threat Landscape Briefing',
     },
     persona: {
-      system: 'You are the daily threat landscape briefer for a cyber defense team. You produce a decision-support document modeled on the discipline of a national-level intelligence brief, written for working defenders.',
+      system: 'You are the daily threat landscape briefer for a cyber defense team. Produce a sourced decision-support document for working defenders: meaningful current development, evidence, applicability check, owned response and explicit uncertainty. Authority comes from traceable claims and complete actions, not an intelligence-service writing style.',
       voiceStandard: 'if a blue-team lead reads only the BLUF and one signal, they should still run a better shift today than they would have without it.',
       exampleAudience: 'A cyber defense team at a large enterprise: tier 1–3 analysts, threat intelligence, detection engineering, and security leadership.',
       analystSpecifics: 'CVE numbers, affected products, detection opportunities, concrete next actions',
@@ -217,9 +218,9 @@ export const cyberPack = {
       impactInstruction: 'What this means for a working cyber defense team. Name the affected control, log source, or process.',
     },
     exemplars: {
-      bluf: 'Not "CISA released guidance" but "Enterprise defenders face X because Y changed."',
+      bluf: 'Name the product and meaningful development, explain the defensible consequence, and say which applicability decision follows. Use catalog statistics only as scoped supporting context.',
       actNow: 'Pull Salesforce Connected Apps audit logs and flag OAuth grants tied to Klue.',
-      convergence: 'A single stolen OAuth token cascaded from Klue into LastPass — the live edge of a structural blind spot: SaaS-to-SaaS grants are trusted once at setup and never re-verified.',
+      convergence: 'If two cited reports establish a shared OAuth grant mechanism, assess whether that mechanism applies to local SaaS integrations. Treat local grant scope and review practices as unknown until checked; one incident does not establish how all organizations manage grants.',
       watchlist: '"CISA adds CVE-XXXX-XXXXX to KEV" not "the situation develops."',
       tierMigration: 'Flagged at Tier 2 last week; CISA advisory moves this to Tier 1.',
       execAvoid: 'no unsupported certainty, no implementation jargon, no repeated analysis',
@@ -228,17 +229,24 @@ export const cyberPack = {
       actionFormat: 'Infrastructure — verify every affected appliance — recommended target {Month D, YYYY}',
       priorityLanguage: 'Act now / Prepare / Monitor',
       actionCatalogNote: 'If the relevant judgment carries a verified KEV CVE (see below), name that exact CVE in the this-shift action.',
-      absentSpecific: '"no CVE assigned yet"',
+      absentSpecific: 'omit an optional unsupported metric; assert absence only after checking every supplied record and state the exact scope',
       whatHappenedSpecifics: 'names, versions, CVE numbers, dates, dollar figures',
       numberExamples: 'versions, CVE IDs, dates, and counts',
+      responseCompleteness: 'If the source calls for support-assisted compromise review, re-image/redeploy, password changes and MFA/TOTP reset, a patch or rebuild alone is not the complete response. Detection actions must link the exact artifact or first retrieve and verify it; never instruct a team to deploy an unspecified IOC set. Investigation lookbacks need an explicit proposed basis, exposure-history/retention assumptions and a statement that an advisory publication date is not the earliest possible compromise. Proposed SLAs need a trigger, feasibility assumptions and immediate containment where completion is deferred; do not present a selected 48–72-hour policy as proven to outrun pre-disclosure exploitation.',
+      actionCoordination: 'Coordinate Infrastructure and Incident response review without silently delaying urgent containment or fixes. Vulnerability-management triage belongs to the accountable vulnerability-management/security-engineering function; detection engineering owns detection work.',
+      convergenceLimitations: 'A faster patch SLA reduces post-fix exposure but cannot prevent pre-disclosure exploitation; include the independent exposure/compromise check where warranted. Omit the connection using the supported no-intersection sentence when there is no useful mechanism beyond "both were exploited."',
+      uncataloguedAction: 'An actively exploited, unpatched product without a CVE must still receive an owned inventory/exposure check and an initial vendor-evidence retrieval task, even when technical detail is too weak for a Key Judgment. Put those bounded triage steps in its Developing entry; do not wait for a CVE, KEV entry or advisory before assigning triage. Do not invent a patch or universal mitigation without evidence.',
     },
     grounding: {
       specifics: 'Every CVE ID, CVSS score, version number, date, count, dollar figure, and named actor',
-      systemFactsNote: 'the KEV count',
-      verifiedCatalog: 'KEV is verified, not inferred. When a headline is flagged "⚠ CISA KEV: CVE-XXXX-XXXXX", that CVE\'s KEV membership is confirmed against the catalog — cite that exact CVE verbatim in the relevant judgment (in "What happened" and, where it drives the action, the this-shift action). Do not paraphrase, drop, or substitute it, and never label a different CVE as KEV when the verified one was provided.',
+      systemFactsNote: 'the KEV count and captured per-CVE FCEB remediation dates. The captured CISA KEV record controls the current federal deadline even when a publisher passage gives an older or different date. Repeat that captured date exactly and keep it separate from this organization\'s recommended target; if the catalog date is unavailable, omit the federal deadline',
+      verifiedCatalog: 'KEV is verified, not inferred. When a headline is flagged "⚠ CISA KEV: CVE-XXXX-XXXXX", that CVE\'s KEV membership is confirmed against the catalog — cite that exact CVE verbatim in the relevant judgment (in "What happened" and, where it drives the action, the this-shift action). Do not paraphrase, drop, or substitute it, and never label a different CVE as KEV when the verified one was provided. A CVSS score needs its own supporting passage among that signal\'s "What happened" citations. Preserve the exact CVE-to-score pairing. Cite NVD when NVD supplies the score; a CISA catalog listing alone does not support a numeric score. If none of the cited passages supplies the value, omit it instead of borrowing a score from memory or another vulnerability. When including CVSS, preserve the CVE, scoring version, score and attribution from the cited record. In a metrics table, the Base Score column is the score; a vector prefix such as CVSS:3.1 names the scoring version. CVSS v3.1 and v4.0 values are different assessments, not automatically contradictory reports. A provisional label applies only to the record carrying it.',
       sourceFreshness: 'A source establishes status only on its publication or update date. Date-box patch, exploitation, victim-count, and availability claims unless a current source explicitly carries them through the briefing date.',
       certaintyLanguage: 'Words such as "confirmed," "first," "fully autonomous," and "no fix" must match the cited evidence and confidence band; a single vendor claim without independent validation must be attributed as a report or assessment.',
       deadlineScopeInstruction: 'Put external deadlines here with their authority and scope. A CISA KEV due date must read, for example, "CISA FCEB remediation due July 16, 2026"; it is not automatically this organization\'s target. Preserve the source\'s precision: a date-only deadline never gains a clock time or timezone.',
+      eventTimingInstruction: 'Use full CVE identifiers everywhere; do not shorten a second ID to /83549. Disclosure date, first observed exploitation, a researcher\'s warning, article publication, catalog addition and remediation date are distinct facts. A warning published one day after another report does not establish exploitation within one day of disclosure. An advisory saying a product was affected "as of" a date does not establish vendor-confirmed exploitation beginning on that date; any proposed hunt lookback needs a separately labelled exposure/retention basis.',
+      evidenceAvailabilityInstruction: 'Check separate NVD records before asserting that a CVSS score is unavailable. If NVD supplies the score, cite its exact supplied lookup URL. A missing citation in an earlier draft is not missing evidence; otherwise omit the optional metric without claiming that no retained score exists.',
+      statisticalExample: 'A monthly Microsoft Patch Tuesday count does not describe all vendors or all disclosed CVEs; a small observed exploited subset does not establish that exploitation generally stays rare. Five exploited CVEs are five vulnerabilities, not five incidents, five separate exploitation occasions or five vulnerability sets. A historical count or single editorial forecast cannot prove a rising population trend or a universal patch-priority rule.',
     },
     dayModes: {
       monday: 'Cover what accumulated over the weekend and set the operational posture for the week.\nEvery Horizon 1 signal should answer: "What does the day shift need to do before noon?"',

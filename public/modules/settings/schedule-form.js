@@ -6,11 +6,11 @@ export function syncScheduleControlState({
   saveButton = null,
   available = false,
   saving = false,
+  dirty = true,
 } = {}) {
   const unavailable = !available;
   for (const field of fields) {
-    if (field) field.disabled = unavailable;
+    if (field) field.disabled = unavailable || Boolean(saving);
   }
-  if (saveButton) saveButton.disabled = unavailable || Boolean(saving);
+  if (saveButton) saveButton.disabled = unavailable || Boolean(saving) || !dirty;
 }
-

@@ -1,4 +1,5 @@
 import { describe, test, expect } from '@jest/globals';
+import express from 'express';
 import { localhostBaseUrl, normalizePublicBaseUrl, requestBaseUrl } from '../lib/public-url.js';
 
 describe('public URL validation', () => {
@@ -28,8 +29,9 @@ describe('public URL validation', () => {
 });
 
 describe('requestBaseUrl', () => {
-  const fakeRequest = ({ trustProxy = false, host = '127.0.0.1:3000', forwardedHost, forwardedProto } = {}) => ({
-    app: { get: () => trustProxy },
+  const fakeRequest = ({ trustProxy = false, peer = '127.0.0.1', host = '127.0.0.1:3000', forwardedHost, forwardedProto } = {}) => ({
+    app: express().set('trust proxy', trustProxy),
+    socket: { remoteAddress: peer },
     protocol: 'http',
     headers: {
       ...(forwardedHost ? { 'x-forwarded-host': forwardedHost } : {}),
@@ -45,6 +47,16 @@ describe('requestBaseUrl', () => {
 
   test('unset configuration preserves trusted-proxy behavior', () => {
     const req = fakeRequest({ trustProxy: true, forwardedHost: 'intel.example.com', forwardedProto: 'https' });
+    expect(requestBaseUrl(req)).toBe('https://intel.example.com');
+  });
+
+  test.each(['10.0.0.0/8', 0, false])('ignores spoofed forwarded headers when policy %j does not trust this peer', trustProxy => {
+    const req = fakeRequest({ trustProxy, peer: '192.0.2.10', forwardedHost: 'spoofed.example', forwardedProto: 'https' });
+    expect(requestBaseUrl(req)).toBe('http://127.0.0.1:3000');
+  });
+
+  test.each(['10.0.0.0/8', 1, true])('accepts forwarded headers when policy %j trusts the immediate peer', trustProxy => {
+    const req = fakeRequest({ trustProxy, peer: '10.1.2.3', forwardedHost: 'intel.example.com', forwardedProto: 'https' });
     expect(requestBaseUrl(req)).toBe('https://intel.example.com');
   });
 

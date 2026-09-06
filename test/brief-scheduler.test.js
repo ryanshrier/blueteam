@@ -6,6 +6,7 @@ import {
   requestBriefGeneration,
   startDailyBriefSchedule,
   stopDailyBriefSchedule,
+  waitForDailyBriefIdle,
 } from '../lib/brief-scheduler.js';
 
 afterEach(() => _resetBriefScheduleForTests());
@@ -46,6 +47,99 @@ describe('dailyBriefDelay', () => {
 });
 
 describe('startDailyBriefSchedule', () => {
+  test('shutdown drains the completed edition ledger and legacy marker without rearming timers', async () => {
+    const callbacks = [];
+    const state = stateHarness();
+    let finishGeneration;
+    const generateBrief = jest.fn(() => new Promise(resolve => { finishGeneration = resolve; }));
+    const legacySaved = jest.fn();
+    startDailyBriefSchedule({
+      generateBrief, getScheduleConfig: () => ENABLED,
+      now: () => new Date(2026, 6, 12, 8),
+      getState: state.getState, setState: state.setState,
+      getLegacyLastSuccessDate: () => null, setLegacyLastSuccessDate: legacySaved,
+      setTimeoutFn: fn => { callbacks.push(fn); return callbacks.length; },
+      clearTimeoutFn: () => {}, logger: { info: jest.fn(), error: jest.fn() },
+    });
+    const attempt = callbacks[0]();
+    expect(state.state.outcome).toBe('running');
+    stopDailyBriefSchedule();
+    const idle = jest.fn();
+    const drain = waitForDailyBriefIdle().then(idle);
+    await Promise.resolve();
+    expect(idle).not.toHaveBeenCalled();
+    finishGeneration({ filename: 'brief-2026-07-12-00.md' });
+    await Promise.all([attempt, drain]);
+    expect(state.state.outcome).toBe('success');
+    expect(state.state.filename).toBe('brief-2026-07-12-00.md');
+    expect(legacySaved).toHaveBeenCalledWith('2026-07-12');
+    expect(callbacks).toHaveLength(1);
+    await callbacks[0](); // even an already queued timer cannot start new work
+    expect(generateBrief).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([false, true])('a retry after midnight retains its edition and leaves the next daily slot intact (restart=%s)', async restart => {
+    const callbacks = [];
+    const state = stateHarness();
+    let clock = new Date('2026-09-05T23:54:00Z');
+    const generateBrief = jest.fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockImplementation(async job => ({ filename: `brief-${job.editionDate}-00.md` }));
+    const options = {
+      generateBrief,
+      getScheduleConfig: () => ({ ...ENABLED, time: '23:55', timezone: 'UTC', missedRun: 'skip' }),
+      now: () => clock,
+      getState: state.getState, setState: state.setState,
+      getLegacyLastSuccessDate: () => null, setLegacyLastSuccessDate: () => {},
+      setTimeoutFn: (fn, ms) => { callbacks.push({ fn, ms }); return callbacks.length; },
+      clearTimeoutFn: () => {}, logger: { info: jest.fn(), error: jest.fn() },
+    };
+    startDailyBriefSchedule(options);
+    clock = new Date('2026-09-05T23:55:00Z');
+    await callbacks[0].fn();
+    expect(state.state.nextEditionDate).toBe('2026-09-05');
+    expect(state.state.nextAttemptAt).toBe('2026-09-06T00:10:00.000Z');
+    if (restart) {
+      clock = new Date('2026-09-06T00:05:00Z');
+      startDailyBriefSchedule(options);
+      expect(callbacks.at(-1).ms).toBe(5 * 60_000);
+    }
+    clock = new Date('2026-09-06T00:10:00Z');
+    await callbacks.at(-1).fn();
+    expect(generateBrief.mock.calls[1][0]).toEqual(generateBrief.mock.calls[0][0]);
+    expect(state.state.lastSuccessDate).toBe('2026-09-05');
+    expect(state.state.nextEditionDate).toBe('2026-09-06');
+    expect(state.state.nextAttemptAt).toBe('2026-09-06T23:55:00.000Z');
+    clock = new Date('2026-09-06T23:55:00Z');
+    await callbacks.at(-1).fn();
+    expect(generateBrief.mock.calls[2][0].editionDate).toBe('2026-09-06');
+    expect(state.state.lastSuccessDate).toBe('2026-09-06');
+  });
+
+  test('a retry that would occupy the following daily slot is retired in favor of that new edition', async () => {
+    const callbacks = [];
+    const state = stateHarness();
+    let clock = new Date('2026-09-05T23:54:00Z');
+    const generateBrief = jest.fn().mockRejectedValueOnce(new Error('temporary failure')).mockResolvedValue({});
+    startDailyBriefSchedule({
+      generateBrief,
+      getScheduleConfig: () => ({ ...ENABLED, time: '23:55', timezone: 'UTC', retryMinutes: 1440 }),
+      now: () => clock,
+      getState: state.getState, setState: state.setState,
+      getLegacyLastSuccessDate: () => null, setLegacyLastSuccessDate: () => {},
+      setTimeoutFn: (fn, ms) => { callbacks.push({ fn, ms }); return callbacks.length; },
+      clearTimeoutFn: () => {}, logger: { info: jest.fn(), error: jest.fn() },
+    });
+    clock = new Date('2026-09-05T23:55:00Z');
+    await callbacks[0].fn();
+    expect(state.state.lastError).toMatch(/retired/);
+    expect(state.state.nextEditionDate).toBe('2026-09-06');
+    clock = new Date('2026-09-06T23:55:00Z');
+    await callbacks[1].fn();
+    expect(generateBrief.mock.calls[1][0].editionDate).toBe('2026-09-06');
+    expect(state.state.attempts).toBe(1);
+  });
+
   test('is explicitly disabled by default and does not arm a timer', () => {
     const callbacks = [];
     const state = stateHarness();

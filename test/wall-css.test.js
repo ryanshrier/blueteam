@@ -11,7 +11,7 @@ describe('Wall Decision timing presentation', () => {
     expect(wallCss).toMatch(
       /\.nb-jfact\s*\{[^}]*grid-template-columns:\s*minmax\(82px,\s*0\.72fr\)\s*minmax\(0,\s*1\.28fr\);/s
     );
-    expect(wallCss).toMatch(/\.nb-jdecision dd\s*\{\s*color:\s*var\(--paper-accent\);\s*\}/s);
+    expect(wallCss).toMatch(/\.nb-jdecision dd\s*\{\s*color:\s*var\(--paper-ink-2\);\s*\}/s);
     expect(wallCss).not.toMatch(/\.nb-jdisc\s*\{/);
     expect(wallCss).not.toMatch(/\.nb-tag\.urgent/);
   });
@@ -27,8 +27,11 @@ describe('Wall Decision timing presentation', () => {
     expect(wallCss).toMatch(/\.nb-act-target strong\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
   });
 
-  test('has explicit 720p density rules for six-row KEV and four-row Wire pages', () => {
-    expect(wallCss).toMatch(/@media \(max-height:\s*820px\)[\s\S]*\.nb-kev-page\.row-count-6 \.nb-led-name\s*\{\s*display:\s*none;/);
-    expect(wallCss).toMatch(/@media \(max-height:\s*820px\)[\s\S]*\.nb-item:not\(\.lead\) \.nb-dek,[\s\S]*display:\s*none;/);
+  test('sizes the actual BLUF headline and deck classes for mobile reading', () => {
+    const mobile = wallCss;
+    expect(mobile).toMatch(/body:not\(\.kiosk\) :is\([^)]*\.nb-cover-deck\)\s*\{\s*font-size:\s*17px;/);
+    expect(mobile).toMatch(/body:not\(\.kiosk\) :is\([^)]*\.nb-cover-head\)\s*\{\s*font-size:\s*26px;/);
+    expect(mobile).not.toMatch(/\.nb-cover-(?:bluf|headline)\b/);
   });
+
 });

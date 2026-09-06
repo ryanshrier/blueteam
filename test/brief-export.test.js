@@ -6,7 +6,9 @@ import {
   bindEditionPrintShortcut,
   buildDocument,
   collectEditionWarnings,
+  exportBriefNewspaper,
   gatePrintUntilReady,
+  formatGeneratedFreshness,
   isAssessmentFieldHtml,
   printTopLevelDocument,
   shouldKeepFieldParagraphTogether,
@@ -91,6 +93,82 @@ describe('edition field normalization', () => {
 });
 
 describe('edition print contract', () => {
+  test.each(['navigation', 'close button', 'Escape', 'native close'])('preview cleanup on %s removes the iframe, readiness work and print shortcut exactly once', async reason => {
+    jest.useFakeTimers();
+    const priorDocument = globalThis.document;
+    const priorLocation = globalThis.location;
+    const listenable = () => ({ addEventListener: jest.fn(), removeEventListener: jest.fn(), setAttribute: jest.fn(), removeAttribute: jest.fn() });
+    const frame = { ...listenable(), contentWindow: { focus: jest.fn(), print: jest.fn() } };
+    const printButton = { ...listenable() };
+    const closeButton = { ...listenable(), focus: jest.fn() };
+    const opener = { isConnected: true, focus: jest.fn() };
+    const bodyChildren = new Set();
+    const overlay = { ...listenable(), open: false,
+      showModal: jest.fn(() => { overlay.open = true; }),
+      close: jest.fn(() => { overlay.open = false; }),
+      remove: jest.fn(() => { bodyChildren.delete(overlay); }),
+      querySelector: selector => ({ '.np-frame': frame, '.np-ov-print': printButton, '.np-ov-close': closeButton })[selector],
+    };
+    const doc = { ...listenable(), body: { appendChild: node => bodyChildren.add(node) },
+      createElement: () => overlay, createTreeWalker: () => ({ nextNode: () => null }) };
+    const completeAction = 'Incident response — review the retained evidence; if compromise is confirmed, rotate passwords and reset tokens — recommended target September 8, 2026.';
+    let notePresent = true;
+    let reviewPresent = true;
+    const note = { innerHTML:'<summary>Editorial review · 1 correction</summary><ul><li id="review-action"><strong>Preserve recovery</strong> — Full conditional recovery from <a href="https://example.test/advisory">the retained advisory</a>.</li></ul>',
+      querySelector: selector => selector === 'summary' ? { remove: () => { note.innerHTML = note.innerHTML.replace(/<summary>.*?<\/summary>/, ''); } } : null,
+      remove: () => { notePresent = false; } };
+    const clone = { ownerDocument: doc, get innerHTML() { return `<section class="bluf">Saved briefing.</section><ul class="brief-recommended-actions"><li>${completeAction}</li></ul>${reviewPresent ? `<details class="brief-review-summary"><summary>Editorial review</summary>${notePresent ? `<section class="brief-review-note">${note.innerHTML}</section>` : ''}</details>` : ''}`; }, textContent: 'Saved briefing.',
+      querySelector: () => null, querySelectorAll: selector => selector === '.brief-review-note' && notePresent ? [note]
+        : selector === '[data-review-original], .brief-review-summary' ? [{ remove:()=>{ reviewPresent = false; notePresent = false; } }] : [] };
+    globalThis.document = doc;
+    globalThis.location = { origin: 'https://desk.example' };
+    try {
+      const dispose = exportBriefNewspaper({ contentEl: { cloneNode: () => clone, querySelectorAll: () => [] }, filename: 'brief-2026-09-06-02.md', opener });
+      expect(typeof dispose).toBe('function');
+      expect(bodyChildren.has(overlay)).toBe(true);
+      expect(frame.srcdoc).toContain('Saved briefing.');
+      const intelligence = frame.srcdoc.split('<div class="np-body brief-content">')[1].split('\n    </div>')[0];
+      expect(intelligence).toContain(completeAction);
+      expect(intelligence).not.toContain('brief-review-note');
+      expect(intelligence).not.toContain('Full conditional recovery');
+      expect(frame.srcdoc.match(/Full conditional recovery/g)).toHaveLength(1);
+      expect(frame.srcdoc.indexOf('Full conditional recovery')).toBeGreaterThan(frame.srcdoc.indexOf('Editorial corrections appendix'));
+      expect(frame.srcdoc).toContain('id="review-action"');
+      expect(frame.srcdoc).toContain('href="https://example.test/advisory"');
+      expect(jest.getTimerCount()).toBe(1);
+      const printShortcut = doc.addEventListener.mock.calls.find(([name]) => name === 'keydown')[1];
+      if (reason === 'navigation') dispose({ restoreFocus: false });
+      else if (reason === 'close button') closeButton.addEventListener.mock.calls.find(([name]) => name === 'click')[1]({});
+      else {
+        if (reason === 'native close') overlay.open = false;
+        overlay.addEventListener.mock.calls.find(([name]) => name === (reason === 'Escape' ? 'cancel' : 'close'))[1]({ preventDefault: jest.fn() });
+      }
+      dispose({ restoreFocus: false });
+
+      expect(bodyChildren.size).toBe(0);
+      expect(overlay.close).toHaveBeenCalledTimes(reason === 'native close' ? 0 : 1);
+      expect(overlay.remove).toHaveBeenCalledTimes(1);
+      expect(doc.removeEventListener).toHaveBeenCalledWith('keydown', printShortcut);
+      expect(frame.removeEventListener).toHaveBeenCalledWith('load', expect.any(Function));
+      expect(jest.getTimerCount()).toBe(0);
+      const subsequentPrint = { key: 'p', ctrlKey: true, preventDefault: jest.fn() };
+      printShortcut(subsequentPrint);
+      expect(subsequentPrint.preventDefault).not.toHaveBeenCalled();
+      expect(frame.contentWindow.print).not.toHaveBeenCalled();
+      expect(opener.focus).toHaveBeenCalledTimes(reason === 'navigation' ? 0 : 1);
+      if (reason !== 'navigation') expect(opener.focus).toHaveBeenCalledWith({ preventScroll: true });
+      await jest.advanceTimersByTimeAsync(8_000);
+      expect(printButton.disabled).toBe(true);
+    } finally {
+      globalThis.document = priorDocument;
+      globalThis.location = priorLocation;
+      jest.useRealTimers();
+    }
+  });
+
+  test('labels generated time in UTC consistently across local time zones', () => {
+    expect(formatGeneratedFreshness('2026-09-05T04:30:00Z', '', '')).toBe('Generated 04:30 UTC');
+  });
   test('routes Ctrl/Cmd+P through Edition printing only while the dialog is open', () => {
     let onKeydown;
     const doc = {
@@ -199,7 +277,7 @@ describe('edition print contract', () => {
     expect(NEWSPAPER_CSS).toContain('break-after:avoid-page');
     expect(NEWSPAPER_CSS).toContain('.np-exec-panel');
     expect(NEWSPAPER_CSS).toMatch(
-      /\.np-body \.np-lead-deck\{[^}]*max-width:56ch; margin:0 auto;[^}]*text-align:center;[^}]*\}/
+      /\.np-body \.np-lead-deck\{[^}]*max-width:66ch; margin:0;[^}]*text-align:left;[^}]*\}/
     );
     expect(NEWSPAPER_CSS).toContain('.np-lead-body{ text-align:left; }');
     expect(NEWSPAPER_CSS).not.toMatch(/\.np-lead-body\s*>\s*p:first-of-type::first-letter/);
@@ -211,7 +289,7 @@ describe('edition print contract', () => {
   });
 
   test('keeps story openings, headings, and reasonable field paragraphs intact', () => {
-    expect(NEWSPAPER_CSS).toContain('.np-body .np-judgment-opening{ border-top:1px solid var(--hair); padding:14px 0 0; }');
+    expect(NEWSPAPER_CSS).toContain('.np-body .np-judgment-opening{ border-top:0; padding:4px 0 0; }');
     expect(NEWSPAPER_CSS).toMatch(
       /\.np-body h3,\s*\.np-body \.np-judgment-opening,\s*\.np-body p\.np-field-unit\{\s*break-inside:avoid-page; page-break-inside:avoid;/
     );
@@ -265,10 +343,31 @@ describe('edition print contract', () => {
       warnings: ['Missing Watchlist', '<script>not markup</script>'],
     });
 
-    expect(html).toContain('Edition notes — review before distribution');
+    expect(html).toContain('Original publication notes — review before distribution');
     expect(html).toContain('<li>Missing Watchlist</li>');
     expect(html).toContain('&lt;script&gt;not markup&lt;/script&gt;');
-    expect(html).toContain('2 automated checks require review above');
+    expect(html).toContain('Original publication notes: 2 notes retained in the appendix');
+    expect(html).toContain('QA review are later editorial annotations');
+    expect(html.indexOf('<p>Sanitized briefing</p>')).toBeLessThan(html.indexOf('<li>Missing Watchlist</li>'));
+  });
+
+  test('corrected print copies lead with brief provenance and keep full historical notes after the intelligence', () => {
+    const html = buildDocument({ bodyHtml: '<div class="bluf">Current corrected assessment.</div>', plateTitle: 'BlueTeam.News', plateSubtitle: 'Threat intelligence',
+      longDate: 'September 5, 2026', readMins: 9, freshness: 'Published Sep 5, 2026, 21:56 UTC',
+      warnings: ['QA review: A now-corrected historical count mismatch.'], review: { status: 'editorially-corrected', reviewer: 'Authorized editorial review', reviewedAt: '2026-09-06T03:30:00Z', scope: 'Review against retained passages.', originalSha256:'original-edition-digest' },
+      reviewNotesHtml:'<ul><li id="review-count">Retained correction explanation and <a href="https://example.test/report">source</a>.</li></ul>' });
+    const assessment = html.indexOf('Current corrected assessment.');
+    expect(html.indexOf('Editorially corrected · Reviewed Sep 6, 2026, 03:30 UTC')).toBeLessThan(assessment);
+    expect(html.indexOf('Original publication notes (before later correction)')).toBeGreaterThan(assessment);
+    expect(html.indexOf('A now-corrected historical count mismatch.')).toBeGreaterThan(assessment);
+    expect(html.indexOf('Authorized editorial review')).toBeGreaterThan(assessment);
+    expect(html.indexOf('Editorial corrections appendix')).toBeGreaterThan(html.indexOf('Authorized editorial review'));
+    expect(html).toContain('Original edition SHA-256: <code>original-edition-digest</code>');
+    expect(html).toContain('id="review-count"');
+    expect(html).toContain('href="https://example.test/report"');
+    expect(html).toContain('style="break-inside:auto;page-break-inside:auto"');
+    expect(html).toContain('href="#npPublicationNotes"');
+    expect(html).toContain('href="#npEditorialReview"');
   });
 
   test('merges client-derived archive warnings before the live banner is stripped', () => {

@@ -30,6 +30,7 @@ import {
   MAX_GENERATION_TIMEOUT_SEC,
 } from './lib/config.js';
 import { initDB, backfillBriefSearch, closeDB } from './lib/db.js';
+import { editorialContext } from './lib/intelligence-context.js';
 import { log, requestLogger, startupBanner } from './lib/logger.js';
 import {
   cors,
@@ -45,10 +46,11 @@ import {
   apiSecretValidationError,
 } from './lib/middleware.js';
 import { createCompressionMiddleware } from './lib/compression.js';
-import { startRefreshSchedule, stopRefreshSchedule, getLatestRun, getRunAgeMs } from './lib/refresher.js';
+import { startRefreshSchedule, stopRefreshSchedule, waitForRefreshIdle, getLatestRun, getRunAgeMs } from './lib/refresher.js';
 import {
   startDailyBriefSchedule,
   stopDailyBriefSchedule,
+  waitForDailyBriefIdle,
   requestBriefGeneration,
   getDailyBriefScheduleStatus,
 } from './lib/brief-scheduler.js';
@@ -64,6 +66,7 @@ import {
   loadUserSettings,
   getUserSettings,
   getEffectiveOrganization,
+  getEffectiveWatchProfile,
   getBriefScheduleSettings,
 } from './lib/user-settings.js';
 import { APP_VERSION } from './lib/version.js';
@@ -75,6 +78,7 @@ import {
   createBriefGenerationTracker,
   shutdownGuardMs,
 } from './lib/brief-lifecycle.js';
+import { createShutdownCoordinator } from './lib/server-lifecycle.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -162,9 +166,9 @@ setEnrichers(cyberEnrichers);
 // Warm the CISA KEV catalog at boot (non-blocking). Otherwise a brief generated
 // in the first seconds — before the first pipeline run enriches KEV — sees an
 // empty catalog and reports "0 new KEV" when the truth is simply "not yet
-// loaded." Fire-and-forget: the catalog loads ASAP and failures are logged,
-// never fatal (refreshKEV falls back to the SQLite cache internally).
-refreshKEV().catch(err => log.warn('kev', `Boot KEV warm-up failed: ${err.message}`));
+// loaded." Retain the promise so shutdown keeps SQLite alive through both the
+// successful insert and the cache fallback; startup still never waits on it.
+const bootKevWarmup = refreshKEV().catch(err => log.warn('kev', `Boot KEV warm-up failed: ${err.message}`));
 
 // ── Environment validation ──
 const API_KEY_PRIMARY = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY_PRIMARY;
@@ -427,19 +431,26 @@ app.get('/embed', (req, res) => {
   const tierParam = Number(req.query.tier);
   const tier = [1, 2, 3].includes(tierParam) ? tierParam : null;
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 20);
+  const theme = ['light', 'dark'].includes(req.query.theme) ? req.query.theme : null;
 
   let headlines = run?.headlines || [];
   if (tier) headlines = headlines.filter(h => h.horizon === tier);
   const top = headlines.slice(0, limit);
   const kevCount = headlines.filter(h => h.isKEV).length;
-  const ageMin = run ? Math.floor(getRunAgeMs() / 60000) : null;
+  const snapshotMs = Number.isFinite(run?.generatedAtMs) ? run.generatedAtMs : Date.parse(run?.generatedAt || '');
+  const snapshotTime = Number.isFinite(snapshotMs) ? new Date(snapshotMs).toISOString() : null;
+  const collection = run?.stats?.collection;
+  const collectionNote = collection?.configuredSources > 0
+    ? ` · ${Number(collection.freshSources) || 0}/${Number(collection.configuredSources)} sources current`
+    : '';
 
   const rows = top.map(h => {
-    const title = escapeEmbedHtml(h.title);
+    const title = escapeEmbedHtml(editorialContext(h, h.kevRecords || []).title);
     const safeLink = embedHttpLink(h.link);
     const inner = safeLink ? `<a href="${escapeEmbedHtml(safeLink)}" target="_blank" rel="noopener noreferrer">${title}</a>` : title;
-    const kevTag = h.isKEV ? ' <span class="kev">KEV</span>' : '';
-    return `<li><span class="score">${Math.round((h.score || 0) * 10) / 10}</span> ${inner}${kevTag}</li>`;
+    const kevTag = h.isKEV ? '<span class="kev">KEV</span>' : '';
+    const source = h.source ? `<span>${escapeEmbedHtml(h.source)}</span>` : '';
+    return `<li data-signal-key="${escapeEmbedHtml(h.link || h.title)}"><span class="score" aria-label="Priority score ${Math.round((h.score || 0) * 10) / 10}">${Math.round((h.score || 0) * 10) / 10}</span><div class="signal"><div class="headline">${inner}</div><div class="signal-meta">${source}${kevTag}</div></div></li>`;
   }).join('\n      ');
 
   // Relax frame-ancestors for THIS route only — the whole point of /embed is to
@@ -448,26 +459,17 @@ app.get('/embed', (req, res) => {
   // also emits the legacy X-Frame-Options header, which overrides the intended
   // cross-origin embed behavior in browsers that enforce it, so remove it only
   // for this explicitly embeddable response.
-  res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors *");
+  res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'self'; font-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors *");
   res.removeHeader('X-Frame-Options');
+  res.setHeader('Cache-Control', 'no-store');
   res.type('html').send(`<!doctype html>
-<html><head><meta charset="utf-8"><title>${PUBLIC_APP_NAME} — signals</title>
-<style>
-  body { margin: 0; padding: 8px 12px; background: #0b0f1a; color: #dbe2f0; font: 13px/1.5 -apple-system, Segoe UI, sans-serif; }
-  ul { list-style: none; margin: 0; padding: 0; }
-  li { padding: 4px 0; border-bottom: 1px solid #1c2333; }
-  li:last-child { border-bottom: none; }
-  a { color: #dbe2f0; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .score { display: inline-block; min-width: 2.4em; color: #7ea2ff; font-variant-numeric: tabular-nums; }
-  .kev { color: #ff8a8a; font-size: 11px; font-weight: 600; }
-  .meta { margin-top: 6px; color: #8892a8; font-size: 11px; }
-</style></head>
+<html lang="en"${theme ? ` data-theme="${theme}"` : ''}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${PUBLIC_APP_NAME} — signals</title><link rel="stylesheet" href="/fonts.css"><link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/embed.css"><script defer src="/modules/embed.js"></script></head>
 <body>
-  <ul>
-    ${rows || '<li>No signals yet.</li>'}
+  <div class="refresh-controls"><button type="button" id="embedRefresh">Refresh signals</button><label><input type="checkbox" id="embedWatch" checked> Check for updates</label><span id="embedStatus" role="status" aria-live="polite"></span></div>
+  <ul id="embedSignals">
+    ${rows || '<li class="embed-empty">No signals yet.</li>'}
   </ul>
-  <div class="meta">${kevCount} KEV active · ${ageMin === null ? 'no data' : `updated ${ageMin}m ago`}</div>
+  <div class="meta"><span id="embedSnapshot">${kevCount} KEV-linked signals · ${snapshotTime ? `Snapshot processed <time datetime="${snapshotTime}">${snapshotTime.replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')}</time>` : 'No snapshot available'}${collectionNote}</span><br>Checks every minute; apply updates when ready · <a href="/wire" target="_blank" rel="noopener noreferrer">Open full Wire</a></div>
 </body></html>`);
 });
 
@@ -492,8 +494,9 @@ app.use('/api', createBriefRouter({
   localPort: PORT,
   scheduledJobToken: SCHEDULED_JOB_TOKEN,
   trackGeneration: () => briefGenerationTracker.begin(),
+  loopback: IS_LOOPBACK,
 }));
-app.use('/api', createLandscapeRouter({ historyDir: HISTORY_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL }));
+app.use('/api', createLandscapeRouter({ historyDir: HISTORY_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL, loopback: IS_LOOPBACK }));
 app.use('/api', createSettingsRouter({
   dataDir: DATA_DIR,
   getAiStatus,
@@ -501,6 +504,7 @@ app.use('/api', createSettingsRouter({
   verifyKey: verifyAnthropicKey,
   getAlertRules: () => getConfig().alertRules,
   getOrganization: () => getEffectiveOrganization(getConfig()),
+  getWatchProfile: () => getEffectiveWatchProfile(getConfig()),
   getBriefScheduleStatus: getDailyBriefScheduleStatus,
   onBriefScheduleChanged: armDailyBriefSchedule,
   loopback: IS_LOOPBACK,
@@ -551,6 +555,7 @@ const server = app.listen(PORT, HOST, () => {
 });
 
 function armDailyBriefSchedule() {
+  if (shuttingDown) return;
   return startDailyBriefSchedule({
     generateBrief: generateScheduledBrief,
     getScheduleConfig: () => getBriefScheduleSettings(),
@@ -635,47 +640,49 @@ async function runStartupSmoke() {
 // ── Graceful shutdown ──
 let shutdownStarted = false;
 let shutdownExitCode = 0;
+const drainAndClose = createShutdownCoordinator({
+  stopWork: [stopConfigWatch, stopRefreshSchedule, stopDailyBriefSchedule],
+  requestDrains: [
+    () => new Promise(resolve => {
+      server.close(err => {
+        if (err) log.warn('server', `Closing HTTP server reported: ${err.message}`);
+        resolve();
+      });
+    }),
+    () => briefGenerationTracker.waitForIdle(),
+  ],
+  backgroundDrains: [() => bootKevWarmup, waitForRefreshIdle, waitForDailyBriefIdle],
+  closeOutbound: closeOutboundDispatchers,
+  closeStorage: closeDB,
+  onError: err => log.warn('server', `Graceful shutdown cleanup failed: ${err.message}`),
+  onTimeout: guardMs => {
+    log.error('server', `Forced exit after ${Math.ceil(guardMs / 1000)}s shutdown guard`);
+    process.exit(1);
+  },
+});
 function shutdown(signal, exitCode = 0) {
   shutdownExitCode = Math.max(shutdownExitCode, exitCode);
   if (shutdownStarted) return;
   shutdownStarted = true;
   shuttingDown = true;
   log.info('server', `${signal} received — shutting down gracefully`);
-  stopConfigWatch();
-  stopRefreshSchedule();
-  stopDailyBriefSchedule();
-
   const guardMs = shutdownGuardMs({
     activeBriefings: briefGenerationTracker.activeCount,
     maxGenerationTimeoutSec: MAX_GENERATION_TIMEOUT_SEC,
     startupSmoke: signal === 'STARTUP_SMOKE',
   });
-  const forceExitTimer = setTimeout(() => {
-    log.error('server', `Forced exit after ${Math.ceil(guardMs / 1000)}s shutdown guard`);
-    process.exit(1);
-  }, guardMs);
-  // Do not keep an otherwise clean shutdown alive just for the safeguard. If
-  // another handle is genuinely stuck, that handle keeps the loop active and
-  // this timer still fires.
-  forceExitTimer.unref();
-
   // server.close() only waits for sockets. A disconnected SSE client can leave
-  // paid generation and synchronous publication work running in the route, so
-  // keep SQLite and outbound pools alive until that explicit tracker is idle.
-  const serverClosed = new Promise(resolve => {
-    server.close(err => {
-      if (err) log.warn('server', `Closing HTTP server reported: ${err.message}`);
-      resolve();
-    });
-  });
-  Promise.all([serverClosed, briefGenerationTracker.waitForIdle()])
-    .then(() => closeOutboundDispatchers())
-    .catch(err => log.warn('server', `Graceful shutdown cleanup failed: ${err.message}`))
-    .finally(() => {
-      clearTimeout(forceExitTimer);
-      closeDB();
+  // paid work running; boot KEV, refresh alerts, and scheduler accounting also
+  // outlive HTTP. Drain them before closing outbound pools and then SQLite.
+  drainAndClose(guardMs)
+    .then(({ forced }) => {
+      if (forced) return;
       log.info('server', 'All connections closed');
       process.exitCode = shutdownExitCode;
+    })
+    .catch(err => {
+      log.error('server', `Graceful shutdown failed: ${err.message}`);
+      process.exit(1);
     });
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

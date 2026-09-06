@@ -34,7 +34,7 @@ jest.unstable_mockModule('../lib/config.js', () => ({
   getConfig: getConfigMock,
 }));
 
-const { initDB, closeDB, setMeta } = await import('../lib/db.js');
+const { initDB, closeDB, setMeta, getMeta } = await import('../lib/db.js');
 const refresher = await import('../lib/refresher.js');
 
 describe('refresher — run lifecycle', () => {
@@ -73,6 +73,16 @@ describe('refresher — run lifecycle', () => {
     const run = await refresher.refreshNow('retry');
     expect(run.headlines).toEqual([{ title: 'y' }]);
     expect(runIntelligencePipelineMock).toHaveBeenCalledTimes(2);
+  });
+
+  test.each(['config', 'pipeline'])('a synchronous %s failure releases the run for shutdown and later retry', async stage => {
+    const fail = () => { throw new Error('synchronous refresh failure'); };
+    if (stage === 'config') getConfigMock.mockImplementationOnce(fail);
+    else runIntelligencePipelineMock.mockImplementationOnce(fail);
+    await expect(refresher.refreshNow('sync failure')).rejects.toThrow('synchronous refresh failure');
+    await refresher.waitForRefreshIdle();
+    runIntelligencePipelineMock.mockResolvedValueOnce({ headlines: [{ title: 'recovered' }], stats: {} });
+    await expect(refresher.refreshNow('retry')).resolves.toMatchObject({ headlines: [{ title: 'recovered' }] });
   });
 
   test('a successful run is exposed via getLatestRun/getRunAgeMs', async () => {
@@ -213,7 +223,7 @@ describe('refresher — getFreshRun staleness boundary', () => {
 
   test('returns a fresh adequate evidence set', async () => {
     runIntelligencePipelineMock.mockResolvedValue({
-      headlines: Array.from({ length: 5 }, (_, i) => ({ title: `signal ${i}` })),
+      headlines: Array.from({ length: 5 }, (_, i) => ({ title: `signal ${i}`, retrievedAt: new Date().toISOString() })),
       stats: {},
     });
     const run = await refresher.getFreshRun(60_000, {
@@ -229,6 +239,7 @@ describe('refresher — schedule lifecycle', () => {
     jest.useFakeTimers();
     initDB(':memory:');
     runIntelligencePipelineMock.mockReset();
+    dispatchAlertsMock.mockReset().mockReturnValue(Promise.resolve());
     refresher.stopRefreshSchedule();
     refresher._resetForTests();
   });
@@ -244,5 +255,43 @@ describe('refresher — schedule lifecycle', () => {
     refresher.stopRefreshSchedule();
     await jest.advanceTimersByTimeAsync(4_000);
     expect(runIntelligencePipelineMock).not.toHaveBeenCalled();
+  });
+
+  test('shutdown drain retains pipeline persistence and its alert tail without rearming the schedule', async () => {
+    const pipeline = deferred();
+    const alerts = deferred();
+    runIntelligencePipelineMock.mockReturnValue(pipeline.promise);
+    dispatchAlertsMock.mockReturnValue(alerts.promise);
+    refresher.startRefreshSchedule();
+    await jest.advanceTimersByTimeAsync(3_000);
+    expect(runIntelligencePipelineMock).toHaveBeenCalledTimes(1);
+    refresher.stopRefreshSchedule();
+    const idle = jest.fn();
+    const drain = refresher.waitForRefreshIdle().then(idle);
+    pipeline.resolve({ headlines: [{ title: 'persist before closing SQLite' }], stats: {} });
+    await jest.advanceTimersByTimeAsync(1);
+    expect(JSON.parse(getMeta('latest_run')).headlines[0].title).toBe('persist before closing SQLite');
+    expect(dispatchAlertsMock).toHaveBeenCalledTimes(1);
+    expect(idle).not.toHaveBeenCalled();
+    alerts.resolve();
+    await drain;
+    expect(idle).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(11 * 60_000);
+    expect(runIntelligencePipelineMock).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test('an unsuccessful in-flight refresh settles the drain and cannot restart a stopped schedule', async () => {
+    const pipeline = deferred();
+    runIntelligencePipelineMock.mockReturnValue(pipeline.promise);
+    refresher.startRefreshSchedule();
+    await jest.advanceTimersByTimeAsync(3_000);
+    refresher.stopRefreshSchedule();
+    const drain = refresher.waitForRefreshIdle();
+    pipeline.reject(new Error('feeds unavailable'));
+    await drain;
+    await jest.advanceTimersByTimeAsync(11 * 60_000);
+    expect(runIntelligencePipelineMock).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
   });
 });

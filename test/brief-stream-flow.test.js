@@ -20,7 +20,7 @@ function capture(event, sink) {
 
 beforeEach(() => {
   generateBriefMock.mockReset();
-  setState({ isGenerating: false, currentBrief: null });
+  setState({ isGenerating: false, currentBrief: null, lastGeneratedBrief: null });
 });
 
 afterEach(() => {
@@ -28,6 +28,123 @@ afterEach(() => {
 });
 
 describe('startGeneration completion boundary', () => {
+  test('replacement attempts emit a reset and complete with only the authoritative saved edition', async () => {
+    const text = 'Final validated replacement briefing. '.repeat(6);
+    const reader = { read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(
+      'data: {"text":"Discarded full draft"}\n\n'
+      + 'data: {"reset":true}\n\n'
+      + 'data: {"text":"Replacement draft"}\n\n'
+      + `data: ${JSON.stringify({ briefComplete: true, text, filename: 'brief-2026-09-05.md' })}\n\n`
+    ) }), cancel: jest.fn().mockResolvedValue(undefined) };
+    generateBriefMock.mockResolvedValue({ body: { getReader: () => reader } });
+    const resets = [];
+    const streaming = [];
+    capture('brief-stream-reset', resets);
+    capture('brief-streaming', streaming);
+    await startGeneration();
+    expect(resets).toHaveLength(1);
+    expect(streaming.at(-1)).toEqual({ accumulated: 'Replacement draft', chunk: 'Replacement draft' });
+    expect(getState().lastGeneratedBrief.content).toBe(text);
+    expect(getState().isGenerating).toBe(false);
+  });
+
+  test('background completion preserves the reader selection and carries the generated result separately', async () => {
+    const selected = { filename: 'brief-2026-09-03.md', content: 'Selected historical edition' };
+    setState({ currentBrief: selected });
+    const text = 'Saved newer briefing content. '.repeat(8);
+    const inputManifest = { status: 'available', verification: { selectedKevCves: ['CVE-2026-1234'] } };
+    generateBriefMock.mockResolvedValue({ body: { getReader: () => ({
+      read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(`data: ${JSON.stringify({
+        briefComplete: true, text, filename: 'brief-2026-09-05.md', inputManifest,
+        validation: { warnings: ['Review this saved claim.'] },
+      })}\n\n`) }),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    }) } });
+    await startGeneration();
+    expect(getState().currentBrief).toBe(selected);
+    expect(getState().lastGeneratedBrief).toMatchObject({
+      filename: 'brief-2026-09-05.md', content: text, inputManifest, warnings: ['Review this saved claim.'],
+    });
+  });
+
+  test.each([
+    { disposition: { status: 'review-required', eligibleForLatest: false, reason: 'A material editorial finding remains.' },
+      sourceCheckStatus: 'passed-supported-checks', editorialReviewStatus: 'not-reviewed' },
+    { disposition: { status: 'eligible', eligibleForLatest: true, editorialReviewStatus: 'reviewed' },
+      sourceCheckStatus: 'unavailable', editorialReviewStatus: 'reviewed' },
+  ])('completion preserves $disposition.status and distinct source/editorial check states in store and event', async metadata => {
+    const text = 'Saved briefing with an explicit publication disposition. '.repeat(4);
+    const filename = 'brief-2026-09-06-02.md';
+    generateBriefMock.mockResolvedValue({ body: { getReader: () => ({
+      read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(`data: ${JSON.stringify({
+        briefComplete: true, text, filename, ...metadata,
+      })}\n\n`) }),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    }) } });
+    const generated = [], errors = [];
+    capture('brief-generated', generated);
+    capture('generation-error', errors);
+
+    await startGeneration();
+
+    expect(errors).toEqual([]);
+    expect(generated).toHaveLength(1);
+    const expected = { filename, content: text, ...metadata };
+    expect(generated[0].brief).toMatchObject(expected);
+    expect(getState().lastGeneratedBrief).toMatchObject(expected);
+    expect(getState().currentBrief).toMatchObject(expected);
+    expect(getState().isGenerating).toBe(false);
+  });
+
+  test('a rejected retained draft reaches recovery UI with its exact artifact ID and does not replace the reader', async () => {
+    const selected = { filename: 'brief-2026-09-05.md', content: 'The selected saved edition' };
+    setState({ currentBrief: selected });
+    const draftArtifact = { id: '6bd9f728-c08e-49e7-9470-39cf0a58382c', revisionCount: 1,
+      url: '/api/brief/drafts/6bd9f728-c08e-49e7-9470-39cf0a58382c' };
+    const draft = 'Final rejected replacement; not the streamed first attempt.';
+    generateBriefMock.mockResolvedValue({ body: { getReader: () => ({
+      read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(
+        'data: {"text":"Discarded first attempt"}\n\n'
+        + `data: ${JSON.stringify({ error: 'Publication checks failed.', code: 'E006', draft, draftArtifact,
+          validation: { valid: false, hardFail: false, trustFail: true } })}\n\n`
+      ) }),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    }) } });
+    const errors = [], generated = [];
+    capture('generation-error', errors);
+    capture('brief-generated', generated);
+
+    await startGeneration();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ code: 'E006', recoverableDraft: draft, draftArtifact,
+      streamLost: false, accumulatedText: 'Discarded first attempt' });
+    expect(generated).toEqual([]);
+    expect(getState().currentBrief).toBe(selected);
+    expect(getState().lastGeneratedBrief).toBeNull();
+    expect(getState().isGenerating).toBe(false);
+  });
+  test('retains a pre-provider evidence rejection for the view instead of reporting a dropped stream', async () => {
+    const reader = {
+      read: jest.fn().mockResolvedValueOnce({
+        done: false,
+        value: encode('data: {"error":"Briefing evidence is stale.","code":"E_EVIDENCE"}\n\n'),
+      }),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    };
+    generateBriefMock.mockResolvedValue({ body: { getReader: () => reader } });
+    const errors = [];
+    capture('generation-error', errors);
+
+    await startGeneration();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      message: 'Briefing evidence is stale.', code: 'E_EVIDENCE', streamLost: false,
+    });
+    expect(getState()).toMatchObject({ isGenerating: false, currentBrief: null });
+  });
+
   test('clean EOF without briefComplete is incomplete, never a saved briefing', async () => {
     const draft = 'Unvalidated streamed draft '.repeat(8);
     const reader = {

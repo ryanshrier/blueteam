@@ -1,0 +1,298 @@
+{
+  "schemaVersion": 1,
+  "id": "2026-09-06-editorial-review-1",
+  "originalSha256": "9667b123321f41cb99b6f196763461d5464d82879da747c6fa568d4b61b09c5c",
+  "reviewedAt": "2026-09-06T04:41:06.903Z",
+  "reviewer": "Codex-assisted editorial review authorized by the operator",
+  "scope": "Editorial correction based on the retained inputs and September 5–6 audit. This is not independent verification of the original publisher claims. The original publication and input receipt remain unchanged.",
+  "corrections": [
+    {
+      "id": "review-1",
+      "label": "Scope the opening decision",
+      "anchor": "section-bluf",
+      "original": "Seven actively exploited edge/appliance and browser vulnerabilities converged on the KEV catalog this week — SonicWall SMA1000, PaperCut, Sangoma Switchvox, JFrog Artifactory, and Chrome V8 — meaning perimeter and endpoint exposure now outpaces patch cadence across nearly every enterprise vendor category.",
+      "replacement": "Seven vulnerabilities across five product families appear in this edition’s retained KEV reporting. Verify affected deployments, prioritize remediation for exposed systems, and assess compromise separately from patch completion.",
+      "reason": "Removes the unsupported claim that exposure outpaces patch cadence across nearly every enterprise vendor category."
+    },
+    {
+      "id": "review-2",
+      "label": "Correct aggregate counts",
+      "anchor": "section-0-executive-summary",
+      "original": "- **Threat:** Nine distinct products across four vendors (SonicWall, PaperCut, Sangoma, JFrog, Google) had actively exploited vulnerabilities added to CISA KEV in the past five days, several chained for unauthenticated RCE.",
+      "replacement": "- **Threat:** The retained reporting covers seven vulnerabilities across five product families and five vendors: SonicWall SMA1000, PaperCut NG/MF, Sangoma Switchvox, JFrog Artifactory, and Google Chrome.",
+      "reason": "The original said nine products across four vendors while naming five vendors. The reviewed summary counts the seven distinct cited CVEs and five named product families."
+    },
+    {
+      "id": "review-3",
+      "label": "Remove unsupported vendor ranking",
+      "anchor": "section-1-key-judgments",
+      "original": "**Assessment:** SonicWall edge devices remain the most repeatedly breached appliance category this year, and this week's chainable pair extends a pattern third-party SOCs call \"almost certain\" to recur.",
+      "replacement": "**Assessment:** The disclosed SonicWall SMA1000 vulnerability pair makes deployment and exposure verification a priority; repeated incidents in this product do not establish a comparative ranking across appliance vendors.",
+      "reason": "The retained passages establish repeated incidents, not the most-breached appliance category."
+    },
+    {
+      "id": "review-4",
+      "label": "Separate confidence from probability",
+      "anchor": "section-1-key-judgments",
+      "original": "**Confidence:** Highly likely (80-95%) — vendor confirmation plus independent researcher reporting (Rapid7, The Hacker News, CyberScoop) and CISA KEV verification.",
+      "replacement": "**Confidence:** Moderate — vendor disclosure is relayed by Rapid7 and The Hacker News; CISA confirms catalog status and CyberScoop supplies historical context. These are distinct source contributions, not proof of independent incident observations.",
+      "reason": "Replaces an unresolvable 80–95% band and unsupported independence wording with qualitative evidence strength and source contributions."
+    },
+    {
+      "id": "review-5",
+      "label": "Restore mitigation and recovery context",
+      "anchor": "section-1-key-judgments",
+      "original": "**Defender impact:** Check VPN/SSL-VPN logs for anomalous Work Place interface requests and AMC command execution; isolate management interfaces from the internet where feasible.",
+      "replacement": "**Defender impact:** If SMA1000 is deployed, verify the affected branch and apply the vendor hotfix: 12.4.3-03526 or later on the 12.4.3 branch, or 12.5.0-02952 or later on the 12.5.0 branch. Patching alone does not establish that an appliance was uncompromised. The retained Rapid7 passage recommends vendor-assisted compromise assessment; if compromise is found, reimage or redeploy, change user and administrator passwords, and reset TOTP tokens.",
+      "reason": "The fuller original Rapid7 passage in the saved receipt contains this guidance; the selected 800-character opening omitted it."
+    },
+    {
+      "id": "review-6",
+      "label": "Condition the action on applicability",
+      "anchor": "section-1-key-judgments",
+      "original": "- **Act now:** Infrastructure — patch SMA1000 appliances and confirm CVE-2026-83548 / CVE-2026-83549 are remediated — recommended target September 8, 2026.",
+      "replacement": "- **Act now:** Infrastructure — verify SMA1000 deployment and exposure; if affected, apply the vendor hotfix and record the remediation result — recommended target September 8, 2026.",
+      "reason": "The original explicitly lacked evidence of local SMA1000 deployment. This target remains an editorial completion recommendation, not the FCEB mandate."
+    },
+    {
+      "id": "review-7",
+      "label": "Make the investigation executable",
+      "anchor": "section-1-key-judgments",
+      "original": "- Detection engineering — hunt for AMC command-injection indicators in appliance logs — recommended target September 9, 2026.",
+      "replacement": "- Detection engineering — if SMA1000 is deployed, request vendor-assisted compromise assessment and document any required recovery; the retained advisory reports no public IOCs at its publication time — recommended target September 9, 2026.",
+      "reason": "Replaces unspecified AMC-indicator hunting with the concrete recovery path available in retained reporting."
+    },
+    {
+      "id": "review-8",
+      "label": "Remove a conflicting relative deadline",
+      "anchor": "section-1-key-judgments",
+      "original": "**The line:** SonicWall's edge appliances have been under repeated real-world attack for a year; if we run SMA1000, patching isn't optional this weekend.",
+      "replacement": "**The line:** If SMA1000 is deployed, verify both patch status and possible prior compromise before closing the remediation task.",
+      "reason": "The original weekend deadline competed with the canonical September 8 action target."
+    },
+    {
+      "id": "review-9",
+      "label": "Scope the browser assessment",
+      "anchor": "judgment-2",
+      "original": "**Assessment:** A sixth actively exploited Chrome zero-day this year confirms browser V8 engine bugs remain a reliable initial-access vector, and any unpatched endpoint is exposed until auto-update completes.",
+      "replacement": "**Assessment:** Chrome’s gradual update rollout makes fleet-version verification useful; the retained reporting does not establish a sixth V8-specific incident or that every unpatched endpoint has been attacked.",
+      "reason": "Distinguishes a Chrome zero-day count from a V8-specific trend and exposure from observed compromise."
+    },
+    {
+      "id": "review-10",
+      "label": "Describe browser evidence strength",
+      "anchor": "judgment-2",
+      "original": "**Confidence:** Highly likely (80-95%) — Google vendor advisory plus CISA KEV addition and CCCS corroboration.",
+      "replacement": "**Confidence:** High — the cited CISA and CCCS records support exploitation status and the BleepingComputer passage quotes Google’s advisory. The retained reporting does not disclose detailed exploitation scope or techniques.",
+      "reason": "The qualitative basis replaces a numerical probability attached to an already reported fact."
+    },
+    {
+      "id": "review-11",
+      "label": "Preserve platform-specific versions",
+      "anchor": "judgment-2",
+      "original": "**What happened:** CVE-2026-85046, a type confusion vulnerability in the Chromium V8 engine, was added to CISA KEV September 4, 2026 with FCEB remediation for CVE-2026-85046 due 2026-09-18, per [CISA Advisories, 2026-09-04](https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog). Chrome `152.0.7977.82`/`.83` fixes it across Windows/macOS/Linux, part of a gradual rollout. [BleepingComputer, 2026-09-04](https://www.bleepingcomputer.com/news/security/google-warns-of-new-chrome-zero-day-flaw-exploited-in-attacks/); [CCCS, 2026-09-04](https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883) confirms \"Google is aware that an exploit for CVE-2026-85046 exists in the wild.\"",
+      "replacement": "**What happened:** CVE-2026-85046, a type confusion vulnerability in the Chromium V8 engine, was added to CISA KEV September 4, 2026 with FCEB remediation for CVE-2026-85046 due 2026-09-18, per [CISA Advisories, 2026-09-04](https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog). The reported fixed versions are Chrome `152.0.7977.82`/`.83` on Windows and macOS, and `152.0.7977.82` on Linux, as part of a gradual rollout. [BleepingComputer, 2026-09-04](https://www.bleepingcomputer.com/news/security/google-warns-of-new-chrome-zero-day-flaw-exploited-in-attacks/); [CCCS, 2026-09-04](https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883) confirms \"Google is aware that an exploit for CVE-2026-85046 exists in the wild.\"",
+      "reason": "The retained BleepingComputer passage distinguishes the Linux version instead of applying both versions to every platform."
+    },
+    {
+      "id": "review-12",
+      "label": "Use a canonical browser action",
+      "anchor": "judgment-2",
+      "original": "- **Act now:** Detection engineering — query EDR for Chrome versions below `152.0.7977.82` and force update — recommended target September 8, 2026.",
+      "replacement": "- **Act now:** Detection engineering — verify Chrome deployment and fleet versions; update affected endpoints and record exceptions — recommended target September 8, 2026.",
+      "reason": "Keeps deployment, completion evidence, and the recommended target in one action record."
+    },
+    {
+      "id": "review-13",
+      "label": "Preserve the open intelligence gaps",
+      "anchor": "judgment-2",
+      "original": "**The line:** Google's sixth Chrome zero-day this year is patched — the only open question is whether our browsers have actually pulled the update.",
+      "replacement": "**The line:** Verify that affected browser fleets received the update; the retained reports leave exploitation details and scope unresolved.",
+      "reason": "The original said update receipt was the only open question, which overstated the available evidence."
+    },
+    {
+      "id": "review-14",
+      "label": "Remove an unsupported scale claim",
+      "anchor": "judgment-3",
+      "original": "### Signal 3 — [Horizon 1] PaperCut flaws now stealing credentials at scale",
+      "replacement": "### Signal 3 — [Horizon 1] PaperCut exploitation and credential theft reported",
+      "reason": "The retained evidence contains no victim total establishing exploitation at scale."
+    },
+    {
+      "id": "review-15",
+      "label": "Qualify the campaign assessment",
+      "anchor": "judgment-3",
+      "original": "**Assessment:** Exploitation has moved from proof-of-concept to targeted credential theft against schools and universities, indicating attackers have operationalized the PaperCut chain faster than the education sector patches.",
+      "replacement": "**Assessment:** The retained official advisories support urgent applicability checks for PaperCut vulnerabilities. A headline reports credential theft against education organizations; its captured article body is unrelated advertising, so campaign scope and mechanics require original-source review.",
+      "reason": "Removes an unsupported sector patch-rate comparison and identifies exactly which part of the evidence is weak."
+    },
+    {
+      "id": "review-16",
+      "label": "Separate different evidence strengths",
+      "anchor": "judgment-3",
+      "original": "**Confidence:** Likely (55-80%) — The Hacker News reporting corroborated by CISA KEV verification; sector-specific victim scope not independently confirmed.",
+      "replacement": "**Confidence:** Moderate for the vulnerability and patch facts in CISA/CCCS; Low for detailed campaign interpretation because the cited campaign extract contains an unrelated advertisement. Catalog membership does not corroborate sector-specific victim scope.",
+      "reason": "The source supports different claims with different strength; one numerical band concealed that distinction."
+    },
+    {
+      "id": "review-17",
+      "label": "Align PaperCut’s action target",
+      "anchor": "judgment-3",
+      "original": "- Infrastructure — confirm PaperCut MF/NG is on Emergency Patch Release 2 or later for v24/25/26 — recommended target September 9, 2026.",
+      "replacement": "- Infrastructure — verify PaperCut MF/NG deployment; if affected, confirm Emergency Patch Release 2 or later for v24/25/26 and record the version — recommended target September 8, 2026.",
+      "reason": "The executive summary and judgment previously disagreed; the reviewed summary will reuse this canonical action."
+    },
+    {
+      "id": "review-18",
+      "label": "Remove a conflicting weekday target",
+      "anchor": "judgment-3",
+      "original": "**The line:** PaperCut exploitation has shifted from access to active credential theft in education environments — check our print servers before Monday.",
+      "replacement": "**The line:** Verify affected print-management deployments and patch status; obtain usable campaign reporting before treating its detailed scope as established.",
+      "reason": "The original before-Monday wording conflicted with the dated actions and overemphasized weak campaign reporting."
+    },
+    {
+      "id": "review-19",
+      "label": "Preserve source origin",
+      "anchor": "judgment-4",
+      "original": "**Confidence:** Highly likely (80-95%) — CISA KEV verification plus Horizon3 and SecurityWeek reporting citing a NIST advisory.",
+      "replacement": "**Confidence:** High for the cited CISA catalog status and reported technical mechanism; SecurityWeek attributes the research to Horizon3. Publisher count alone does not establish independent observations.",
+      "reason": "Replaces an unresolvable probability band with the scope and origin of the evidence."
+    },
+    {
+      "id": "review-20",
+      "label": "Condition Switchvox remediation",
+      "anchor": "judgment-4",
+      "original": "- Infrastructure — patch or isolate Switchvox appliances immediately — recommended target September 8, 2026.",
+      "replacement": "- Infrastructure — verify Switchvox deployment and exposure; if affected, patch or isolate and record the result — recommended target September 8, 2026.",
+      "reason": "No local Switchvox deployment was established in the saved profile."
+    },
+    {
+      "id": "review-21",
+      "label": "Remove unsupported timing from the title",
+      "anchor": "judgment-5",
+      "original": "### Signal 5 — [Horizon 2] JFrog Artifactory auth-bypass weaponized within days",
+      "replacement": "### Signal 5 — [Horizon 2] Artifactory exploitation reported after disclosure",
+      "reason": "Retained reporting does not establish the interval between disclosure and exploitation."
+    },
+    {
+      "id": "review-22",
+      "label": "Remove the unsupported 48-hour assertion",
+      "anchor": "judgment-5",
+      "original": "**Assessment:** Attackers weaponized a JFrog Artifactory authentication bypass within roughly 48 hours of disclosure, compressing the patch window for software supply-chain infrastructure to near zero.",
+      "replacement": "**Assessment:** Retained reporting describes exploitation after Artifactory disclosure, but does not establish a 48-hour interval or exploitation scale. Verify local deployment and the affected version before assigning repository remediation.",
+      "reason": "Neither retained Dark Reading nor CCCS passages supplies the claimed elapsed time."
+    },
+    {
+      "id": "review-23",
+      "label": "Describe the supported Artifactory claims",
+      "anchor": "judgment-5",
+      "original": "**Confidence:** Likely (55-80%) — Dark Reading and CCCS reporting corroborated by CISA KEV verification; exploitation scale not independently quantified.",
+      "replacement": "**Confidence:** Moderate — Dark Reading describes the access-bypass flaw, CCCS identifies affected versions, and CISA confirms catalog status. Timing and exploitation volume remain unquantified.",
+      "reason": "Separates source contributions from an unsupported numerical probability."
+    },
+    {
+      "id": "review-24",
+      "label": "Condition repository work on deployment",
+      "anchor": "judgment-5",
+      "original": "- Application security — verify Artifactory version against patched builds and audit recent admin actions — recommended target September 10, 2026.",
+      "replacement": "- Application security — verify Artifactory deployment and version; if affected, apply the appropriate fixed build and review recent administrator actions — recommended target September 10, 2026.",
+      "reason": "The saved profile does not establish an Artifactory installation."
+    },
+    {
+      "id": "review-25",
+      "label": "Remove repeated unsupported timing",
+      "anchor": "judgment-5",
+      "original": "**The line:** Our software supply chain is only as strong as the repository manager sitting in front of it, and this one had a working exploit within two days of disclosure.",
+      "replacement": "**The line:** Check whether an affected repository manager is deployed and review its privileged activity; the retained evidence does not establish how quickly the exploit appeared.",
+      "reason": "The leadership line repeated the unsupported two-day interval."
+    },
+    {
+      "id": "review-26",
+      "label": "Defer the weak AI incident judgment",
+      "anchor": "section-2-developing-situations",
+      "original": "### Signal 6 — [Horizon 2] AI agent autonomously executed a ransomware attack\n\n**Assessment:** Reported end-to-end AI-agent execution of a ransomware intrusion — reconnaissance through encryption — signals that agentic tooling is beginning to substitute for human operator effort in criminal operations, not just augment it.\n\n**Confidence:** Unlikely (20-45%) — single-outlet reporting, no independent technical validation of full autonomy claim; treat as vendor/researcher assertion pending corroboration.\n\n**What happened:** The Register reported an incident in which AI agents \"carried out every step\" of a ransomware attack and generated an 80-page security audit for the victim. [The Register, 2026-09-02](https://www.theregister.com/security/2026/09/02/ai-agents-carried-out-every-step-of-this-ransomware-attack-then-left-the-victim-an-80-page-security-audit/5294009).\n\n**Defender impact:** Review incident-response playbooks for assumptions built around human-paced attacker behavior; agentic speed compresses dwell time and detection windows.\n\n**Recommended actions:**\n- Detection engineering — assess whether current alerting thresholds assume human-paced lateral movement — recommended target October 1, 2026.\n\n**Decision window:** 30 days.\n\n**The line:** One reported case of an AI agent running a ransomware attack start to finish is not yet a trend, but it is exactly the capability shift worth budgeting detection time against now.\n\n---\n\n",
+      "replacement": "",
+      "reason": "A headline and the fragment “Adding insult to injury” do not support a detailed operational judgment. The report is retained below as a source-acquisition lead."
+    },
+    {
+      "id": "review-27",
+      "label": "Distinguish repetition from acceleration",
+      "anchor": "section-2-developing-situations",
+      "original": "**Trajectory:** Accelerating — a public \"FalconFlank\" PoC targeting up-to-date Windows systems follows disclosure by a researcher previously credited with Microsoft zero-days, per [BleepingComputer, 2026-09-04](https://www.bleepingcomputer.com/news/security/new-crowdstrike-falconflank-zero-day-grants-system-privileges/) and [The Register, 2026-09-03](https://www.theregister.com/security/2026/09/03/prolific-microsoft-0-day-hunter-drops-crowdstrike-falcon-exploit-poc/5294318); third consecutive briefing tracking this item.",
+      "replacement": "**Trajectory:** Steady — a public \"FalconFlank\" PoC targeting up-to-date Windows systems follows disclosure by a researcher previously credited with Microsoft zero-days, per [BleepingComputer, 2026-09-04](https://www.bleepingcomputer.com/news/security/new-crowdstrike-falconflank-zero-day-grants-system-privileges/) and [The Register, 2026-09-03](https://www.theregister.com/security/2026/09/03/prolific-microsoft-0-day-hunter-drops-crowdstrike-falcon-exploit-poc/5294318); the preceding edition retained the same source evidence. No new development is established by this additional edition.",
+      "reason": "Same-day manifests contain identical retained source passages."
+    },
+    {
+      "id": "review-28",
+      "label": "Use an operational escalation criterion",
+      "anchor": "section-2-developing-situations",
+      "original": "**Watch criteria:** Escalate when a named victim organization or ransomware follow-on is confirmed.",
+      "replacement": "**Watch criteria:** Assess whether external Teams collaboration and the reported support-impersonation path apply locally. Escalate when that review identifies an exposed workflow, a relevant detection gap, or observed suspicious activity; a named public victim is not required.",
+      "reason": "Primary reporting already supports an applicability assessment; waiting for a named victim was not a necessary defensive threshold."
+    },
+    {
+      "id": "review-29",
+      "label": "Remove ambiguous continuity counting",
+      "anchor": "section-2-developing-situations",
+      "original": "**Trajectory:** Steady, second consecutive briefing — Dark Reading reports stronger perimeter security is pushing ransomware groups toward insider recruitment as an initial-access alternative. [Dark Reading, 2026-09-01](https://www.darkreading.com/cyber-risk/stronger-security-drives-ransomware-groups-to-recruit-from-within).",
+      "replacement": "**Trajectory:** Steady — previously tracked reporting — Dark Reading reports stronger perimeter security is pushing ransomware groups toward insider recruitment as an initial-access alternative. [Dark Reading, 2026-09-01](https://www.darkreading.com/cyber-risk/stronger-security-drives-ransomware-groups-to-recruit-from-within).",
+      "reason": "The previous same-day edition did not contain this Developing entry; inherited topic labels should not imply consecutive factual developments."
+    },
+    {
+      "id": "review-30",
+      "label": "Retain the AI claim as an evidence gap",
+      "anchor": "section-2-developing-situations",
+      "original": "**Watch criteria:** Escalate when a specific insider-assisted intrusion is attributed with named actor and organization.",
+      "replacement": "**Watch criteria:** Escalate when a specific insider-assisted intrusion is attributed with named actor and organization.\n\n### AI ransomware autonomy claim — source follow-up\n**Trajectory:** Tracking — The Register headline claims autonomous ransomware execution, but the retained body supplies no substantive technical account. Treat this as an attributed lead.\n\n**Watch criteria:** Obtain the original technical report and identify which steps were autonomous, what human involvement remained, and what evidence independently supports the claim before promoting it into a Key Judgment.",
+      "reason": "Preserves awareness without allocating a full operational judgment to headline-only evidence."
+    },
+    {
+      "id": "review-31",
+      "label": "Use a bounded convergence heading",
+      "anchor": "section-3-convergence",
+      "original": "### Appliance zero-days outpacing federal remediation clocks",
+      "replacement": "### Coordinate emergency remediation for affected products",
+      "reason": "Multiple catalog entries do not establish a population-wide change-control failure."
+    },
+    {
+      "id": "review-32",
+      "label": "Correct the count and distinguish local assumptions",
+      "anchor": "section-3-convergence",
+      "original": "**The intersection:** Three of this week's KEV entries — CVE-2026-83548, CVE-2026-83549, CVE-2026-9586, and CVE-2026-82329 — carry FCEB remediation windows of three days or less against a September 2, 2026 addition date, meaning the same edge-appliance category (SonicWall, Sangoma, JFrog) that struggled with patch discipline all year is now generating KEV entries faster than standard change-control cycles can close them.",
+      "replacement": "**The intersection:** Four cited entries — CVE-2026-83548, CVE-2026-83549, CVE-2026-9586, and CVE-2026-82329 — have a September 2 addition date and September 5 FCEB remediation date in the retained CISA reporting. If those products are deployed locally, they may compete for the same emergency-change capacity. That local constraint has not been measured. [CISA Advisories, 2026-09-02](https://www.cisa.gov/news-events/alerts/2026/09/02/cisa-adds-seven-known-exploited-vulnerabilities-catalog).",
+      "reason": "The original listed four CVEs as three entries and asserted unsupported year-long patch-discipline and capacity trends."
+    },
+    {
+      "id": "review-33",
+      "label": "Remove an unsupported insurance forecast",
+      "anchor": "section-3-convergence",
+      "original": "**The cascade:** If patch windows keep compressing, organizations relying on monthly change-control will fall permanently behind KEV additions; unpatched appliances accumulate as ransomware initial-access points; by Q4, expect insurance underwriters to start conditioning coverage on KEV-specific remediation SLAs rather than general patch cadence.",
+      "replacement": "**The cascade:** Analytical hypothesis — if local approval capacity prevents timely treatment of confirmed exposed systems, vulnerable assets could remain reachable. Confirm the actual queue and exposure before escalating this constraint; the retained sources do not establish an insurance-policy change or Q4 deadline.",
+      "reason": "Replaces speculative market timing with a scoped, testable local capacity hypothesis."
+    },
+    {
+      "id": "review-34",
+      "label": "Connect the response to the hypothesis",
+      "anchor": "section-3-convergence",
+      "original": "**The move:** Act — compress the emergency-patch approval path for internet-facing appliances to match KEV FCEB timelines rather than standard change windows.",
+      "replacement": "**The move:** Prepare — review current emergency-change capacity against verified exposed assets and the deadlines applicable to this organization.\n\n**Confirmation:** Check the local affected-asset inventory and emergency-change queue; an absence of affected assets or sufficient capacity would weaken this hypothesis.\n\n**Action rationale:** Document approval and implementation capacity so an actual remediation constraint can be resolved without treating FCEB mandates as universally applicable.",
+      "reason": "Adds a local observation and completion criterion instead of assuming every organization shares the same remediation mandate."
+    },
+    {
+      "id": "review-35",
+      "label": "Remove an unsupported AI mechanism and conflicting control",
+      "anchor": "section-3-convergence",
+      "original": "### AI agents entering both attacker and defender operating models simultaneously\n**The intersection:** The same week a reported AI agent ran a ransomware attack end-to-end [The Register, 2026-09-02], CrowdStrike announced an \"agentic identity provider\" [CrowdStrike Research, 2026-09-02](https://www.crowdstrike.com/en-us/blog/crowdstrike-announces-agentic-identity-provider/) and Cloudflare paired WAF data with OpenAI models for vulnerability remediation [Cloudflare Security, 2026-09-03](https://blog.cloudflare.com/vulnerability-discovery-remediation/) — attacker and defender tooling are converging on autonomous agents operating with standing credentials against production systems.\n\n**The cascade:** If agentic tooling on both sides gains standing access to production environments, existing identity and access review cycles (built for human cadence) will miss agent-to-agent credential abuse; expect the first agentic-identity compromise disclosure within two quarters.\n\n**The move:** Prepare — inventory any AI agent given standing production credentials and require the same access review cadence applied to human privileged accounts.\n\n---\n\n",
+      "replacement": "No second supported intersection is established by the retained inputs. AI-related product announcements and a headline-only attack claim do not establish shared autonomous execution, standing production credentials, or a predictable compromise date. Acquire substantive technical evidence before drawing that connection.\n\n---\n\n",
+      "reason": "The sources do not establish the shared credential mechanism or two-quarter prediction; recommending the same human review cadence also failed to address the scenario’s claimed failure mode."
+    },
+    {
+      "id": "review-36",
+      "label": "Use the canonical action records in the executive summary",
+      "anchor": "section-0-executive-summary",
+      "original": "- **Required decisions:** Infrastructure — verify presence and patch level of SonicWall SMA1000, PaperCut, and Artifactory instances — recommended target September 8, 2026; Detection engineering — confirm Chrome auto-update rollout reached `152.0.7977.82`/`.83` fleet-wide — recommended target September 9, 2026; Messaging — brief leadership on PaperCut credential-theft campaign against education-sector peers — recommended target September 10, 2026.",
+      "replacement": "- **Required decisions:** Infrastructure — verify SMA1000 deployment and exposure; if affected, apply the vendor hotfix and record the remediation result — recommended target September 8, 2026; Detection engineering — verify Chrome deployment and fleet versions; update affected endpoints and record exceptions — recommended target September 8, 2026; Infrastructure — verify PaperCut MF/NG deployment; if affected, confirm Emergency Patch Release 2 or later for v24/25/26 and record the version — recommended target September 8, 2026.",
+      "reason": "The summary now repeats the first actions of the three leading judgments, including their exact recommended targets."
+    }
+  ]
+}

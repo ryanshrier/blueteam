@@ -187,10 +187,14 @@ describe('deduplicateWithCorroboration', () => {
     expect(result[0]).toMatchObject({
       source: 'CISA Advisories',
       link: 'https://cisa.gov/advisory',
-      description: community.description,
+      description: advisory.description,
       corroboration: 2,
     });
     // Input data belongs to callers and must not gain aggregation fields.
+    expect(result[0].sourceMembers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: community.source, link: community.link, description: community.description }),
+      expect.objectContaining({ source: advisory.source, link: advisory.link, description: advisory.description }),
+    ]));
     expect(community).not.toHaveProperty('sources');
     expect(advisory).not.toHaveProperty('publishers');
   });
@@ -236,6 +240,50 @@ describe('deduplicateWithCorroboration', () => {
     expect(result.length).toBe(2);
   });
 
+  test('separates templated CISA releases whose original passages identify different events', () => {
+    const headlines = [
+      { title: 'CISA Adds One Known Exploited Vulnerability to Catalog', source: 'CISA Advisories',
+        passage: 'CISA added CVE-2026-85046, Google Chromium V8 vulnerability.',
+        link: 'https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one' },
+      { title: 'CISA Adds Seven Known Exploited Vulnerabilities to Catalog', source: 'CISA Advisories',
+        passage: 'CISA added CVE-2026-9586, CVE-2026-48710, and CVE-2026-49869.',
+        link: 'https://www.cisa.gov/news-events/alerts/2026/09/02/cisa-adds-seven' },
+      { title: 'CISA Adds Two Known Exploited Vulnerabilities to Catalog', source: 'CISA Advisories',
+        passage: 'CISA added CVE-2026-81578 and CVE-2026-82078.',
+        link: 'https://www.cisa.gov/news-events/alerts/2026/08/31/cisa-adds-two' },
+    ];
+    const grouped = deduplicateWithCorroboration(headlines, 0.5);
+    expect(grouped).toHaveLength(3);
+    expect(grouped.every(headline => headline.sourceMembers.length === 1)).toBe(true);
+  });
+
+  test('passage identifiers still permit same-event publisher coverage and source revisions', () => {
+    const headlines = [
+      { title: 'CISA Adds One Known Exploited Vulnerability to Catalog', source: 'CISA Advisories',
+        passage: 'CISA added CVE-2026-85046, Google Chromium V8 vulnerability.',
+        link: 'https://www.cisa.gov/alert', date: '2026-09-04' },
+      { title: 'CISA Adds One Known Exploited Vulnerability to Catalog', source: 'CISA Advisories',
+        passage: 'Updated guidance for CVE-2026-85046: deploy the patch.',
+        link: 'https://www.cisa.gov/alert', date: '2026-09-05' },
+      { title: 'CISA Adds One Known Exploited Vulnerability to Catalog', source: 'Security Reporter',
+        description: 'The catalog addition is CVE-2026-85046.', link: 'https://reporter.example/cisa' },
+    ];
+    const grouped = deduplicateWithCorroboration(headlines, 0.5);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0].corroboration).toBe(2);
+    expect(grouped[0].sourceMembers).toHaveLength(3);
+    expect(grouped[0].sourceMembers.map(member => member.passage || member.description))
+      .toEqual(expect.arrayContaining(headlines.map(headline => headline.passage || headline.description)));
+  });
+
+  test('a common contextual passage CVE cannot override distinct explicit title IDs', () => {
+    const headlines = [
+      { title: 'Vendor patches CVE-2026-1111 exploited vulnerability', passage: 'Compare the earlier CVE-2026-3333.' },
+      { title: 'Vendor patches CVE-2026-2222 exploited vulnerability', passage: 'Compare the earlier CVE-2026-3333.' },
+    ];
+    expect(deduplicateWithCorroboration(headlines, 0.5)).toHaveLength(2);
+  });
+
   test('still merges near-duplicates that cite the SAME CVE ID', () => {
     const headlines = [
       { title: 'Fortinet patches CVE-2026-1111 exploited in the wild', source: 'A' },
@@ -257,20 +305,21 @@ describe('deduplicateWithCorroboration', () => {
   // #85 — a survivor with no parseable date should adopt a merged duplicate's
   // real date rather than stay pinned at the recency prior; cross-reported
   // stories are exactly the ones that most need an accurate freshness score.
-  test('merge adopts the duplicate\'s date when the survivor has none', () => {
+  test('an authoritative undated source keeps its own unknown date', () => {
     const headlines = [
-      { title: 'Major breach at logistics firm disrupts shipping', date: '', dateUnknown: true },
+      { title: 'Major breach at logistics firm disrupts shipping', weight: 2, date: '', dateUnknown: true },
       { title: 'Logistics firm breach disrupts major shipping operations', date: '2026-06-30T12:00:00Z', dateUnknown: false },
     ];
     const result = deduplicateWithCorroboration(headlines, 0.5);
     expect(result.length).toBe(1);
-    expect(result[0].dateUnknown).toBe(false);
-    expect(result[0].date).toBe('2026-06-30T12:00:00Z');
+    expect(result[0].dateUnknown).toBe(true);
+    expect(result[0].date).toBe('');
+    expect(result[0].sourceMembers[1].date).toBe('2026-06-30T12:00:00Z');
   });
 
   test('merge does not overwrite the survivor\'s own valid date', () => {
     const headlines = [
-      { title: 'Major breach at logistics firm disrupts shipping', date: '2026-06-01T00:00:00Z', dateUnknown: false },
+      { title: 'Major breach at logistics firm disrupts shipping', weight: 2, date: '2026-06-01T00:00:00Z', dateUnknown: false },
       { title: 'Logistics firm breach disrupts major shipping operations', date: '2026-06-30T12:00:00Z', dateUnknown: false },
     ];
     const result = deduplicateWithCorroboration(headlines, 0.5);
@@ -384,6 +433,37 @@ describe('fetchNewsContext — feed ingest front door', () => {
     expect(results[0].link).toBe('https://example.com/news/a');
     expect(results[0].source).toBe('Example RSS');
     expect(getFeedHealth().feeds['Example RSS']).toBe('ok');
+  });
+
+  test('retains the original bounded feed passage and identifier beyond the display summary', async () => {
+    const passage = `${'Context sentence. '.repeat(28)}Affected versions now include 1.4.`;
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue(`<rss><channel><item><title>Vendor update</title><guid>advisory-42</guid><description>${passage}</description><link>https://example.com/advisory</link></item></channel></rss>`);
+    const [item] = await fetchNewsContext([{ url: 'https://example.com/evidence-feed', source: 'Evidence feed', horizon: 1 }]);
+    expect(item.description.length).toBeLessThanOrEqual(300);
+    expect(item.description).not.toContain('versions now');
+    expect(item.passage).toBe(passage);
+    expect(item.sourceIdentifier).toBe('advisory-42');
+    expect(item.feedUrl).toBe('https://example.com/evidence-feed');
+    expect(Number.isFinite(Date.parse(item.retrievedAt))).toBe(true);
+    expect(setFeedCacheMock.mock.calls[0][3][0].passage).toBe(passage);
+  });
+
+  test('stale fallback preserves passage/retrieval time; 304 advances the confirmed observation', async () => {
+    const retrievedAt = new Date(Date.now() - 3600000).toISOString();
+    const cachedAt = retrievedAt.replace('T', ' ').slice(0, 19);
+    getFeedCacheMock.mockReturnValue({ etag: 'v1', cached_at: cachedAt, items_json: JSON.stringify([
+      { title: 'Cached vendor update', description: 'Display excerpt', passage: 'Exact previously collected passage', retrievedAt, sourceIdentifier: 'id-1' },
+    ]) });
+    const feeds = [{ url: 'https://example.com/evidence-cache', source: 'Evidence cache', horizon: 1 }];
+    safeFetchMock.mockResolvedValueOnce(fakeResponse({ status: 503 }));
+    const [stale] = await fetchNewsContext(feeds);
+    expect(stale.passage).toBe('Exact previously collected passage');
+    expect(stale.retrievedAt).toBe(retrievedAt);
+    safeFetchMock.mockResolvedValueOnce(fakeResponse({ status: 304 }));
+    const [confirmed] = await fetchNewsContext(feeds);
+    expect(confirmed.passage).toBe(stale.passage);
+    expect(Date.parse(confirmed.retrievedAt)).toBeGreaterThan(Date.parse(retrievedAt));
   });
 
   test('parses an Atom feed (entry/summary/published) into headline records', async () => {

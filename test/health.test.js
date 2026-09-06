@@ -25,10 +25,12 @@ const getLastReloadErrorMock = jest.fn(() => null);
 const getLatestRunMock = jest.fn();
 const getRunAgeMsMock = jest.fn();
 const getKEVAgeMock = jest.fn(() => 2.5);
+const getDatabaseHealthMock = jest.fn();
+const getUserSettingsStatusMock = jest.fn();
 
 jest.unstable_mockModule('../lib/feeds.js', () => ({
   FRESH_FEED_STATUSES: ['ok', 'ok (cached)'],
-  REACHABLE_FEED_STATUSES: ['ok', 'ok (cached)', 'ok (stale)', 'empty'],
+  REACHABLE_FEED_STATUSES: ['ok', 'ok (cached)', 'empty'],
   getFeedHealth: getFeedHealthMock,
 }));
 jest.unstable_mockModule('../lib/config.js', () => ({
@@ -41,8 +43,11 @@ jest.unstable_mockModule('../lib/refresher.js', () => ({
   getRunAgeMs: getRunAgeMsMock,
 }));
 jest.unstable_mockModule('../lib/db.js', () => ({
+  getMeta: () => null,
   getKEVAge: getKEVAgeMock,
+  getDatabaseHealth: getDatabaseHealthMock,
 }));
+jest.unstable_mockModule('../lib/user-settings.js', () => ({ getUserSettingsStatus: getUserSettingsStatusMock }));
 
 const { healthHandler, readinessHandler, livenessHandler } = await import('../lib/health.js');
 
@@ -84,6 +89,8 @@ describe('healthHandler', () => {
     getLastReloadErrorMock.mockReset().mockReturnValue(null);
     getLatestRunMock.mockReset().mockReturnValue({ generatedAt: new Date().toISOString(), headlines: [{}, {}] });
     getRunAgeMsMock.mockReset().mockReturnValue(60_000); // 1 minute — fresh
+    getDatabaseHealthMock.mockReset().mockReturnValue({ status: 'ok', readable: true, persistence: { status: 'ok', areas: {} } });
+    getUserSettingsStatusMock.mockReset().mockReturnValue({ status: 'ok', usingLastGood: false });
   });
   afterEach(async () => {
     if (ctx?.server) await new Promise(r => ctx.server.close(r));
@@ -91,7 +98,7 @@ describe('healthHandler', () => {
   });
 
   // ── feed-health status-string contract ──
-  test('classifies ok/cached/stale/empty as reachable, and fresh as ok/cached only', async () => {
+  test('classifies ok/cached/empty as reachable, and excludes stale fallback', async () => {
     getFeedHealthMock.mockReturnValue({
       feeds: {
         a: 'ok', b: 'ok (cached)', c: 'ok (stale)', d: 'empty',
@@ -102,8 +109,17 @@ describe('healthHandler', () => {
     ctx = await makeServer({ dataDir: dir });
     const body = await (await fetch(`${ctx.base}/api/health`)).json();
     expect(body.feeds.total).toBe(9);
-    expect(body.feeds.ok).toBe(4);    // ok, ok (cached), ok (stale), empty
+    expect(body.feeds.ok).toBe(3);    // ok, ok (cached), empty
     expect(body.feeds.fresh).toBe(2); // ok, ok (cached) only
+  });
+
+  test('a fresh local run served from mostly stale publisher caches degrades readiness', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok', b: 'ok (stale)', c: 'ok (stale)' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    ctx = await makeServer({ dataDir: dir });
+    const response = await fetch(`${ctx.base}/api/ready`);
+    expect(response.status).toBe(503);
+    expect((await response.json()).feeds.ok).toBe(1);
   });
 
   // ── configured count reflects the resolved active feed list ──
@@ -123,6 +139,40 @@ describe('healthHandler', () => {
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body.status).toBe('ok');
+  });
+
+  test('an existing readable DB does not hide a failed archive write', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    const persistence = { status: 'error', areas: { archive: { status: 'error', errorCode: 'ENOSPC' } } };
+    getDatabaseHealthMock.mockReturnValue({ status: 'error', readable: true, persistence });
+    ctx = await makeServer({ dataDir: dir });
+    const response = await fetch(`${ctx.base}/api/ready`);
+    const body = await response.json();
+    expect(response.status).toBe(503);
+    expect(body.database.persistence).toEqual(persistence);
+    expect(body.database.readable).toBe(true);
+  });
+
+  test('counts WAL and shared-memory disk usage as well as the main file', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    writeFileSync(join(dir, 'watchfloor.db-wal'), Buffer.alloc(1024 * 1024));
+    writeFileSync(join(dir, 'watchfloor.db-shm'), 'x');
+    ctx = await makeServer({ dataDir: dir });
+    const body = await (await fetch(`${ctx.base}/api/health`)).json();
+    expect(body.database.size_mb).toBe(1);
+    expect(body.database.wal_bytes).toBe(1024 * 1024);
+  });
+
+  test('settings load failures degrade readiness with safe recovery diagnostics', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    getUserSettingsStatusMock.mockReturnValue({ status: 'error', usingLastGood: true, errorCode: 'INVALID_JSON' });
+    ctx = await makeServer({ dataDir: dir });
+    const response = await fetch(`${ctx.base}/api/ready`);
+    expect(response.status).toBe(503);
+    expect((await response.json()).settings.errorCode).toBe('INVALID_JSON');
   });
 
   test('status is degraded (503) when the pipeline run is more than 3x refreshMinutes stale', async () => {

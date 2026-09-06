@@ -13,6 +13,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = process.cwd();
 const DOCS = join(ROOT, 'docs');
@@ -34,7 +35,7 @@ function findOnPath(command) {
   return result.stdout.split(/\r?\n/).map(value => value.trim()).find(Boolean) ?? null;
 }
 
-function findBrowser() {
+export function findBrowser() {
   const configured = process.env.CHROME_PATH ?? process.env.BROWSER_PATH;
   if (configured) {
     if (!existsSync(configured)) throw new Error(`Configured browser does not exist: ${configured}`);
@@ -141,7 +142,7 @@ async function startStaticServer() {
   };
 }
 
-class CdpConnection {
+export class CdpConnection {
   constructor(webSocketUrl) {
     this.sequence = 0;
     this.pending = new Map();
@@ -243,7 +244,7 @@ class CdpConnection {
   }
 }
 
-async function launchBrowser(browserPath) {
+export async function launchBrowser(browserPath) {
   const profile = await mkdtemp(join(tmpdir(), 'blueteam-landing-browser-'));
   const args = [
     '--headless=new',
@@ -337,8 +338,25 @@ function pngDimensions(base64) {
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
 }
 
+// A long command can extend beyond a phone while remaining readable inside
+// its own horizontal scroller. Measure the painted horizontal bounds after
+// ancestor overflow clipping; still check the scroller itself and page width.
+// Self-contained so this exact helper can run in Node tests and the page.
+export function visibleHorizontalBounds(element, getStyle = globalThis.getComputedStyle) {
+  let { left, right } = element.getBoundingClientRect();
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (!/^(auto|scroll|hidden|clip)$/.test(getStyle(ancestor).overflowX)) continue;
+    const clip = ancestor.getBoundingClientRect();
+    left = Math.max(left, clip.left);
+    right = Math.min(right, clip.right);
+    if (right <= left) return null;
+  }
+  return { left, right };
+}
+
 const METRICS_EXPRESSION = String.raw`
 (() => {
+  const visibleHorizontalBounds = ${visibleHorizontalBounds.toString()};
   const visible = element => {
     if (!element) return false;
     const style = getComputedStyle(element);
@@ -351,18 +369,18 @@ const METRICS_EXPRESSION = String.raw`
     element.querySelector('img')?.alt ||
     '';
   const overflow = [...document.body.querySelectorAll('*')]
-    .filter(element => {
-      const rect = element.getBoundingClientRect();
-      return visible(element) && (rect.left < -1 || rect.right > innerWidth + 1);
-    })
+    .filter(visible)
+    .map(element => ({ element, bounds: visibleHorizontalBounds(element) }))
+    .filter(({ bounds }) => bounds && (bounds.left < -1 || bounds.right > innerWidth + 1))
     .slice(0, 8)
-    .map(element => ({
+    .map(({ element, bounds }) => ({
       element: element.tagName.toLowerCase() + (element.id ? '#' + element.id : '') +
         ([...element.classList].length ? '.' + [...element.classList].join('.') : ''),
-      left: Math.round(element.getBoundingClientRect().left),
-      right: Math.round(element.getBoundingClientRect().right),
+      left: Math.round(bounds.left),
+      right: Math.round(bounds.right),
     }));
   const productProof =
+    document.querySelector('.hero-product-image, [data-product-proof]') ||
     [...document.images].find(image => /briefing|print edition/i.test(image.alt)) ||
     document.querySelector('[data-product-proof], .surface-featured img, .product-proof img');
   const headerControls = [...document.querySelectorAll('header a, header button')]
@@ -391,6 +409,14 @@ const METRICS_EXPRESSION = String.raw`
     overflow,
     mobileBackgroundAttachment: getComputedStyle(document.body).backgroundAttachment,
     headerControls,
+    designMismatches: [...document.querySelectorAll('.btn, .release-badge, .mobile-nav summary, .copy, .hero-media, .surface-proof, .briefing-format, .code, .egress')]
+      .filter(visible).filter(element => {
+        const style = getComputedStyle(element);
+        return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius].some(value => parseFloat(value) !== 0)
+          || style.boxShadow !== 'none';
+      }).map(element => element.className),
+    navigationFontMismatches: [...document.querySelectorAll('.topbar-actions a, .mobile-nav summary')]
+      .filter(visible).filter(element => !getComputedStyle(element).fontFamily.includes('Inter')).map(label),
     productProofTop: productProof ? Math.round(productProof.getBoundingClientRect().top) : null,
     productProofVisible: visible(productProof),
   }))));
@@ -529,11 +555,13 @@ async function renderViewport(debugOrigin, origin, viewport) {
       );
     }
     if (metrics?.brokenImages?.length) fail(label, `broken images: ${metrics.brokenImages.join(', ')}`);
+    if (metrics?.designMismatches?.length) fail(label, `rounded or shadowed desk surfaces: ${metrics.designMismatches.join(', ')}`);
+    if (metrics?.navigationFontMismatches?.length) fail(label, `inconsistent navigation type: ${metrics.navigationFontMismatches.join(', ')}`);
     if ((metrics?.headerControls?.length ?? 0) < 2) {
       fail(label, `header exposes fewer than two visible controls (${metrics?.headerControls?.join(', ') || 'none'})`);
     }
     if (!viewport.mobile && (!metrics?.productProofVisible || metrics.productProofTop > viewport.height)) {
-      fail(label, 'Briefing/Print Edition product proof is not visible in the first desktop viewport');
+      fail(label, 'Product proof is not visible in the first desktop viewport');
     }
     if (viewport.mobile && metrics?.mobileBackgroundAttachment === 'fixed') {
       fail(label, 'body background-attachment remains fixed at phone width');
@@ -581,6 +609,7 @@ async function renderViewport(debugOrigin, origin, viewport) {
   }
 }
 
+async function main() {
 let staticServer;
 let browser;
 let infrastructureSkip;
@@ -631,3 +660,6 @@ if (infrastructureSkip) {
 } else {
   console.log('Landing render smoke passed at wide, desktop, laptop, tablet, and phone widths.');
 }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

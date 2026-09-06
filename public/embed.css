@@ -1,0 +1,38 @@
+/* The embedded Wire uses the desk's reading palette and type. The embedding
+   page can pin ?theme=light or ?theme=dark; otherwise follow the OS preference. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg-primary: #f3f2ee;
+    --bg-input: #fbfaf7;
+    --text-primary: #222428;
+    --text-secondary: #4f5359;
+    --brand-text: #1d4ed8;
+    --border: #d1d2ce;
+    --border-control: #73787e;
+    --kev-text: #943327;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 16px; background: var(--bg-primary); color: var(--text-primary); font: 15px/1.55 var(--font-sans); }
+ul { list-style: none; margin: 0; padding: 0; }
+li { display: grid; grid-template-columns: 3ch minmax(0, 1fr); gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+li:last-child { border-bottom: 0; }
+.embed-empty { display: block; padding: 28px 0; color: var(--text-secondary); }
+.score { font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--text-secondary); padding-top: 2px; }
+.headline { overflow-wrap: anywhere; font-weight: 550; }
+a { color: inherit; text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.signal-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 6px; color: var(--text-secondary); font-size: 13px; }
+.signal-meta:empty { display: none; }
+.kev { color: var(--kev-text); font-weight: 600; }
+.meta { border-top: 1px solid var(--border); padding-top: 16px; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.meta a { display: inline-flex; min-height: 44px; align-items: center; color: var(--brand-text); }
+:focus-visible { outline: 2px solid var(--brand-text); outline-offset: 3px; }
+.refresh-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.refresh-controls label { display: inline-flex; min-height: 44px; align-items: center; gap: 6px; }
+input { accent-color: var(--brand-text); }
+button { min-height: 44px; font: 500 14px/1.5 var(--font-sans); color: var(--text-primary); background: var(--bg-input); border: 1px solid var(--border-control); border-radius: var(--radius-control); padding: 8px 12px; cursor: pointer; }
+button:disabled { cursor: wait; color: var(--text-secondary); }
+#embedStatus:empty { display: none; }
+#embedStatus { flex-basis: 100%; color: var(--text-secondary); }

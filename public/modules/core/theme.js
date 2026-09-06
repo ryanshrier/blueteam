@@ -5,6 +5,17 @@
 
 const THEME_KEY = 'bt-theme';
 const ACCENT_KEY = 'bt-accent';
+// A blocked or full browser store must not disable Settings or theme painting.
+// Explicit choices still apply for this document when persistence is unavailable.
+const sessionPreferences = new Map();
+function readPreference(key) {
+  if (sessionPreferences.has(key)) return sessionPreferences.get(key);
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function writePreference(key, value) {
+  sessionPreferences.set(key, value);
+  try { localStorage.setItem(key, value); } catch { /* retain this document's choice */ }
+}
 export const DEFAULT_ACCENT = '#3b82f6'; // IBM blue — the Blue Team brand
 
 // Brand-chrome accents, deliberately disjoint from the load-bearing signal
@@ -36,7 +47,7 @@ function validAccent(hex) {
 // here rendered light on a light-OS box while the segment still read Dark). Dark
 // stays the fallback whenever the OS expresses no or a dark preference.
 export function getThemePreference() {
-  const v = localStorage.getItem(THEME_KEY);
+  const v = readPreference(THEME_KEY);
   if (v === 'light' || v === 'dark' || v === 'system') return v;
   return 'system';
 }
@@ -58,7 +69,7 @@ export function getTheme() {
 }
 
 export function getAccent() {
-  return validAccent(localStorage.getItem(ACCENT_KEY)) || DEFAULT_ACCENT;
+  return validAccent(readPreference(ACCENT_KEY)) || DEFAULT_ACCENT;
 }
 
 function relLum(r, g, b) {
@@ -67,19 +78,19 @@ function relLum(r, g, b) {
 }
 
 // Brand AS TEXT. Light theme: darken the accent until it clears 4.5:1 on the
-// REAL light ground --bg-secondary (#eef1f7) — NOT pure white, which stops the
+// REAL light ground --bg-secondary (#ebeae5) — NOT pure white, which stops the
 // loop ~0.3 ratio early and ships nav/links/wordmark below AA. Dark theme: a
 // bright accent already clears AA, but a muted one (e.g. Slate) doesn't —
-// brighten it until it clears 4.5:1 on the lightest card (#0e1320).
+// brighten it until it clears 4.5:1 on the lightest card (#1c1f23).
 function brandTextFor(hex, theme) {
   let r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
   if (theme === 'light') {
-    const bgL = relLum(229, 233, 241); // #e5e9f1 (--bg-tertiary) — the DARKEST light surface brand-text renders on (worst case for dark text)
+    const bgL = relLum(226, 225, 219); // #e2e1db (--bg-tertiary) — the DARKEST light surface brand-text renders on (worst case for dark text)
     for (let i = 0; i < 60 && (bgL + 0.05) / (relLum(r, g, b) + 0.05) < 4.5; i++) {
       r = Math.round(r * 0.92); g = Math.round(g * 0.92); b = Math.round(b * 0.92);
     }
   } else {
-    const cardL = relLum(22, 28, 44); // #161c2c (--bg-elevated) — the LIGHTEST dark surface brand-text renders on (worst case for bright text)
+    const cardL = relLum(41, 45, 50); // #292d32 (--bg-elevated) — the LIGHTEST dark surface brand-text renders on (worst case for bright text)
     for (let i = 0; i < 60 && (relLum(r, g, b) + 0.05) / (cardL + 0.05) < 4.5; i++) {
       r = Math.min(255, Math.round(r * 1.08) + 1); g = Math.min(255, Math.round(g * 1.08) + 1); b = Math.min(255, Math.round(b * 1.08) + 1);
     }
@@ -100,7 +111,7 @@ function inkOnFor(hex) {
 
 function syncBrandText() {
   // The DEFAULT accent's brand-text ships in CSS per theme (#1d4ed8 on light at
-  // 6.7:1; var(--brand) on dark) — let it stand rather than recomputing a thinner
+  // 6.7:1; #9bbcff on dark) — let it stand rather than recomputing a thinner
   // minimal-pass value (and never override it below AA). Only custom accents are
   // recomputed, against the real grounds.
   const accent = getAccent();
@@ -122,8 +133,8 @@ function resolveAndPaint(resolved) {
   syncBrandText();
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
-    const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim();
-    meta.setAttribute('content', bg || '#070a12');
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg-navigation').trim();
+    meta.setAttribute('content', bg || '#202226');
   }
 }
 
@@ -139,7 +150,7 @@ function unwatchSystem() {
 // keeps tracking the OS), not the resolved theme.
 export function applyTheme(pref) {
   const p = pref === 'system' || pref === 'light' || pref === 'dark' ? pref : 'dark';
-  localStorage.setItem(THEME_KEY, p);
+  writePreference(THEME_KEY, p);
   if (p === 'system') {
     resolveAndPaint(systemPrefersLight() ? 'light' : 'dark');
     if (!systemMql && typeof matchMedia === 'function') {
@@ -160,6 +171,6 @@ export function applyAccent(hex) {
   s.setProperty('--brand', hex);
   s.setProperty('--brand-rgb', `${r}, ${g}, ${b}`);
   s.setProperty('--ink-on-brand', inkOnFor(hex));
-  localStorage.setItem(ACCENT_KEY, hex);
+  writePreference(ACCENT_KEY, hex);
   syncBrandText();
 }

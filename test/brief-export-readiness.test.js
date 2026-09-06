@@ -1,8 +1,11 @@
 import { describe, expect, jest, test } from '@jest/globals';
 import {
   activateTocLink,
+  currentTocHeading,
+  bindTocScroll,
   bindTocBreakpoint,
   findTocFragmentLink,
+  findBriefFragmentHeading,
   generationFailureModel,
   isBriefReadyForExport,
 } from '../public/modules/briefing/briefing-view.js';
@@ -17,6 +20,50 @@ function renderedBrief({ renderedText = '', draft = false, structured = true } =
     },
   };
 }
+
+test('scrollspy keeps the heading at the reading edge when later sections are also visible', () => {
+  const heading = (id, top) => ({ id, getBoundingClientRect: () => ({ top }) });
+  const watch = heading('watchlist', 104);
+  const references = heading('references', 325);
+  expect(currentTocHeading([heading('earlier', -800), watch, references])).toBe(watch);
+  expect(currentTocHeading([watch, references], 340)).toBe(references);
+  expect(currentTocHeading([heading('previous', -200), heading('mobile-target', 138)], 145).id).toBe('mobile-target');
+});
+
+test('scroll frames select the settled target after observer intersections stop and clean up pending work', () => {
+  const listeners = new Map();
+  const frames = new Map();
+  let nextFrame = 0;
+  const view = {
+    addEventListener: (name, handler) => listeners.set(name, handler),
+    removeEventListener: (name, handler) => { if (listeners.get(name) === handler) listeners.delete(name); },
+    requestAnimationFrame: callback => { frames.set(++nextFrame, callback); return nextFrame; },
+    cancelAnimationFrame: frame => frames.delete(frame),
+  };
+  const convergence = { id: 'convergence', getBoundingClientRect: () => ({ top: -300 }) };
+  let watchTop = 93;
+  const watch = { id: 'watchlist', getBoundingClientRect: () => ({ top: watchTop }) };
+  let current;
+  const update = jest.fn(() => { current = currentTocHeading([convergence, watch], 79); });
+  const stop = bindTocScroll(view, update);
+  const flushFrame = () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback()); };
+  flushFrame();
+  expect(current).toBe(convergence);
+  // No new intersection event occurs, but smooth scrolling ends below 90px.
+  watchTop = 78.1875;
+  listeners.get('scroll')();
+  listeners.get('scroll')();
+  expect(frames.size).toBe(1);
+  flushFrame();
+  expect(current).toBe(watch);
+  expect(update).toHaveBeenCalledTimes(2);
+  listeners.get('resize')();
+  stop();
+  expect(listeners.size).toBe(0);
+  expect(frames.size).toBe(0);
+  flushFrame();
+  expect(update).toHaveBeenCalledTimes(2);
+});
 
 describe('Edition export readiness', () => {
   test('accepts only a completed render that matches the current brief', () => {
@@ -35,13 +82,13 @@ describe('Edition export readiness', () => {
     )).toBe(false);
   });
 
-  test('rejects the prior completed render as soon as a new generation starts', () => {
+  test('allows an immutable saved edition during generation elsewhere while rejecting drafts', () => {
     const prior = '# Prior validated brief';
     expect(isBriefReadyForExport(
       renderedBrief({ renderedText: prior }),
       { filename: 'brief-2026-07-12-01.md', content: prior },
       true,
-    )).toBe(false);
+    )).toBe(true);
   });
 
   test('rejects stale state, missing completed identity, and non-brief surfaces', () => {
@@ -68,6 +115,7 @@ describe('Briefing generation failure state', () => {
       message: 'Draft was not published.',
       aiDisabled: false,
       code: 'E_PARTIAL_GENERATION',
+      draftArtifact: null,
       streamLost: false,
       accumulatedText: 'attempt oneattempt two',
       recoverableDraft: '# Attempt two only',
@@ -84,6 +132,15 @@ describe('Briefing generation failure state', () => {
 });
 
 describe('Briefing TOC breakpoint behavior', () => {
+  test('cold fragments resolve judgments that are intentionally absent from the compact TOC', () => {
+    const section = { id: 'section-judgments', tagName: 'H2' };
+    const judgment = { id: 'judgment-2', tagName: 'H3' };
+    const content = { querySelectorAll: () => [section, judgment] };
+    expect(findBriefFragmentHeading(content, '#judgment-2')).toBe(judgment);
+    expect(findBriefFragmentHeading(content, '#section-judgments')).toBe(section);
+    expect(findBriefFragmentHeading(content, '#settings')).toBeNull();
+    expect(findBriefFragmentHeading(content, '#%E0%A4%A')).toBeNull();
+  });
   test('restores only hashes owned by the rendered Briefing', () => {
     const first = { dataset: { target: 'section-key-judgments' } };
     const second = { dataset: { target: 'section-sources' } };
@@ -104,12 +161,12 @@ describe('Briefing TOC breakpoint behavior', () => {
       setAttribute: jest.fn(),
     };
     const toc = { querySelectorAll: () => [prior, link] };
+    const disclosure = { open: true };
     const target = {
-      scrollIntoView: jest.fn(),
+      scrollIntoView: jest.fn(() => { expect(disclosure.open).toBe(false); }),
       setAttribute: jest.fn(),
       focus: jest.fn(),
     };
-    const disclosure = { open: true };
 
     expect(activateTocLink({
       link,

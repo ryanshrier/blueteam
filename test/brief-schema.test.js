@@ -3,7 +3,7 @@ import {
   parseBluf, parseSignalTitles,
   parseBrief, parseJudgments, parseExecBullets, parseDeveloping, parseConvergence,
   BLUF_MAX_WORDS, DECISION_WINDOW_VALUES, TRAJECTORY_VALUES,
-  normalizeDecisionWindow, formatDecisionWindow,
+  normalizeDecisionWindow, formatDecisionWindow, judgmentCertainty,
 } from '../lib/brief-schema.js';
 
 // Canonical brief: the shapes every Wall page parses. One signal carries the
@@ -93,7 +93,7 @@ describe('parseJudgments', () => {
     expect(s.horizon).toBe(1);
     expect(s.title).toBe('VPN appliance zero-day under mass exploitation');
     expect(s.line).toBe('Patch the edge or lose the edge.');
-    expect(s.confidence).toBe('Highly likely (80-95%)');
+    expect(s.confidence).toBe('Highly likely (80-95%) — reporting across three distinct sources');
     expect(s).not.toHaveProperty('revisesIf');
     expect(s.decision).toBe('Next 24 hours');
   });
@@ -105,7 +105,7 @@ describe('parseJudgments', () => {
     );
     const parsed = parseJudgments(archived)[0];
     expect(parsed.title).toBe('VPN appliance zero-day under mass exploitation');
-    expect(parsed.confidence).toBe('Highly likely (80-95%)');
+    expect(parsed.confidence).toBe('Highly likely (80-95%) — reporting across three distinct sources');
     expect(parsed.decision).toBe('Next 24 hours');
     expect(parsed).not.toHaveProperty('revisesIf');
   });
@@ -167,7 +167,7 @@ describe('parseJudgments', () => {
       '**Assessment:** Exploitation moved from targeted to mass scanning within 48 hours.',
       '**Assessment:** CISA KEV lists CVE-2026-11111 after confirmed exploitation.'
     );
-    expect(parseJudgments(md)[0]).toMatchObject({
+    expect(parseJudgments(md, { verifiedKevCves: ['CVE-2026-11111'] })[0]).toMatchObject({
       isKEV: true,
       kevCVE: 'CVE-2026-11111',
     });
@@ -265,14 +265,23 @@ describe('parseConvergence', () => {
       move: 'close the enrollment gap.',
     });
   });
+
+  test('retains a sparse saved convergence action and suppresses a title without analysis', () => {
+    const md = `## CONVERGENCE\n\n### Synthetic gateway recovery\n**The move:** Act — isolate the example gateway until the restored build is verified.\n\n### Empty synthetic entry`;
+    expect(parseConvergence(md)).toMatchObject([{
+      title: 'Synthetic gateway recovery', intersection: '', cascade: '',
+      move: 'isolate the example gateway until the restored build is verified.', moveVerb: 'Act',
+    }]);
+  });
 });
 
 describe('parseDeveloping', () => {
-  test('gets the trajectory verb and the watch criteria', () => {
+  test('gets the trajectory verb, complete explanation, and watch criteria', () => {
     const dev = parseDeveloping(SAMPLE_BRIEF);
     expect(dev).toHaveLength(1);
     expect(dev[0].name).toBe('Identity provider session token abuse');
     expect(dev[0].trajectory).toBe('Accelerating');
+    expect(dev[0].trajectoryDetail).toMatch(/^Accelerating/);
     expect(dev[0].watch).toBe('Escalate when a public PoC lands.');
   });
 
@@ -287,6 +296,7 @@ describe('parseDeveloping', () => {
 **Watch criteria:** Escalate when the observable lands.`;
 
     expect(parseDeveloping(md)[0].trajectory).toBe(trajectory);
+    expect(parseDeveloping(md)[0].trajectoryDetail).toBe(`${trajectory} — ${explanation}`);
   });
 
   test('does not relabel an unrecognized trajectory as an approved state', () => {
@@ -297,6 +307,16 @@ describe('parseDeveloping', () => {
 **Watch criteria:** Escalate when two independent sources agree.`;
 
     expect(parseDeveloping(md)[0].trajectory).toBe('');
+    expect(parseDeveloping(md)[0].trajectoryDetail).toBe('Unclear — reporting is still contradictory.');
+  });
+
+  test('retains the final trajectory condition even when it exceeds a short display line', () => {
+    const detail = 'Accelerating — the synthetic exercise now includes credential rotation, restored service validation, and supplier-managed access, but escalation still depends on a second confirmed administrator session after token rotation rather than the initial alert alone.';
+    const md = `## DEVELOPING SITUATIONS\n\n### Synthetic recovery exercise\n**Trajectory:** ${detail}\n**Watch criteria:** Notify the incident commander if validation fails.`;
+    expect(parseDeveloping(md)[0]).toMatchObject({
+      name: 'Synthetic recovery exercise', trajectory: 'Accelerating',
+      trajectoryDetail: detail, watch: 'Notify the incident commander if validation fails.',
+    });
   });
 });
 
@@ -320,5 +340,22 @@ describe('BLUF_MAX_WORDS', () => {
     expect(typeof BLUF_MAX_WORDS).toBe('number');
     expect(BLUF_MAX_WORDS).toBeGreaterThan(10);
     expect(BLUF_MAX_WORDS).toBeLessThan(60);
+  });
+});
+
+describe('authored judgment certainty', () => {
+  test.each(['Almost certain (95-99%)', 'Highly likely (80-95%)', 'Likely (55-80%)', 'Roughly even (45-55%)', 'Unlikely (20-45%)', 'Highly unlikely (5-20%)'])('labels %s as likelihood without losing its basis', value => {
+    expect(judgmentCertainty(`${value} — reporting remains incomplete.`)).toEqual({
+      label: 'Likelihood', value, basis: 'reporting remains incomplete.', text: `${value} — reporting remains incomplete.`,
+    });
+  });
+  test.each(['High', 'Moderate', 'Low'])('keeps legacy %s as confidence', value => {
+    expect(judgmentCertainty(`${value} — source coverage is limited.`)).toMatchObject({ label: 'Confidence', value, basis: 'source coverage is limited.' });
+  });
+  test('does not split a range or a parenthetical rationale on its internal dash', () => {
+    expect(judgmentCertainty('Likely (55–80%; vendor claim — unverified) — independent checks pending.')).toMatchObject({
+      label: 'Likelihood', value: 'Likely (55–80%; vendor claim — unverified)', basis: 'independent checks pending.',
+    });
+    expect(judgmentCertainty(null)).toMatchObject({ value: '', basis: '' });
   });
 });

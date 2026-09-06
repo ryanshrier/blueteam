@@ -2,18 +2,24 @@
 
 import { Router } from 'express';
 import { createHash } from 'crypto';
-import { readFileSync, readdirSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join } from 'path';
 import { buildLandscape, pipelineStaleAfterMs } from '../lib/landscape.js';
-import { getKEVDueDates, getBriefMeta } from '../lib/db.js';
+import { getKEVDueDates, getKEVRecords, getBriefMeta } from '../lib/db.js';
 import { getLatestRun, refreshNow, getRunAgeMs } from '../lib/refresher.js';
 import { parseBluf, parseSignalTitles } from '../lib/brief-schema.js';
 import { getConfig, getConfigVersion, getHorizonName } from '../lib/config.js';
 import { getDomainPack, getBrief } from '../lib/domain.js';
-import { briefDateFromFilename } from '../lib/history.js';
+import { briefDateFromFilename, listBriefEditions } from '../lib/history.js';
 import { log } from '../lib/logger.js';
 import { PUBLIC_APP_NAME } from '../lib/identity.js';
 import { normalizePublicBaseUrl, requestBaseUrl } from '../lib/public-url.js';
+import { getSourceEvidence } from '../lib/evidence.js';
+import { getEffectiveWatchProfile } from '../lib/user-settings.js';
+import { evaluateApplicability } from '../lib/watch-profile.js';
+import { editorialContext, enrichmentStatus, headlineCves, normalizeFeedTimestamp, readableExcerpt } from '../lib/intelligence-context.js';
+import { savedBriefReview } from '../lib/brief-review.js';
+import { summarizeEvidence } from '../lib/evidence-freshness.js';
 
 // How many top-scored signals each feed publishes by default, and the hard cap
 // a caller's own ?limit= may not exceed.
@@ -89,19 +95,21 @@ export function normalizeScoreComponents(sc) {
 
 function loadLatestBriefSummary(historyDir) {
   try {
-    const files = readdirSync(historyDir)
-      .filter(f => f.startsWith('brief-') && f.endsWith('.md'))
-      .sort().reverse();
-    if (files.length === 0) return null;
-
-    const filename = files[0];
-    const content = readFileSync(join(historyDir, filename), 'utf-8');
+    const edition = listBriefEditions(historyDir, { getMeta: getBriefMeta, limit: 1, eligibleOnly: true })[0];
+    if (!edition) return null;
+    const { filename } = edition;
+    const original = readFileSync(join(historyDir, filename), 'utf-8');
+    const reviewed = savedBriefReview(filename, original);
+    const content = reviewed.reviewedContent || original;
     return {
       filename,
       revision: createHash('sha256').update(content).digest('hex'),
       date: briefDateFromFilename(filename),
+      generatedAt: edition.generatedAt,
       bluf: parseBluf(content),
       judgments: parseSignalTitles(content).slice(0, 6),
+      review: reviewed.review || null,
+      disposition: edition.disposition,
     };
   } catch {
     return null;
@@ -119,9 +127,8 @@ function loadLatestBriefSummary(historyDir) {
 // latest run's generatedAtMs (changes only when a new pipeline run lands) plus
 // a short TTL that re-checks for a newly saved brief — loadLatestBriefSummary's
 // own readdir/readFile cost is paid only on a cache miss, not per request.
-// `stale`/`pipeline.ageMinutes` are the only fields that drift between builds
-// (pure elapsed-time arithmetic) — those are recomputed fresh on every hit
-// rather than served frozen from the cached build.
+// Evidence freshness and pipeline age drift between builds. Recompute those
+// cheap elapsed-time summaries on every hit rather than freezing their counts.
 const LANDSCAPE_MEMO_TTL_MS = 30_000;
 let landscapeMemo = null; // { generatedAtMs, configVersion, briefRevision, builtAtMs, payload }
 
@@ -137,7 +144,12 @@ function buildLandscapeMemoized(historyDir) {
 
   if (runChanged || configChanged || ttlExpired) {
     const brief = loadLatestBriefSummary(historyDir);
-    const briefRevision = brief ? `${brief.filename}:${brief.revision}` : null;
+    let archivedCount = 0;
+    if (!brief) { try { archivedCount = listBriefEditions(historyDir).length; } catch { /* unavailable archive has no usable default */ } }
+    const briefAvailability = brief ? { status: 'available', eligibleForLatest: true }
+      : archivedCount ? { status: 'no-eligible-edition', eligibleForLatest: false, excludedCount: archivedCount, message: 'Saved editions require review or have been superseded. Open History to inspect them.' }
+        : { status: 'no-saved-edition', eligibleForLatest: false, excludedCount: 0, message: 'No saved Briefing is available yet.' };
+    const briefRevision = brief ? `${brief.filename}:${brief.revision}` : briefAvailability.status;
     // Rebuild only when the run actually advanced or the brief on disk changed
     // since the last build — a same-brief TTL tick just refreshes the cache
     // bookkeeping so the next few requests skip straight to the age patch below.
@@ -152,20 +164,25 @@ function buildLandscapeMemoized(historyDir) {
         configVersion,
         briefRevision,
         builtAtMs: now,
-        payload: buildLandscape(run, brief, { runAgeMs }),
+        payload: { ...buildLandscape(run, brief, { runAgeMs }), briefAvailability },
       };
     } else {
       landscapeMemo.builtAtMs = now;
     }
   }
 
-  // Patch the two fields that are pure elapsed-time arithmetic so a cache hit
-  // never reports a frozen "updated Xm ago" from whenever the payload was built.
+  // Retained observations can age out before the configured pipeline warning
+  // threshold. Re-evaluate their window even while the expensive build is cached.
   const payload = landscapeMemo.payload;
   const pipelineAgeMin = run ? Math.floor(runAgeMs / 60_000) : null;
+  const evidence = summarizeEvidence(run?.headlines || [], { now });
   return {
     ...payload,
-    stale: run ? runAgeMs > pipelineStaleAfterMs(payload.pipeline?.refreshMinutes) : true,
+    generatedAt: evidence.observedAt,
+    evidence,
+    stale: !run || runAgeMs > pipelineStaleAfterMs(payload.pipeline?.refreshMinutes)
+      || evidence.freshHeadlines < 5
+      || (payload.collection?.configuredSources > 0 && payload.collection.freshSources / payload.collection.configuredSources < 0.5),
     pipeline: { ...payload.pipeline, ageMinutes: pipelineAgeMin },
   };
 }
@@ -175,7 +192,7 @@ export function _resetLandscapeMemoForTests() {
   landscapeMemo = null;
 }
 
-export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = null }) {
+export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = null, loopback = false }) {
   const router = Router();
   const canonicalPublicBaseUrl = normalizePublicBaseUrl(publicBaseUrl);
 
@@ -208,30 +225,60 @@ export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = nu
     }
   });
 
+  // Retained public reporting uses the same API access boundary as Wire.
+  // Missing/pruned evidence is explicit; no publisher fetch happens on a read.
+  router.get('/evidence/:sourceId', (req, res) => {
+    if (!/^src_[a-f0-9]{64}$/.test(req.params.sourceId)) {
+      return res.status(400).json({ error: 'Invalid source identity', code: 'E_EVIDENCE_ID' });
+    }
+    try {
+      const evidence = getSourceEvidence(req.params.sourceId);
+      if (!evidence) return res.status(404).json({ error: 'Source evidence is unavailable or outside retention', code: 'E_EVIDENCE_MISSING' });
+      res.set('Cache-Control', 'no-store').json(evidence);
+    } catch (err) {
+      log.warn('evidence', `Evidence read failed: ${err.message}`);
+      res.status(503).json({ error: 'Evidence storage is unavailable', code: 'E_EVIDENCE_UNAVAILABLE' });
+    }
+  });
+
   // ── GET /headlines — scored headlines for the wire view ──
   router.get('/headlines', (req, res) => {
+    res.vary('Authorization');
     const run = getLatestRun();
     if (!run) {
       return res.json({ generatedAt: null, ageSeconds: null, headlines: [] });
     }
     const headlines = run.headlines || [];
+    const profile = loopback || res.locals.authenticated === true ? getEffectiveWatchProfile(getConfig()) : null;
+    if (profile) res.set('Cache-Control', 'private, no-store');
 
     // One batched join of kev_cache.due_date for every KEV CVE in the run,
     // rather than a lookup per row. Tolerate a not-ready DB (empty map).
     let dueDates = {};
+    let kevById = {};
     try {
-      dueDates = getKEVDueDates(headlines.map(h => h.kevCVE).filter(Boolean));
+      const ids = headlines.flatMap(h => [...headlineCves(h), h.kevCVE].filter(Boolean));
+      dueDates = getKEVDueDates(ids);
+      kevById = getKEVRecords(ids);
     } catch { /* db not ready */ }
 
     res.json({
       generatedAt: run.generatedAt,
       ageSeconds: Math.floor(getRunAgeMs() / 1000),
       stats: run.stats,
+      enrichmentFailures: run.stats?.enrichmentFailures || [],
+      ...(profile ? { watchProfile: profile } : {}),
       headlines: headlines.map(h => {
         const due = (h.kevCVE && dueDates[h.kevCVE]) || null;
+        const kevRecords = [...new Set([...headlineCves(h), h.kevCVE].filter(Boolean))].flatMap(cve => kevById[cve] ? [kevById[cve]] : []);
+        const normalizedDate = normalizeFeedTimestamp(h.date);
         return {
           title: h.title,
-          description: (h.description || '').slice(0, 280),
+          description: readableExcerpt(h.passage || h.description || '', 480),
+          descriptionTruncated: String(h.passage || h.description || '').length > 480 || Boolean(h.passageTruncated),
+          editorialContext: editorialContext(h, kevRecords),
+          kevRecords,
+          enrichmentStatus: enrichmentStatus(h, run.stats?.enrichmentFailures),
           link: h.link || null,
           source: h.source,
           horizon: h.horizon,
@@ -244,16 +291,22 @@ export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = nu
           kevOverdue: due ? due.overdue : false,
           cveData: h.cveData || null,
           corroboration: h.corroboration || 1,
-          date: h.date || null,
-          dateUnknown: Boolean(h.dateUnknown),
+          date: normalizedDate || h.date || null,
+          originalDate: h.originalDate || h.date || null,
+          dateUnknown: !normalizedDate,
           actors: h.actors || null,
           vendors: h.vendors || null,
           mitre: h.mitre || null,
           scoreComponents: normalizeScoreComponents(h.scoreComponents), // now [0,1] evidence axes
+          scoreContributions: normalizeScoreComponents(h.scoreContributions),
+          scoreWeights: normalizeScoreComponents(h.scoreWeights),
+          scoreUnknowns: h.scoreUnknowns || [],
           scoreRationale: h.scoreRationale || null,                      // the evidence ledger behind the rank
           originalHorizon: h.originalHorizon || null,
           alertMatched: Boolean(h.alertMatched),
           sources: h.sources || null,
+          evidence: h.evidence || [],
+          ...(profile ? { applicability: evaluateApplicability(h, profile) } : {}),
         };
       }),
     });
@@ -369,20 +422,16 @@ export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = nu
   router.get('/briefs.xml', (req, res) => {
     try {
       const base = baseUrl(req, canonicalPublicBaseUrl);
-      const files = readdirSync(historyDir)
-        .filter(f => f.startsWith('brief-') && f.endsWith('.md'))
-        .sort().reverse().slice(0, 30);
+      const editions = listBriefEditions(historyDir, { getMeta: getBriefMeta, limit: 30, eligibleOnly: true });
 
-      const entries = files.map(filename => {
-        const date = briefDateFromFilename(filename);
-        const meta = getBriefMeta(filename);
+      const entries = editions.map(({ filename, date, meta, generatedAt }) => {
         let bluf = meta?.bluf || '';
         if (!bluf) {
           // Legacy brief that predates the meta table — same fallback /briefs uses.
           try { bluf = parseBluf(readFileSync(join(historyDir, filename), 'utf-8')) || ''; } catch { /* skip */ }
         }
         const link = `${base}/briefing/${encodeURIComponent(filename)}`;
-        const pubDate = !Number.isNaN(Date.parse(date)) ? new Date(date).toUTCString() : null;
+        const pubDate = new Date(generatedAt).toUTCString();
         return [
           '    <item>',
           `      <title>${PUBLIC_APP_NAME} Briefing — ${escapeXml(date)}</title>`,
@@ -394,8 +443,8 @@ export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = nu
         ].filter(Boolean).join('\n');
       }).join('\n');
 
-      const latestDate = files.length ? briefDateFromFilename(files[0]) : null;
-      const updated = latestDate && !Number.isNaN(Date.parse(latestDate))
+      const latestDate = editions[0]?.generatedAt;
+      const updated = latestDate
         ? new Date(latestDate).toUTCString()
         : new Date().toUTCString();
 

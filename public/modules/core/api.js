@@ -47,6 +47,10 @@ export function fetchHeadlines() {
   return getJson('/api/headlines', { ttlMs: 30_000 });
 }
 
+export function fetchEvidence(sourceId) {
+  return getJson(`/api/evidence/${encodeURIComponent(sourceId)}`);
+}
+
 // `fresh: true` drops the cached list first — used right after a generation
 // completes, so a force-reload of the history dropdown can't rebuild from a
 // list that's still within its 20s TTL and therefore missing the brand-new
@@ -58,11 +62,28 @@ export function fetchBriefs({ fresh = false } = {}) {
 }
 
 export function fetchBrief(filename) {
-  return getJson(`/api/brief/${encodeURIComponent(filename)}`, { ttlMs: 5 * 60_000 });
+  // Markdown is immutable, but review and publication disposition may change.
+  // Re-entering an edition must request its current review state.
+  return getJson(`/api/brief/${encodeURIComponent(filename)}`);
 }
 
 export function fetchHealth() {
   return getJson('/api/ready');
+}
+
+// Readiness deliberately returns 503 with useful diagnostics when degraded.
+// Keep this read separate from ordinary GET caching so an operator's refresh
+// always checks the server and a failed check cannot masquerade as old success.
+export async function fetchDiagnostics({ signal } = {}) {
+  const timeout = AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
+  const res = await fetch('/api/ready', {
+    cache: 'no-store', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  });
+  if (!res.ok && res.status !== 503) throw new Error('Diagnostics unavailable');
+  const data = await res.json();
+  if (!data || !['ok', 'degraded'].includes(data.status)
+    || (res.status === 503 && data.status !== 'degraded')) throw new Error('Diagnostics unavailable');
+  return data;
 }
 
 // The active edition's identity (name + region labels). Cached long — it only
@@ -72,8 +93,8 @@ export function fetchEdition() {
   return getJson('/api/edition', { ttlMs: 5 * 60_000 });
 }
 
-export async function searchBriefs(query) {
-  const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+export async function searchBriefs(query, sort = 'relevance') {
+  const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&sort=${sort === 'newest' ? 'newest' : 'relevance'}`, { signal: AbortSignal.timeout(15_000), cache: 'no-store' });
   if (!res.ok) throw new Error(`Search failed: ${res.status}`);
   return res.json();
 }
@@ -128,7 +149,7 @@ export async function generateBrief() {
     const suffix = retryAfter ? ` Try again in about ${Math.max(1, Math.ceil(retryAfter))} seconds.` : '';
     const messages = {
       E_GENERATION_ACTIVE: `A Briefing is already being generated.${suffix}`,
-      E_GENERATION_COOLDOWN: `The previous Briefing just finished.${suffix}`,
+      E_GENERATION_COOLDOWN: `A Briefing request was started recently.${suffix}`,
       E_GENERATION_RATE: `Too many Briefing requests were started from this client.${suffix}`,
       E_GENERATION_DAILY_LIMIT: 'The daily Briefing generation limit has been reached. Try again tomorrow.',
     };

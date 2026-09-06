@@ -18,6 +18,7 @@ const SITE = 'https://blueteam.news/';
 const pages = new Map([
   ['index.html', readFileSync(join(DOCS, 'index.html'), 'utf-8')],
   ['404.html', readFileSync(join(DOCS, '404.html'), 'utf-8')],
+  ['sample-briefing.html', readFileSync(join(DOCS, 'sample-briefing.html'), 'utf-8')],
 ]);
 const styles = readFileSync(join(DOCS, 'styles.css'), 'utf-8');
 const readme = readFileSync(join(ROOT, 'README.md'), 'utf-8');
@@ -103,6 +104,7 @@ const signatures = new Map([
   ['.jpg', Buffer.from([0xff, 0xd8, 0xff])],
   ['.jpeg', Buffer.from([0xff, 0xd8, 0xff])],
   ['.woff2', Buffer.from('wOF2')],
+  ['.pdf', Buffer.from('%PDF-')],
 ]);
 function hasExpectedSignature(path, extension) {
   if (extension === '.webp') {

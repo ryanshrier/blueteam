@@ -17,6 +17,7 @@
 let bubble = null;      // the single reused bubble node, appended to <body>
 let anchor = null;      // the [data-tip] the bubble is currently pinned to
 let bound = false;      // idempotency guard — initInfotips() is bound once in boot
+let dismissTimer = null;
 
 // Gap between the anchor and the bubble, and the viewport margin we clamp to.
 const GAP = 8;
@@ -35,6 +36,8 @@ function ensureBubble() {
   bubble.className = 'infotip-bubble';
   bubble.setAttribute('role', 'tooltip');
   bubble.setAttribute('aria-hidden', 'true');
+  bubble.addEventListener('mouseenter', () => clearTimeout(dismissTimer));
+  bubble.addEventListener('mouseleave', () => { dismissTimer = setTimeout(hide, 180); });
   document.body.appendChild(bubble);
   return bubble;
 }
@@ -49,6 +52,7 @@ function place(el) {
 
   let top = r.top - bh - GAP;
   if (top < MARGIN) top = r.bottom + GAP;   // flip below when there's no room above
+  top = Math.max(MARGIN, Math.min(top, window.innerHeight - bh - MARGIN));
 
   let left = r.left + r.width / 2 - bw / 2;  // centred on the anchor
   const maxLeft = window.innerWidth - bw - MARGIN;
@@ -60,6 +64,7 @@ function place(el) {
 }
 
 function show(el) {
+  clearTimeout(dismissTimer);
   const text = el.getAttribute('data-tip');
   if (!text) return;
   const b = ensureBubble();
@@ -70,6 +75,7 @@ function show(el) {
 }
 
 function hide() {
+  clearTimeout(dismissTimer);
   if (!bubble) return;
   bubble.setAttribute('aria-hidden', 'true');
   anchor = null;
@@ -83,7 +89,8 @@ function onOver(e) {
 function onOut(e) {
   // Ignore moves that stay within the same anchor (child glyph → wrapper).
   if (anchor && e.relatedTarget instanceof Node && anchor.contains(e.relatedTarget)) return;
-  if (tipTarget(e.target)) hide();
+  if (bubble?.contains(e.relatedTarget)) return;
+  if (tipTarget(e.target)) dismissTimer = setTimeout(hide, 180);
 }
 
 function onFocus(e) {
@@ -101,6 +108,7 @@ function onBlur(e) {
 // browsers emulate a mouseout that reaches onOut on the new tap, but dismissal
 // isn't guaranteed on every browser/element, so this closes that gap explicitly.
 function onClick(e) {
+  if (bubble?.contains(e.target)) return;
   const el = tipTarget(e.target);
   if (!el) {
     if (anchor) hide();
@@ -116,7 +124,8 @@ function onKey(e) {
 
 // A pinned bubble goes stale the moment the page scrolls under it — hide rather
 // than chase the anchor. `capture` catches scrolls on any nested scroller.
-function onScroll() {
+function onScroll(e) {
+  if (bubble?.contains(e?.target)) return;
   if (anchor) hide();
 }
 
@@ -133,6 +142,8 @@ function ensureAnchorObserver() {
   if (anchorObserver) return;
   anchorObserver = new MutationObserver(() => {
     if (anchor && !anchor.isConnected) hide();
+    const modal = document.querySelector('[aria-modal="true"], dialog[open]');
+    if (anchor && modal && !modal.contains(anchor)) hide();
   });
   anchorObserver.observe(document.body, { childList: true, subtree: true });
 }
@@ -152,5 +163,6 @@ export function initInfotips() {
   document.addEventListener('click', onClick);
   document.addEventListener('keydown', onKey);
   window.addEventListener('scroll', onScroll, true);
+  window.addEventListener('resize', hide);
   ensureAnchorObserver();
 }

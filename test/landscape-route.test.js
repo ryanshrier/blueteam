@@ -41,6 +41,7 @@ jest.unstable_mockModule('../lib/refresher.js', () => ({
 }));
 jest.unstable_mockModule('../lib/db.js', () => ({
   getKEVDueDates: getKEVDueDatesMock,
+  getKEVRecords: jest.fn(() => ({})),
   getBriefMeta: getBriefMetaMock,
 }));
 jest.unstable_mockModule('../lib/config.js', () => ({
@@ -64,10 +65,11 @@ const SAMPLE_HEADLINES = [
   { title: 'Vendor posts a quarterly transparency report', link: 'https://example.com/b', source: 'Feed B', horizon: 3, score: 41.1, isKEV: false, date: '2026-06-30T00:00:00.000Z' },
 ];
 
-function makeServer({ historyDir, trustProxy = false, publicBaseUrl = null } = {}) {
+function makeServer({ historyDir, trustProxy = false, publicBaseUrl = null, loopback = false, authenticated = false } = {}) {
   const app = express();
   if (trustProxy) app.set('trust proxy', 1);
-  app.use('/api', createLandscapeRouter({ historyDir, cooldown: { check: () => true }, publicBaseUrl }));
+  app.use((req, res, next) => { res.locals.authenticated = authenticated; next(); });
+  app.use('/api', createLandscapeRouter({ historyDir, cooldown: { check: () => true }, publicBaseUrl, loopback }));
   return new Promise((resolve) => {
     const server = app.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
@@ -75,6 +77,36 @@ function makeServer({ historyDir, trustProxy = false, publicBaseUrl = null } = {
     });
   });
 }
+
+describe('headlines — evidence references and private applicability', () => {
+  let ctx;
+  afterEach(async () => { if (ctx?.server) await new Promise(resolve => ctx.server.close(resolve)); });
+  test('exposes retained evidence refs but withholds organization match strings from public callers', async () => {
+    const evidence = [{ sourceId: 'src_local', revisionId: 'rev_local' }];
+    getLatestRunMock.mockReturnValue({ headlines: [{ ...SAMPLE_HEADLINES[0], evidence }], generatedAtMs: Date.now() });
+    getConfigMock.mockReturnValue({ watchProfile: { technologies: ['Critical'] } });
+    ctx = await makeServer();
+    const res = await fetch(`${ctx.base}/api/headlines`);
+    expect(res.headers.get('vary')).toContain('Authorization');
+    expect(res.headers.get('cache-control')).toBeNull();
+    const response = await res.json();
+    expect(response.headlines[0].evidence).toEqual(evidence);
+    expect(response.headlines[0]).not.toHaveProperty('applicability');
+  });
+  test('trusted callers get current literal profile matches without confirming exposure', async () => {
+    getLatestRunMock.mockReturnValue({ headlines: SAMPLE_HEADLINES, generatedAtMs: Date.now() });
+    getConfigMock.mockReturnValue({ watchProfile: { technologies: ['Critical'] } });
+    ctx = await makeServer({ authenticated: true });
+    const res = await fetch(`${ctx.base}/api/headlines`);
+    expect(res.headers.get('vary')).toContain('Authorization');
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    const first = await res.json();
+    expect(first.headlines[0].applicability).toMatchObject({ state: 'declared-match', exposure: 'unknown' });
+    getConfigMock.mockReturnValue({ watchProfile: { technologies: ['Unrelated product'] } });
+    const second = await (await fetch(`${ctx.base}/api/headlines`)).json();
+    expect(second.headlines[0].applicability.state).toBe('unknown');
+  });
+});
 
 describe('routes/landscape.js — baseUrl anti-spoof invariant', () => {
   let dir; let ctx;
@@ -270,6 +302,22 @@ describe('routes/landscape.js — GET /briefs.xml', () => {
     expect(xml).not.toContain('Stale on-disk text');
   });
 
+  test('Wall and syndication agree that a later scheduled publication is newer than an early manual edition', async () => {
+    _resetLandscapeMemoForTests();
+    buildLandscapeMock.mockClear();
+    const manual = 'brief-2026-09-05-01.md';
+    const scheduled = 'brief-2026-09-05-00.md';
+    writeFileSync(join(dir, manual), '## BLUF\n\nEarlier manual edition.\n');
+    writeFileSync(join(dir, scheduled), '## BLUF\n\nLater scheduled edition.\n');
+    getBriefMetaMock.mockImplementation(filename => ({ generated_at: filename === scheduled ? '2026-09-05T05:00:00Z' : '2026-09-05T04:00:00Z' }));
+    ctx = await makeServer({ historyDir: dir });
+    const xml = await (await fetch(`${ctx.base}/api/briefs.xml`)).text();
+    expect(xml.indexOf(scheduled)).toBeLessThan(xml.indexOf(manual));
+    expect(xml).toContain('<pubDate>Sat, 05 Sep 2026 05:00:00 GMT</pubDate>');
+    await fetch(`${ctx.base}/api/landscape`);
+    expect(buildLandscapeMock.mock.calls.at(-1)[1]).toMatchObject({ filename: scheduled, generatedAt: '2026-09-05T05:00:00.000Z' });
+  });
+
   test('an empty briefs directory still returns a valid (empty) feed, not an error', async () => {
     ctx = await makeServer({ historyDir: dir });
     const res = await fetch(`${ctx.base}/api/briefs.xml`);
@@ -320,5 +368,32 @@ describe('routes/landscape.js — memo invalidation', () => {
     getConfigVersionMock.mockReturnValue(2);
     expect((await fetch(`${ctx.base}/api/landscape`)).status).toBe(200);
     expect(buildLandscapeMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('ages retained observations out of the evidence window without rebuilding a slow-cadence landscape', async () => {
+    const startedAt = Date.parse('2026-09-06T12:00:00Z');
+    const observedAt = new Date(startedAt).toISOString();
+    const now = jest.spyOn(Date, 'now').mockReturnValue(startedAt);
+    getLatestRunMock.mockReturnValue({ generatedAtMs: startedAt, generatedAt: observedAt,
+      headlines: Array.from({ length: 5 }, (_, index) => ({ title: `Retained observation ${index}`, retrievedAt: observedAt })) });
+    getRunAgeMsMock.mockReturnValue(0);
+    buildLandscapeMock.mockReturnValueOnce({ generatedAt: observedAt,
+      evidence: { freshHeadlines: 5, retainedHeadlines: 0, observedAt },
+      collection: { configuredSources: 10, freshSources: 10 }, pipeline: { refreshMinutes: 60 } });
+    try {
+      ctx = await makeServer({ historyDir: dir });
+      const initial = await (await fetch(`${ctx.base}/api/landscape`)).json();
+      expect(initial.stale).toBe(false);
+      expect(initial.evidence.freshHeadlines).toBe(5);
+      now.mockReturnValue(startedAt + 35 * 60_000);
+      getRunAgeMsMock.mockReturnValue(35 * 60_000);
+      const later = await (await fetch(`${ctx.base}/api/landscape`)).json();
+      expect(later).toMatchObject({ stale: true, generatedAt: observedAt,
+        evidence: { freshHeadlines: 0, retainedHeadlines: 5, observedAt }, pipeline: { ageMinutes: 35 } });
+      expect(buildLandscapeMock).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+      getRunAgeMsMock.mockReturnValue(60_000);
+    }
   });
 });

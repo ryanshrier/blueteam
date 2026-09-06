@@ -19,6 +19,7 @@ The default URL is `http://127.0.0.1:3000`.
 
 ```bash
 npm test                       # Test suite
+npm run check:brief-eval        # Offline generation, evidence, retry, and accounting stress cases
 npm run test:watch             # Tests in watch mode
 npm run check:secrets          # Credentials in the working tree
 npm run check:history-secrets  # Credentials in reachable branch and tag history
@@ -28,12 +29,48 @@ npm run check:placeholders     # Placeholder slugs in public material
 npm run check:assets           # Referenced assets and package paths
 npm run check:landing          # Landing HTML, links, semantics, metadata, and CSP
 npm run check:landing:render   # Desktop and phone browser smoke test
+npm run check:evidence:render  # Production evidence/Settings fixtures: phone, desktop, light/dark, keyboard
+npm run check:handoff:render   # Production Blob downloads and Chromium PDF; requires Poppler
+npm run check:safari:render    # Actual Safari on macOS through Apple's installed SafariDriver
 npm run check:scoring          # Score invariants and gold-band ordering
 npm run check:release          # Version/date/tag consistency across release surfaces
 npm install-scripts ls --json  # Must report no unreviewed dependency scripts (npm 11.18+)
 ```
 
-Run the focused check for the area being changed, then run `npm test`. The CI policy job runs repository checks once on Linux. The runtime matrix covers Node 22.19, 24, and 26 on Linux; Node 22.19 and 26 on Windows; and Node 26 on Apple Silicon and Intel macOS. Tag builds also require the `vX.Y.Z` tag to match `package.json`, the changelog, the landing page, and the sitemap date.
+Run the focused check for the area being changed, then run `npm test`. The CI policy job runs repository checks once on Linux. The runtime matrix covers Node 22.19, 24, and 26 on Linux; Node 22.19 and 26 on Windows; and Node 26 on Apple Silicon and Intel macOS. The **Release readiness** check succeeds only when repository policy, the entire runtime matrix, and the Safari job succeed, including when an upstream job fails or is skipped. Tag builds also require the `vX.Y.Z` tag to match `package.json`, the changelog, the landing page, and the sitemap date.
+
+Dependabot proposes npm and GitHub Actions updates weekly. Production and major
+dependency changes remain separate proposals; minor and patch development
+updates may share a PR. Review native install-script allowlist entries and
+explicit dependency overrides when updating packages. Update PRs run the same
+checks as other changes and are not automatically merged.
+
+For browser verification without live data or paid generation, run `npm run visual:serve`.
+The [fixture guide](../test/visual/README.md) documents production-app previews,
+all seven Wall types, long/sparse content, failures, recovery, and playback controls.
+
+The evidence smoke test starts its own loopback fixture server and isolated
+Chrome/Chromium/Edge profile. It requires no browser package, real sources,
+database or API key, and fails on browser errors or unexpected external requests.
+Set `CHROME_PATH` if the browser is not found. Set `EVIDENCE_SCREENSHOT_DIR` to an
+output directory for optional PNG review artifacts. The Linux policy job runs
+this gate; it complements rather than completes the broader rendered matrix.
+
+The [handoff acceptance checks](handoff-acceptance.md) verify actual CSV/JSON
+download files and paginates the unchanged production Print Edition document in
+Chromium. CI retains the synthetic files, PDF, every rendered page, and a report
+for review, including when a check fails. A separate macOS Intel job exercises
+the installed Safari application through Apple's WebDriver, recording its actual
+version and screenshots. Release readiness requires that job as well. Native
+print dialogs remain a separate manual acceptance check.
+
+For the new evidence/profile contracts, migration limits and contributor test
+entry points, read [Evidence and relevance](evidence-and-relevance.md) and the
+[roadmap](decision-desk-roadmap.md). Keep exact source observation
+fixtures separate from model prose and analyst judgments. Do not run paid
+generation as a routine test; provider behavior has mocked regression fixtures.
+The [Briefing evaluation guide](brief-evaluation.md) describes the offline stress
+set and a separate, explicitly budgeted live evaluation with synthetic inputs.
 
 ## Repository map
 
@@ -63,8 +100,13 @@ reverse proxy, also set `Content-Security-Policy` with `frame-ancestors 'none'`,
 `Referrer-Policy` response header. Re-run both landing checks after changing the
 page, its metadata, or its asset paths.
 
-Publish the matching GitHub release before the Pages update so the linked
-version badge and release notes resolve atomically. After deployment, verify the
+Validate the exact candidate on a review branch before merging or tagging.
+When Pages publishes from `main/docs`, a merge to `main` also publishes those
+files; it does not wait for a separate CI workflow. Coordinate the release and
+site update so the version badge and release notes point to an available release.
+Use a required **Release readiness** check or an equivalent enforced gate before
+merging; adding the workflow alone does not configure branch protection.
+After deployment, verify the
 canonical URL and social card against the production page, inspect the live
 response headers, and submit `https://blueteam.news/sitemap.xml` through the
 configured search-engine webmaster tools.
@@ -75,9 +117,12 @@ configured search-engine webmaster tools.
 |---|---|
 | `G`, then `B` | Open Briefing |
 | `G`, then `W` | Open Wire |
-| `G`, then `L` | Open Wall |
+| `G`, then `L` | Open Wall with reading/playback controls |
+| `←` / `→` | Wall: previous / next page and pause for reading |
+| `Space` | Wall: pause / resume rotation |
 | `G`, then `S` | Open Settings |
 | `/` | Focus search |
+| `J` / `K` | Wire: next / previous signal |
 | `Ctrl+Enter` | Generate a Briefing |
 | `?` | Open help |
 | `Esc` | Exit the Wall |

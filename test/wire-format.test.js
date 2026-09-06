@@ -1,7 +1,7 @@
 import { describe, test, expect } from '@jest/globals';
 import {
   parseCveData, csvCell, toCsv, CSV_COLUMNS,
-  parseWireQuery, serializeWireUrl, filterSignals, dateMs, sigKey,
+  parseWireQuery, serializeWireUrl, filterSignals, dateMs, sigKey, isFeedStale,
 } from '../public/modules/wire/wire-format.js';
 
 describe('parseCveData', () => {
@@ -131,22 +131,22 @@ describe('toCsv', () => {
 
 describe('parseWireQuery / serializeWireUrl', () => {
   test('no query → all defaults', () => {
-    expect(parseWireQuery('')).toEqual({ horizon: 'all', critical: false, kev: false, unread: false, sort: 'relevance', q: '' });
+    expect(parseWireQuery('')).toEqual({ horizon: 'all', critical: false, kev: false, unread: false, hidden: false, sort: 'relevance', q: '' });
   });
 
   test('valid params are read', () => {
     expect(parseWireQuery('?h=1&critical=1&kev=1&sort=newest'))
-      .toEqual({ horizon: '1', critical: true, kev: true, unread: false, sort: 'newest', q: '' });
+      .toEqual({ horizon: '1', critical: true, kev: true, unread: false, hidden: false, sort: 'newest', q: '' });
   });
 
   // The Unread toggle is deep-linkable, same as critical/kev.
   test('unread param is read', () => {
     expect(parseWireQuery('?unread=1'))
-      .toEqual({ horizon: 'all', critical: false, kev: false, unread: true, sort: 'relevance', q: '' });
+      .toEqual({ horizon: 'all', critical: false, kev: false, unread: true, hidden: false, sort: 'relevance', q: '' });
   });
 
   test('unknown / malformed params fall back to defaults, never throw', () => {
-    expect(parseWireQuery('?h=9&sort=banana')).toEqual({ horizon: 'all', critical: false, kev: false, unread: false, sort: 'relevance', q: '' });
+    expect(parseWireQuery('?h=9&sort=banana')).toEqual({ horizon: 'all', critical: false, kev: false, unread: false, hidden: false, sort: 'relevance', q: '' });
     expect(() => parseWireQuery(null)).not.toThrow();
     expect(() => parseWireQuery(42)).not.toThrow();
   });
@@ -156,7 +156,7 @@ describe('parseWireQuery / serializeWireUrl', () => {
     expect(parseWireQuery('?q=%20%20spaced%20%20').q).toBe('spaced'); // trimmed
     expect(parseWireQuery(`?q=${encodeURIComponent('a'.repeat(200))}`).q).toHaveLength(100);
     expect(parseWireQuery('?q=CVE-2026-1234&h=2'))
-      .toEqual({ horizon: '2', critical: false, kev: false, unread: false, sort: 'relevance', q: 'CVE-2026-1234' });
+      .toEqual({ horizon: '2', critical: false, kev: false, unread: false, hidden: false, sort: 'relevance', q: 'CVE-2026-1234' });
   });
 
   test('serialize omits defaults', () => {
@@ -167,6 +167,14 @@ describe('parseWireQuery / serializeWireUrl', () => {
   test('serialize writes unread=1 only when set', () => {
     expect(serializeWireUrl({ horizon: 'all', unread: false }, 'relevance')).toBe('/wire');
     expect(serializeWireUrl({ horizon: 'all', unread: true }, 'relevance')).toBe('/wire?unread=1');
+  });
+
+  test('Hidden composes with existing deep-linked filters and survives serialization', () => {
+    const query = '?h=2&unread=1&hidden=1&sort=newest&q=synthetic';
+    const parsed = parseWireQuery(query);
+    expect(parsed).toMatchObject({ horizon: '2', unread: true, hidden: true, sort: 'newest', q: 'synthetic' });
+    expect(serializeWireUrl(parsed, parsed.sort)).toBe(`/wire${query}`);
+    expect(parseWireQuery('?hidden=false').hidden).toBe(false);
   });
 
   test('serialize writes q= only when non-empty, trimmed', () => {
@@ -260,6 +268,22 @@ describe('filterSignals', () => {
     expect(filterSignals(items, { unread: false, readKeys }, 'relevance')).toHaveLength(2); // toggle off — readKeys ignored
   });
 
+  test('Hidden selects available dismissed records and preserves unread, search, and sort semantics', () => {
+    const items = [
+      { title: 'Synthetic older', link: 'older', horizon: 2, date: '2026-09-01' },
+      { title: 'Synthetic read', link: 'read', horizon: 2, date: '2026-09-03' },
+      { title: 'Synthetic newer', link: 'newer', horizon: 2, date: '2026-09-02' },
+      { title: 'Visible signal', link: 'visible', horizon: 2, date: '2026-09-04' },
+    ];
+    const dismissedKeys = new Set(['older', 'read', 'newer', 'no-longer-available']);
+    const readKeys = new Set(['read']);
+    expect(filterSignals(items, { hidden: true, dismissedKeys, readKeys, unread: true, q: 'synthetic', horizon: '2' }, 'newest').map(h => h.link))
+      .toEqual(['newer', 'older']);
+    expect(filterSignals(items, { dismissedKeys }).map(h => h.link)).toEqual(['visible']);
+    expect(filterSignals(items, { hidden: true })).toEqual([]);
+    expect([...readKeys]).toEqual(['read']);
+  });
+
   test('dismissedKeys/readKeys default to a no-op when absent', () => {
     const items = [{ title: 'Alpha', link: 'https://a.example/1' }];
     expect(() => filterSignals(items, {}, 'relevance')).not.toThrow();
@@ -283,5 +307,27 @@ describe('dateMs', () => {
     expect(dateMs('')).toBe(0);
     expect(dateMs(null)).toBe(0);
     expect(dateMs('not a date')).toBe(0);
+  });
+});
+
+describe('Wire feed freshness', () => {
+  test('routine snapshot age stays quiet for two hours while slow schedules retain two windows', () => {
+    expect(isFeedStale(45 * 60, 10)).toBe(false);
+    expect(isFeedStale(45 * 60, 30)).toBe(false);
+    expect(isFeedStale(61 * 60, 30)).toBe(false);
+    expect(isFeedStale(90 * 60, 60)).toBe(false);
+    expect(isFeedStale(120 * 60, 10)).toBe(false);
+    expect(isFeedStale(120 * 60 + 1, 10)).toBe(true);
+    expect(isFeedStale(150 * 60, 90)).toBe(false);
+    expect(isFeedStale(181 * 60, 90)).toBe(true);
+  });
+
+  test('fast schedules and missing cadence retain the same warning floor', () => {
+    for (const cadence of [2, undefined, null, 'invalid']) {
+      expect(isFeedStale(19 * 60, cadence)).toBe(false);
+      expect(isFeedStale(120 * 60, cadence)).toBe(false);
+      expect(isFeedStale(120 * 60 + 1, cadence)).toBe(true);
+    }
+    expect(isFeedStale(NaN, 30)).toBe(true);
   });
 });

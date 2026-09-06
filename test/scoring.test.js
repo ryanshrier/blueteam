@@ -77,7 +77,7 @@ describe('scoreHeadline', () => {
     }
     expect(typeof h.scoreRationale).toBe('string');
     expect(h.scoreRationale).toMatch(/KEV-verified/);
-    expect(h.scoreRationale).toContain('reported by 3 distinct sources');
+    expect(h.scoreRationale).toContain('reported by 3 publishers');
   });
 
   test('config axis weights re-rank — emphasizing recency lifts a fresh routine item', () => {

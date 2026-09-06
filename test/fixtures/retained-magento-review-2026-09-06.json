@@ -1,0 +1,181 @@
+{
+  "provenance": {
+    "originalFile": "briefs/brief-2026-09-06-02.manifest.json",
+    "originalManifestSha256": "e8296ffe96a167c92e9c1e212daccb245cb124e9cd1efe924731ad94f7d9cbf1",
+    "originalOutputSha256": "0dc907cce6972666d28df51ba702a6007a623995a3b49699c9ae1cb5abe5592c",
+    "capturedAt": "2026-09-06T15:59:11.924Z",
+    "scope": "Only public Magento source fields and original grounding record; operator profile, configuration and credentials excluded."
+  },
+  "selectedEvidence": [
+    {
+      "index": 10,
+      "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+      "source": "The Hacker News",
+      "url": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+      "publishedAt": "2026-09-05T20:14:47.000Z",
+      "horizon": 1,
+      "passage": {
+        "kind": "article-excerpts",
+        "text": "Prevention Already Failed. What Does Your Monitoring Actually Catch? A 6-day SANS course rebuilds hybrid detection across cloud, endpoint, and network. GMON, Sept 21.",
+        "quality": {
+          "status": "substantive",
+          "substantive": true,
+          "reasons": [
+            "retained-body-detail"
+          ]
+        }
+      },
+      "sourceRevisions": [
+        {
+          "sourceId": "src_928c911a38e1b699ed8b397db8c9a532304583b653436a0c5480c8789f125824",
+          "revisionId": "rev_c8ba174b6c01459c8fe398d0718c811ef3e218926af48683e1f687df610599f9",
+          "source": "The Hacker News",
+          "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+          "canonicalUrl": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+          "passageKind": "feed-excerpt",
+          "changed": true,
+          "publishedAt": "2026-09-05T20:14:47.000Z",
+          "retrievedAt": "2026-09-05T22:43:34.636Z",
+          "firstObservedAt": "2026-09-05T21:07:54.890Z",
+          "lastObservedAt": "2026-09-06T15:57:26.284Z"
+        }
+      ],
+      "groupMembers": [
+        {
+          "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+          "source": "The Hacker News",
+          "url": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+          "publishedAt": "2026-09-05T20:14:47.000Z",
+          "retrievedAt": "2026-09-06T15:57:26.284Z",
+          "sourceUpdatedAt": "",
+          "passage": "Attackers are exploiting a new unpatched vulnerability in Magento Open Source and Adobe Commerce that lets them run malicious code on an online store's server without logging in, Dutch e-commerce security company Sansec said in an advisory published on September 5. Sansec, which discovered the flaw and named it StyleSmuggler, said attacks started on September 4. \"Sansec is",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_928c911a38e1b699ed8b397db8c9a532304583b653436a0c5480c8789f125824",
+              "revisionId": "rev_c8ba174b6c01459c8fe398d0718c811ef3e218926af48683e1f687df610599f9",
+              "source": "The Hacker News",
+              "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+              "canonicalUrl": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+              "passageKind": "feed-excerpt",
+              "changed": true,
+              "publishedAt": "2026-09-05T20:14:47.000Z",
+              "retrievedAt": "2026-09-05T22:43:34.636Z",
+              "firstObservedAt": "2026-09-05T21:07:54.890Z",
+              "lastObservedAt": "2026-09-06T15:57:26.284Z"
+            }
+          ]
+        }
+      ],
+      "eventIdentity": {
+        "eventId": "179bf73d833f8d4d52c65696039c729d5261267220021bcfd4f6ea36e278ad29",
+        "basis": "single-report",
+        "publisherCount": 1,
+        "articleCount": 1,
+        "retainedRecordCount": 1,
+        "independentObservation": "unassessed"
+      },
+      "articleIdentities": [
+        {
+          "articleId": "9eeec10be375e2cad531eca6b5069c09b66a3c2d7fee881e2b2939645a062ae4",
+          "publisherId": "thehackernews.com",
+          "canonicalUrl": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+          "basis": "publisher-url",
+          "evidenceRefs": [
+            {
+              "sourceId": "src_928c911a38e1b699ed8b397db8c9a532304583b653436a0c5480c8789f125824",
+              "revisionId": "rev_c8ba174b6c01459c8fe398d0718c811ef3e218926af48683e1f687df610599f9",
+              "source": "",
+              "title": "",
+              "canonicalUrl": "",
+              "passageKind": "",
+              "changed": false,
+              "publishedAt": "",
+              "retrievedAt": "",
+              "firstObservedAt": "",
+              "lastObservedAt": ""
+            }
+          ]
+        }
+      ],
+      "revisionStatus": "retained-reference",
+      "sources": [
+        "The Hacker News"
+      ],
+      "corroboration": 1,
+      "score": 46,
+      "scoreComponents": {
+        "recency": 0.6339874003247277,
+        "corroboration": 0,
+        "exploitation": 0.85,
+        "severity": 0,
+        "relevance": 0.5249999999999999
+      },
+      "scoreRationale": "Source reports active exploitation · matches your alert rules",
+      "weight": 1,
+      "alertMatched": true,
+      "alertBoost": 5,
+      "enrichment": {
+        "cveData": "",
+        "cvssSeverityText": "",
+        "isKEV": false,
+        "kevCVE": "",
+        "kevDateAdded": "",
+        "epss": null,
+        "urgency": "critical",
+        "articleStale": false,
+        "mitre": [
+          {
+            "id": "T1190",
+            "name": "Exploit Public-Facing App",
+            "tactic": "Initial Access"
+          }
+        ],
+        "actors": [],
+        "vendors": []
+      }
+    }
+  ],
+  "grounding": {
+    "sources": [
+      {
+        "id": "S11.1",
+        "index": 10,
+        "memberIndex": 0,
+        "label": "The Hacker News",
+        "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+        "url": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+        "publishedAt": "2026-09-05T20:14:47.000Z",
+        "evidenceText": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores Prevention Already Failed. What Does Your Monitoring Actually Catch? A 6-day SANS course rebuilds hybrid detection across cloud, endpoint, and network. GMON, Sept 21.",
+        "retrievedAt": "2026-09-06T15:57:26.284Z",
+        "collectionStale": false,
+        "passage": "Prevention Already Failed. What Does Your Monitoring Actually Catch? A 6-day SANS course rebuilds hybrid detection across cloud, endpoint, and network. GMON, Sept 21.",
+        "passageKind": "article-excerpts",
+        "quality": {
+          "status": "substantive",
+          "substantive": true,
+          "reasons": [
+            "retained-body-detail"
+          ]
+        },
+        "cves": [],
+        "sourceRevisions": [
+          {
+            "sourceId": "src_928c911a38e1b699ed8b397db8c9a532304583b653436a0c5480c8789f125824",
+            "revisionId": "rev_c8ba174b6c01459c8fe398d0718c811ef3e218926af48683e1f687df610599f9",
+            "source": "The Hacker News",
+            "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+            "canonicalUrl": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+            "passageKind": "feed-excerpt",
+            "changed": true,
+            "publishedAt": "2026-09-05T20:14:47.000Z",
+            "retrievedAt": "2026-09-05T22:43:34.636Z",
+            "firstObservedAt": "2026-09-05T21:07:54.890Z",
+            "lastObservedAt": "2026-09-06T15:57:26.284Z"
+          }
+        ]
+      }
+    ]
+  },
+  "judgmentEvidence": []
+}

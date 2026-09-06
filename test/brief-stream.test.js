@@ -17,6 +17,28 @@ async function caught(promise) {
 }
 
 describe('readSSEStream error classification', () => {
+  test('a replacement marker resets draft text before progress and later chunks', async () => {
+    const onText = jest.fn();
+    const onReset = jest.fn();
+    const onProgress = jest.fn();
+    const reader = {
+      read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(
+        'data: {"text":"Discarded full draft"}\n\n'
+        + 'data: {"reset":true,"progress":"Retrying","stage":"generating"}\n\n'
+        + 'data: {"text":"Replacement only"}\n\n'
+      ) }).mockRejectedValueOnce(new TypeError('connection lost')),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    };
+    await expect(readSSEStream(responseWithReader(reader), { onText, onReset, onProgress })).rejects.toMatchObject({
+      streamLost: true, accumulatedText: 'Replacement only',
+    });
+    expect(onReset).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith('Retrying', 'generating');
+    expect(onText.mock.calls).toEqual([
+      ['Discarded full draft', 'Discarded full draft'], ['Replacement only', 'Replacement only'],
+    ]);
+  });
+
   test('preserves a server-sent provider error instead of calling it a lost connection', async () => {
     const reader = {
       read: jest.fn().mockResolvedValueOnce({
@@ -61,6 +83,36 @@ describe('readSSEStream error classification', () => {
       validation: { hardFail: false },
     });
     expect(err.streamLost).toBeUndefined();
+  });
+
+  test('preserves the retained recovery artifact through the SSE error boundary', async () => {
+    const draftArtifact = { id: '6bd9f728-c08e-49e7-9470-39cf0a58382c', revisionCount: 1,
+      url: '/api/brief/drafts/6bd9f728-c08e-49e7-9470-39cf0a58382c' };
+    const reader = {
+      read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(`data: ${JSON.stringify({
+        error: 'Required source checks failed; draft retained.', code: 'E006',
+        draft: 'The authoritative rejected attempt', draftArtifact,
+      })}\n\n`) }),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    };
+    const error = await caught(readSSEStream(responseWithReader(reader), {}));
+    expect(error).toMatchObject({ code: 'E006', recoverableDraft: 'The authoritative rejected attempt', draftArtifact });
+    expect(error.streamLost).toBeUndefined();
+    expect(reader.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  test('passes completion disposition and check states unchanged to the consumer', async () => {
+    const completion = { briefComplete: true, text: 'Saved assessment', filename: 'brief-2026-09-06-02.md',
+      disposition: { status: 'review-required', eligibleForLatest: false, reason: 'Material review finding remains.' },
+      sourceCheckStatus: 'passed-supported-checks', editorialReviewStatus: 'not-reviewed' };
+    const onComplete = jest.fn();
+    const reader = {
+      read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(`data: ${JSON.stringify(completion)}\n\n`) }),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    };
+    await readSSEStream(responseWithReader(reader), { onComplete });
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(onComplete).toHaveBeenCalledWith(completion);
   });
 
   test('marks a reader rejection as a lost stream and retains partial text', async () => {

@@ -38,6 +38,7 @@ describe('config — last-known-good on rejected reload', () => {
     expect(config.trustedFeeds).toHaveLength(1);
     expect(config.analysisSettings.maxEPSSLookups).toBe(20);
     expect(config.analysisSettings.model).toBe('claude-haiku-4-5');
+    expect(config.analysisSettings.thinkingEffort).toBe('low');
     expect(config.analysisSettings.horizonWeights).toEqual({ horizon1: 0.45, horizon2: 0.4, horizon3: 0.15 });
     expect(config.analysisSettings.scoring.axisWeights.exploitation).toBe(0.28);
     expect(config.analysisSettings.webhook).toEqual({ url: '', format: 'slack', events: 'alerts' });
@@ -49,6 +50,24 @@ describe('config — last-known-good on rejected reload', () => {
     writeFileSync(configPath, validConfigJSON({ analysisSettings: { maxEPSSLookups: 7 } }));
     initConfig(configPath);
     expect(getConfig().analysisSettings.maxEPSSLookups).toBe(7);
+  });
+
+  test('preserves an explicit thinking setting and operator generation budgets', () => {
+    writeFileSync(configPath, validConfigJSON({ analysisSettings: { thinkingEffort: 'medium', maxTokens: 16000, generationTimeoutSec: 300 } }));
+    initConfig(configPath);
+    expect(getConfig().analysisSettings).toMatchObject({ thinkingEffort: 'medium', maxTokens: 16000, generationTimeoutSec: 300 });
+  });
+
+  test('accepts bounded optional unified watch defaults without replacing the legacy organization', () => {
+    writeFileSync(configPath, validConfigJSON({ watchProfile: { technologies: [' C++ ', 'c++'], preferredHorizons: [2] } }));
+    initConfig(configPath);
+    expect(getConfig().watchProfile).toEqual({ technologies: ['C++'], preferredHorizons: [2] });
+    expect(getConfig().organization.profile).toBe('Enterprise cyber defense team');
+  });
+
+  test('rejects unsupported watch profile exposure claims and unbounded terms', () => {
+    writeFileSync(configPath, validConfigJSON({ watchProfile: { technologies: ['x'.repeat(65)], confirmedExposure: true } }));
+    expect(() => initConfig(configPath)).toThrow(/Cannot start with an invalid config/);
   });
 
   test('first load fails closed on validation failure', () => {

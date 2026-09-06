@@ -1,5 +1,87 @@
 # Changelog
 
+## 1.1.0 — 2026-09-06
+
+### Evidence and assessment review
+
+- Separate original generation findings from supported checks on the corrected
+  reading copy, preserving the original receipt and correction history.
+- Simplify Briefing to Overview and Full report, expose every assessment, and
+  preserve paired response actions in generated executive previews.
+- Make the header and automatic Wall follow the selected light/dark theme.
+  Recompose the Wall opening and refine the shared Print Edition typography.
+
+- Add a watch profile, retained source excerpts and revision comparisons, and
+  explanations of literal relevance matches while keeping local exposure unknown.
+- Preserve each publisher's passage, URL, and publication date through grouping.
+  Keep NVD enrichment separate and require its own citation for NVD-only facts.
+- Save bounded generation-input receipts beside new Briefings, including source
+  references, configuration, provider attempts, and validation results. Existing
+  editions remain readable without invented historical receipts.
+- Require populated decision fields and matching citation identities before new
+  publication; strengthen bounded CVE, CVSS, version, and KEV checks. Freeform
+  narrative and organizational applicability still require analyst review.
+- Classify retained evidence quality, recover useful same-publisher feed text
+  from unusable article openings, and stop weak-only inputs before provider spend.
+  Flag bounded unsupported durations, comparisons, and contradictory list counts.
+- Preserve historical citations and warnings across Briefing, Wall, and Print
+  Edition. Add Wire Hidden recovery, evidence inspection, and Settings health
+  diagnostics, with keyboard and storage-failure handling.
+
+### Security and operational reliability
+
+- Close the mixed-case API path bypass in browser-origin and content-type guards;
+  enforce the configured proxy trust predicate and support local HTTP CSP.
+- Preserve last-good settings and block overwriting an unreadable settings file.
+  Include actual storage failures in readiness diagnostics.
+- Split Slack alerts into complete bounded messages and checkpoint only
+  successfully delivered items.
+- Keep scheduled retries attached to their original edition across midnight and
+  restart, and order latest/history views by publication time.
+- Persist bounded generation-attempt accounting so interrupted work reports
+  unknown final usage without automatically replaying a possibly paid request.
+- Use low thinking effort by default within the existing 16,000-token cap and
+  300-second deadline. Preserve explicit operator settings; output-limit recovery
+  lowers effort once and keeps incomplete output as a recoverable draft.
+- Drain refresh, KEV loading, alert delivery, and scheduled-generation accounting
+  before closing storage during shutdown; prevent schedule rearming while stopping.
+
+### Collection and release maintenance
+
+- Scan more feed entries with visible truncation, retain publisher observation
+  times through outages, and gate generation on prompt-visible fresh evidence.
+  Final collection selection remains bounded to 50 signals.
+- Expose enrichment failures, apply cached ranking context before selection,
+  improve grouping/taxonomy, and preserve first-observation scoring snapshots.
+- Update affected dependencies, add weekly dependency-update proposals, and
+  combine repository policy and supported-runtime jobs into a release gate.
+- Add offline Briefing evaluation, actual CSV/JSON download checks, Chromium
+  Print Edition PDF inspection, and an actual Safari gate on macOS CI. Native
+  print dialogs remain a manual acceptance check.
+- Keep parallel Print Edition summary columns together when they fit on a page.
+- Keep public evidence guidance and a concise roadmap separate from working
+  audit records. Wire filters do not curate Briefing inputs. Analyst decision
+  records persist in this browser; exported handoffs include their context. They
+  do not synchronize between users or devices.
+
+### Known generation limitations
+
+Generated Briefings require analyst review. The final live rehearsal still
+needed corrections to aggregate counts, action conditions, and event-timeline
+inferences. Automated checks cover bounded claim forms, not every narrative
+claim. Rejected drafts and their captured inputs can be inspected, repaired,
+and revalidated without another provider call; revalidation does not publish
+the draft. The marketing screenshots use an earlier editorially reviewed edition.
+
+### Upgrade
+
+Stop the server and back up `data/`, `briefs/`, `config.json`, and protected
+secrets before updating. Startup migrates the v1.0.3 database from schema 7 to 9;
+new evidence history starts with subsequent collection. Reinstall dependencies
+for the supported Node runtime in use. Roll back with the prior code **and** its
+matching pre-upgrade backup, never by opening the upgraded database with older
+code. See [Upgrade and rollback](docs/operations.md#upgrade-and-rollback).
+
 ## 1.0.3 — 2026-07-29
 
 ### Briefing reliability and control

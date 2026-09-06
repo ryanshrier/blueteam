@@ -2,12 +2,38 @@ import { describe, test, expect } from '@jest/globals';
 import {
   buildActorLeaderboard, buildRegionActivity,
   buildVendorExposure, buildConvergenceClusters, buildWatchTopicHits,
-  pipelineStaleAfterMs,
+  pipelineStaleAfterMs, buildLandscape,
 } from '../lib/landscape.js';
 import { tagMitre, buildMitreHeatmap } from '../lib/mitre.js';
 import { getDomainPack, setDomainPack } from '../lib/domain.js';
 import { cyberPack } from '../config/domains/cyber.js';
 import { macroPack } from './fixtures/macro-profile.js';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { initConfig, stopConfigWatch, _resetForTests } from '../lib/config.js';
+
+test('Wall landscape retains the complete source description including its final required action', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'wf-landscape-content-'));
+  try {
+    const configPath = join(directory, 'config.json');
+    writeFileSync(configPath, JSON.stringify({ trustedFeeds: [] }));
+    initConfig(configPath);
+    stopConfigWatch();
+    const description = 'Synthetic source context for a controlled regression fixture. '.repeat(8)
+      + 'Required action: isolate the affected service and notify incident command before the next shift.';
+    const result = buildLandscape({
+      generatedAt: '2026-09-04T15:00:00Z',
+      headlines: [{ title: 'Synthetic operational reporting', description, horizon: 1, score: 70, source: 'Fixture publisher' }],
+    });
+    expect(result.signals[0].description).toBe(description);
+    expect(result.horizons[1].spotlight.description).toBe(description);
+  } finally {
+    stopConfigWatch();
+    _resetForTests();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 // buildLandscape gates the cyber-flavoured panels on this
 // pack declaration, so a non-cyber edition surfaces none of them. Guards that the

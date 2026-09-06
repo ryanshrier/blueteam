@@ -1,56 +1,73 @@
 /* ============================================
    BLUE TEAM — Design tokens (product: BlueTeam.News)
-   Horizon colors are load-bearing: they map 1:1 to the
-   three-tier data model everywhere (the operator UI and the Wall).
+   Shared surfaces, typography and interaction roles.
+   Tier classifications use neutral labels; warning states carry color.
    ============================================ */
 
 :root {
+  color-scheme: dark;
   /* Brand — IBM-blue, one accent across every surface (app, Wall, landing). */
   --brand: #3b82f6;
   --brand-rgb: 59, 130, 246;
   --brand-dim: rgba(var(--brand-rgb), 0.14);
   --brand-glow: rgba(var(--brand-rgb), 0.28);
   --ink-on-brand: #04101f;        /* dark ink for text on a brand-blue fill */
-  --brand-text: var(--brand);     /* brand AS TEXT; light theme darkens this for AA — the fill token stays bright */
+  --brand-text: #9bbcff;          /* interactive text, lifted for dark reading surfaces */
 
-  /* Surfaces — deep navy-black, not flat black */
-  --bg-primary: #070a12;
-  --bg-secondary: #0c1019;
-  --bg-tertiary: #131826;
-  --bg-card: #0e1320;
-  --bg-elevated: #161c2c;
-  --bg-overlay: rgba(4, 6, 10, 0.78);
-  --border: rgba(255, 255, 255, 0.09);
-  --border-subtle: rgba(255, 255, 255, 0.05);
+  /* Neutral surfaces: graphite chrome, an analytical canvas, and a reading ground. */
+  --bg-primary: #14171b;
+  --bg-secondary: #1a1e23;
+  --bg-tertiary: #252a30;
+  --bg-card: #1c2026;
+  --bg-elevated: #292d32;
+  --bg-navigation: #202226;
+  --text-navigation: #f2f1ed;
+  --text-navigation-muted: #b6b8bc;
+  --link-navigation: #9bbcff;
+  --border-navigation: #42464b;
+  --bg-reading: #20252b;
+  --bg-analysis: var(--bg-primary);
+  --bg-overlay: rgba(4, 6, 10, 0.68);
+  --border: rgba(255, 255, 255, 0.17);
+  --border-subtle: rgba(255, 255, 255, 0.11);
+  --bg-input: #15191e;
+  --border-control: #7b828b;
+  /* Persistent selection, temporary hover, text selection, and evidence edits
+     have separate roles. Opaque fills make their contrast predictable. */
+  --bg-selected: #202c3c;
+  --bg-hover: #20252b;
+  --bg-text-selection: #334965;
+  --text-selection: #ffffff;
+  --bg-diff-added: #223b32;
+  --bg-diff-removed: #422b31;
+  --text-diff: #f0f0ed;
+  --mark-added: #a1d6bc;
+  --mark-removed: #f2b4b9;
 
   /* Text */
-  --text-primary: #e8edf8;
-  --text-secondary: #a3adc4;
-  /* Lifted from #6e7890 (~4.48:1, a hair under AA) to clear 4.5:1 on
-     bg-primary. This token carries normal-size prose (view-sub, wire-empty,
-     inactive nav), not just decoration, so it must hold the body floor. Kept a
-     clear step below text-secondary. Verified by check-contrast.mjs. */
-  --text-tertiary: #79839d;
-  --text-muted: #7b86a0;   /* ~5.4:1 on bg-primary — carries operational data (KEV due dates, timestamps) */
+  --text-primary: #f0f0ed;
+  --text-secondary: #b9bdc3;
+  /* Secondary supports reading; tertiary describes controls; muted is reserved
+     for short supporting facts. All three retain normal-text contrast. */
+  --text-tertiary: #a1a7b0;
+  --text-muted: #969ba3;
   --text-bright: #ffffff;
 
-  /* Tier colors (load-bearing): T1 red (Tactical/urgent) → T2 amber
-     (Operational) → T3 violet (Strategic). A deliberate near→far urgency
-     gradient. CVSS severity hues are decoupled below so a tier recolor can't
-     shift them. */
-  --h1: #f87171;
+  /* Compatibility hues for existing warning/export consumers. Product tier
+     labels and rails use text/border tokens rather than these colors. */
+  --h1: #ff918b;
   --h1-rgb: 248, 113, 113;
   --h2: #fbbf24;
   --h2-rgb: 251, 191, 36;
-  --h3: #a78bfa;
-  --h3-rgb: 167, 139, 250;
+  --h3: #b9bdc3;
+  --h3-rgb: 185, 189, 195;
 
   /* Soft tier variants — muted tints for submeta/age so tier "mood" can
      recede where it's context, not command; the strategic glow lives on h3. */
   --h1-soft: #fca5a5;
   --h2-soft: #fcd34d;
-  --h3-soft: #c4b5fd;
-  --h3-glow: rgba(167, 139, 250, 0.18);
+  --h3-soft: #d0d2d5;
+  --h3-glow: rgba(185, 189, 195, 0.12);
 
   /* Dark ink for text/labels sitting ON a tier-color fill (the active Wire
      filter pills). Hand-tuned per hue — each clears legibility on its own bright
@@ -72,13 +89,13 @@
   /* CVSS severity — decoupled from the tier palette so a tier recolor never
      shifts a severity hue. Low keeps the cool teal freed by the 3-tier move;
      medium amber, high orange, critical red. */
-  --sev-low: #06b6d4;
-  --sev-low-rgb: 6, 182, 212;
+  --sev-low: #b9bdc3;
+  --sev-low-rgb: 185, 189, 195;
   --sev-medium: #fbbf24;
   --sev-medium-rgb: 251, 191, 36;
-  --sev-high: #fb923c;
+  --sev-high: #f2bb78;
   --sev-high-rgb: 251, 146, 60;
-  --sev-critical: #ef4444;        /* saturated danger red — distinct from the soft coral tier red (--h1) so a critical CVSS never reads as a Tactical tier */
+  --sev-critical: #ff918b;        /* labeled critical state */
   --sev-critical-rgb: 239, 68, 68;
 
   /* Semantic aliases. --alert is the danger/condition red — the saturated severity
@@ -92,7 +109,7 @@
      (--warn, a distinctly oranger caution) — so a stale/degraded readout can never
      read as an Operational tier or a HIGH severity. Sits between --sev-medium and
      --sev-high (#fb923c) on the amber→orange run. */
-  --warn: #f59e0b;
+  --warn: #efbf70;
   --warn-rgb: 245, 158, 11;
 
   --accent-green: #34d399;
@@ -120,15 +137,21 @@
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
   --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
 
-  --type-3xs: 9px;    /* micro annotation: the KEV timeline date-ends only — smallest legible tabular label */
-  --type-2xs: 10px;   /* canonical micro-label: mono chips, kickers, badges */
-  --type-xs: 11px;
-  --type-sm: 13px;
-  --type-base: 15px;
-  --type-md: 17px;
-  --type-lg: 20px;
-  --type-xl: 28px;
-  --type-2xl: 34px;   /* operator-UI display: view titles, section heads — the scale's ceiling in use */
+  /* Interface roles follow the reader's default text size. Keep micro labels
+     above the former 9–10px sizes; the Wall retains its fluid display ladder. */
+  --type-3xs: 0.75rem;
+  --type-2xs: 0.75rem;
+  --type-xs: 0.75rem;
+  --type-sm: 0.875rem;
+  --type-base: 0.9375rem;
+  --type-md: 1.0625rem;
+  --type-lg: 1.25rem;
+  --type-xl: 1.75rem;
+  --type-2xl: 2.125rem;
+  --type-page: 1.875rem;
+  --type-control: 0.875rem;
+  --type-label: 0.8125rem;
+  --type-reading: 1.125rem;
 
   /* Fluid display ladder — the Wall's broadsheet voice, named so every headline
      role references the SYSTEM, not a raw inline clamp. vw/vh-fluid for a 16:9
@@ -144,9 +167,8 @@
   --fluid-dek:     clamp(15px, 1.15vw, 20px);  /* deks · supporting */
   --fluid-kicker:  clamp(12px, 0.95vw, 16px);  /* mono kickers · chips · labels */
 
-  /* Type VOICE RULE (enforced across surfaces): SERIF = human editorial judgment
-     (headlines, standfirst, body, the brief); MONO = system-observed fact (CVE,
-     CVSS, scores, timestamps, KEV clocks); SANS = interaction / chrome (UI, nav). */
+  /* Sans carries the product's editorial and interface text. Mono is reserved
+     for identifiers, indicators, and timestamps. Serif remains available to print. */
 
   /* Leading ladder: display = punchy headlines, scan = rows/metadata, body =
      long-form prose. (tight/normal/relaxed retained as aliases below.) */
@@ -157,24 +179,25 @@
   --leading-normal: 1.55;
   --leading-relaxed: 1.7;
 
-  --radius: 12px;
-  --radius-sm: 9px;
-  --radius-pill: 999px;
+  --radius: 0px;
+  --radius-sm: 0px;
+  --radius-pill: 0px;
+  --radius-control: 3px;
 
   /* Shadow language — a named depth vocabulary, not three opaque scales:
      intimate (close/urgent — cards demanding focus), spatial (the working
      surface — sheets, lists), distant (overlays/popovers). sm/md/lg kept as
      aliases so existing call-sites don't break mid-migration. */
-  --shadow-intimate: 0 4px 12px rgba(0, 0, 0, 0.3);
-  --shadow-spatial:  0 8px 24px rgba(0, 0, 0, 0.35);
-  --shadow-distant:  0 16px 40px rgba(0, 0, 0, 0.45);
+  --shadow-intimate: 0 2px 6px rgba(0, 0, 0, 0.16);
+  --shadow-spatial:  0 4px 12px rgba(0, 0, 0, 0.2);
+  --shadow-distant:  0 8px 24px rgba(0, 0, 0, 0.24);
   --shadow-sm: var(--shadow-intimate);
   --shadow-md: var(--shadow-spatial);
   --shadow-lg: var(--shadow-distant);
 
   /* Focus + selection are pinned to brand-blue and NOT overridden by a custom
      accent — keyboard/kiosk focus must stay one stable hue, never a signal color. */
-  --focus: #3b82f6;
+  --focus: #93c5fd;
   --selection-rgb: 59, 130, 246;
   /* The 2px inner gap is a token so focusable controls on lighter grounds
      (cards, overlays) can override it to blend, instead of painting a dark-navy halo. */
@@ -190,11 +213,10 @@
   --normal: 220ms;
   --slow: 360ms;
 
-  /* Tier-tempo: urgency carried in cadence — Tactical moves fast, Strategic
-     slow — so a signal's class is felt in how it arrives, not just its colour. */
-  --tempo-h1: 320ms;
-  --tempo-h2: 480ms;
-  --tempo-h3: 680ms;
+  /* A brief, consistent cue marks new data across classifications. */
+  --tempo-h1: 180ms;
+  --tempo-h2: 180ms;
+  --tempo-h3: 180ms;
 
   /* 8px spacing scale (shared with the Wall) */
   --s1: 4px;
@@ -208,6 +230,8 @@
   --s9: 96px;
 
   --header-height: 54px;
+  --workspace-width: 1600px;
+  --workspace-gutter: clamp(16px, 2.2vw, 32px);
   --measure: min(760px, 94vw);
   --measure-wide: min(1100px, 94vw);
   --measure-editorial: 68ch;    /* long-form reading column (Wall body, Briefing) */
@@ -235,37 +259,56 @@
 }
 
 /* ============================================
-   Light theme — operator surfaces (header, Wire, Briefing, Settings).
-   Opt-in via [data-theme="light"] on <html>. The Wall keeps its
-   watchfloor broadsheet palette regardless — wall.css pins its own copy
-   of every token darkened below so the operator's light-theme choice can
-   never leak into the TV display.
+   Light theme — header, Wire, Briefing, Settings and Wall.
+   Opt-in via [data-theme="light"] on <html>. Wall-specific display
+   tokens follow the same theme in wall.css, including automatic playback.
    ============================================ */
 :root[data-theme="light"] {
+  --bg-navigation: #eae9e4;
+  --text-navigation: #202226;
+  --text-navigation-muted: #50565e;
+  --link-navigation: #1d4ed8;
+  --border-navigation: rgba(15, 23, 42, 0.16);
   color-scheme: light;
+  --focus: #1d4ed8;
+  --ink-on-h1: #ffffff;
+  --ink-on-h2: #ffffff;
+  --ink-on-h3: #ffffff;
 
-  --bg-primary: #f5f7fb;
-  --bg-secondary: #eef1f7;
-  --bg-tertiary: #e5e9f1;
-  --bg-card: #ffffff;
+  --bg-primary: #f1f0ec;
+  --bg-secondary: #eae9e4;
+  --bg-tertiary: #e2e1db;
+  --bg-card: #faf9f6;
+  --bg-reading: #fffefa;
   --bg-elevated: #ffffff;
-  --bg-overlay: rgba(15, 23, 42, 0.42);
+  --bg-overlay: rgba(25, 29, 36, 0.32);
   --border: rgba(15, 23, 42, 0.12);
   --border-subtle: rgba(15, 23, 42, 0.07);
+  --bg-input: #ffffff;
+  --border-control: #73787e;
+  --bg-selected: #e5ebf4;
+  --bg-hover: #e9e8e3;
+  --bg-text-selection: #c8d9f4;
+  --text-selection: #182c49;
+  --bg-diff-added: #e0eee5;
+  --bg-diff-removed: #f4e2e5;
+  --text-diff: #222428;
+  --mark-added: #2c6348;
+  --mark-removed: #893943;
 
-  --text-primary: #0f1729;
-  --text-secondary: #3a465c;
-  --text-tertiary: #5b6781;
-  --text-muted: #51607a;   /* ~5.3:1 on bg-primary */
+  --text-primary: #222428;
+  --text-secondary: #4f5359;
+  --text-tertiary: #565c63;
+  --text-muted: #5d6268;
   --text-bright: #000000;
 
   /* Brand AS TEXT must clear AA on near-white; the fill (--brand) stays bright.
      Custom accents get a per-accent darkened value computed in theme.js. */
   --brand-text: #1d4ed8;   /* 6.7:1 on #ffffff */
 
-  --shadow-intimate: 0 4px 12px rgba(15, 23, 42, 0.08);
-  --shadow-spatial:  0 8px 24px rgba(15, 23, 42, 0.10);
-  --shadow-distant:  0 16px 40px rgba(15, 23, 42, 0.14);
+  --shadow-intimate: 0 2px 6px rgba(20, 22, 25, 0.05);
+  --shadow-spatial:  0 4px 12px rgba(20, 22, 25, 0.08);
+  --shadow-distant:  0 8px 24px rgba(20, 22, 25, 0.12);
   --shadow-sm: var(--shadow-intimate);
   --shadow-md: var(--shadow-spatial);
   --shadow-lg: var(--shadow-distant);
@@ -287,16 +330,16 @@
      darken-until-AA treatment as --brand-text, anchored to --bg-tertiary
      (#e5e9f1, the darkest light surface — worst case for dark text), not pure
      white. Hue preserved, lightness pulled down; verified by check-contrast.mjs.
-     The Wall is unaffected — wall.css pins its own copy of each token. */
-  --h1: #a44b4b;
-  --h2: #826212;
-  --h3: #6f5ca5;
-  --sev-low: #066f81;
-  --sev-medium: #826212;
-  --sev-high: #995825;
-  --sev-critical: #ba3535;
+     Wall display equivalents are defined in wall.css. */
+  --h1: #963f3f;
+  --h2: #74560c;
+  --h3: #4f5359;
+  --sev-low: #4f5359;
+  --sev-medium: #74560c;
+  --sev-high: #895020;
+  --sev-critical: #a82d2d;
   --kev-text: #83555a;
-  --on-h1-soft: #795e5e;
+  --on-h1-soft: #745959;
   /* The condition amber AS TEXT (.wire-meta.stale, the Wall STALE readout via
      inheritance) fell far below AA on the near-white grounds at the dark-mode
      #f59e0b. Darkened until it clears ≥4.5:1 on --bg-tertiary (#e5e9f1, the darkest

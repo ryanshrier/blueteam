@@ -70,6 +70,54 @@ describe('dispatchAlerts', () => {
     expect(stored.length).toBe(1);
   });
 
+  test('all 50 alert titles and links are visible in bounded Slack blocks', async () => {
+    safeFetchMock.mockResolvedValue(okResponse());
+    const items = Array.from({ length: 50 }, (_, i) => headline({ title: `Alert ${i}: ${'details '.repeat(40)}`, link: `https://example.com/${i}` }));
+    await dispatchAlerts(items, configWithWebhook());
+    const bodies = safeFetchMock.mock.calls.map(([, options]) => JSON.parse(options.body));
+    const visible = bodies.flatMap(body => body.blocks).map(block => block.text.text).join('\n');
+    for (const item of items) {
+      expect(visible).toContain(item.title);
+      expect(visible).toContain(item.link);
+    }
+    for (const body of bodies) {
+      expect(body.blocks.length).toBeLessThanOrEqual(50);
+      expect(body.blocks.every(block => block.text.text.length <= 3000)).toBe(true);
+    }
+    expect(JSON.parse(getMeta('alert_sent_keys'))).toHaveLength(50);
+  });
+
+  test('a failed later Slack batch records only delivered alerts and retries the remainder', async () => {
+    safeFetchMock.mockResolvedValueOnce(okResponse()).mockResolvedValueOnce(okResponse(503));
+    const items = Array.from({ length: 50 }, (_, i) => headline({ title: `Batch alert ${i}: ${'details '.repeat(40)}` }));
+    await dispatchAlerts(items, configWithWebhook());
+    const deliveredCount = JSON.parse(getMeta('alert_sent_keys')).length;
+    expect(deliveredCount).toBeGreaterThan(0);
+    expect(deliveredCount).toBeLessThan(50);
+    const firstBatch = JSON.parse(safeFetchMock.mock.calls[0][1].body).blocks.map(block => block.text.text).join('\n');
+    expect(firstBatch).toContain(items[deliveredCount - 1].title);
+    expect(firstBatch).not.toContain(items[deliveredCount].title);
+    safeFetchMock.mockReset().mockResolvedValue(okResponse());
+    await dispatchAlerts(items, configWithWebhook());
+    const retried = safeFetchMock.mock.calls.flatMap(([, options]) => JSON.parse(options.body).blocks).map(block => block.text.text).join('\n');
+    expect(retried).not.toContain(items[0].title);
+    expect(retried).toContain(items[deliveredCount].title);
+    expect(JSON.parse(getMeta('alert_sent_keys'))).toHaveLength(50);
+  });
+
+  test('an oversized alert is fully visible across chunks and remains retryable until its last chunk succeeds', async () => {
+    const item = headline({ title: `Long ${'🛡'.repeat(9000)} tail` });
+    safeFetchMock.mockResolvedValueOnce(okResponse()).mockResolvedValueOnce(okResponse(500));
+    await dispatchAlerts([item], configWithWebhook());
+    expect(getMeta('alert_sent_keys')).toBeNull();
+    safeFetchMock.mockReset().mockResolvedValue(okResponse());
+    await dispatchAlerts([item], configWithWebhook());
+    const sections = safeFetchMock.mock.calls.flatMap(([, options]) => JSON.parse(options.body).blocks.slice(1));
+    expect(sections.map(block => block.text.text).join('')).toContain(item.title);
+    expect(sections.every(block => block.text.text.length <= 3000)).toBe(true);
+    expect(JSON.parse(getMeta('alert_sent_keys'))).toHaveLength(1);
+  });
+
   test('second run skips already-sent keys (title-key dedup across runs)', async () => {
     safeFetchMock.mockResolvedValue(okResponse(200));
     await dispatchAlerts([headline()], configWithWebhook());

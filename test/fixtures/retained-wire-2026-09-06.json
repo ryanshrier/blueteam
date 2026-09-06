@@ -1,0 +1,399 @@
+{
+  "provenance": {
+    "manifest": "briefs/brief-2026-09-06-01.manifest.json",
+    "sha256": "91a7bf8c327c7900a7a34e27fdb955e62999b43ae51da75efdf8ef6950741c9b",
+    "scope": "Public retained publisher fields only; original group membership is preserved to replay the audited defects."
+  },
+  "selectedEvidence": [
+    {
+      "index": 0,
+      "title": "CISA Adds One Known Exploited Vulnerability to Catalog",
+      "source": "CISA Advisories",
+      "url": "https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog",
+      "publishedAt": "2026-09-04T12:00:00.000Z",
+      "horizon": 1,
+      "weight": 1.5,
+      "groupMembers": [
+        {
+          "title": "CISA Adds One Known Exploited Vulnerability to Catalog",
+          "source": "CISA Advisories",
+          "url": "https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog",
+          "publishedAt": "2026-09-04T12:00:00.000Z",
+          "passage": "CISA has added one new vulnerability to its Known Exploited Vulnerabilities (KEV) Catalog, based on evidence of active exploitation. CVE-2026-85046 Google Chromium V8 Type Confusion Vulnerability This type of vulnerability is a frequent attack vector for malicious cyber actors and poses significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requirements for Federal Civilian Executive Branch (FCEB) agencies. BOD 26-04 reinforces the importance of the KEV Catalog and requires federal agencies to prioritize rapid remediation of high-risk vulnerabilities, specifically those identified by Common Vulnerabilities and Exposures (CVEs) listed in CISA’s KEV Catalog on publicly exposed assets that grant total control of the asset post-exploitation, while deferring action for lower-risk vulnerabilities. BOD 26-04 further establishes basic expectations for when agencies must check whether threat actors compromised the system before the patch was applied. While BOD 26-04 applies only to FCEB agencies, CISA encourages all organizations to adopt risk-based vulnerability management and prioritize remediation of KEV Catalog vulnerabilities. CISA will continue to add vulnerabilities to the catalog that meet the specified criteria. Aware of an exploited vulnerability not currently listed in the KEV Catalog? Submit it for potential addition through CISA’s KEV Nomination Form. Potential KEV additions must have a CVE ID, evidence of exploitation, and clear mitigation guidance.",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_38f9631027195847f9305f8beb9c28370feac4a2fa5cca0ce29f863155554bed",
+              "revisionId": "rev_7c6ebc0452a76fbdc4ac14e349c114c9fd6bfb10b58cfc38e5b669cac0955c1d"
+            }
+          ]
+        },
+        {
+          "title": "Google security advisory (AV26-883) – Update 1",
+          "source": "CCCS",
+          "url": "https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883",
+          "publishedAt": "2026-09-04T17:21:27.000Z",
+          "passage": "Serial Number: AV26-883 Date: September 4, 2026 As of September 3, 2026, Google is affected by vulnerabilities in the following product: Chrome Prior to 152.0.7977.82 Google is aware that an exploit for CVE-2026-85046 exists in the wild. Update 1 On September 4, 2026, Cybersecurity and Infrastructure Security Agency (CISA) added CVE-2026-85046 to their Known Exploited Vulnerabilities (KEV) Database. The Cyber Centre encourages users and administrators to review the provided web links and apply any necessary updates as they become available. Stable Channel Update for Desktop CISA KEV: CVE-2026-85046",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_231fc2626681f4e5cc9c45d0c2931eab5b9ff7213ea147fbc3969aa90769807c",
+              "revisionId": "rev_54da0258c6281911c5ee5eb3f9bd7feb2bcc29c02ccb7441544d6552ddd3c9d8"
+            }
+          ]
+        },
+        {
+          "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046)",
+          "source": "Help Net Security",
+          "url": "https://www.helpnetsecurity.com/2026/09/04/google-chrome-zero-day-cve-2026-85046/",
+          "publishedAt": "2026-09-04T12:09:13.000Z",
+          "passage": "Google has patched 12 vulnerabilities affecting its popular Chrome browser, among them CVE-2026-85046, which has been exploited in the wild. “Google is aware that an exploit for CVE-2026-85046 exists in the wild,” the company said in a Thursday security advisory. The fix has been shipped in Chrome 152.0.7977.82/.83 for Windows and macOS and Chrome 152.0.7977.82 for Linux, with the update rolling out to users over the coming days and weeks. About CVE-2026-85046 CVE-2026-85046 (CVSS score: … More → The post Google patches actively exploited Chrome zero-day (CVE-2026-85046) appeared first on Help Net Security.",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_1498dd5f61061b0b285a948ee9531541125887f6133c8d949098d3f7fcc79d56",
+              "revisionId": "rev_b0e224e05c7cc69d82c655105e0b2033c620588fa943491e131173531828d429"
+            }
+          ]
+        },
+        {
+          "title": "Google Releases Chrome Update to Patch Actively Exploited V8 Zero-Day",
+          "source": "The Hacker News",
+          "url": "https://thehackernews.com/2026/09/google-releases-chrome-update-to-patch.html",
+          "publishedAt": "2026-09-04T07:18:47.000Z",
+          "passage": "Google on Thursday released security updates to patch 12 vulnerabilities, including one that has come under active exploitation in the wild. The high-severity vulnerability, tracked as CVE-2026-85046 (CVSS score: 8.8), has been described as a type confusion bug in V8, Chrome's JavaScript and WebAssembly engine. \"Type confusion in V8 in Google Chrome prior to 152.0.7977.82 allowed a remote",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_1987682379c2806d78c8959949ba5a541ddbd90db66e38a898b60bf91b997a49",
+              "revisionId": "rev_cb87f11249c2ab8b2f90cf21c33299112aba89bf77d75b8d3a706a3ba4f602ae"
+            }
+          ]
+        },
+        {
+          "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - Help Net Security",
+          "source": "Help Net Security",
+          "url": "",
+          "publishedAt": "2026-09-04T12:09:13.000Z",
+          "passage": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - Help Net Security",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_33b4551d02d15b198398d38ea85437e30a278c6e1a20537f1e3fdbfe6c1aa32c",
+              "revisionId": "rev_b91bc4b1aeabcc295c252156caa8a1810bf715ad30acc312db90da53a1e15a59"
+            }
+          ]
+        },
+        {
+          "title": "CISA Adds Google Chromium Flaw to Known Exploited Vulnerabilities Catalog - Technobezz",
+          "source": "Technobezz",
+          "url": "",
+          "publishedAt": "2026-09-04T18:42:57.000Z",
+          "passage": "CISA Adds Google Chromium Flaw to Known Exploited Vulnerabilities Catalog - Technobezz",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_0fa3af9765139e04d9935c1f874d641f0e1364f67c5decafff54f66dff560822",
+              "revisionId": "rev_bafb805f2c0bec2ba70d2a8160997de84a218d66456bda402d3f9ceae44c4118"
+            }
+          ]
+        }
+      ],
+      "enrichment": {
+        "isKEV": true,
+        "kevCVE": "CVE-2026-85046",
+        "vendors": [
+          "Google"
+        ]
+      }
+    },
+    {
+      "index": 5,
+      "title": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild",
+      "source": "Rapid7",
+      "url": "https://www.rapid7.com/blog/post/etr-critical-sonicwall-sma1000-vulnerabilities-cve-2026-83548-cve-2026-83549-exploited-in-the-wild",
+      "publishedAt": "2026-09-02T16:58:45.000Z",
+      "horizon": 1,
+      "weight": 1.2,
+      "groupMembers": [
+        {
+          "title": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild",
+          "source": "Rapid7",
+          "url": "https://www.rapid7.com/blog/post/etr-critical-sonicwall-sma1000-vulnerabilities-cve-2026-83548-cve-2026-83549-exploited-in-the-wild",
+          "publishedAt": "2026-09-02T16:58:45.000Z",
+          "passage": "Overview On September 1, 2026, SonicWall disclosed two vulnerabilities affecting SonicWall SMA1000 appliances that the vendor says are being actively exploited in the wild. The vulnerabilities, CVE-2026-83548 and CVE-2026-83549, can be chained to achieve unauthenticated remote code execution (RCE) on affected appliances. CVE-2026-83548 is a critical pre-authentication server-side request forgery (SSRF) vulnerability in the SMA1000 Appliance Work Place interface. The flaw has a CVSS v3.1 base score of 10.0 and can allow a remote, unauthenticated attacker to access sensitive functionality and perform unauthorized operations through an unintended alternate access path. CVE-2026-83549 is a high-severity OS command injection vulnerability in the Appliance Management Console (AMC). On its own, exploitation requires an authenticated administrator and specific system conditions. Although, by leveraging the SSRF vulnerability CVE-2026-83548 an attacker could potentially exploit CVE-2026-83549 to execute arbitrary OS commands without prior authentication. SonicWall SMA1000 appliances are enterprise secure remote access gateways used to provide employees and other authorized users with access to internal applications and resources. Their role as network-edge systems makes successful exploitation particularly concerning, since affected Work Place interfaces may be exposed directly to the internet as part of normal deployment. SonicWall has confirmed active exploitation of both vulnerabilities in the wild, and both CVE-2026-83548 and CVE-2026-83549 have been added to CISA's Known Exploited Vulnerabilities ( KEV ) catalog. No public proof-of-concept exploit, indicators of compromise (IOCs), or attribution for the current activity were identified in the research available at the time of publication. The vulnerabilities affect SMA1000 Models - 6210, 7210, 8200v running the following versions: Vulnerable Versions Fixed Versions 12.4.3-03453 platform-hotfix and earlier 12.4.3-03526 (platform-hotfix) and higher versions 12.5.0-02835 platform-hotfix and earlier 12.5.0-02952 (platform-hotfix) and higher versions. Mitigation guidance Organizations operating affected SonicWall SMA1000 appliances should prioritize applying SonicWall’s updated platform hotfixes immediately. Because exploitation was occurring before public disclosure, organizations should not rely solely on patching to determine whether an appliance has already been compromised. SonicWall recommends upgrading affected appliances to: 12.4.3-03526 platform-hotfix, for systems on the 12.4.3 branch 12.5.0-02952 platform-hotfix, for systems on the 12.5.0 branch Affected Product/Component: SonicWall SMA1000 Appliance Work Place and Appliance Management Console Version 12.4.3-03453 platform-hotfix and earlier are affected. Version 12.5.0-02835 platform-hotfix and earlier are affected. SonicWall additionally recommends that customers contact SonicWall Technical Support for assistance reviewing appliances for indicators of compromise. If evidence of compromise is identified, SonicWall recommends: Re-imaging affected hardware appliances or re-deploying affected virtual appliances. Changing all user and administrator passwords. Resetting Time-based One-Time Password (TOTP) tokens. Given the confirmed exploitation of these vulnerabilities, organizations should treat potentially exposed appliances running vulnerable software as a priority fo",
+          "passageTruncated": true,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_94e44574e9435e6833bce72ced5a1827326cd1560b1062dec8caf455a5844904",
+              "revisionId": "rev_28e7e5927ae11aa30c151cf56016c113946a013401d2b4d3d2ea1d64388bfda6"
+            }
+          ]
+        },
+        {
+          "title": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild - Rapid7",
+          "source": "Rapid7",
+          "url": "",
+          "publishedAt": "2026-09-02T17:03:18.000Z",
+          "passage": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild - Rapid7",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_dd56c4dc7d262669292224f7f77ff0d5273394257d5840b756ec38b0ccd3c346",
+              "revisionId": "rev_d6e30591aa1e7a8e78523e561ec3d53eec10304e5fa03f5b2aa42ef771e2d3fb"
+            }
+          ]
+        }
+      ],
+      "enrichment": {
+        "isKEV": true,
+        "kevCVE": "CVE-2026-83548",
+        "vendors": [
+          "SonicWall"
+        ]
+      }
+    },
+    {
+      "index": 6,
+      "title": "PaperCut security advisory (AV26-858) – Update 2",
+      "source": "CCCS",
+      "url": "https://cyber.gc.ca/en/alerts-advisories/papercut-security-advisory-av26-858",
+      "publishedAt": "2026-08-31T16:00:58.000Z",
+      "horizon": 1,
+      "weight": 1.2,
+      "groupMembers": [
+        {
+          "title": "PaperCut security advisory (AV26-858) – Update 2",
+          "source": "CCCS",
+          "url": "https://cyber.gc.ca/en/alerts-advisories/papercut-security-advisory-av26-858",
+          "publishedAt": "2026-08-31T16:00:58.000Z",
+          "passage": "Serial number: AV26-858 Date: August 28, 2026 Updated: August 31, 2026 As of August 27, 2026, PaperCut is affected by vulnerabilities in the following products: PaperCut MF Prior to v24 Emergency Patch Release 2 Prior to v25 Emergency Patch Release 2 Prior to v26 Emergency Patch Release 2 PaperCut NG Prior to v24 Emergency Patch Release 2 Prior to v25 Emergency Patch Release 2 Prior to v26 Emergency Patch Release 2 Update 1 Open-source reporting indicates that CVE-2026-81578 and CVE-2026-82078 are related to PaperCut MF and PaperCut NG are being exploited in the wild. Update 2 On August 31, 2026, Cybersecurity and Infrastructure Security Agency (CISA) added CVE-2026-81578 and CVE-2026-82078 to their Known Exploited Vulnerabilities (KEV) Database. The Cyber Centre encourages users and administrators to review the provided web link and apply any necessary updates as they become available. URGENT Security Advisory: PaperCut NG/MF Security Bulletin (27 Aug 2026) CISA KEV: CVE-2026-81578 CISA KEV: CVE-2026-82078",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_60c72ce6b50d7f57a25163a40a6ea1c13adf98f89551e0c73897cc60942d088a",
+              "revisionId": "rev_6f30cd260d630730eba8b314858a7e45951cf0f503ecd14eeefd172580d45073"
+            }
+          ]
+        }
+      ],
+      "enrichment": {
+        "isKEV": true,
+        "kevCVE": "CVE-2026-81578",
+        "vendors": []
+      }
+    },
+    {
+      "index": 7,
+      "title": "SonicWall security advisory (AV26-872) – Update 1",
+      "source": "CCCS",
+      "url": "https://cyber.gc.ca/en/alerts-advisories/sonicwall-security-advisory-av26-872",
+      "publishedAt": "2026-09-02T18:44:56.000Z",
+      "horizon": 1,
+      "weight": 1.2,
+      "groupMembers": [
+        {
+          "title": "SonicWall security advisory (AV26-872) – Update 1",
+          "source": "CCCS",
+          "url": "https://cyber.gc.ca/en/alerts-advisories/sonicwall-security-advisory-av26-872",
+          "publishedAt": "2026-09-02T18:44:56.000Z",
+          "passage": "Serial Number: AV26-872 Date: September 2, 2026 As of September 1, 2026, SonicWall is affected by a vulnerability in the following product: SMA1000 - 6210, 7210, 8200v 12.4.3-03453 (platform-hotfix) and older versions 12.5.0-02835 (platform-hotfix) and older versions SonicWall indicates that CVE-2026-83548 and CVE-2026-83549 are being exploited. Update 1 On September 2, 2026, Cybersecurity and Infrastructure Security Agency (CISA) added CVE-2026-83548 and CVE-2026-83549 to their Known Exploited Vulnerabilities (KEV) Database. The Cyber Centre encourages users and administrators to review the provided web links and apply any necessary updates as they become available. Security Advisory SonicWall Security Advisories CISA KEV: CVE-2026-83548 CISA KEV: CVE-2026-83549",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_e74fc80c2ea4d110d3de8f0301ba86e4dde5bd3bd48a49eb1caf22f2d2824064",
+              "revisionId": "rev_fba2d38ec4b9a306f41393ac48707707f3c5c76c8dfcc06d2eeeaf2289ffa33f"
+            }
+          ]
+        }
+      ],
+      "enrichment": {
+        "isKEV": true,
+        "kevCVE": "CVE-2026-83548",
+        "vendors": [
+          "SonicWall"
+        ]
+      }
+    },
+    {
+      "index": 15,
+      "title": "September 2026 Patch Tuesday forecast: All we need is more time",
+      "source": "Help Net Security",
+      "url": "https://www.helpnetsecurity.com/2026/09/04/september-2026-patch-tuesday-forecast/",
+      "publishedAt": "2026-09-04T06:00:19.000Z",
+      "horizon": 1,
+      "weight": 1,
+      "groupMembers": [
+        {
+          "title": "September 2026 Patch Tuesday forecast: All we need is more time",
+          "source": "Help Net Security",
+          "url": "https://www.helpnetsecurity.com/2026/09/04/september-2026-patch-tuesday-forecast/",
+          "publishedAt": "2026-09-04T06:00:19.000Z",
+          "passage": "The Patch Apocalypse is continuing unabated. We are seeing record numbers of patches being released and reported CVEs continue to grow as well. August 2026 Patch Tuesday was the second biggest in history with 398 resolved CVEs: 42 rated Critical, 355 rated Important, and 1 rated Moderate. But despite the high number, again only one vulnerability was confirmed actively exploited in the wild, and two more were publicly disclosed ahead of the released patches. AI … More → The post September 2026 Patch Tuesday forecast: All we need is more time appeared first on Help Net Security.",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_55a3107d0e80d3e4cfb15baebbcc76dc433b0ef0070137d6269c8c60bf2119cb",
+              "revisionId": "rev_0224e66da42e64ce584ec0ed99ffb88a2876ebff530b8f42e96f5f767218deb9"
+            }
+          ]
+        }
+      ],
+      "enrichment": {
+        "isKEV": false,
+        "kevCVE": "",
+        "vendors": []
+      }
+    },
+    {
+      "index": 16,
+      "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+      "source": "The Hacker News",
+      "url": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+      "publishedAt": "2026-09-05T20:14:47.000Z",
+      "horizon": 1,
+      "weight": 1,
+      "groupMembers": [
+        {
+          "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+          "source": "The Hacker News",
+          "url": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+          "publishedAt": "2026-09-05T20:14:47.000Z",
+          "passage": "Attackers are exploiting a new unpatched vulnerability in Magento Open Source and Adobe Commerce that lets them run malicious code on an online store's server without logging in, Dutch e-commerce security company Sansec said in an advisory published on September 5. Sansec, which discovered the flaw and named it StyleSmuggler, said attacks started on September 4. \"Sansec is",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_928c911a38e1b699ed8b397db8c9a532304583b653436a0c5480c8789f125824",
+              "revisionId": "rev_c8ba174b6c01459c8fe398d0718c811ef3e218926af48683e1f687df610599f9"
+            }
+          ]
+        }
+      ],
+      "enrichment": {
+        "isKEV": false,
+        "kevCVE": "",
+        "vendors": []
+      }
+    },
+    {
+      "index": 33,
+      "title": "Financially Motivated Threat Actor BREEZE COMET Targets Brazil",
+      "source": "Google Threat Intelligence",
+      "url": "https://cloud.google.com/blog/topics/threat-intelligence/financially-motivated-threat-actor-breeze-comet-targets-brazil/",
+      "publishedAt": "2026-09-01T14:00:00.000Z",
+      "horizon": 1,
+      "weight": 1.3,
+      "groupMembers": [
+        {
+          "title": "Financially Motivated Threat Actor BREEZE COMET Targets Brazil",
+          "source": "Google Threat Intelligence",
+          "url": "https://cloud.google.com/blog/topics/threat-intelligence/financially-motivated-threat-actor-breeze-comet-targets-brazil/",
+          "publishedAt": "2026-09-01T14:00:00.000Z",
+          "passage": "Introduction Beginning in 2024 Mandiant investigated a string of compromises affecting Brazilian financial services, retail, and eCommerce organizations. Google Threat Intelligence Group (GTIG) tracks this activity as BREEZE COMET (formerly UNC5669), a financially motivated threat actor specializing in manipulating payment systems and banking software in Brazil to conduct fraudulent transfers. This activity overlaps with operations publicly reported as Plump Spider and SHADOW-AETHER-064. In this blog, we detail BREEZE COMET’s tactics and toolkit, and provide mitigation recommendations and detections to support organizations in defending against this active and developing threat. BREEZE COMET tactics have evolved over time to leverage a customized malware suite and compromised, trusted websites to facilitate initial access, command and control (C2), and to interact with financial software and payment APIs. BREEZE COMET’s operational infrastructure may also indicate intent to expand their infrastructure footprint to other countries in Latin America and Africa. Additionally, we have evidence that BREEZE COMET is using generative artificial intelligence (AI) to support malware development, which may further increase the scale, speed, and sophistication of their operations in the future. BREEZE COMET Targets Brazilian Financial Technology BREEZE COMET operations target organizations with permission to conduct transactions through banking software, APIs, and payment systems such as Pix, STR, and Boleto. This typically includes banks, payment processors, retailers, exchanges, as well as fintech and banking software providers. To achieve their objective of conducting fraudulent transfers, BREEZE COMET must maintain: Access to the National Financial System Network (Rede Nacional do Setor Financeiro, RSFN) through an entity with this access. Access to mTLS credentials that allow sending authenticated payloads with transactional orders to Pix, STR (Brazilian Reserves Transfer System), or any transactional listener to be executed with minimal restrictions in the name of an organization with available funds. Persistent access to multiple accounts in targeted organizations’ Active Directory and/or cloud environments. Understanding of an organization’s transfer processing procedures, network controls, fintech integrations and anti-fraud systems. In order to support these requirements, BREEZE COMET evolved to operate in multiple compromised environments at the same time, crafting custom C2 malware to automate activities such as reconnaissance, lateral movement, persistence, and exfiltration. Initial Compromise and Establish Foothold BREEZE COMET has used various methods for initial access. In early compromises, Mandiant observed this threat actor use password spraying as well as voice calls impersonating IT support teams to convince users to install Remote Monitoring and Management (RMM) tools such as AnyDesk. Axur corroborates use of voice phishing, and suggests that the group has also attempted to recruit insiders at targeted organizations. In mid-2025, GTIG observed BREEZE COMET using compromised Brazilian small government websites to stage RMM tools, infostealers disguised as legitimate tax or receipt documents (e.g., ComprovantePDF.exe ), or backdoors such as XWORM set to persist via automated startup shortcut modifications. XWORM is a backdoor that is widely available for purchase on cyber crime forums, with leaked or “cracked” versions also available. BREEZE COMET then used these compromised government websites to facilitate social engineering operations for initial access, and as C2 endpoints. The use of compromised, trusted infrastructure allowed the threat actors to avoid detection by network domain reputation filters. GTIG also observed BREEZE COMET replicating this behavior with municipal domains in Nigeria, Paraguay, Ghana, and Venezuela, suggesting a potentially growing targeting focus. Analysis of compromised municipal domains indicated that BREEZE COMET reused the same staging infrastructure to host and deliver XWORM payloads across operations targeting multiple organizations. In 2025, we first observed BREEZE COMET connect rogue hardware devices directly into retail store networks to establish footholds into targeted environments. From this initial network access, BREEZE COMET moved laterally to internal systems then downloaded the Netcat utility alongside custom scripts to pull down subsequent post-exploitation frameworks from external open directories. Trend Micro has reported that the group also exploited vulnerabilities in JBoss AS servers to gain initial access. Escalate Privileges & Internal Reconnaissance BREEZE COMET used publicly available reconnaissance utilities such as Impacket, ADRecon and ADVipscan, as well as with custom malware, often profiting from environments with low observability. These utilities were often",
+          "passageTruncated": true,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_6399f57b137c682e24bf2472d13fd761add4c77e76a7c326361b0d999326dccb",
+              "revisionId": "rev_e76f013354611c20ecdcc51eb0dbd0793c74f6f237463732c6d623641251f156"
+            }
+          ]
+        }
+      ],
+      "enrichment": {
+        "isKEV": false,
+        "kevCVE": "",
+        "vendors": [
+          "Google"
+        ]
+      }
+    },
+    {
+      "index": 43,
+      "title": "Multiples vulnérabilités dans Curl (02 septembre 2026)",
+      "source": "CERT-FR",
+      "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1108/",
+      "publishedAt": "2026-09-02T00:00:00.000Z",
+      "horizon": 1,
+      "weight": 1.2,
+      "groupMembers": [
+        {
+          "title": "Multiples vulnérabilités dans Curl (02 septembre 2026)",
+          "source": "CERT-FR",
+          "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1108/",
+          "publishedAt": "2026-09-02T00:00:00.000Z",
+          "passage": "De multiples vulnérabilités ont été découvertes dans Curl. Certaines d'entre elles permettent à un attaquant de provoquer une atteinte à la confidentialité des données, une atteinte à l'intégrité des données et un contournement de la politique de sécurité.",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_dfea277ca13a9772288532102108b9886fbd0ebc2f72f99ea6989f7b70eb1e4f",
+              "revisionId": "rev_ca0f4275cc77839aa80eeca15d2e7abbdc3a13ef4919e4182e4bab986ac60203"
+            }
+          ]
+        },
+        {
+          "title": "Multiples vulnérabilités dans Google Chrome (02 septembre 2026)",
+          "source": "CERT-FR",
+          "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1105/",
+          "publishedAt": "2026-09-02T00:00:00.000Z",
+          "passage": "De multiples vulnérabilités ont été découvertes dans Google Chrome. Elles permettent à un attaquant de provoquer un problème de sécurité non spécifié par l'éditeur.",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_de0f31a3bb737b5070b0305092250266fb578d1b47992af5fa0dc9edaa4df37b",
+              "revisionId": "rev_c7c116c9609bdb0c9882fa4e1b69e2a8015e4e59a98e7d4f8e0a7b536eb1173c"
+            }
+          ]
+        },
+        {
+          "title": "Multiples vulnérabilités dans les produits Elastic (02 septembre 2026)",
+          "source": "CERT-FR",
+          "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1107/",
+          "publishedAt": "2026-09-02T00:00:00.000Z",
+          "passage": "De multiples vulnérabilités ont été découvertes dans les produits Elastic. Certaines d'entre elles permettent à un attaquant de provoquer une exécution de code arbitraire à distance, une élévation de privilèges et une atteinte à la confidentialité des données.",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_6c6bfa4289342f1e15e78dfb8f44b0d634af79adeaf51d88cfa559ffe7a2999a",
+              "revisionId": "rev_8a5ab27eceb9c4bfc130a551441670bf9a9ef0fb7d10fbf68bbbd90e45a61a71"
+            }
+          ]
+        },
+        {
+          "title": "Multiples vulnérabilités dans les produits HPE Aruba Networking (02 septembre 2026)",
+          "source": "CERT-FR",
+          "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1104/",
+          "publishedAt": "2026-09-02T00:00:00.000Z",
+          "passage": "De multiples vulnérabilités ont été découvertes dans les produits HPE Aruba Networking. Certaines d'entre elles permettent à un attaquant de provoquer une exécution de code arbitraire à distance, une élévation de privilèges et un déni de service à distance.",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_d76c149e17f1111031138aefce89d6bc7da39bc7e93127938c5bdcee68408d5a",
+              "revisionId": "rev_f1a2edb0e2318f5c0abbb31b5acaace46016ecb2021a9596931dbe6b7e0a139c"
+            }
+          ]
+        },
+        {
+          "title": "Multiples vulnérabilités dans les produits Mozilla (02 septembre 2026)",
+          "source": "CERT-FR",
+          "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1106/",
+          "publishedAt": "2026-09-02T00:00:00.000Z",
+          "passage": "De multiples vulnérabilités ont été découvertes dans les produits Mozilla. Certaines d'entre elles permettent à un attaquant de provoquer une élévation de privilèges, une atteinte à la confidentialité des données et un contournement de la politique de sécurité.",
+          "passageTruncated": false,
+          "sourceRevisions": [
+            {
+              "sourceId": "src_73d735995f397f0652ff691979fb6f407d9bb5cbf6622e35bece614febfcb259",
+              "revisionId": "rev_375d4edd14250b873396a6238fac2f786b83367b61cd5f2ab73d7429ff6092e0"
+            }
+          ]
+        }
+      ],
+      "enrichment": {
+        "isKEV": false,
+        "kevCVE": "",
+        "vendors": [
+          "Google"
+        ]
+      }
+    }
+  ]
+}

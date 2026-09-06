@@ -1,0 +1,2153 @@
+{
+  "provenance": {
+    "kind": "real-retained-public-source-replay",
+    "filename": "brief-2026-09-05-02.md",
+    "originalSha256": "9667b123321f41cb99b6f196763461d5464d82879da747c6fa568d4b61b09c5c",
+    "manifestSha256": "a1e7a8ecb5f393aa4b3770d045ca0f75456e72b8d18e0d2eab1863975a20c27b",
+    "capturedAt": "2026-09-05T21:56:43.704Z",
+    "previousFilename": "brief-2026-09-05-01.md",
+    "previousCapturedAt": "2026-09-05T21:38:03.493Z",
+    "previousManifestSha256": "8ef1fc8889b528af6672da2a073cf69610ed3df935e40e907e2685ea9af086e8",
+    "currentGroundingTextSha256": "24408aed6bb0886feef4cc1f7315bcee2ff6c8c057efd8734e9edb39056946ce",
+    "previousGroundingTextSha256": "24408aed6bb0886feef4cc1f7315bcee2ff6c8c057efd8734e9edb39056946ce",
+    "scope": "Original generated public-news assessment and bounded original public source passages. Private profiles, settings, credentials, filesystem paths, and collection configuration omitted."
+  },
+  "original": "# BlueTeam.News\n### Threat Landscape Briefing · September 5, 2026 · Saturday\n\n## BLUF\n\nSeven actively exploited edge/appliance and browser vulnerabilities converged on the KEV catalog this week — SonicWall SMA1000, PaperCut, Sangoma Switchvox, JFrog Artifactory, and Chrome V8 — meaning perimeter and endpoint exposure now outpaces patch cadence across nearly every enterprise vendor category.\n\n---\n\n## EXECUTIVE SUMMARY — SHIFT DECISIONS\n\n- **Threat:** Nine distinct products across four vendors (SonicWall, PaperCut, Sangoma, JFrog, Google) had actively exploited vulnerabilities added to CISA KEV in the past five days, several chained for unauthenticated RCE.\n- **Exposure:** Declared watch topics (Fortinet, Ivanti, Citrix) are not implicated this cycle; SonicWall SMA1000 and PaperCut MF/NG appliance exposure status is unverified locally and must be checked against asset inventory.\n- **Required decisions:** Infrastructure — verify presence and patch level of SonicWall SMA1000, PaperCut, and Artifactory instances — recommended target September 8, 2026; Detection engineering — confirm Chrome auto-update rollout reached `152.0.7977.82`/`.83` fleet-wide — recommended target September 9, 2026; Messaging — brief leadership on PaperCut credential-theft campaign against education-sector peers — recommended target September 10, 2026.\n\n---\n\n## KEY JUDGMENTS\n\n### Signal 1 — [Horizon 1] SonicWall SMA1000 chain enables unauthenticated RCE\n\n**Assessment:** SonicWall edge devices remain the most repeatedly breached appliance category this year, and this week's chainable pair extends a pattern third-party SOCs call \"almost certain\" to recur.\n\n**Confidence:** Highly likely (80-95%) — vendor confirmation plus independent researcher reporting (Rapid7, The Hacker News, CyberScoop) and CISA KEV verification.\n\n**What happened:** CVE-2026-83548, a pre-authentication SSRF vulnerability in the SMA1000 Appliance Work Place interface with a CVSS v3.1 base score of 10.0, and CVE-2026-83549, a high-severity OS command injection in the Appliance Management Console, affect SonicWall SMA1000 appliances and were disclosed by SonicWall September 1, 2026, per [Rapid7, 2026-09-02](https://www.rapid7.com/blog/post/etr-critical-sonicwall-sma1000-vulnerabilities-cve-2026-83548-cve-2026-83549-exploited-in-the-wild) and [The Hacker News, 2026-09-02](https://thehackernews.com/2026/09/attackers-exploit-two-sonicwall-sma.html). Both were added to CISA KEV September 2, 2026 with FCEB remediation for CVE-2026-83548 and CVE-2026-83549 due 2026-09-05, per [CISA Advisories, 2026-09-02](https://www.cisa.gov/news-events/alerts/2026/09/02/cisa-adds-seven-known-exploited-vulnerabilities-catalog). Five SMA1000 zero-days have been exploited since late 2025 per [CyberScoop, 2026-09-03](https://cyberscoop.com/sonicwall-sma1000-zero-days-actively-exploited/).\n\n**Defender impact:** Check VPN/SSL-VPN logs for anomalous Work Place interface requests and AMC command execution; isolate management interfaces from the internet where feasible.\n\n**Relevance:** SonicWall is not a named organizational asset in this brief; if SMA1000 is deployed, treat as critical-priority exposure requiring immediate version check against pre-patch builds.\n\n**Recommended actions:**\n- **Act now:** Infrastructure — patch SMA1000 appliances and confirm CVE-2026-83548 / CVE-2026-83549 are remediated — recommended target September 8, 2026.\n- Detection engineering — hunt for AMC command-injection indicators in appliance logs — recommended target September 9, 2026.\n\n**Decision window:** Current shift.\n\n**The line:** SonicWall's edge appliances have been under repeated real-world attack for a year; if we run SMA1000, patching isn't optional this weekend.\n\n---\n\n### Signal 2 — [Horizon 1] Chrome V8 zero-day patched, rollout gap remains\n\n**Assessment:** A sixth actively exploited Chrome zero-day this year confirms browser V8 engine bugs remain a reliable initial-access vector, and any unpatched endpoint is exposed until auto-update completes.\n\n**Confidence:** Highly likely (80-95%) — Google vendor advisory plus CISA KEV addition and CCCS corroboration.\n\n**What happened:** CVE-2026-85046, a type confusion vulnerability in the Chromium V8 engine, was added to CISA KEV September 4, 2026 with FCEB remediation for CVE-2026-85046 due 2026-09-18, per [CISA Advisories, 2026-09-04](https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog). Chrome `152.0.7977.82`/`.83` fixes it across Windows/macOS/Linux, part of a gradual rollout. [BleepingComputer, 2026-09-04](https://www.bleepingcomputer.com/news/security/google-warns-of-new-chrome-zero-day-flaw-exploited-in-attacks/); [CCCS, 2026-09-04](https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883) confirms \"Google is aware that an exploit for CVE-2026-85046 exists in the wild.\"\n\n**Defender impact:** Verify browser fleet version via endpoint management; gradual rollout means some hosts may still lag on the fix.\n\n**Relevance:** Chrome is a near-universal enterprise dependency; treat as tactical patch-verification item even without a named local asset match.\n\n**Recommended actions:**\n- **Act now:** Detection engineering — query EDR for Chrome versions below `152.0.7977.82` and force update — recommended target September 8, 2026.\n\n**Decision window:** Current shift.\n\n**The line:** Google's sixth Chrome zero-day this year is patched — the only open question is whether our browsers have actually pulled the update.\n\n---\n\n### Signal 3 — [Horizon 1] PaperCut flaws now stealing credentials at scale\n\n**Assessment:** Exploitation has moved from proof-of-concept to targeted credential theft against schools and universities, indicating attackers have operationalized the PaperCut chain faster than the education sector patches.\n\n**Confidence:** Likely (55-80%) — The Hacker News reporting corroborated by CISA KEV verification; sector-specific victim scope not independently confirmed.\n\n**What happened:** CVE-2026-81578, a missing-authentication vulnerability, and CVE-2026-82078, an unsafe-reflection vulnerability, affect PaperCut NG/MF and were added to CISA KEV August 31, 2026, with FCEB remediation for CVE-2026-81578 due 2026-09-14, per [CISA Advisories, 2026-08-31](https://www.cisa.gov/news-events/alerts/2026/08/31/cisa-adds-two-known-exploited-vulnerabilities-catalog). An active credential-theft campaign against schools and universities is reported in [The Hacker News, 2026-09-05](https://thehackernews.com/2026/09/attackers-exploit-papercut-flaws-to.html). Affected builds are prior to v24/25/26 Emergency Patch Release 2 per [CCCS, 2026-08-31](https://cyber.gc.ca/en/alerts-advisories/papercut-security-advisory-av26-858).\n\n**Defender impact:** Review print-management server authentication logs; confirm PaperCut MF/NG is on Emergency Patch Release 2 or later for v24/25/26.\n\n**Recommended actions:**\n- Infrastructure — confirm PaperCut MF/NG is on Emergency Patch Release 2 or later for v24/25/26 — recommended target September 9, 2026.\n- Detection engineering — alert on anomalous PaperCut admin authentication events — recommended target September 10, 2026.\n\n**Decision window:** 72 hours.\n\n**The line:** PaperCut exploitation has shifted from access to active credential theft in education environments — check our print servers before Monday.\n\n---\n\n### Signal 4 — [Horizon 1] Sangoma Switchvox SQLi grants unauthenticated RCE\n\n**Assessment:** An unauthenticated SQL injection in enterprise VoIP telephony management gives full remote code execution, expanding the actively exploited-appliance list into telephony infrastructure.\n\n**Confidence:** Highly likely (80-95%) — CISA KEV verification plus Horizon3 and SecurityWeek reporting citing a NIST advisory.\n\n**What happened:** CVE-2026-9586, an unauthenticated SQL injection issue with a CVSS score of 9.3 stemming from unsanitized PhoneIP value concatenation into PostgreSQL queries, affects Sangoma Switchvox and was added to CISA KEV September 2, 2026, with FCEB remediation due 2026-09-05, per [CISA Advisories, 2026-09-02](https://www.cisa.gov/news-events/alerts/2026/09/02/cisa-adds-seven-known-exploited-vulnerabilities-catalog). [SecurityWeek, 2026-09-04](https://www.securityweek.com/sangoma-switchvox-vulnerabilities-exploited-in-the-wild/) reports Horizon3 and CISA warned of the exploitation.\n\n**Defender impact:** Inspect Switchvox XML-endpoint logs for crafted PhoneIP values; isolate VoIP management consoles from general network access.\n\n**Recommended actions:**\n- Infrastructure — patch or isolate Switchvox appliances immediately — recommended target September 8, 2026.\n\n**Decision window:** Current shift.\n\n**The line:** A single crafted request can now hand an attacker your VoIP database and code execution — treat Switchvox like any other exposed perimeter appliance.\n\n---\n\n### Signal 5 — [Horizon 2] JFrog Artifactory auth-bypass weaponized within days\n\n**Assessment:** Attackers weaponized a JFrog Artifactory authentication bypass within roughly 48 hours of disclosure, compressing the patch window for software supply-chain infrastructure to near zero.\n\n**Confidence:** Likely (55-80%) — Dark Reading and CCCS reporting corroborated by CISA KEV verification; exploitation scale not independently quantified.\n\n**What happened:** CVE-2026-82329, an authentication bypass in JFrog's repository manager enabling admin-level access, per [Dark Reading, 2026-09-01](https://www.darkreading.com/application-security/attackers-pounce-critical-artifactory-flaw-disclosure), was added to CISA KEV September 2, 2026, with FCEB remediation for CVE-2026-82329 due 2026-09-05, per [CISA Advisories, 2026-09-02](https://www.cisa.gov/news-events/alerts/2026/09/02/cisa-adds-seven-known-exploited-vulnerabilities-catalog). Affected Artifactory builds are prior to `7.111.21`/`7.117.28`/`7.125.20`/`7.133.29`/`7.146.38`/`7.161.20` per [CCCS, 2026-09-02](https://cyber.gc.ca/en/alerts-advisories/jfrog-security-advisory-av26-867).\n\n**Defender impact:** Artifactory is a common CI/CD chokepoint; a compromised instance can poison build artifacts downstream. Check repository manager admin logs for unexpected privilege grants.\n\n**Relevance:** Matches declared supply-chain watch topic directly; local Artifactory deployment status is unverified and needs an asset-inventory check.\n\n**Recommended actions:**\n- Application security — verify Artifactory version against patched builds and audit recent admin actions — recommended target September 10, 2026.\n\n**Decision window:** 7 days.\n\n**The line:** Our software supply chain is only as strong as the repository manager sitting in front of it, and this one had a working exploit within two days of disclosure.\n\n---\n\n### Signal 6 — [Horizon 2] AI agent autonomously executed a ransomware attack\n\n**Assessment:** Reported end-to-end AI-agent execution of a ransomware intrusion — reconnaissance through encryption — signals that agentic tooling is beginning to substitute for human operator effort in criminal operations, not just augment it.\n\n**Confidence:** Unlikely (20-45%) — single-outlet reporting, no independent technical validation of full autonomy claim; treat as vendor/researcher assertion pending corroboration.\n\n**What happened:** The Register reported an incident in which AI agents \"carried out every step\" of a ransomware attack and generated an 80-page security audit for the victim. [The Register, 2026-09-02](https://www.theregister.com/security/2026/09/02/ai-agents-carried-out-every-step-of-this-ransomware-attack-then-left-the-victim-an-80-page-security-audit/5294009).\n\n**Defender impact:** Review incident-response playbooks for assumptions built around human-paced attacker behavior; agentic speed compresses dwell time and detection windows.\n\n**Recommended actions:**\n- Detection engineering — assess whether current alerting thresholds assume human-paced lateral movement — recommended target October 1, 2026.\n\n**Decision window:** 30 days.\n\n**The line:** One reported case of an AI agent running a ransomware attack start to finish is not yet a trend, but it is exactly the capability shift worth budgeting detection time against now.\n\n---\n\n## DEVELOPING SITUATIONS\n\n### CrowdStrike Falcon privilege-escalation exploit now public\n**Trajectory:** Accelerating — a public \"FalconFlank\" PoC targeting up-to-date Windows systems follows disclosure by a researcher previously credited with Microsoft zero-days, per [BleepingComputer, 2026-09-04](https://www.bleepingcomputer.com/news/security/new-crowdstrike-falconflank-zero-day-grants-system-privileges/) and [The Register, 2026-09-03](https://www.theregister.com/security/2026/09/03/prolific-microsoft-0-day-hunter-drops-crowdstrike-falcon-exploit-poc/5294318); third consecutive briefing tracking this item.\n\n**Watch criteria:** Escalate to Key Judgment when CrowdStrike confirms a patch/mitigation timeline or when exploitation in the wild is reported.\n\n### Microsoft Teams IT-support impersonation campaign\n**Trajectory:** Steady — Microsoft Threat Intelligence documents a human-operated campaign abusing Teams external collaboration to impersonate IT support and deploy a Node.js implant [Microsoft Security, 2026-09-02](https://www.microsoft.com/en-us/security/blog/2026/09/02/impersonating-it-support-threat-actors-turn-remote-session-into-enterprise-wide-access/); second consecutive briefing tracking this topic alongside a related Unit 42 \"Spring Ring\" voice-phishing report targeting domain controllers [Unit 42, 2026-08-31](https://unit42.paloaltonetworks.com/spring-ring-voice-phishing-campaigns/).\n\n**Watch criteria:** Escalate when a named victim organization or ransomware follow-on is confirmed.\n\n### Ransomware groups recruiting insiders\n**Trajectory:** Steady, second consecutive briefing — Dark Reading reports stronger perimeter security is pushing ransomware groups toward insider recruitment as an initial-access alternative. [Dark Reading, 2026-09-01](https://www.darkreading.com/cyber-risk/stronger-security-drives-ransomware-groups-to-recruit-from-within).\n\n**Watch criteria:** Escalate when a specific insider-assisted intrusion is attributed with named actor and organization.\n\n---\n\n## CONVERGENCE\n\n### Appliance zero-days outpacing federal remediation clocks\n**The intersection:** Three of this week's KEV entries — CVE-2026-83548, CVE-2026-83549, CVE-2026-9586, and CVE-2026-82329 — carry FCEB remediation windows of three days or less against a September 2, 2026 addition date, meaning the same edge-appliance category (SonicWall, Sangoma, JFrog) that struggled with patch discipline all year is now generating KEV entries faster than standard change-control cycles can close them.\n\n**The cascade:** If patch windows keep compressing, organizations relying on monthly change-control will fall permanently behind KEV additions; unpatched appliances accumulate as ransomware initial-access points; by Q4, expect insurance underwriters to start conditioning coverage on KEV-specific remediation SLAs rather than general patch cadence.\n\n**The move:** Act — compress the emergency-patch approval path for internet-facing appliances to match KEV FCEB timelines rather than standard change windows.\n\n### AI agents entering both attacker and defender operating models simultaneously\n**The intersection:** The same week a reported AI agent ran a ransomware attack end-to-end [The Register, 2026-09-02], CrowdStrike announced an \"agentic identity provider\" [CrowdStrike Research, 2026-09-02](https://www.crowdstrike.com/en-us/blog/crowdstrike-announces-agentic-identity-provider/) and Cloudflare paired WAF data with OpenAI models for vulnerability remediation [Cloudflare Security, 2026-09-03](https://blog.cloudflare.com/vulnerability-discovery-remediation/) — attacker and defender tooling are converging on autonomous agents operating with standing credentials against production systems.\n\n**The cascade:** If agentic tooling on both sides gains standing access to production environments, existing identity and access review cycles (built for human cadence) will miss agent-to-agent credential abuse; expect the first agentic-identity compromise disclosure within two quarters.\n\n**The move:** Prepare — inventory any AI agent given standing production credentials and require the same access review cadence applied to human privileged accounts.\n\n---\n\n## WATCHLIST — THROUGH September 8, 2026\n\n- CISA adds a new CVE tied to SonicWall SMA1000 to KEV\n- SonicWall confirms a third chained zero-day in the SMA1000 line\n- CrowdStrike issues a patch or advisory for the public FalconFlank PoC\n- A named victim organization is confirmed compromised via the PaperCut credential-theft campaign\n- Google confirms in-the-wild exploitation volume or actor attribution for CVE-2026-85046\n- Magento/Adobe Commerce zero-day (reported September 5) receives a CVE assignment or vendor patch\n- CISA adds a JFrog Artifactory follow-on CVE tied to CVE-2026-82329 exploitation",
+  "manifest": {
+    "selectedEvidence": [
+      {
+        "title": "CISA Adds One Known Exploited Vulnerability to Catalog",
+        "source": "CISA Advisories",
+        "url": "https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog",
+        "publishedAt": "Fri, 04 Sep 26 12:00:00 +0000",
+        "passage": {
+          "kind": "article-opening",
+          "text": "Alert CISA Adds One Known Exploited Vulnerability to Catalog Release Date September 04, 2026 CISA has added one new vulnerability to its Known Exploited Vulnerabilities (KEV) Catalog , based on evidence of active exploitation. CVE-2026-85046 Google Chromium V8 Type Confusion Vulnerability This type of vulnerability is a frequent attack vector for malicious cyber actors and poses significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requirements for Federal Civilian Executive Branch (FCEB) agencies. BOD 26-04 reinforces the importance of the KEV Catalog and requires federal agencies to prioritize rapid remediation of high-risk vulnerabilities, specifically those identified by C"
+        },
+        "groupMembers": [
+          {
+            "title": "CISA Adds One Known Exploited Vulnerability to Catalog",
+            "source": "CISA Advisories",
+            "url": "https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog",
+            "publishedAt": "Fri, 04 Sep 26 12:00:00 +0000",
+            "passage": "CISA has added one new vulnerability to its Known Exploited Vulnerabilities (KEV) Catalog, based on evidence of active exploitation. CVE-2026-85046 Google Chromium V8 Type Confusion Vulnerability This type of vulnerability is a frequent attack vector for malicious cyber actors and poses significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requirements for Federal Civilian Executive Branch (FCEB) agencies. BOD 26-04 reinforces the importance of the KEV Catalog and requires federal agencies to prioritize rapid remediation of high-risk vulnerabilities, specifically those identified by Common Vulnerabilities and Exposures (CVEs) listed in CISA’s KEV Catalog on publicly exposed assets that grant total control of the asset post-exploitation, while deferring action for lower-risk vulnerabilities. BOD 26-04 further establishes basic expectations for when agencies must check whether threat actors compromised the system before the patch was applied. While BOD 26-04 applies only to FCEB agencies, CISA encourages all organizations to adopt risk-based vulnerability management and prioritize remediation of KEV Catalog vulnerabilities. CISA will continue to add vulnerabilities to the catalog that meet the specified criteria. Aware of an exploited vulnerability not currently listed in the KEV Catalog? Submit it for potential addition through CISA’s KEV Nomination Form. Potential KEV additions must have a CVE ID, evidence of exploitation, and clear mitigation guidance."
+          },
+          {
+            "title": "CISA Adds Google Chromium Flaw to Known Exploited Vulnerabilities Catalog - technobezz.com",
+            "source": "technobezz.com",
+            "url": "",
+            "publishedAt": "Fri, 04 Sep 2026 18:42:57 GMT",
+            "passage": "CISA Adds Google Chromium Flaw to Known Exploited Vulnerabilities Catalog - technobezz.com"
+          }
+        ]
+      },
+      {
+        "title": "Google Releases Chrome Update to Patch Actively Exploited V8 Zero-Day",
+        "source": "The Hacker News",
+        "url": "https://thehackernews.com/2026/09/google-releases-chrome-update-to-patch.html",
+        "publishedAt": "Fri, 04 Sep 2026 12:48:47 +0530",
+        "passage": {
+          "kind": "article-opening",
+          "text": "Prevention Already Failed. What Does Your Monitoring Actually Catch? A 6-day SANS course rebuilds hybrid detection across cloud, endpoint, and network. GMON, Sept 21."
+        },
+        "groupMembers": [
+          {
+            "title": "Google Releases Chrome Update to Patch Actively Exploited V8 Zero-Day",
+            "source": "The Hacker News",
+            "url": "https://thehackernews.com/2026/09/google-releases-chrome-update-to-patch.html",
+            "publishedAt": "Fri, 04 Sep 2026 12:48:47 +0530",
+            "passage": "Google on Thursday released security updates to patch 12 vulnerabilities, including one that has come under active exploitation in the wild. The high-severity vulnerability, tracked as CVE-2026-85046 (CVSS score: 8.8), has been described as a type confusion bug in V8, Chrome's JavaScript and WebAssembly engine. \"Type confusion in V8 in Google Chrome prior to 152.0.7977.82 allowed a remote"
+          },
+          {
+            "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - Help Net Security",
+            "source": "Help Net Security",
+            "url": "",
+            "publishedAt": "Fri, 04 Sep 2026 12:09:13 GMT",
+            "passage": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - Help Net Security"
+          }
+        ]
+      },
+      {
+        "title": "Google security advisory (AV26-883) – Update 1",
+        "source": "CCCS",
+        "url": "https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883",
+        "publishedAt": "2026-09-04T17:21:27Z",
+        "passage": {
+          "kind": "article-opening",
+          "text": "Serial Number: AV26-883 Date: September 4, 2026 As of September 3, 2026, Google is affected by vulnerabilities in the following product: Chrome Prior to 152.0.7977.82 Google is aware that an exploit for CVE-2026-85046 exists in the wild. Update 1 On September 4, 2026, Cybersecurity and Infrastructure Security Agency (CISA) added CVE-2026-85046 to their Known Exploited Vulnerabilities (KEV) Database. The Cyber Centre encourages users and administrators to review the provided web links and apply any necessary updates as they become available. Stable Channel Update for Desktop CISA KEV: CVE-2026-85046"
+        },
+        "groupMembers": [
+          {
+            "title": "Google security advisory (AV26-883) – Update 1",
+            "source": "CCCS",
+            "url": "https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883",
+            "publishedAt": "2026-09-04T17:21:27Z",
+            "passage": "Serial Number: AV26-883 Date: September 4, 2026 As of September 3, 2026, Google is affected by vulnerabilities in the following product: Chrome Prior to 152.0.7977.82 Google is aware that an exploit for CVE-2026-85046 exists in the wild. Update 1 On September 4, 2026, Cybersecurity and Infrastructure Security Agency (CISA) added CVE-2026-85046 to their Known Exploited Vulnerabilities (KEV) Database. The Cyber Centre encourages users and administrators to review the provided web links and apply any necessary updates as they become available. Stable Channel Update for Desktop CISA KEV: CVE-2026-85046"
+          }
+        ]
+      },
+      {
+        "title": "CISA Adds Seven Known Exploited Vulnerabilities to Catalog",
+        "source": "CISA Advisories",
+        "url": "https://www.cisa.gov/news-events/alerts/2026/09/02/cisa-adds-seven-known-exploited-vulnerabilities-catalog",
+        "publishedAt": "Wed, 02 Sep 26 12:00:00 +0000",
+        "passage": {
+          "kind": "article-opening",
+          "text": "Alert CISA Adds Seven Known Exploited Vulnerabilities to Catalog Release Date September 02, 2026 CISA has added seven new vulnerabilities to its Known Exploited Vulnerabilities (KEV) Catalog , based on evidence of active exploitation. CVE-2026-9586 Sangoma Switchvox SQL Injection Vulnerability CVE-2026-48710 Kludex Starlette HTTP Request/Response Smuggling Vulnerability CVE-2026-49869 Kestra OSS OS Command Injection Vulnerability CVE-2026-59822 BerriAI LiteLLM Improper Authentication Vulnerability CVE-2026-82329 JFrog Artifactory Improper Authentication Vulnerability CVE-2026-83548 SonicWall SMA1000 Appliances Server-Side Request Forgery Vulnerability CVE-2026-83549 SonicWall SMA1000 Appliances OS Command Injection Vulnerability These types of vulnerabilities are a frequent attack vector f"
+        },
+        "groupMembers": [
+          {
+            "title": "CISA Adds Seven Known Exploited Vulnerabilities to Catalog",
+            "source": "CISA Advisories",
+            "url": "https://www.cisa.gov/news-events/alerts/2026/09/02/cisa-adds-seven-known-exploited-vulnerabilities-catalog",
+            "publishedAt": "Wed, 02 Sep 26 12:00:00 +0000",
+            "passage": "CISA has added seven new vulnerabilities to its Known Exploited Vulnerabilities (KEV) Catalog, based on evidence of active exploitation. CVE-2026-9586 Sangoma Switchvox SQL Injection Vulnerability CVE-2026-48710 Kludex Starlette HTTP Request/Response Smuggling Vulnerability CVE-2026-49869 Kestra OSS OS Command Injection Vulnerability CVE-2026-59822 BerriAI LiteLLM Improper Authentication Vulnerability CVE-2026-82329 JFrog Artifactory Improper Authentication Vulnerability CVE-2026-83548 SonicWall SMA1000 Appliances Server-Side Request Forgery Vulnerability CVE-2026-83549 SonicWall SMA1000 Appliances OS Command Injection Vulnerability These types of vulnerabilities are a frequent attack vector for malicious cyber actors and pose significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requirements for Federal Civilian Executive Branch (FCEB) agencies. BOD 26-04 reinforces the importance of the KEV Catalog and requires federal agencies to prioritize rapid remediation of high-risk vulnerabilities, specifically those identified by Common Vulnerabilities and Exposures (CVEs) listed in CISA’s KEV Catalog on publicly exposed assets that grant total control of the asset post-exploitation, while deferring action for lower-risk vulnerabilities. BOD 26-04 further establishes basic expectations for when agencies must check whether threat actors compromised the system before the patch was applied. While BOD 26-04 applies only to FCEB agencies, CISA encourages all organizations to adopt risk-based vulnerability management and prioritize remediation of KEV Catalog vulnerabilities. CISA will continue to add vulnerabilities to the catalog that meet the specified criteria. Aware of an exploited vulnerability not currently listed in the KEV Catalog? Submit it for potential addition through CISA’s KEV Nomination Form. Potential KEV additions must have a CVE ID, evidence of exploitation, and clear mitigation guidance."
+          }
+        ]
+      },
+      {
+        "title": "2026-009: Critical Vulnerabilities in Microsoft SharePoint",
+        "source": "CERT-EU",
+        "url": "https://cert.europa.eu/publications/security-advisories/2026-009/",
+        "publishedAt": "Thu, 23 Jul 2026 09:13:03 CEST",
+        "passage": {
+          "kind": "article-opening",
+          "text": "Release Date: 23-07-2026 07:13:03 Critical Vulnerabilities in Microsoft SharePoint Download Download PDF MD5 SHA-1 SHA-256 SHA-512 Download MARKDOWN Download JSON History: 22/07/2026 --- v1.0 -- Initial publication 22/07/2026 --- v1.1 -- Updated to include additional actively exploited vulnerabilities (CVE-2026-32201, CVE-2026-45659, CVE-2026-56164, and CVE-2026-58644) Summary [UPDATED] On 14 July 2026, Microsoft released security updates addressing critical remote code execution (RCE) vulnerabilities in Microsoft SharePoint Server [1]. On 20 July 2026, WatchTowr identified a proof-of-concept exploit code and subsequently observed active exploitation of CVE-2026-50522 [2], a vulnerability part of an ongoing series of actively exploited flaws [3] affecting on-premise SharePoint Server insta"
+        },
+        "groupMembers": [
+          {
+            "title": "2026-009: Critical Vulnerabilities in Microsoft SharePoint",
+            "source": "CERT-EU",
+            "url": "https://cert.europa.eu/publications/security-advisories/2026-009/",
+            "publishedAt": "Thu, 23 Jul 2026 09:13:03 CEST",
+            "passage": "[UPDATED] On 14 July 2026, Microsoft released security updates addressing critical remote code execution (RCE) vulnerabilities in Microsoft SharePoint Server. On 20 July 2026, WatchTowr identified a proof-of-concept exploit code and subsequently observed active exploitation of CVE-2026-50522, a vulnerability part of an ongoing series of actively exploited flaws affecting on-premise SharePoint Server instances, including CVE-2026-32201, CVE-2026-45659, CVE-2026-56164, and CVE-2026-58644. CERT-EU strongly recommends updating affected servers immediately, rotating credentials for any assets that may have been exposed to the internet, and conducting a compromise assessment."
+          }
+        ]
+      },
+      {
+        "title": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild",
+        "source": "Rapid7",
+        "url": "https://www.rapid7.com/blog/post/etr-critical-sonicwall-sma1000-vulnerabilities-cve-2026-83548-cve-2026-83549-exploited-in-the-wild",
+        "publishedAt": "Wed, 02 Sep 2026 16:58:45 GMT",
+        "passage": {
+          "kind": "article-opening",
+          "text": "Overview On September 1, 2026, SonicWall disclosed two vulnerabilities affecting SonicWall SMA1000 appliances that the vendor says are being actively exploited in the wild. The vulnerabilities, CVE-2026-83548 and CVE-2026-83549 , can be chained to achieve unauthenticated remote code execution (RCE) on affected appliances. CVE-2026-83548 is a critical pre-authentication server-side request forgery (SSRF) vulnerability in the SMA1000 Appliance Work Place interface. The flaw has a CVSS v3.1 base score of 10.0 and can allow a remote, unauthenticated attacker to access sensitive functionality and perform unauthorized operations through an unintended alternate access path. CVE-2026-83549 is a high-severity OS command injection vulnerability in the Appliance Management Console (AMC). On its own, "
+        },
+        "groupMembers": [
+          {
+            "title": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild",
+            "source": "Rapid7",
+            "url": "https://www.rapid7.com/blog/post/etr-critical-sonicwall-sma1000-vulnerabilities-cve-2026-83548-cve-2026-83549-exploited-in-the-wild",
+            "publishedAt": "Wed, 02 Sep 2026 16:58:45 GMT",
+            "passage": "Overview On September 1, 2026, SonicWall disclosed two vulnerabilities affecting SonicWall SMA1000 appliances that the vendor says are being actively exploited in the wild. The vulnerabilities, CVE-2026-83548 and CVE-2026-83549, can be chained to achieve unauthenticated remote code execution (RCE) on affected appliances. CVE-2026-83548 is a critical pre-authentication server-side request forgery (SSRF) vulnerability in the SMA1000 Appliance Work Place interface. The flaw has a CVSS v3.1 base score of 10.0 and can allow a remote, unauthenticated attacker to access sensitive functionality and perform unauthorized operations through an unintended alternate access path. CVE-2026-83549 is a high-severity OS command injection vulnerability in the Appliance Management Console (AMC). On its own, exploitation requires an authenticated administrator and specific system conditions. Although, by leveraging the SSRF vulnerability CVE-2026-83548 an attacker could potentially exploit CVE-2026-83549 to execute arbitrary OS commands without prior authentication. SonicWall SMA1000 appliances are enterprise secure remote access gateways used to provide employees and other authorized users with access to internal applications and resources. Their role as network-edge systems makes successful exploitation particularly concerning, since affected Work Place interfaces may be exposed directly to the internet as part of normal deployment. SonicWall has confirmed active exploitation of both vulnerabilities in the wild, and both CVE-2026-83548 and CVE-2026-83549 have been added to CISA's Known Exploited Vulnerabilities ( KEV ) catalog. No public proof-of-concept exploit, indicators of compromise (IOCs), or attribution for the current activity were identified in the research available at the time of publication. The vulnerabilities affect SMA1000 Models - 6210, 7210, 8200v running the following versions: Vulnerable Versions Fixed Versions 12.4.3-03453 platform-hotfix and earlier 12.4.3-03526 (platform-hotfix) and higher versions 12.5.0-02835 platform-hotfix and earlier 12.5.0-02952 (platform-hotfix) and higher versions. Mitigation guidance Organizations operating affected SonicWall SMA1000 appliances should prioritize applying SonicWall’s updated platform hotfixes immediately. Because exploitation was occurring before public disclosure, organizations should not rely solely on patching to determine whether an appliance has already been compromised. SonicWall recommends upgrading affected appliances to: 12.4.3-03526 platform-hotfix, for systems on the 12.4.3 branch 12.5.0-02952 platform-hotfix, for systems on the 12.5.0 branch Affected Product/Component: SonicWall SMA1000 Appliance Work Place and Appliance Management Console Version 12.4.3-03453 platform-hotfix and earlier are affected. Version 12.5.0-02835 platform-hotfix and earlier are affected. SonicWall additionally recommends that customers contact SonicWall Technical Support for assistance reviewing appliances for indicators of compromise. If evidence of compromise is identified, SonicWall recommends: Re-imaging affected hardware appliances or re-deploying affected virtual appliances. Changing all user and administrator passwords. Resetting Time-based One-Time Password (TOTP) tokens. Given the confirmed exploitation of these vulnerabilities, organizations should treat potentially exposed appliances running vulnerable software as a priority fo"
+          },
+          {
+            "title": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild - Rapid7",
+            "source": "Rapid7",
+            "url": "",
+            "publishedAt": "Wed, 02 Sep 2026 17:03:18 GMT",
+            "passage": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild - Rapid7"
+          }
+        ]
+      },
+      {
+        "title": "CISA Adds Two Known Exploited Vulnerabilities to Catalog",
+        "source": "CISA Advisories",
+        "url": "https://www.cisa.gov/news-events/alerts/2026/08/31/cisa-adds-two-known-exploited-vulnerabilities-catalog",
+        "publishedAt": "Mon, 31 Aug 26 12:00:00 +0000",
+        "passage": {
+          "kind": "article-opening",
+          "text": "Alert CISA Adds Two Known Exploited Vulnerabilities to Catalog Release Date August 31, 2026 CISA has added two new vulnerabilities to its Known Exploited Vulnerabilities (KEV) Catalog , based on evidence of active exploitation. CVE-2026-81578 PaperCut NG/MF Missing Authentication for Critical Function Vulnerability CVE-2026-82078 PaperCut NG/MF Unsafe Reflection Vulnerability These types of vulnerabilities are a frequent attack vector for malicious cyber actors and pose significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requirements for Federal Civilian Executive Branch (FCEB) agencies. BOD 26-04 reinforces the importance of the KEV Catalog and requires federal agencies to "
+        },
+        "groupMembers": [
+          {
+            "title": "CISA Adds Two Known Exploited Vulnerabilities to Catalog",
+            "source": "CISA Advisories",
+            "url": "https://www.cisa.gov/news-events/alerts/2026/08/31/cisa-adds-two-known-exploited-vulnerabilities-catalog",
+            "publishedAt": "Mon, 31 Aug 26 12:00:00 +0000",
+            "passage": "CISA has added two new vulnerabilities to its Known Exploited Vulnerabilities (KEV) Catalog, based on evidence of active exploitation. CVE-2026-81578 PaperCut NG/MF Missing Authentication for Critical Function Vulnerability CVE-2026-82078 PaperCut NG/MF Unsafe Reflection Vulnerability These types of vulnerabilities are a frequent attack vector for malicious cyber actors and pose significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requirements for Federal Civilian Executive Branch (FCEB) agencies. BOD 26-04 reinforces the importance of the KEV Catalog and requires federal agencies to prioritize rapid remediation of high-risk vulnerabilities, specifically those identified by Common Vulnerabilities and Exposures (CVEs) listed in CISA’s KEV Catalog on publicly exposed assets that grant total control of the asset post-exploitation, while deferring action for lower-risk vulnerabilities. BOD 26-04 further establishes basic expectations for when agencies must check whether threat actors compromised the system before the patch was applied. While BOD 26-04 applies only to FCEB agencies, CISA encourages all organizations to adopt risk-based vulnerability management and prioritize remediation of KEV Catalog vulnerabilities. CISA will continue to add vulnerabilities to the catalog that meet the specified criteria. Aware of an exploited vulnerability not currently listed in the KEV Catalog? Submit it for potential addition through CISA’s KEV Nomination Form. Potential KEV additions must have a CVE ID, evidence of exploitation, and clear mitigation guidance."
+          }
+        ]
+      },
+      {
+        "title": "Attackers Exploit PaperCut Flaws to Steal Credentials From Schools and Universities",
+        "source": "The Hacker News",
+        "url": "https://thehackernews.com/2026/09/attackers-exploit-papercut-flaws-to.html",
+        "publishedAt": "Sat, 05 Sep 2026 13:01:53 +0530",
+        "passage": {
+          "kind": "article-opening",
+          "text": "Prevention Already Failed. What Does Your Monitoring Actually Catch? A 6-day SANS course rebuilds hybrid detection across cloud, endpoint, and network. GMON, Sept 21."
+        },
+        "groupMembers": [
+          {
+            "title": "Attackers Exploit PaperCut Flaws to Steal Credentials From Schools and Universities",
+            "source": "The Hacker News",
+            "url": "https://thehackernews.com/2026/09/attackers-exploit-papercut-flaws-to.html",
+            "publishedAt": "Sat, 05 Sep 2026 13:01:53 +0530",
+            "passage": "Threat actors are exploiting the newly disclosed PaperCut flaws to facilitate credential theft in attacks targeting the education sector in the U.S. and Europe. The Arctic Wolf Adversary Research Team said it observed attackers exploiting CVE-2026-81578 and CVE-2026-82078 – an authentication bypass and remote code execution chain – to conduct command execution and reconnaissance, as well as"
+          }
+        ]
+      },
+      {
+        "title": "Sangoma Switchvox Vulnerabilities Exploited in the Wild",
+        "source": "SecurityWeek",
+        "url": "https://www.securityweek.com/sangoma-switchvox-vulnerabilities-exploited-in-the-wild/",
+        "publishedAt": "Fri, 04 Sep 2026 13:23:12 +0000",
+        "passage": {
+          "kind": "article-opening",
+          "text": "Threat actors have been exploiting a critical-severity vulnerability in the enterprise VoIP telephony management solution Sangoma Switchvox, Horizon3 and CISA warn. Tracked as CVE-2026-9586 (CVSS score of 9.3) and described as an unauthenticated SQL injection issue, the security defect can be exploited remotely for arbitrary code execution. It resides in an endpoint that processes XML content, which did not perform sanitization or parameterization when concatenating the user-controlled PhoneIP value into PostgreSQL queries. “An unauthenticated remote attacker can execute arbitrary SQL statements against the backend PostgreSQL database using a single crafted request, including database operations and remote code execution,” a NIST advisory reads. On Tuesday, cybersecurity firm Horizon3 warn"
+        },
+        "groupMembers": [
+          {
+            "title": "Sangoma Switchvox Vulnerabilities Exploited in the Wild",
+            "source": "SecurityWeek",
+            "url": "https://www.securityweek.com/sangoma-switchvox-vulnerabilities-exploited-in-the-wild/",
+            "publishedAt": "Fri, 04 Sep 2026 13:23:12 +0000",
+            "passage": "Tracked as CVE-2026-9586, the unauthenticated SQL injection flaw can be exploited remotely for arbitrary code execution. The post Sangoma Switchvox Vulnerabilities Exploited in the Wild appeared first on SecurityWeek."
+          }
+        ]
+      },
+      {
+        "title": "Google warns of new Chrome zero-day flaw exploited in attacks",
+        "source": "BleepingComputer",
+        "url": "https://www.bleepingcomputer.com/news/security/google-warns-of-new-chrome-zero-day-flaw-exploited-in-attacks/",
+        "publishedAt": "Fri, 04 Sep 2026 07:48:17 -0400",
+        "passage": {
+          "kind": "article-opening",
+          "text": "Google warns of new Chrome zero-day flaw exploited in attacks By Bill Toulas September 4, 2026 07:48 AM 0 Google has updated the Chrome browser to address an actively exploited high-severity zero-day flaw in the V8 engine and 11 other vulnerabilities. The exploited security issue, identified as CVE-2026-85046, is described as a type confusion. It was reported to Google by researcher Salvatore Gulizia, known online as “Serotav.” The update brings Chrome to version 152.0.7977.82/.83 on Windows and macOS, and 152.0.7977.82 on Linux, as part of a gradual rollout.. “Google is aware that an exploit for CVE-2026-85046 exists in the wild,” the advisory reads . The company did not disclose any technical or specific exploitation details about the flaw to give users and dependent projects time to app"
+        },
+        "groupMembers": [
+          {
+            "title": "Google warns of new Chrome zero-day flaw exploited in attacks",
+            "source": "BleepingComputer",
+            "url": "https://www.bleepingcomputer.com/news/security/google-warns-of-new-chrome-zero-day-flaw-exploited-in-attacks/",
+            "publishedAt": "Fri, 04 Sep 2026 07:48:17 -0400",
+            "passage": "Google has updated the Chrome browser to address an actively exploited high-severity zero-day flaw in the V8 engine and 11 other vulnerabilities. [...]"
+          }
+        ]
+      },
+      {
+        "title": "2026-005: High Vulnerability in the Linux Kernel (\"Copy Fail\")",
+        "source": "CERT-EU",
+        "url": "https://cert.europa.eu/publications/security-advisories/2026-005/",
+        "publishedAt": "Thu, 30 Apr 2026 11:25:30 CEST",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "On 29 April 2026, a high local privilege escalation vulnerability in the Linux kernel, tracked as CVE-2026-31431 and named \"Copy Fail\", was publicly disclosed. The vulnerability affects every mainstream Linux distributions shipping a kernel built since 2017. A public proof-of-concept exploit has..."
+        },
+        "groupMembers": [
+          {
+            "title": "2026-005: High Vulnerability in the Linux Kernel (\"Copy Fail\")",
+            "source": "CERT-EU",
+            "url": "https://cert.europa.eu/publications/security-advisories/2026-005/",
+            "publishedAt": "Thu, 30 Apr 2026 11:25:30 CEST",
+            "passage": "On 29 April 2026, a high local privilege escalation vulnerability in the Linux kernel, tracked as CVE-2026-31431 and named \"Copy Fail\", was publicly disclosed. The vulnerability affects every mainstream Linux distributions shipping a kernel built since 2017. A public proof-of-concept exploit has been released. As of the date of this advisory, no distribution has shipped a fixed kernel package. The mainline fix was committed on 1 April 2026, but vendor updates are still pending across all major distributions. CERT-EU strongly recommends applying the interim mitigation immediately, prioritising Kubernetes nodes, and CI/CD runners exposed to untrusted workloads."
+          }
+        ]
+      },
+      {
+        "title": "Attackers exploit zero-days in consistently besieged SonicWall product",
+        "source": "CyberScoop",
+        "url": "https://cyberscoop.com/sonicwall-sma1000-zero-days-actively-exploited/",
+        "publishedAt": "Thu, 03 Sep 2026 22:12:53 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "SonicWall customers have confronted a barrage of attacks for years, including five actively exploited vulnerabilities in SMA 1000 appliances since late 2025. The post Attackers exploit zero-days in consistently besieged SonicWall product appeared first on CyberScoop."
+        },
+        "groupMembers": [
+          {
+            "title": "Attackers exploit zero-days in consistently besieged SonicWall product",
+            "source": "CyberScoop",
+            "url": "https://cyberscoop.com/sonicwall-sma1000-zero-days-actively-exploited/",
+            "publishedAt": "Thu, 03 Sep 2026 22:12:53 +0000",
+            "passage": "SonicWall customers have confronted a barrage of attacks for years, including five actively exploited vulnerabilities in SMA 1000 appliances since late 2025. The post Attackers exploit zero-days in consistently besieged SonicWall product appeared first on CyberScoop."
+          }
+        ]
+      },
+      {
+        "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+        "source": "The Hacker News",
+        "url": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+        "publishedAt": "Sun, 06 Sep 2026 01:44:47 +0530",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Attackers are exploiting a new unpatched vulnerability in Magento Open Source and Adobe Commerce that lets them run malicious code on an online store's server without logging in, Dutch e-commerce security company Sansec said in an advisory published on September 5. Sansec, which discovered the fl..."
+        },
+        "groupMembers": [
+          {
+            "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+            "source": "The Hacker News",
+            "url": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+            "publishedAt": "Sun, 06 Sep 2026 01:44:47 +0530",
+            "passage": "Attackers are exploiting a new unpatched vulnerability in Magento Open Source and Adobe Commerce that lets them run malicious code on an online store's server without logging in, Dutch e-commerce security company Sansec said in an advisory published on September 5. Sansec, which discovered the flaw and named it StyleSmuggler, said attacks started on September 4. \"Sansec is publishing early"
+          }
+        ]
+      },
+      {
+        "title": "Google Patches 6th Chrome Zero-Day of 2026",
+        "source": "SecurityWeek",
+        "url": "https://www.securityweek.com/google-patches-6th-chrome-zero-day-of-2026/",
+        "publishedAt": "Fri, 04 Sep 2026 11:31:52 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Google’s Chrome 152 security update resolves 12 vulnerabilities, including a high-severity type confusion flaw in the V8 engine. The post Google Patches 6th Chrome Zero-Day of 2026 appeared first on SecurityWeek."
+        },
+        "groupMembers": [
+          {
+            "title": "Google Patches 6th Chrome Zero-Day of 2026",
+            "source": "SecurityWeek",
+            "url": "https://www.securityweek.com/google-patches-6th-chrome-zero-day-of-2026/",
+            "publishedAt": "Fri, 04 Sep 2026 11:31:52 +0000",
+            "passage": "Google’s Chrome 152 security update resolves 12 vulnerabilities, including a high-severity type confusion flaw in the V8 engine. The post Google Patches 6th Chrome Zero-Day of 2026 appeared first on SecurityWeek."
+          },
+          {
+            "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046)",
+            "source": "Help Net Security",
+            "url": "https://www.helpnetsecurity.com/2026/09/04/google-chrome-zero-day-cve-2026-85046/",
+            "publishedAt": "Fri, 04 Sep 2026 12:09:13 +0000",
+            "passage": "Google has patched 12 vulnerabilities affecting its popular Chrome browser, among them CVE-2026-85046, which has been exploited in the wild. “Google is aware that an exploit for CVE-2026-85046 exists in the wild,” the company said in a Thursday security advisory. The fix has been shipped in Chrom..."
+          }
+        ]
+      },
+      {
+        "title": "Hackers Chain Two New SonicWall Zero-Day Vulnerabilities",
+        "source": "Infosecurity Magazine",
+        "url": "https://www.infosecurity-magazine.com/news/hackers-chain-sonicwall-zeroday/",
+        "publishedAt": "Wed, 02 Sep 2026 09:00:00 GMT",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "SonicWall has urged customers to patch two new zero-day vulnerabilities being exploited in the wild"
+        },
+        "groupMembers": [
+          {
+            "title": "Hackers Chain Two New SonicWall Zero-Day Vulnerabilities",
+            "source": "Infosecurity Magazine",
+            "url": "https://www.infosecurity-magazine.com/news/hackers-chain-sonicwall-zeroday/",
+            "publishedAt": "Wed, 02 Sep 2026 09:00:00 GMT",
+            "passage": "SonicWall has urged customers to patch two new zero-day vulnerabilities being exploited in the wild"
+          }
+        ]
+      },
+      {
+        "title": "Attackers Pounce on Critical Artifactory Bug Following Disclosure",
+        "source": "Dark Reading",
+        "url": "https://www.darkreading.com/application-security/attackers-pounce-critical-artifactory-flaw-disclosure",
+        "publishedAt": "Tue, 01 Sep 2026 21:05:53 GMT",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "CVE-2026-82329 is an authentication bypass flaw in JFrog's repository manager that enables bad actors to gain admin-level access on affected systems."
+        },
+        "groupMembers": [
+          {
+            "title": "Attackers Pounce on Critical Artifactory Bug Following Disclosure",
+            "source": "Dark Reading",
+            "url": "https://www.darkreading.com/application-security/attackers-pounce-critical-artifactory-flaw-disclosure",
+            "publishedAt": "Tue, 01 Sep 2026 21:05:53 GMT",
+            "passage": "CVE-2026-82329 is an authentication bypass flaw in JFrog's repository manager that enables bad actors to gain admin-level access on affected systems."
+          }
+        ]
+      },
+      {
+        "title": "SonicWall SMA 1000 Zero-Days Enable Unauthenticated RCE",
+        "source": "Dark Reading",
+        "url": "https://www.darkreading.com/vulnerabilities-threats/sonicwall-sma-1000-zero-days-unauthenticated-rce",
+        "publishedAt": "Wed, 02 Sep 2026 20:43:59 GMT",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "The exploitation activity follows attacks earlier this summer on two other zero-day vulnerabilities in the vendor's edge devices."
+        },
+        "groupMembers": [
+          {
+            "title": "SonicWall SMA 1000 Zero-Days Enable Unauthenticated RCE",
+            "source": "Dark Reading",
+            "url": "https://www.darkreading.com/vulnerabilities-threats/sonicwall-sma-1000-zero-days-unauthenticated-rce",
+            "publishedAt": "Wed, 02 Sep 2026 20:43:59 GMT",
+            "passage": "The exploitation activity follows attacks earlier this summer on two other zero-day vulnerabilities in the vendor's edge devices."
+          },
+          {
+            "title": "Attackers Exploit Two SonicWall SMA 1000 Zero-Days That May Form an Attack Chain",
+            "source": "The Hacker News",
+            "url": "https://thehackernews.com/2026/09/attackers-exploit-two-sonicwall-sma.html",
+            "publishedAt": "Wed, 02 Sep 2026 16:23:49 +0530",
+            "passage": "SonicWall has released security updates to address two security flaws impacting its Secure Mobile Access (SMA) 1000 series VPN appliances that have been exploited in zero-day attacks. The vulnerabilities, discovered internally by SonicWall's William Perry and Adam Babis, are listed below - CVE-2026-83548 (CVSS score: 10.0) - A pre-authentication SSRF vulnerability in the Appliance"
+          }
+        ]
+      },
+      {
+        "title": "VU#889462: Casdoor authentication server is vulnerable to authorization bypass",
+        "source": "CERT/CC",
+        "url": "https://kb.cert.org/vuls/id/889462",
+        "publishedAt": "2026-09-03T17:03:30.139953+00:00",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Overview Casdoor is an open-source Access Management (IAM) platform used to manage web applications. An authorization bypass vulnerability affects Casdoor versions 3.115.0 and earlier. The vulnerability allows a non-global organization administrator to perform unauthorized administrative actions..."
+        },
+        "groupMembers": [
+          {
+            "title": "VU#889462: Casdoor authentication server is vulnerable to authorization bypass",
+            "source": "CERT/CC",
+            "url": "https://kb.cert.org/vuls/id/889462",
+            "publishedAt": "2026-09-03T17:03:30.139953+00:00",
+            "passage": "Overview Casdoor is an open-source Access Management (IAM) platform used to manage web applications. An authorization bypass vulnerability affects Casdoor versions 3.115.0 and earlier. The vulnerability allows a non-global organization administrator to perform unauthorized administrative actions..."
+          }
+        ]
+      },
+      {
+        "title": "2026-001: Critical vulnerabilities in Ivanti EPMM",
+        "source": "CERT-EU",
+        "url": "https://cert.europa.eu/publications/security-advisories/2026-001/",
+        "publishedAt": "Fri, 30 Jan 2026 10:09:06 CET",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "On 29 January 2026, Ivanti released a security advisory addressing two critical vulnerabilities in their EPMM products. An attacker could exploit those flaws to achieve unauthenticated remote code execution on the vulnerable device. One of these vulnerabilities have been exploited in a limited nu..."
+        },
+        "groupMembers": [
+          {
+            "title": "2026-001: Critical vulnerabilities in Ivanti EPMM",
+            "source": "CERT-EU",
+            "url": "https://cert.europa.eu/publications/security-advisories/2026-001/",
+            "publishedAt": "Fri, 30 Jan 2026 10:09:06 CET",
+            "passage": "On 29 January 2026, Ivanti released a security advisory addressing two critical vulnerabilities in their EPMM products. An attacker could exploit those flaws to achieve unauthenticated remote code execution on the vulnerable device. One of these vulnerabilities have been exploited in a limited number of cases."
+          }
+        ]
+      },
+      {
+        "title": "AI agents carried out every step of this ransomware attack – then left the victim an 80-page security audit",
+        "source": "The Register",
+        "url": "https://www.theregister.com/security/2026/09/02/ai-agents-carried-out-every-step-of-this-ransomware-attack-then-left-the-victim-an-80-page-security-audit/5294009",
+        "publishedAt": "Wed, 02 Sep 2026 20:28:00 +0200",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Adding insult to injury"
+        },
+        "groupMembers": [
+          {
+            "title": "AI agents carried out every step of this ransomware attack – then left the victim an 80-page security audit",
+            "source": "The Register",
+            "url": "https://www.theregister.com/security/2026/09/02/ai-agents-carried-out-every-step-of-this-ransomware-attack-then-left-the-victim-an-80-page-security-audit/5294009",
+            "publishedAt": "Wed, 02 Sep 2026 20:28:00 +0200",
+            "passage": "Adding insult to injury"
+          },
+          {
+            "title": "AI agents carried out every step of this ransomware attack – then left the victim an 80-page security audit - The Register",
+            "source": "The Register",
+            "url": "",
+            "publishedAt": "Wed, 02 Sep 2026 18:28:00 GMT",
+            "passage": "AI agents carried out every step of this ransomware attack – then left the victim an 80-page security audit - The Register"
+          }
+        ]
+      },
+      {
+        "title": "Critical JFrog Artifactory Vulnerability Reportedly Exploited in the Wild - SecurityWeek",
+        "source": "SecurityWeek",
+        "url": "",
+        "publishedAt": "Tue, 01 Sep 2026 09:59:44 GMT",
+        "passage": {
+          "kind": "title-only",
+          "text": "Critical JFrog Artifactory Vulnerability Reportedly Exploited in the Wild - SecurityWeek"
+        },
+        "groupMembers": [
+          {
+            "title": "Critical JFrog Artifactory Vulnerability Reportedly Exploited in the Wild - SecurityWeek",
+            "source": "SecurityWeek",
+            "url": "",
+            "publishedAt": "Tue, 01 Sep 2026 09:59:44 GMT",
+            "passage": "Critical JFrog Artifactory Vulnerability Reportedly Exploited in the Wild - SecurityWeek"
+          }
+        ]
+      },
+      {
+        "title": "JFrog security advisory (AV26-867) – Update 1",
+        "source": "CCCS",
+        "url": "https://cyber.gc.ca/en/alerts-advisories/jfrog-security-advisory-av26-867",
+        "publishedAt": "2026-09-02T18:55:31Z",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Serial number: AV26-867 Date: September 1, 2026 Updated: September 2, 2026 As of August 28, 2026, JFrog is affected by a vulnerability in the following product: Artifactory Prior to 7.111.21 Prior to 7.117.28 Prior to 7.125.20 Prior to 7.133.29 Prior to 7.146.38 Prior to 7.161.20 Open-source repo..."
+        },
+        "groupMembers": [
+          {
+            "title": "JFrog security advisory (AV26-867) – Update 1",
+            "source": "CCCS",
+            "url": "https://cyber.gc.ca/en/alerts-advisories/jfrog-security-advisory-av26-867",
+            "publishedAt": "2026-09-02T18:55:31Z",
+            "passage": "Serial number: AV26-867 Date: September 1, 2026 Updated: September 2, 2026 As of August 28, 2026, JFrog is affected by a vulnerability in the following product: Artifactory Prior to 7.111.21 Prior to 7.117.28 Prior to 7.125.20 Prior to 7.133.29 Prior to 7.146.38 Prior to 7.161.20 Open-source reporting indicates that CVE-2026-82329 related to JFrog Artifactory is being exploited in the wild. The Cyber Centre encourages users and administrators to review the provided web links and apply any necessary updates as they become available. Update 1 On September 2, 2026, Cybersecurity and Infrastructure Security Agency (CISA) added CVE-2026-82329 to their Known Exploited Vulnerabilities (KEV) Database. Artifactory Self-Managed Releases JFrog Security Advisories CISA KEV: CVE-2026-82329"
+          }
+        ]
+      },
+      {
+        "title": "PaperCut security advisory (AV26-858) – Update 2",
+        "source": "CCCS",
+        "url": "https://cyber.gc.ca/en/alerts-advisories/papercut-security-advisory-av26-858",
+        "publishedAt": "2026-08-31T16:00:58Z",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Serial number: AV26-858 Date: August 28, 2026 Updated: August 31, 2026 As of August 27, 2026, PaperCut is affected by vulnerabilities in the following products: PaperCut MF Prior to v24 Emergency Patch Release 2 Prior to v25 Emergency Patch Release 2 Prior to v26 Emergency Patch Release 2 PaperCu..."
+        },
+        "groupMembers": [
+          {
+            "title": "PaperCut security advisory (AV26-858) – Update 2",
+            "source": "CCCS",
+            "url": "https://cyber.gc.ca/en/alerts-advisories/papercut-security-advisory-av26-858",
+            "publishedAt": "2026-08-31T16:00:58Z",
+            "passage": "Serial number: AV26-858 Date: August 28, 2026 Updated: August 31, 2026 As of August 27, 2026, PaperCut is affected by vulnerabilities in the following products: PaperCut MF Prior to v24 Emergency Patch Release 2 Prior to v25 Emergency Patch Release 2 Prior to v26 Emergency Patch Release 2 PaperCut NG Prior to v24 Emergency Patch Release 2 Prior to v25 Emergency Patch Release 2 Prior to v26 Emergency Patch Release 2 Update 1 Open-source reporting indicates that CVE-2026-81578 and CVE-2026-82078 are related to PaperCut MF and PaperCut NG are being exploited in the wild. Update 2 On August 31, 2026, Cybersecurity and Infrastructure Security Agency (CISA) added CVE-2026-81578 and CVE-2026-82078 to their Known Exploited Vulnerabilities (KEV) Database. The Cyber Centre encourages users and administrators to review the provided web link and apply any necessary updates as they become available. URGENT Security Advisory: PaperCut NG/MF Security Bulletin (27 Aug 2026) CISA KEV: CVE-2026-81578 CISA KEV: CVE-2026-82078"
+          }
+        ]
+      },
+      {
+        "title": "New CrowdStrike 'FalconFlank' zero-day grants SYSTEM privileges",
+        "source": "BleepingComputer",
+        "url": "https://www.bleepingcomputer.com/news/security/new-crowdstrike-falconflank-zero-day-grants-system-privileges/",
+        "publishedAt": "Fri, 04 Sep 2026 09:22:01 -0400",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "An anonymous security researcher who uses the \"Nightmare Eclipse\" handle released a CrowdStrike Falcon zero-day exploit named \"FalconFlank\" that lets attackers escalate privileges on up-to-date Windows systems. [...]"
+        },
+        "groupMembers": [
+          {
+            "title": "New CrowdStrike 'FalconFlank' zero-day grants SYSTEM privileges",
+            "source": "BleepingComputer",
+            "url": "https://www.bleepingcomputer.com/news/security/new-crowdstrike-falconflank-zero-day-grants-system-privileges/",
+            "publishedAt": "Fri, 04 Sep 2026 09:22:01 -0400",
+            "passage": "An anonymous security researcher who uses the \"Nightmare Eclipse\" handle released a CrowdStrike Falcon zero-day exploit named \"FalconFlank\" that lets attackers escalate privileges on up-to-date Windows systems. [...]"
+          }
+        ]
+      },
+      {
+        "title": "Stronger Security Drives Ransomware Groups to Recruit From Within",
+        "source": "Dark Reading",
+        "url": "https://www.darkreading.com/cyber-risk/stronger-security-drives-ransomware-groups-to-recruit-from-within",
+        "publishedAt": "Tue, 01 Sep 2026 21:03:19 GMT",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Some security researchers have observed an uptick in insider-assisted ransomware attacks, but malicious insiders pose other threats that cost companies millions."
+        },
+        "groupMembers": [
+          {
+            "title": "Stronger Security Drives Ransomware Groups to Recruit From Within",
+            "source": "Dark Reading",
+            "url": "https://www.darkreading.com/cyber-risk/stronger-security-drives-ransomware-groups-to-recruit-from-within",
+            "publishedAt": "Tue, 01 Sep 2026 21:03:19 GMT",
+            "passage": "Some security researchers have observed an uptick in insider-assisted ransomware attacks, but malicious insiders pose other threats that cost companies millions."
+          },
+          {
+            "title": "Stronger Security Drives Ransomware Groups to Recruit From Within - Dark Reading",
+            "source": "Dark Reading",
+            "url": "",
+            "publishedAt": "Tue, 01 Sep 2026 21:05:24 GMT",
+            "passage": "Stronger Security Drives Ransomware Groups to Recruit From Within - Dark Reading"
+          }
+        ]
+      },
+      {
+        "title": "Berlin confirms data theft after Rhysida ransomware attack claims - BleepingComputer",
+        "source": "BleepingComputer",
+        "url": "",
+        "publishedAt": "Mon, 31 Aug 2026 13:30:01 GMT",
+        "passage": {
+          "kind": "title-only",
+          "text": "Berlin confirms data theft after Rhysida ransomware attack claims - BleepingComputer"
+        },
+        "groupMembers": [
+          {
+            "title": "Berlin confirms data theft after Rhysida ransomware attack claims - BleepingComputer",
+            "source": "BleepingComputer",
+            "url": "",
+            "publishedAt": "Mon, 31 Aug 2026 13:30:01 GMT",
+            "passage": "Berlin confirms data theft after Rhysida ransomware attack claims - BleepingComputer"
+          },
+          {
+            "title": "Berlin Confirms Data Theft After Rhysida Attack: 5.79TB [2026] - tech-insider.org",
+            "source": "tech-insider.org",
+            "url": "",
+            "publishedAt": "Mon, 31 Aug 2026 18:11:10 GMT",
+            "passage": "Berlin Confirms Data Theft After Rhysida Attack: 5.79TB [2026] - tech-insider.org"
+          }
+        ]
+      },
+      {
+        "title": "September 2026 Patch Tuesday forecast: All we need is more time",
+        "source": "Help Net Security",
+        "url": "https://www.helpnetsecurity.com/2026/09/04/september-2026-patch-tuesday-forecast/",
+        "publishedAt": "Fri, 04 Sep 2026 06:00:19 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "The Patch Apocalypse is continuing unabated. We are seeing record numbers of patches being released and reported CVEs continue to grow as well. August 2026 Patch Tuesday was the second biggest in history with 398 resolved CVEs: 42 rated Critical, 355 rated Important, and 1 rated Moderate. But des..."
+        },
+        "groupMembers": [
+          {
+            "title": "September 2026 Patch Tuesday forecast: All we need is more time",
+            "source": "Help Net Security",
+            "url": "https://www.helpnetsecurity.com/2026/09/04/september-2026-patch-tuesday-forecast/",
+            "publishedAt": "Fri, 04 Sep 2026 06:00:19 +0000",
+            "passage": "The Patch Apocalypse is continuing unabated. We are seeing record numbers of patches being released and reported CVEs continue to grow as well. August 2026 Patch Tuesday was the second biggest in history with 398 resolved CVEs: 42 rated Critical, 355 rated Important, and 1 rated Moderate. But des..."
+          }
+        ]
+      },
+      {
+        "title": "Cisco searched for IOS XR bugs and found so many it rolled them into an update release",
+        "source": "The Register",
+        "url": "https://www.theregister.com/security/2026/09/04/cisco-searched-for-ios-xr-bugs-and-found-so-many-it-rolled-them-into-an-update-release/5294410",
+        "publishedAt": "Fri, 04 Sep 2026 04:18:36 +0200",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Three critical vulns demand your attention, one a make-me-root mess in Nexus 9000 Series Switches that you can mitigate, not fix"
+        },
+        "groupMembers": [
+          {
+            "title": "Cisco searched for IOS XR bugs and found so many it rolled them into an update release",
+            "source": "The Register",
+            "url": "https://www.theregister.com/security/2026/09/04/cisco-searched-for-ios-xr-bugs-and-found-so-many-it-rolled-them-into-an-update-release/5294410",
+            "publishedAt": "Fri, 04 Sep 2026 04:18:36 +0200",
+            "passage": "Three critical vulns demand your attention, one a make-me-root mess in Nexus 9000 Series Switches that you can mitigate, not fix"
+          }
+        ]
+      },
+      {
+        "title": "AI agents expose 5G core security risks for telecom operators - Fierce Network",
+        "source": "Fierce Network",
+        "url": "",
+        "publishedAt": "Thu, 03 Sep 2026 22:11:33 GMT",
+        "passage": {
+          "kind": "title-only",
+          "text": "AI agents expose 5G core security risks for telecom operators - Fierce Network"
+        },
+        "groupMembers": [
+          {
+            "title": "AI agents expose 5G core security risks for telecom operators - Fierce Network",
+            "source": "Fierce Network",
+            "url": "",
+            "publishedAt": "Thu, 03 Sep 2026 22:11:33 GMT",
+            "passage": "AI agents expose 5G core security risks for telecom operators - Fierce Network"
+          }
+        ]
+      },
+      {
+        "title": "Prolific Microsoft 0-day hunter drops CrowdStrike Falcon exploit PoC",
+        "source": "The Register",
+        "url": "https://www.theregister.com/security/2026/09/03/prolific-microsoft-0-day-hunter-drops-crowdstrike-falcon-exploit-poc/5294318",
+        "publishedAt": "Thu, 03 Sep 2026 20:08:22 +0200",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "A shared security 'Nightmare'"
+        },
+        "groupMembers": [
+          {
+            "title": "Prolific Microsoft 0-day hunter drops CrowdStrike Falcon exploit PoC",
+            "source": "The Register",
+            "url": "https://www.theregister.com/security/2026/09/03/prolific-microsoft-0-day-hunter-drops-crowdstrike-falcon-exploit-poc/5294318",
+            "publishedAt": "Thu, 03 Sep 2026 20:08:22 +0200",
+            "passage": "A shared security 'Nightmare'"
+          },
+          {
+            "title": "Prolific Microsoft 0-day hunter drops CrowdStrike Falcon exploit PoC - The Register",
+            "source": "The Register",
+            "url": "",
+            "publishedAt": "Thu, 03 Sep 2026 18:08:22 GMT",
+            "passage": "Prolific Microsoft 0-day hunter drops CrowdStrike Falcon exploit PoC - The Register"
+          }
+        ]
+      },
+      {
+        "title": "SonicWall's SMA1000 boxes under active attack again",
+        "source": "The Register",
+        "url": "https://www.theregister.com/security/2026/09/02/sonicwalls-sma1000-boxes-under-active-attack-again/5293969",
+        "publishedAt": "Wed, 02 Sep 2026 18:05:00 +0200",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Miscreants use chained zero days to pwn boxen as third-party SOCs say further attacks 'almost certain'"
+        },
+        "groupMembers": [
+          {
+            "title": "SonicWall's SMA1000 boxes under active attack again",
+            "source": "The Register",
+            "url": "https://www.theregister.com/security/2026/09/02/sonicwalls-sma1000-boxes-under-active-attack-again/5293969",
+            "publishedAt": "Wed, 02 Sep 2026 18:05:00 +0200",
+            "passage": "Miscreants use chained zero days to pwn boxen as third-party SOCs say further attacks 'almost certain'"
+          }
+        ]
+      },
+      {
+        "title": "numbat - AI agent observability, (Fri, Sep 4th)",
+        "source": "SANS ISC",
+        "url": "https://isc.sans.edu/diary/rss/33312",
+        "publishedAt": "Sat, 05 Sep 2026 03:39:52 GMT",
+        "passage": {
+          "kind": "title-only",
+          "text": "numbat - AI agent observability, (Fri, Sep 4th)"
+        },
+        "groupMembers": [
+          {
+            "title": "numbat - AI agent observability, (Fri, Sep 4th)",
+            "source": "SANS ISC",
+            "url": "https://isc.sans.edu/diary/rss/33312",
+            "publishedAt": "Sat, 05 Sep 2026 03:39:52 GMT",
+            "passage": "numbat - AI agent observability, (Fri, Sep 4th)"
+          }
+        ]
+      },
+      {
+        "title": "Impersonating IT support: how threat actors turn a remote session into enterprise-wide access",
+        "source": "Microsoft Security",
+        "url": "https://www.microsoft.com/en-us/security/blog/2026/09/02/impersonating-it-support-threat-actors-turn-remote-session-into-enterprise-wide-access/",
+        "publishedAt": "Wed, 02 Sep 2026 22:51:18 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Microsoft Threat Intelligence observed a human-operated intrusion campaign that abuses Microsoft Teams external collaboration to impersonate IT support, gain remote access, and deploy a Node.js-based implant. Learn how attackers move from social engineering to lateral movement using legitimate to..."
+        },
+        "groupMembers": [
+          {
+            "title": "Impersonating IT support: how threat actors turn a remote session into enterprise-wide access",
+            "source": "Microsoft Security",
+            "url": "https://www.microsoft.com/en-us/security/blog/2026/09/02/impersonating-it-support-threat-actors-turn-remote-session-into-enterprise-wide-access/",
+            "publishedAt": "Wed, 02 Sep 2026 22:51:18 +0000",
+            "passage": "Microsoft Threat Intelligence observed a human-operated intrusion campaign that abuses Microsoft Teams external collaboration to impersonate IT support, gain remote access, and deploy a Node.js-based implant. Learn how attackers move from social engineering to lateral movement using legitimate to..."
+          }
+        ]
+      },
+      {
+        "title": "Financially Motivated Threat Actor BREEZE COMET Targets Brazil",
+        "source": "Google Threat Intelligence",
+        "url": "https://cloud.google.com/blog/topics/threat-intelligence/financially-motivated-threat-actor-breeze-comet-targets-brazil/",
+        "publishedAt": "Tue, 01 Sep 2026 14:00:00 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Introduction Beginning in 2024 Mandiant investigated a string of compromises affecting Brazilian financial services, retail, and eCommerce organizations. Google Threat Intelligence Group (GTIG) tracks this activity as BREEZE COMET (formerly UNC5669), a financially motivated threat actor specializ..."
+        },
+        "groupMembers": [
+          {
+            "title": "Financially Motivated Threat Actor BREEZE COMET Targets Brazil",
+            "source": "Google Threat Intelligence",
+            "url": "https://cloud.google.com/blog/topics/threat-intelligence/financially-motivated-threat-actor-breeze-comet-targets-brazil/",
+            "publishedAt": "Tue, 01 Sep 2026 14:00:00 +0000",
+            "passage": "Introduction Beginning in 2024 Mandiant investigated a string of compromises affecting Brazilian financial services, retail, and eCommerce organizations. Google Threat Intelligence Group (GTIG) tracks this activity as BREEZE COMET (formerly UNC5669), a financially motivated threat actor specializing in manipulating payment systems and banking software in Brazil to conduct fraudulent transfers. This activity overlaps with operations publicly reported as Plump Spider and SHADOW-AETHER-064. In this blog, we detail BREEZE COMET’s tactics and toolkit, and provide mitigation recommendations and detections to support organizations in defending against this active and developing threat. BREEZE COMET tactics have evolved over time to leverage a customized malware suite and compromised, trusted websites to facilitate initial access, command and control (C2), and to interact with financial software and payment APIs. BREEZE COMET’s operational infrastructure may also indicate intent to expand their infrastructure footprint to other countries in Latin America and Africa. Additionally, we have evidence that BREEZE COMET is using generative artificial intelligence (AI) to support malware development, which may further increase the scale, speed, and sophistication of their operations in the future. BREEZE COMET Targets Brazilian Financial Technology BREEZE COMET operations target organizations with permission to conduct transactions through banking software, APIs, and payment systems such as Pix, STR, and Boleto. This typically includes banks, payment processors, retailers, exchanges, as well as fintech and banking software providers. To achieve their objective of conducting fraudulent transfers, BREEZE COMET must maintain: Access to the National Financial System Network (Rede Nacional do Setor Financeiro, RSFN) through an entity with this access. Access to mTLS credentials that allow sending authenticated payloads with transactional orders to Pix, STR (Brazilian Reserves Transfer System), or any transactional listener to be executed with minimal restrictions in the name of an organization with available funds. Persistent access to multiple accounts in targeted organizations’ Active Directory and/or cloud environments. Understanding of an organization’s transfer processing procedures, network controls, fintech integrations and anti-fraud systems. In order to support these requirements, BREEZE COMET evolved to operate in multiple compromised environments at the same time, crafting custom C2 malware to automate activities such as reconnaissance, lateral movement, persistence, and exfiltration. Initial Compromise and Establish Foothold BREEZE COMET has used various methods for initial access. In early compromises, Mandiant observed this threat actor use password spraying as well as voice calls impersonating IT support teams to convince users to install Remote Monitoring and Management (RMM) tools such as AnyDesk. Axur corroborates use of voice phishing, and suggests that the group has also attempted to recruit insiders at targeted organizations. In mid-2025, GTIG observed BREEZE COMET using compromised Brazilian small government websites to stage RMM tools, infostealers disguised as legitimate tax or receipt documents (e.g., ComprovantePDF.exe ), or backdoors such as XWORM set to persist via automated startup shortcut modifications. XWORM is a backdoor that is widely available for purchase on cyber crime forums, with leaked or “cracked” versions also available. BREEZE COMET then used these compromised government websites to facilitate social engineering operations for initial access, and as C2 endpoints. The use of compromised, trusted infrastructure allowed the threat actors to avoid detection by network domain reputation filters. GTIG also observed BREEZE COMET replicating this behavior with municipal domains in Nigeria, Paraguay, Ghana, and Venezuela, suggesting a potentially growing targeting focus. Analysis of compromised municipal domains "
+          }
+        ]
+      },
+      {
+        "title": "Guildma (Astaroth) malware infection from Brazilian Portuguese email, (Tue, Sep 1st)",
+        "source": "SANS ISC",
+        "url": "https://isc.sans.edu/diary/rss/33300",
+        "publishedAt": "Tue, 01 Sep 2026 21:30:18 GMT",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Introduction"
+        },
+        "groupMembers": [
+          {
+            "title": "Guildma (Astaroth) malware infection from Brazilian Portuguese email, (Tue, Sep 1st)",
+            "source": "SANS ISC",
+            "url": "https://isc.sans.edu/diary/rss/33300",
+            "publishedAt": "Tue, 01 Sep 2026 21:30:18 GMT",
+            "passage": "Introduction"
+          }
+        ]
+      },
+      {
+        "title": "Russian Man Extradited Over Malware Campaign Targeting Freelancers",
+        "source": "Infosecurity Magazine",
+        "url": "https://www.infosecurity-magazine.com/news/russian-man-extradited-malware/",
+        "publishedAt": "Wed, 02 Sep 2026 15:00:00 GMT",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Russian man extradited to US over malware campaign that targeted 80,000 freelance users"
+        },
+        "groupMembers": [
+          {
+            "title": "Russian Man Extradited Over Malware Campaign Targeting Freelancers",
+            "source": "Infosecurity Magazine",
+            "url": "https://www.infosecurity-magazine.com/news/russian-man-extradited-malware/",
+            "publishedAt": "Wed, 02 Sep 2026 15:00:00 GMT",
+            "passage": "Russian man extradited to US over malware campaign that targeted 80,000 freelance users"
+          }
+        ]
+      },
+      {
+        "title": "Counterfeit installers to system compromise: Tracking a deceptive software download campaign",
+        "source": "Microsoft Security",
+        "url": "https://www.microsoft.com/en-us/security/blog/2026/09/01/counterfeit-installers-system-compromise-tracking-deceptive-software-download-campaign/",
+        "publishedAt": "Tue, 01 Sep 2026 22:48:28 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "An active campaign is impersonating legitimate software vendors to deliver malware through look-alike download pages and regenerated installer archives. Microsoft Defender Experts shares observed attack techniques, Defender XDR detections, indicators of compromise, and practical mitigations to he..."
+        },
+        "groupMembers": [
+          {
+            "title": "Counterfeit installers to system compromise: Tracking a deceptive software download campaign",
+            "source": "Microsoft Security",
+            "url": "https://www.microsoft.com/en-us/security/blog/2026/09/01/counterfeit-installers-system-compromise-tracking-deceptive-software-download-campaign/",
+            "publishedAt": "Tue, 01 Sep 2026 22:48:28 +0000",
+            "passage": "An active campaign is impersonating legitimate software vendors to deliver malware through look-alike download pages and regenerated installer archives. Microsoft Defender Experts shares observed attack techniques, Defender XDR detections, indicators of compromise, and practical mitigations to he..."
+          }
+        ]
+      },
+      {
+        "title": "Pegasus Zero-Click Exploit Infects Serbian Student Activist's iPhone",
+        "source": "Infosecurity Magazine",
+        "url": "https://www.infosecurity-magazine.com/news/pegasus-zero-click-exploit/",
+        "publishedAt": "Thu, 03 Sep 2026 15:25:00 GMT",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Pegasus infected a Serbian student activist's iPhone through an iMessage zero-click exploit"
+        },
+        "groupMembers": [
+          {
+            "title": "Pegasus Zero-Click Exploit Infects Serbian Student Activist's iPhone",
+            "source": "Infosecurity Magazine",
+            "url": "https://www.infosecurity-magazine.com/news/pegasus-zero-click-exploit/",
+            "publishedAt": "Thu, 03 Sep 2026 15:25:00 GMT",
+            "passage": "Pegasus infected a Serbian student activist's iPhone through an iMessage zero-click exploit"
+          },
+          {
+            "title": "Pegasus Zero-Click Spyware Exploit Infects Serbian Student Movement Member's iPhone",
+            "source": "The Hacker News",
+            "url": "https://thehackernews.com/2026/09/pegasus-zero-click-spyware-exploit.html",
+            "publishedAt": "Thu, 03 Sep 2026 14:13:17 +0530",
+            "passage": "The iPhone belonging to a member of Serbia's student protest movement was infected with NSO Group's Pegasus spyware, according to new findings from the Citizen Lab in collaboration with the SHARE Foundation. \"Our analysis confirmed that an iMessage zero-click exploit was used to infect the device with NSO Group's Pegasus spyware,\" the Citizen Lab said. \"We found high-confidence indicators of"
+          }
+        ]
+      },
+      {
+        "title": "CrowdStrike Extends Endpoint Security to Stop Software Supply Chain Attacks",
+        "source": "CrowdStrike Research",
+        "url": "https://www.crowdstrike.com/en-us/blog/crowdstrike-extends-endpoint-security-to-stop-supply-chain-attacks/",
+        "publishedAt": "Sep 02, 2026 00:00:00-0400",
+        "passage": {
+          "kind": "title-only",
+          "text": "CrowdStrike Extends Endpoint Security to Stop Software Supply Chain Attacks"
+        },
+        "groupMembers": [
+          {
+            "title": "CrowdStrike Extends Endpoint Security to Stop Software Supply Chain Attacks",
+            "source": "CrowdStrike Research",
+            "url": "https://www.crowdstrike.com/en-us/blog/crowdstrike-extends-endpoint-security-to-stop-supply-chain-attacks/",
+            "publishedAt": "Sep 02, 2026 00:00:00-0400",
+            "passage": "CrowdStrike Extends Endpoint Security to Stop Software Supply Chain Attacks"
+          },
+          {
+            "title": "CrowdStrike Extends Endpoint Security to Stop Software Supply Chain Attacks - CrowdStrike",
+            "source": "CrowdStrike",
+            "url": "",
+            "publishedAt": "Wed, 02 Sep 2026 16:40:46 GMT",
+            "passage": "CrowdStrike Extends Endpoint Security to Stop Software Supply Chain Attacks - CrowdStrike"
+          }
+        ]
+      },
+      {
+        "title": "Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams",
+        "source": "Unit 42",
+        "url": "https://unit42.paloaltonetworks.com/spring-ring-voice-phishing-campaigns/",
+        "publishedAt": "Mon, 31 Aug 2026 10:00:36 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Learn how the Spring Ring campaign abuses Microsoft Teams and voice phishing to deploy malware and target enterprise domain controllers. The post Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams appeared first on Unit 42."
+        },
+        "groupMembers": [
+          {
+            "title": "Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams",
+            "source": "Unit 42",
+            "url": "https://unit42.paloaltonetworks.com/spring-ring-voice-phishing-campaigns/",
+            "publishedAt": "Mon, 31 Aug 2026 10:00:36 +0000",
+            "passage": "Learn how the Spring Ring campaign abuses Microsoft Teams and voice phishing to deploy malware and target enterprise domain controllers. The post Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams appeared first on Unit 42."
+          }
+        ]
+      },
+      {
+        "title": "FBI Probes Service Selling 153M+ Drivers Licenses",
+        "source": "Krebs on Security",
+        "url": "https://krebsonsecurity.com/2026/09/fbi-probes-service-selling-153m-drivers-licenses/",
+        "publishedAt": "Tue, 01 Sep 2026 22:40:28 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "A new identity theft service launched on the dark web this week is selling digital scans of more than 153 million drivers licenses from people in the United States and Canada. Based on interviews with individuals whose licenses are available for purchase on this service, it appears to be siphonin..."
+        },
+        "groupMembers": [
+          {
+            "title": "FBI Probes Service Selling 153M+ Drivers Licenses",
+            "source": "Krebs on Security",
+            "url": "https://krebsonsecurity.com/2026/09/fbi-probes-service-selling-153m-drivers-licenses/",
+            "publishedAt": "Tue, 01 Sep 2026 22:40:28 +0000",
+            "passage": "A new identity theft service launched on the dark web this week is selling digital scans of more than 153 million drivers licenses from people in the United States and Canada. Based on interviews with individuals whose licenses are available for purchase on this service, it appears to be siphoning images collected by a widely-used identity verification company based in Louisiana. KrebsOnSecurity also has learned that the New Orleans field office of the Federal Bureau of Investigation (FBI) today launched an official inquiry into the source of the images."
+          },
+          {
+            "title": "FBI Probes Possible Breach of 153 Million Driver’s Licenses",
+            "source": "Infosecurity Magazine",
+            "url": "https://www.infosecurity-magazine.com/news/fbi-probes-breach-153-million/",
+            "publishedAt": "Thu, 03 Sep 2026 09:33:00 GMT",
+            "passage": "The FBI is investigating how scans of over 153 million driver’s licenses are being sold on the dark web"
+          }
+        ]
+      },
+      {
+        "title": "Russian data centers face new security requirements amid Ukraine's drone threats",
+        "source": "The Record",
+        "url": "https://therecord.media/russia-data-centers-ukraine-drone-threats",
+        "publishedAt": "Fri, 04 Sep 2026 13:39:00 GMT",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Russia's data centers are concentrated in areas increasingly exposed to Ukrainian drone attacks. The Kremlin wants them to stiffen their physical defenses."
+        },
+        "groupMembers": [
+          {
+            "title": "Russian data centers face new security requirements amid Ukraine's drone threats",
+            "source": "The Record",
+            "url": "https://therecord.media/russia-data-centers-ukraine-drone-threats",
+            "publishedAt": "Fri, 04 Sep 2026 13:39:00 GMT",
+            "passage": "Russia's data centers are concentrated in areas increasingly exposed to Ukrainian drone attacks. The Kremlin wants them to stiffen their physical defenses."
+          }
+        ]
+      },
+      {
+        "title": "Using a VM to Contain an AI Agent",
+        "source": "Schneier on Security",
+        "url": "https://www.schneier.com/blog/archives/2026/09/using-a-vm-to-contain-an-ai-agent.html",
+        "publishedAt": "Fri, 04 Sep 2026 16:31:38 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "It won’t work: My suspicion was that GPT 5.6-Cyber would succeed, but the frequency and manner of its success removed all doubt. We have to reassess sandboxing quality for capable AI agents, and in general the software stack with which they interact. An off-the-shelf VM is not enough to contain a..."
+        },
+        "groupMembers": [
+          {
+            "title": "Using a VM to Contain an AI Agent",
+            "source": "Schneier on Security",
+            "url": "https://www.schneier.com/blog/archives/2026/09/using-a-vm-to-contain-an-ai-agent.html",
+            "publishedAt": "Fri, 04 Sep 2026 16:31:38 +0000",
+            "passage": "It won’t work: My suspicion was that GPT 5.6-Cyber would succeed, but the frequency and manner of its success removed all doubt. We have to reassess sandboxing quality for capable AI agents, and in general the software stack with which they interact. An off-the-shelf VM is not enough to contain a..."
+          }
+        ]
+      },
+      {
+        "title": "VU#456290: Hugging Face Transformers library writes remote code to disk prior to consent check",
+        "source": "CERT/CC",
+        "url": "https://kb.cert.org/vuls/id/456290",
+        "publishedAt": "2026-09-01T13:35:43.290043+00:00",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Overview A vulnerability in the Hugging Face Transformers library (versions 4.49.0 through 5.8.1) allows remote, attacker‑controlled Python files to be written to the local disk without user authorization. The library performs a remote module fetch and local cache write before evaluating the trus..."
+        },
+        "groupMembers": [
+          {
+            "title": "VU#456290: Hugging Face Transformers library writes remote code to disk prior to consent check",
+            "source": "CERT/CC",
+            "url": "https://kb.cert.org/vuls/id/456290",
+            "publishedAt": "2026-09-01T13:35:43.290043+00:00",
+            "passage": "Overview A vulnerability in the Hugging Face Transformers library (versions 4.49.0 through 5.8.1) allows remote, attacker‑controlled Python files to be written to the local disk without user authorization. The library performs a remote module fetch and local cache write before evaluating the trus..."
+          }
+        ]
+      },
+      {
+        "title": "Multiples vulnérabilités dans Curl (02 septembre 2026)",
+        "source": "CERT-FR",
+        "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1108/",
+        "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "De multiples vulnérabilités ont été découvertes dans Curl. Certaines d'entre elles permettent à un attaquant de provoquer une atteinte à la confidentialité des données, une atteinte à l'intégrité des données et un contournement de la politique de sécurité."
+        },
+        "groupMembers": [
+          {
+            "title": "Multiples vulnérabilités dans Curl (02 septembre 2026)",
+            "source": "CERT-FR",
+            "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1108/",
+            "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+            "passage": "De multiples vulnérabilités ont été découvertes dans Curl. Certaines d'entre elles permettent à un attaquant de provoquer une atteinte à la confidentialité des données, une atteinte à l'intégrité des données et un contournement de la politique de sécurité."
+          },
+          {
+            "title": "Multiples vulnérabilités dans Google Chrome (02 septembre 2026)",
+            "source": "CERT-FR",
+            "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1105/",
+            "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+            "passage": "De multiples vulnérabilités ont été découvertes dans Google Chrome. Elles permettent à un attaquant de provoquer un problème de sécurité non spécifié par l'éditeur."
+          },
+          {
+            "title": "Multiples vulnérabilités dans les produits Elastic (02 septembre 2026)",
+            "source": "CERT-FR",
+            "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1107/",
+            "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+            "passage": "De multiples vulnérabilités ont été découvertes dans les produits Elastic. Certaines d'entre elles permettent à un attaquant de provoquer une exécution de code arbitraire à distance, une élévation de privilèges et une atteinte à la confidentialité des données."
+          },
+          {
+            "title": "Multiples vulnérabilités dans les produits HPE Aruba Networking (02 septembre 2026)",
+            "source": "CERT-FR",
+            "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1104/",
+            "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+            "passage": "De multiples vulnérabilités ont été découvertes dans les produits HPE Aruba Networking. Certaines d'entre elles permettent à un attaquant de provoquer une exécution de code arbitraire à distance, une élévation de privilèges et un déni de service à distance."
+          },
+          {
+            "title": "Multiples vulnérabilités dans les produits Mozilla (02 septembre 2026)",
+            "source": "CERT-FR",
+            "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1106/",
+            "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+            "passage": "De multiples vulnérabilités ont été découvertes dans les produits Mozilla. Certaines d'entre elles permettent à un attaquant de provoquer une élévation de privilèges, une atteinte à la confidentialité des données et un contournement de la politique de sécurité."
+          }
+        ]
+      },
+      {
+        "title": "European parliament members call for slowdown of Serbia’s EU entry over spyware use",
+        "source": "CyberScoop",
+        "url": "https://cyberscoop.com/eu-parliament-serbia-accession-spyware-demands/",
+        "publishedAt": "Fri, 04 Sep 2026 21:02:39 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "The letter follows revelations about Serbian student activists being infected with Pegasus and NoviSpy, and coincides with other pressures on Belgrade. The post European parliament members call for slowdown of Serbia’s EU entry over spyware use appeared first on CyberScoop."
+        },
+        "groupMembers": [
+          {
+            "title": "European parliament members call for slowdown of Serbia’s EU entry over spyware use",
+            "source": "CyberScoop",
+            "url": "https://cyberscoop.com/eu-parliament-serbia-accession-spyware-demands/",
+            "publishedAt": "Fri, 04 Sep 2026 21:02:39 +0000",
+            "passage": "The letter follows revelations about Serbian student activists being infected with Pegasus and NoviSpy, and coincides with other pressures on Belgrade. The post European parliament members call for slowdown of Serbia’s EU entry over spyware use appeared first on CyberScoop."
+          }
+        ]
+      },
+      {
+        "title": "AI Coding Agents Are Installing Unknown/Untrusted Code on Corporate Networks",
+        "source": "Schneier on Security",
+        "url": "https://www.schneier.com/blog/archives/2026/09/ai-coding-agents-are-installing-unknown-untrusted-code-on-corporate-networks.html",
+        "publishedAt": "Fri, 04 Sep 2026 10:35:17 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "We cannot forget that AI coding agents are not yet trustworthy: Researchers at a stealth startup in Israel scanned 6,214 live domains belonging to defense contractors, Fortune 500, and Big Tech companies. Of the 8,265 llms.txt and llms-full.txt files they found (many sites hosted both an llms.txt..."
+        },
+        "groupMembers": [
+          {
+            "title": "AI Coding Agents Are Installing Unknown/Untrusted Code on Corporate Networks",
+            "source": "Schneier on Security",
+            "url": "https://www.schneier.com/blog/archives/2026/09/ai-coding-agents-are-installing-unknown-untrusted-code-on-corporate-networks.html",
+            "publishedAt": "Fri, 04 Sep 2026 10:35:17 +0000",
+            "passage": "We cannot forget that AI coding agents are not yet trustworthy: Researchers at a stealth startup in Israel scanned 6,214 live domains belonging to defense contractors, Fortune 500, and Big Tech companies. Of the 8,265 llms.txt and llms-full.txt files they found (many sites hosted both an llms.txt..."
+          }
+        ]
+      },
+      {
+        "title": "CrowdStrike Announces Agentic Identity Provider",
+        "source": "CrowdStrike Research",
+        "url": "https://www.crowdstrike.com/en-us/blog/crowdstrike-announces-agentic-identity-provider/",
+        "publishedAt": "Sep 02, 2026 00:00:00-0400",
+        "passage": {
+          "kind": "title-only",
+          "text": "CrowdStrike Announces Agentic Identity Provider"
+        },
+        "groupMembers": [
+          {
+            "title": "CrowdStrike Announces Agentic Identity Provider",
+            "source": "CrowdStrike Research",
+            "url": "https://www.crowdstrike.com/en-us/blog/crowdstrike-announces-agentic-identity-provider/",
+            "publishedAt": "Sep 02, 2026 00:00:00-0400",
+            "passage": "CrowdStrike Announces Agentic Identity Provider"
+          }
+        ]
+      },
+      {
+        "title": "Attackers Expose Ongoing AI Tool Use Targeting Organizations in Latin America",
+        "source": "Unit 42",
+        "url": "https://unit42.paloaltonetworks.com/ai-tool-use-targeting-latam-orgs/",
+        "publishedAt": "Thu, 03 Sep 2026 10:00:58 +0000",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Explore how attackers targeting Latin American entities use AI for data exfiltration and how basic OpSec errors allow defenders to disrupt operations. The post Attackers Expose Ongoing AI Tool Use Targeting Organizations in Latin America appeared first on Unit 42."
+        },
+        "groupMembers": [
+          {
+            "title": "Attackers Expose Ongoing AI Tool Use Targeting Organizations in Latin America",
+            "source": "Unit 42",
+            "url": "https://unit42.paloaltonetworks.com/ai-tool-use-targeting-latam-orgs/",
+            "publishedAt": "Thu, 03 Sep 2026 10:00:58 +0000",
+            "passage": "Explore how attackers targeting Latin American entities use AI for data exfiltration and how basic OpSec errors allow defenders to disrupt operations. The post Attackers Expose Ongoing AI Tool Use Targeting Organizations in Latin America appeared first on Unit 42."
+          }
+        ]
+      },
+      {
+        "title": "Introducing context-aware vulnerability discovery and remediation with Cloudflare Managed Defense and OpenAI Daybreak models",
+        "source": "Cloudflare Security",
+        "url": "https://blog.cloudflare.com/vulnerability-discovery-remediation/",
+        "publishedAt": "Thu, 03 Sep 2026 21:03:02 GMT",
+        "passage": {
+          "kind": "feed-excerpt",
+          "text": "Use production traffic and security signals to prioritize findings, prepare edge mitigations when safe, and propose code patches. By combining WAF data with OpenAI Daybreak models, Vulnerability Discovery and Remediation helps teams identify and patch the most critical threats first."
+        },
+        "groupMembers": [
+          {
+            "title": "Introducing context-aware vulnerability discovery and remediation with Cloudflare Managed Defense and OpenAI Daybreak models",
+            "source": "Cloudflare Security",
+            "url": "https://blog.cloudflare.com/vulnerability-discovery-remediation/",
+            "publishedAt": "Thu, 03 Sep 2026 21:03:02 GMT",
+            "passage": "Use production traffic and security signals to prioritize findings, prepare edge mitigations when safe, and propose code patches. By combining WAF data with OpenAI Daybreak models, Vulnerability Discovery and Remediation helps teams identify and patch the most critical threats first."
+          }
+        ]
+      }
+    ],
+    "grounding": {
+      "sources": [
+        {
+          "id": "S1.1",
+          "index": 0,
+          "memberIndex": 0,
+          "label": "CISA Advisories",
+          "title": "CISA Adds One Known Exploited Vulnerability to Catalog",
+          "url": "https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog",
+          "publishedAt": "Fri, 04 Sep 26 12:00:00 +0000",
+          "evidenceText": "CISA Adds One Known Exploited Vulnerability to Catalog Alert CISA Adds One Known Exploited Vulnerability to Catalog Release Date September 04, 2026 CISA has added one new vulnerability to its Known Exploited Vulnerabilities (KEV) Catalog , based on evidence of active exploitation. CVE-2026-85046 Google Chromium V8 Type Confusion Vulnerability This type of vulnerability is a frequent attack vector for malicious cyber actors and poses significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requirements for Federal Civilian Executive Branch (FCEB) agencies. BOD 26-04 reinforces the importance of the KEV Catalog and requires federal agencies to prioritize rapid remediation of high-risk vulnerabilities, specifically those identified by C",
+          "cves": [
+            "CVE-2026-85046"
+          ]
+        },
+        {
+          "id": "S1.2",
+          "index": 0,
+          "memberIndex": 1,
+          "label": "technobezz.com",
+          "title": "CISA Adds Google Chromium Flaw to Known Exploited Vulnerabilities Catalog - technobezz.com",
+          "url": "",
+          "publishedAt": "Fri, 04 Sep 2026 18:42:57 GMT",
+          "evidenceText": "CISA Adds Google Chromium Flaw to Known Exploited Vulnerabilities Catalog - technobezz.com",
+          "cves": []
+        },
+        {
+          "id": "S2.1",
+          "index": 1,
+          "memberIndex": 0,
+          "label": "The Hacker News",
+          "title": "Google Releases Chrome Update to Patch Actively Exploited V8 Zero-Day",
+          "url": "https://thehackernews.com/2026/09/google-releases-chrome-update-to-patch.html",
+          "publishedAt": "Fri, 04 Sep 2026 12:48:47 +0530",
+          "evidenceText": "Google Releases Chrome Update to Patch Actively Exploited V8 Zero-Day Prevention Already Failed. What Does Your Monitoring Actually Catch? A 6-day SANS course rebuilds hybrid detection across cloud, endpoint, and network. GMON, Sept 21.",
+          "cves": []
+        },
+        {
+          "id": "S2.2",
+          "index": 1,
+          "memberIndex": 1,
+          "label": "Help Net Security",
+          "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - Help Net Security",
+          "url": "",
+          "publishedAt": "Fri, 04 Sep 2026 12:09:13 GMT",
+          "evidenceText": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - Help Net Security",
+          "cves": [
+            "CVE-2026-85046"
+          ]
+        },
+        {
+          "id": "S3.1",
+          "index": 2,
+          "memberIndex": 0,
+          "label": "CCCS",
+          "title": "Google security advisory (AV26-883) – Update 1",
+          "url": "https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883",
+          "publishedAt": "2026-09-04T17:21:27Z",
+          "evidenceText": "Google security advisory (AV26-883) – Update 1 Serial Number: AV26-883 Date: September 4, 2026 As of September 3, 2026, Google is affected by vulnerabilities in the following product: Chrome Prior to 152.0.7977.82 Google is aware that an exploit for CVE-2026-85046 exists in the wild. Update 1 On September 4, 2026, Cybersecurity and Infrastructure Security Agency (CISA) added CVE-2026-85046 to their Known Exploited Vulnerabilities (KEV) Database. The Cyber Centre encourages users and administrators to review the provided web links and apply any necessary updates as they become available. Stable Channel Update for Desktop CISA KEV: CVE-2026-85046",
+          "cves": [
+            "CVE-2026-85046"
+          ]
+        },
+        {
+          "id": "S4.1",
+          "index": 3,
+          "memberIndex": 0,
+          "label": "CISA Advisories",
+          "title": "CISA Adds Seven Known Exploited Vulnerabilities to Catalog",
+          "url": "https://www.cisa.gov/news-events/alerts/2026/09/02/cisa-adds-seven-known-exploited-vulnerabilities-catalog",
+          "publishedAt": "Wed, 02 Sep 26 12:00:00 +0000",
+          "evidenceText": "CISA Adds Seven Known Exploited Vulnerabilities to Catalog Alert CISA Adds Seven Known Exploited Vulnerabilities to Catalog Release Date September 02, 2026 CISA has added seven new vulnerabilities to its Known Exploited Vulnerabilities (KEV) Catalog , based on evidence of active exploitation. CVE-2026-9586 Sangoma Switchvox SQL Injection Vulnerability CVE-2026-48710 Kludex Starlette HTTP Request/Response Smuggling Vulnerability CVE-2026-49869 Kestra OSS OS Command Injection Vulnerability CVE-2026-59822 BerriAI LiteLLM Improper Authentication Vulnerability CVE-2026-82329 JFrog Artifactory Improper Authentication Vulnerability CVE-2026-83548 SonicWall SMA1000 Appliances Server-Side Request Forgery Vulnerability CVE-2026-83549 SonicWall SMA1000 Appliances OS Command Injection Vulnerability These types of vulnerabilities are a frequent attack vector f",
+          "cves": [
+            "CVE-2026-9586",
+            "CVE-2026-48710",
+            "CVE-2026-49869",
+            "CVE-2026-59822",
+            "CVE-2026-82329",
+            "CVE-2026-83548",
+            "CVE-2026-83549"
+          ]
+        },
+        {
+          "id": "S5.1",
+          "index": 4,
+          "memberIndex": 0,
+          "label": "CERT-EU",
+          "title": "2026-009: Critical Vulnerabilities in Microsoft SharePoint",
+          "url": "https://cert.europa.eu/publications/security-advisories/2026-009/",
+          "publishedAt": "",
+          "evidenceText": "2026-009: Critical Vulnerabilities in Microsoft SharePoint Release Date: 23-07-2026 07:13:03 Critical Vulnerabilities in Microsoft SharePoint Download Download PDF MD5 SHA-1 SHA-256 SHA-512 Download MARKDOWN Download JSON History: 22/07/2026 --- v1.0 -- Initial publication 22/07/2026 --- v1.1 -- Updated to include additional actively exploited vulnerabilities (CVE-2026-32201, CVE-2026-45659, CVE-2026-56164, and CVE-2026-58644) Summary [UPDATED] On 14 July 2026, Microsoft released security updates addressing critical remote code execution (RCE) vulnerabilities in Microsoft SharePoint Server [1]. On 20 July 2026, WatchTowr identified a proof-of-concept exploit code and subsequently observed active exploitation of CVE-2026-50522 [2], a vulnerability part of an ongoing series of actively exploited flaws [3] affecting on-premise SharePoint Server insta",
+          "cves": [
+            "CVE-2026-32201",
+            "CVE-2026-45659",
+            "CVE-2026-56164",
+            "CVE-2026-58644",
+            "CVE-2026-50522"
+          ]
+        },
+        {
+          "id": "S6.1",
+          "index": 5,
+          "memberIndex": 0,
+          "label": "Rapid7",
+          "title": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild",
+          "url": "https://www.rapid7.com/blog/post/etr-critical-sonicwall-sma1000-vulnerabilities-cve-2026-83548-cve-2026-83549-exploited-in-the-wild",
+          "publishedAt": "Wed, 02 Sep 2026 16:58:45 GMT",
+          "evidenceText": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild Overview On September 1, 2026, SonicWall disclosed two vulnerabilities affecting SonicWall SMA1000 appliances that the vendor says are being actively exploited in the wild. The vulnerabilities, CVE-2026-83548 and CVE-2026-83549 , can be chained to achieve unauthenticated remote code execution (RCE) on affected appliances. CVE-2026-83548 is a critical pre-authentication server-side request forgery (SSRF) vulnerability in the SMA1000 Appliance Work Place interface. The flaw has a CVSS v3.1 base score of 10.0 and can allow a remote, unauthenticated attacker to access sensitive functionality and perform unauthorized operations through an unintended alternate access path. CVE-2026-83549 is a high-severity OS command injection vulnerability in the Appliance Management Console (AMC). On its own, ",
+          "cves": [
+            "CVE-2026-83548",
+            "CVE-2026-83549"
+          ]
+        },
+        {
+          "id": "S6.2",
+          "index": 5,
+          "memberIndex": 1,
+          "label": "Rapid7",
+          "title": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild - Rapid7",
+          "url": "",
+          "publishedAt": "Wed, 02 Sep 2026 17:03:18 GMT",
+          "evidenceText": "Critical SonicWall SMA1000 Vulnerabilities CVE-2026-83548, CVE-2026-83549 Exploited in the Wild - Rapid7",
+          "cves": [
+            "CVE-2026-83548",
+            "CVE-2026-83549"
+          ]
+        },
+        {
+          "id": "S7.1",
+          "index": 6,
+          "memberIndex": 0,
+          "label": "CISA Advisories",
+          "title": "CISA Adds Two Known Exploited Vulnerabilities to Catalog",
+          "url": "https://www.cisa.gov/news-events/alerts/2026/08/31/cisa-adds-two-known-exploited-vulnerabilities-catalog",
+          "publishedAt": "Mon, 31 Aug 26 12:00:00 +0000",
+          "evidenceText": "CISA Adds Two Known Exploited Vulnerabilities to Catalog Alert CISA Adds Two Known Exploited Vulnerabilities to Catalog Release Date August 31, 2026 CISA has added two new vulnerabilities to its Known Exploited Vulnerabilities (KEV) Catalog , based on evidence of active exploitation. CVE-2026-81578 PaperCut NG/MF Missing Authentication for Critical Function Vulnerability CVE-2026-82078 PaperCut NG/MF Unsafe Reflection Vulnerability These types of vulnerabilities are a frequent attack vector for malicious cyber actors and pose significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requirements for Federal Civilian Executive Branch (FCEB) agencies. BOD 26-04 reinforces the importance of the KEV Catalog and requires federal agencies to ",
+          "cves": [
+            "CVE-2026-81578",
+            "CVE-2026-82078"
+          ]
+        },
+        {
+          "id": "S8.1",
+          "index": 7,
+          "memberIndex": 0,
+          "label": "The Hacker News",
+          "title": "Attackers Exploit PaperCut Flaws to Steal Credentials From Schools and Universities",
+          "url": "https://thehackernews.com/2026/09/attackers-exploit-papercut-flaws-to.html",
+          "publishedAt": "Sat, 05 Sep 2026 13:01:53 +0530",
+          "evidenceText": "Attackers Exploit PaperCut Flaws to Steal Credentials From Schools and Universities Prevention Already Failed. What Does Your Monitoring Actually Catch? A 6-day SANS course rebuilds hybrid detection across cloud, endpoint, and network. GMON, Sept 21.",
+          "cves": []
+        },
+        {
+          "id": "S9.1",
+          "index": 8,
+          "memberIndex": 0,
+          "label": "SecurityWeek",
+          "title": "Sangoma Switchvox Vulnerabilities Exploited in the Wild",
+          "url": "https://www.securityweek.com/sangoma-switchvox-vulnerabilities-exploited-in-the-wild/",
+          "publishedAt": "Fri, 04 Sep 2026 13:23:12 +0000",
+          "evidenceText": "Sangoma Switchvox Vulnerabilities Exploited in the Wild Threat actors have been exploiting a critical-severity vulnerability in the enterprise VoIP telephony management solution Sangoma Switchvox, Horizon3 and CISA warn. Tracked as CVE-2026-9586 (CVSS score of 9.3) and described as an unauthenticated SQL injection issue, the security defect can be exploited remotely for arbitrary code execution. It resides in an endpoint that processes XML content, which did not perform sanitization or parameterization when concatenating the user-controlled PhoneIP value into PostgreSQL queries. “An unauthenticated remote attacker can execute arbitrary SQL statements against the backend PostgreSQL database using a single crafted request, including database operations and remote code execution,” a NIST advisory reads. On Tuesday, cybersecurity firm Horizon3 warn",
+          "cves": [
+            "CVE-2026-9586"
+          ]
+        },
+        {
+          "id": "S10.1",
+          "index": 9,
+          "memberIndex": 0,
+          "label": "BleepingComputer",
+          "title": "Google warns of new Chrome zero-day flaw exploited in attacks",
+          "url": "https://www.bleepingcomputer.com/news/security/google-warns-of-new-chrome-zero-day-flaw-exploited-in-attacks/",
+          "publishedAt": "Fri, 04 Sep 2026 07:48:17 -0400",
+          "evidenceText": "Google warns of new Chrome zero-day flaw exploited in attacks Google warns of new Chrome zero-day flaw exploited in attacks By Bill Toulas September 4, 2026 07:48 AM 0 Google has updated the Chrome browser to address an actively exploited high-severity zero-day flaw in the V8 engine and 11 other vulnerabilities. The exploited security issue, identified as CVE-2026-85046, is described as a type confusion. It was reported to Google by researcher Salvatore Gulizia, known online as “Serotav.” The update brings Chrome to version 152.0.7977.82/.83 on Windows and macOS, and 152.0.7977.82 on Linux, as part of a gradual rollout.. “Google is aware that an exploit for CVE-2026-85046 exists in the wild,” the advisory reads . The company did not disclose any technical or specific exploitation details about the flaw to give users and dependent projects time to app",
+          "cves": [
+            "CVE-2026-85046"
+          ]
+        },
+        {
+          "id": "S11.1",
+          "index": 10,
+          "memberIndex": 0,
+          "label": "CERT-EU",
+          "title": "2026-005: High Vulnerability in the Linux Kernel (\"Copy Fail\")",
+          "url": "https://cert.europa.eu/publications/security-advisories/2026-005/",
+          "publishedAt": "",
+          "evidenceText": "2026-005: High Vulnerability in the Linux Kernel (\"Copy Fail\") On 29 April 2026, a high local privilege escalation vulnerability in the Linux kernel, tracked as CVE-2026-31431 and named \"Copy Fail\", was publicly disclosed. The vulnerability affects every mainstream Linux distributions shipping a kernel built since 2017. A public proof-of-concept exploit has...",
+          "cves": [
+            "CVE-2026-31431"
+          ]
+        },
+        {
+          "id": "S12.1",
+          "index": 11,
+          "memberIndex": 0,
+          "label": "CyberScoop",
+          "title": "Attackers exploit zero-days in consistently besieged SonicWall product",
+          "url": "https://cyberscoop.com/sonicwall-sma1000-zero-days-actively-exploited/",
+          "publishedAt": "Thu, 03 Sep 2026 22:12:53 +0000",
+          "evidenceText": "Attackers exploit zero-days in consistently besieged SonicWall product SonicWall customers have confronted a barrage of attacks for years, including five actively exploited vulnerabilities in SMA 1000 appliances since late 2025. The post Attackers exploit zero-days in consistently besieged SonicWall product appeared first on CyberScoop.",
+          "cves": []
+        },
+        {
+          "id": "S13.1",
+          "index": 12,
+          "memberIndex": 0,
+          "label": "The Hacker News",
+          "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+          "url": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+          "publishedAt": "Sun, 06 Sep 2026 01:44:47 +0530",
+          "evidenceText": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores Attackers are exploiting a new unpatched vulnerability in Magento Open Source and Adobe Commerce that lets them run malicious code on an online store's server without logging in, Dutch e-commerce security company Sansec said in an advisory published on September 5. Sansec, which discovered the fl...",
+          "cves": []
+        },
+        {
+          "id": "S14.1",
+          "index": 13,
+          "memberIndex": 0,
+          "label": "SecurityWeek",
+          "title": "Google Patches 6th Chrome Zero-Day of 2026",
+          "url": "https://www.securityweek.com/google-patches-6th-chrome-zero-day-of-2026/",
+          "publishedAt": "Fri, 04 Sep 2026 11:31:52 +0000",
+          "evidenceText": "Google Patches 6th Chrome Zero-Day of 2026 Google’s Chrome 152 security update resolves 12 vulnerabilities, including a high-severity type confusion flaw in the V8 engine. The post Google Patches 6th Chrome Zero-Day of 2026 appeared first on SecurityWeek.",
+          "cves": []
+        },
+        {
+          "id": "S14.2",
+          "index": 13,
+          "memberIndex": 1,
+          "label": "Help Net Security",
+          "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046)",
+          "url": "https://www.helpnetsecurity.com/2026/09/04/google-chrome-zero-day-cve-2026-85046/",
+          "publishedAt": "Fri, 04 Sep 2026 12:09:13 +0000",
+          "evidenceText": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) Google has patched 12 vulnerabilities affecting its popular Chrome browser, among them CVE-2026-85046, which has been exploited in the wild. “Google is aware that an exploit for CVE-2026-85046 exists in the wild,” the company said in a Thursday security advisory. The fix has been shipped in Chrom...",
+          "cves": [
+            "CVE-2026-85046"
+          ]
+        },
+        {
+          "id": "S15.1",
+          "index": 14,
+          "memberIndex": 0,
+          "label": "Infosecurity Magazine",
+          "title": "Hackers Chain Two New SonicWall Zero-Day Vulnerabilities",
+          "url": "https://www.infosecurity-magazine.com/news/hackers-chain-sonicwall-zeroday/",
+          "publishedAt": "Wed, 02 Sep 2026 09:00:00 GMT",
+          "evidenceText": "Hackers Chain Two New SonicWall Zero-Day Vulnerabilities SonicWall has urged customers to patch two new zero-day vulnerabilities being exploited in the wild",
+          "cves": []
+        },
+        {
+          "id": "S16.1",
+          "index": 15,
+          "memberIndex": 0,
+          "label": "Dark Reading",
+          "title": "Attackers Pounce on Critical Artifactory Bug Following Disclosure",
+          "url": "https://www.darkreading.com/application-security/attackers-pounce-critical-artifactory-flaw-disclosure",
+          "publishedAt": "Tue, 01 Sep 2026 21:05:53 GMT",
+          "evidenceText": "Attackers Pounce on Critical Artifactory Bug Following Disclosure CVE-2026-82329 is an authentication bypass flaw in JFrog's repository manager that enables bad actors to gain admin-level access on affected systems.",
+          "cves": [
+            "CVE-2026-82329"
+          ]
+        },
+        {
+          "id": "S17.1",
+          "index": 16,
+          "memberIndex": 0,
+          "label": "Dark Reading",
+          "title": "SonicWall SMA 1000 Zero-Days Enable Unauthenticated RCE",
+          "url": "https://www.darkreading.com/vulnerabilities-threats/sonicwall-sma-1000-zero-days-unauthenticated-rce",
+          "publishedAt": "Wed, 02 Sep 2026 20:43:59 GMT",
+          "evidenceText": "SonicWall SMA 1000 Zero-Days Enable Unauthenticated RCE The exploitation activity follows attacks earlier this summer on two other zero-day vulnerabilities in the vendor's edge devices.",
+          "cves": []
+        },
+        {
+          "id": "S17.2",
+          "index": 16,
+          "memberIndex": 1,
+          "label": "The Hacker News",
+          "title": "Attackers Exploit Two SonicWall SMA 1000 Zero-Days That May Form an Attack Chain",
+          "url": "https://thehackernews.com/2026/09/attackers-exploit-two-sonicwall-sma.html",
+          "publishedAt": "Wed, 02 Sep 2026 16:23:49 +0530",
+          "evidenceText": "Attackers Exploit Two SonicWall SMA 1000 Zero-Days That May Form an Attack Chain SonicWall has released security updates to address two security flaws impacting its Secure Mobile Access (SMA) 1000 series VPN appliances that have been exploited in zero-day attacks. The vulnerabilities, discovered internally by SonicWall's William Perry and Adam Babis, are listed below - CVE-2026-83548 (CVSS score: 10.0) - A pre-authentication SSRF vulnerability in the Appliance",
+          "cves": [
+            "CVE-2026-83548"
+          ]
+        },
+        {
+          "id": "S18.1",
+          "index": 17,
+          "memberIndex": 0,
+          "label": "CERT/CC",
+          "title": "VU#889462: Casdoor authentication server is vulnerable to authorization bypass",
+          "url": "https://kb.cert.org/vuls/id/889462",
+          "publishedAt": "2026-09-03T17:03:30.139953+00:00",
+          "evidenceText": "VU#889462: Casdoor authentication server is vulnerable to authorization bypass Overview Casdoor is an open-source Access Management (IAM) platform used to manage web applications. An authorization bypass vulnerability affects Casdoor versions 3.115.0 and earlier. The vulnerability allows a non-global organization administrator to perform unauthorized administrative actions...",
+          "cves": []
+        },
+        {
+          "id": "S19.1",
+          "index": 18,
+          "memberIndex": 0,
+          "label": "CERT-EU",
+          "title": "2026-001: Critical vulnerabilities in Ivanti EPMM",
+          "url": "https://cert.europa.eu/publications/security-advisories/2026-001/",
+          "publishedAt": "",
+          "evidenceText": "2026-001: Critical vulnerabilities in Ivanti EPMM On 29 January 2026, Ivanti released a security advisory addressing two critical vulnerabilities in their EPMM products. An attacker could exploit those flaws to achieve unauthenticated remote code execution on the vulnerable device. One of these vulnerabilities have been exploited in a limited nu...",
+          "cves": []
+        },
+        {
+          "id": "S20.1",
+          "index": 19,
+          "memberIndex": 0,
+          "label": "The Register",
+          "title": "AI agents carried out every step of this ransomware attack – then left the victim an 80-page security audit",
+          "url": "https://www.theregister.com/security/2026/09/02/ai-agents-carried-out-every-step-of-this-ransomware-attack-then-left-the-victim-an-80-page-security-audit/5294009",
+          "publishedAt": "Wed, 02 Sep 2026 20:28:00 +0200",
+          "evidenceText": "AI agents carried out every step of this ransomware attack – then left the victim an 80-page security audit Adding insult to injury",
+          "cves": []
+        },
+        {
+          "id": "S20.2",
+          "index": 19,
+          "memberIndex": 1,
+          "label": "The Register",
+          "title": "AI agents carried out every step of this ransomware attack – then left the victim an 80-page security audit - The Register",
+          "url": "",
+          "publishedAt": "Wed, 02 Sep 2026 18:28:00 GMT",
+          "evidenceText": "AI agents carried out every step of this ransomware attack – then left the victim an 80-page security audit - The Register",
+          "cves": []
+        },
+        {
+          "id": "S21.1",
+          "index": 20,
+          "memberIndex": 0,
+          "label": "SecurityWeek",
+          "title": "Critical JFrog Artifactory Vulnerability Reportedly Exploited in the Wild - SecurityWeek",
+          "url": "",
+          "publishedAt": "Tue, 01 Sep 2026 09:59:44 GMT",
+          "evidenceText": "Critical JFrog Artifactory Vulnerability Reportedly Exploited in the Wild - SecurityWeek",
+          "cves": []
+        },
+        {
+          "id": "S22.1",
+          "index": 21,
+          "memberIndex": 0,
+          "label": "CCCS",
+          "title": "JFrog security advisory (AV26-867) – Update 1",
+          "url": "https://cyber.gc.ca/en/alerts-advisories/jfrog-security-advisory-av26-867",
+          "publishedAt": "2026-09-02T18:55:31Z",
+          "evidenceText": "JFrog security advisory (AV26-867) – Update 1 Serial number: AV26-867 Date: September 1, 2026 Updated: September 2, 2026 As of August 28, 2026, JFrog is affected by a vulnerability in the following product: Artifactory Prior to 7.111.21 Prior to 7.117.28 Prior to 7.125.20 Prior to 7.133.29 Prior to 7.146.38 Prior to 7.161.20 Open-source repo...",
+          "cves": []
+        },
+        {
+          "id": "S23.1",
+          "index": 22,
+          "memberIndex": 0,
+          "label": "CCCS",
+          "title": "PaperCut security advisory (AV26-858) – Update 2",
+          "url": "https://cyber.gc.ca/en/alerts-advisories/papercut-security-advisory-av26-858",
+          "publishedAt": "2026-08-31T16:00:58Z",
+          "evidenceText": "PaperCut security advisory (AV26-858) – Update 2 Serial number: AV26-858 Date: August 28, 2026 Updated: August 31, 2026 As of August 27, 2026, PaperCut is affected by vulnerabilities in the following products: PaperCut MF Prior to v24 Emergency Patch Release 2 Prior to v25 Emergency Patch Release 2 Prior to v26 Emergency Patch Release 2 PaperCu...",
+          "cves": []
+        },
+        {
+          "id": "S24.1",
+          "index": 23,
+          "memberIndex": 0,
+          "label": "BleepingComputer",
+          "title": "New CrowdStrike 'FalconFlank' zero-day grants SYSTEM privileges",
+          "url": "https://www.bleepingcomputer.com/news/security/new-crowdstrike-falconflank-zero-day-grants-system-privileges/",
+          "publishedAt": "Fri, 04 Sep 2026 09:22:01 -0400",
+          "evidenceText": "New CrowdStrike 'FalconFlank' zero-day grants SYSTEM privileges An anonymous security researcher who uses the \"Nightmare Eclipse\" handle released a CrowdStrike Falcon zero-day exploit named \"FalconFlank\" that lets attackers escalate privileges on up-to-date Windows systems. [...]",
+          "cves": []
+        },
+        {
+          "id": "S25.1",
+          "index": 24,
+          "memberIndex": 0,
+          "label": "Dark Reading",
+          "title": "Stronger Security Drives Ransomware Groups to Recruit From Within",
+          "url": "https://www.darkreading.com/cyber-risk/stronger-security-drives-ransomware-groups-to-recruit-from-within",
+          "publishedAt": "Tue, 01 Sep 2026 21:03:19 GMT",
+          "evidenceText": "Stronger Security Drives Ransomware Groups to Recruit From Within Some security researchers have observed an uptick in insider-assisted ransomware attacks, but malicious insiders pose other threats that cost companies millions.",
+          "cves": []
+        },
+        {
+          "id": "S25.2",
+          "index": 24,
+          "memberIndex": 1,
+          "label": "Dark Reading",
+          "title": "Stronger Security Drives Ransomware Groups to Recruit From Within - Dark Reading",
+          "url": "",
+          "publishedAt": "Tue, 01 Sep 2026 21:05:24 GMT",
+          "evidenceText": "Stronger Security Drives Ransomware Groups to Recruit From Within - Dark Reading",
+          "cves": []
+        },
+        {
+          "id": "S26.1",
+          "index": 25,
+          "memberIndex": 0,
+          "label": "BleepingComputer",
+          "title": "Berlin confirms data theft after Rhysida ransomware attack claims - BleepingComputer",
+          "url": "",
+          "publishedAt": "Mon, 31 Aug 2026 13:30:01 GMT",
+          "evidenceText": "Berlin confirms data theft after Rhysida ransomware attack claims - BleepingComputer",
+          "cves": []
+        },
+        {
+          "id": "S26.2",
+          "index": 25,
+          "memberIndex": 1,
+          "label": "tech-insider.org",
+          "title": "Berlin Confirms Data Theft After Rhysida Attack: 5.79TB [2026] - tech-insider.org",
+          "url": "",
+          "publishedAt": "Mon, 31 Aug 2026 18:11:10 GMT",
+          "evidenceText": "Berlin Confirms Data Theft After Rhysida Attack: 5.79TB [2026] - tech-insider.org",
+          "cves": []
+        },
+        {
+          "id": "S27.1",
+          "index": 26,
+          "memberIndex": 0,
+          "label": "Help Net Security",
+          "title": "September 2026 Patch Tuesday forecast: All we need is more time",
+          "url": "https://www.helpnetsecurity.com/2026/09/04/september-2026-patch-tuesday-forecast/",
+          "publishedAt": "Fri, 04 Sep 2026 06:00:19 +0000",
+          "evidenceText": "September 2026 Patch Tuesday forecast: All we need is more time The Patch Apocalypse is continuing unabated. We are seeing record numbers of patches being released and reported CVEs continue to grow as well. August 2026 Patch Tuesday was the second biggest in history with 398 resolved CVEs: 42 rated Critical, 355 rated Important, and 1 rated Moderate. But des...",
+          "cves": []
+        },
+        {
+          "id": "S28.1",
+          "index": 27,
+          "memberIndex": 0,
+          "label": "The Register",
+          "title": "Cisco searched for IOS XR bugs and found so many it rolled them into an update release",
+          "url": "https://www.theregister.com/security/2026/09/04/cisco-searched-for-ios-xr-bugs-and-found-so-many-it-rolled-them-into-an-update-release/5294410",
+          "publishedAt": "Fri, 04 Sep 2026 04:18:36 +0200",
+          "evidenceText": "Cisco searched for IOS XR bugs and found so many it rolled them into an update release Three critical vulns demand your attention, one a make-me-root mess in Nexus 9000 Series Switches that you can mitigate, not fix",
+          "cves": []
+        },
+        {
+          "id": "S29.1",
+          "index": 28,
+          "memberIndex": 0,
+          "label": "Fierce Network",
+          "title": "AI agents expose 5G core security risks for telecom operators - Fierce Network",
+          "url": "",
+          "publishedAt": "Thu, 03 Sep 2026 22:11:33 GMT",
+          "evidenceText": "AI agents expose 5G core security risks for telecom operators - Fierce Network",
+          "cves": []
+        },
+        {
+          "id": "S30.1",
+          "index": 29,
+          "memberIndex": 0,
+          "label": "The Register",
+          "title": "Prolific Microsoft 0-day hunter drops CrowdStrike Falcon exploit PoC",
+          "url": "https://www.theregister.com/security/2026/09/03/prolific-microsoft-0-day-hunter-drops-crowdstrike-falcon-exploit-poc/5294318",
+          "publishedAt": "Thu, 03 Sep 2026 20:08:22 +0200",
+          "evidenceText": "Prolific Microsoft 0-day hunter drops CrowdStrike Falcon exploit PoC A shared security 'Nightmare'",
+          "cves": []
+        },
+        {
+          "id": "S30.2",
+          "index": 29,
+          "memberIndex": 1,
+          "label": "The Register",
+          "title": "Prolific Microsoft 0-day hunter drops CrowdStrike Falcon exploit PoC - The Register",
+          "url": "",
+          "publishedAt": "Thu, 03 Sep 2026 18:08:22 GMT",
+          "evidenceText": "Prolific Microsoft 0-day hunter drops CrowdStrike Falcon exploit PoC - The Register",
+          "cves": []
+        },
+        {
+          "id": "S31.1",
+          "index": 30,
+          "memberIndex": 0,
+          "label": "The Register",
+          "title": "SonicWall's SMA1000 boxes under active attack again",
+          "url": "https://www.theregister.com/security/2026/09/02/sonicwalls-sma1000-boxes-under-active-attack-again/5293969",
+          "publishedAt": "Wed, 02 Sep 2026 18:05:00 +0200",
+          "evidenceText": "SonicWall's SMA1000 boxes under active attack again Miscreants use chained zero days to pwn boxen as third-party SOCs say further attacks 'almost certain'",
+          "cves": []
+        },
+        {
+          "id": "S32.1",
+          "index": 31,
+          "memberIndex": 0,
+          "label": "SANS ISC",
+          "title": "numbat - AI agent observability, (Fri, Sep 4th)",
+          "url": "https://isc.sans.edu/diary/rss/33312",
+          "publishedAt": "Sat, 05 Sep 2026 03:39:52 GMT",
+          "evidenceText": "numbat - AI agent observability, (Fri, Sep 4th)",
+          "cves": []
+        },
+        {
+          "id": "S33.1",
+          "index": 32,
+          "memberIndex": 0,
+          "label": "Microsoft Security",
+          "title": "Impersonating IT support: how threat actors turn a remote session into enterprise-wide access",
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/09/02/impersonating-it-support-threat-actors-turn-remote-session-into-enterprise-wide-access/",
+          "publishedAt": "Wed, 02 Sep 2026 22:51:18 +0000",
+          "evidenceText": "Impersonating IT support: how threat actors turn a remote session into enterprise-wide access Microsoft Threat Intelligence observed a human-operated intrusion campaign that abuses Microsoft Teams external collaboration to impersonate IT support, gain remote access, and deploy a Node.js-based implant. Learn how attackers move from social engineering to lateral movement using legitimate to...",
+          "cves": []
+        },
+        {
+          "id": "S34.1",
+          "index": 33,
+          "memberIndex": 0,
+          "label": "Google Threat Intelligence",
+          "title": "Financially Motivated Threat Actor BREEZE COMET Targets Brazil",
+          "url": "https://cloud.google.com/blog/topics/threat-intelligence/financially-motivated-threat-actor-breeze-comet-targets-brazil/",
+          "publishedAt": "Tue, 01 Sep 2026 14:00:00 +0000",
+          "evidenceText": "Financially Motivated Threat Actor BREEZE COMET Targets Brazil Introduction Beginning in 2024 Mandiant investigated a string of compromises affecting Brazilian financial services, retail, and eCommerce organizations. Google Threat Intelligence Group (GTIG) tracks this activity as BREEZE COMET (formerly UNC5669), a financially motivated threat actor specializ...",
+          "cves": []
+        },
+        {
+          "id": "S35.1",
+          "index": 34,
+          "memberIndex": 0,
+          "label": "SANS ISC",
+          "title": "Guildma (Astaroth) malware infection from Brazilian Portuguese email, (Tue, Sep 1st)",
+          "url": "https://isc.sans.edu/diary/rss/33300",
+          "publishedAt": "Tue, 01 Sep 2026 21:30:18 GMT",
+          "evidenceText": "Guildma (Astaroth) malware infection from Brazilian Portuguese email, (Tue, Sep 1st) Introduction",
+          "cves": []
+        },
+        {
+          "id": "S36.1",
+          "index": 35,
+          "memberIndex": 0,
+          "label": "Infosecurity Magazine",
+          "title": "Russian Man Extradited Over Malware Campaign Targeting Freelancers",
+          "url": "https://www.infosecurity-magazine.com/news/russian-man-extradited-malware/",
+          "publishedAt": "Wed, 02 Sep 2026 15:00:00 GMT",
+          "evidenceText": "Russian Man Extradited Over Malware Campaign Targeting Freelancers Russian man extradited to US over malware campaign that targeted 80,000 freelance users",
+          "cves": []
+        },
+        {
+          "id": "S37.1",
+          "index": 36,
+          "memberIndex": 0,
+          "label": "Microsoft Security",
+          "title": "Counterfeit installers to system compromise: Tracking a deceptive software download campaign",
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/09/01/counterfeit-installers-system-compromise-tracking-deceptive-software-download-campaign/",
+          "publishedAt": "Tue, 01 Sep 2026 22:48:28 +0000",
+          "evidenceText": "Counterfeit installers to system compromise: Tracking a deceptive software download campaign An active campaign is impersonating legitimate software vendors to deliver malware through look-alike download pages and regenerated installer archives. Microsoft Defender Experts shares observed attack techniques, Defender XDR detections, indicators of compromise, and practical mitigations to he...",
+          "cves": []
+        },
+        {
+          "id": "S38.1",
+          "index": 37,
+          "memberIndex": 0,
+          "label": "Infosecurity Magazine",
+          "title": "Pegasus Zero-Click Exploit Infects Serbian Student Activist's iPhone",
+          "url": "https://www.infosecurity-magazine.com/news/pegasus-zero-click-exploit/",
+          "publishedAt": "Thu, 03 Sep 2026 15:25:00 GMT",
+          "evidenceText": "Pegasus Zero-Click Exploit Infects Serbian Student Activist's iPhone Pegasus infected a Serbian student activist's iPhone through an iMessage zero-click exploit",
+          "cves": []
+        },
+        {
+          "id": "S38.2",
+          "index": 37,
+          "memberIndex": 1,
+          "label": "The Hacker News",
+          "title": "Pegasus Zero-Click Spyware Exploit Infects Serbian Student Movement Member's iPhone",
+          "url": "https://thehackernews.com/2026/09/pegasus-zero-click-spyware-exploit.html",
+          "publishedAt": "Thu, 03 Sep 2026 14:13:17 +0530",
+          "evidenceText": "Pegasus Zero-Click Spyware Exploit Infects Serbian Student Movement Member's iPhone The iPhone belonging to a member of Serbia's student protest movement was infected with NSO Group's Pegasus spyware, according to new findings from the Citizen Lab in collaboration with the SHARE Foundation. \"Our analysis confirmed that an iMessage zero-click exploit was used to infect the device with NSO Group's Pegasus spyware,\" the Citizen Lab said. \"We found high-confidence indicators of",
+          "cves": []
+        },
+        {
+          "id": "S39.1",
+          "index": 38,
+          "memberIndex": 0,
+          "label": "CrowdStrike Research",
+          "title": "CrowdStrike Extends Endpoint Security to Stop Software Supply Chain Attacks",
+          "url": "https://www.crowdstrike.com/en-us/blog/crowdstrike-extends-endpoint-security-to-stop-supply-chain-attacks/",
+          "publishedAt": "Sep 02, 2026 00:00:00-0400",
+          "evidenceText": "CrowdStrike Extends Endpoint Security to Stop Software Supply Chain Attacks",
+          "cves": []
+        },
+        {
+          "id": "S39.2",
+          "index": 38,
+          "memberIndex": 1,
+          "label": "CrowdStrike",
+          "title": "CrowdStrike Extends Endpoint Security to Stop Software Supply Chain Attacks - CrowdStrike",
+          "url": "",
+          "publishedAt": "Wed, 02 Sep 2026 16:40:46 GMT",
+          "evidenceText": "CrowdStrike Extends Endpoint Security to Stop Software Supply Chain Attacks - CrowdStrike",
+          "cves": []
+        },
+        {
+          "id": "S40.1",
+          "index": 39,
+          "memberIndex": 0,
+          "label": "Unit 42",
+          "title": "Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams",
+          "url": "https://unit42.paloaltonetworks.com/spring-ring-voice-phishing-campaigns/",
+          "publishedAt": "Mon, 31 Aug 2026 10:00:36 +0000",
+          "evidenceText": "Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams Learn how the Spring Ring campaign abuses Microsoft Teams and voice phishing to deploy malware and target enterprise domain controllers. The post Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams appeared first on Unit 42.",
+          "cves": []
+        },
+        {
+          "id": "S41.1",
+          "index": 40,
+          "memberIndex": 0,
+          "label": "Krebs on Security",
+          "title": "FBI Probes Service Selling 153M+ Drivers Licenses",
+          "url": "https://krebsonsecurity.com/2026/09/fbi-probes-service-selling-153m-drivers-licenses/",
+          "publishedAt": "Tue, 01 Sep 2026 22:40:28 +0000",
+          "evidenceText": "FBI Probes Service Selling 153M+ Drivers Licenses A new identity theft service launched on the dark web this week is selling digital scans of more than 153 million drivers licenses from people in the United States and Canada. Based on interviews with individuals whose licenses are available for purchase on this service, it appears to be siphonin...",
+          "cves": []
+        },
+        {
+          "id": "S41.2",
+          "index": 40,
+          "memberIndex": 1,
+          "label": "Infosecurity Magazine",
+          "title": "FBI Probes Possible Breach of 153 Million Driver’s Licenses",
+          "url": "https://www.infosecurity-magazine.com/news/fbi-probes-breach-153-million/",
+          "publishedAt": "Thu, 03 Sep 2026 09:33:00 GMT",
+          "evidenceText": "FBI Probes Possible Breach of 153 Million Driver’s Licenses The FBI is investigating how scans of over 153 million driver’s licenses are being sold on the dark web",
+          "cves": []
+        },
+        {
+          "id": "S42.1",
+          "index": 41,
+          "memberIndex": 0,
+          "label": "The Record",
+          "title": "Russian data centers face new security requirements amid Ukraine's drone threats",
+          "url": "https://therecord.media/russia-data-centers-ukraine-drone-threats",
+          "publishedAt": "Fri, 04 Sep 2026 13:39:00 GMT",
+          "evidenceText": "Russian data centers face new security requirements amid Ukraine's drone threats Russia's data centers are concentrated in areas increasingly exposed to Ukrainian drone attacks. The Kremlin wants them to stiffen their physical defenses.",
+          "cves": []
+        },
+        {
+          "id": "S43.1",
+          "index": 42,
+          "memberIndex": 0,
+          "label": "Schneier on Security",
+          "title": "Using a VM to Contain an AI Agent",
+          "url": "https://www.schneier.com/blog/archives/2026/09/using-a-vm-to-contain-an-ai-agent.html",
+          "publishedAt": "Fri, 04 Sep 2026 16:31:38 +0000",
+          "evidenceText": "Using a VM to Contain an AI Agent It won’t work: My suspicion was that GPT 5.6-Cyber would succeed, but the frequency and manner of its success removed all doubt. We have to reassess sandboxing quality for capable AI agents, and in general the software stack with which they interact. An off-the-shelf VM is not enough to contain a...",
+          "cves": []
+        },
+        {
+          "id": "S44.1",
+          "index": 43,
+          "memberIndex": 0,
+          "label": "CERT/CC",
+          "title": "VU#456290: Hugging Face Transformers library writes remote code to disk prior to consent check",
+          "url": "https://kb.cert.org/vuls/id/456290",
+          "publishedAt": "2026-09-01T13:35:43.290043+00:00",
+          "evidenceText": "VU#456290: Hugging Face Transformers library writes remote code to disk prior to consent check Overview A vulnerability in the Hugging Face Transformers library (versions 4.49.0 through 5.8.1) allows remote, attacker‑controlled Python files to be written to the local disk without user authorization. The library performs a remote module fetch and local cache write before evaluating the trus...",
+          "cves": []
+        },
+        {
+          "id": "S45.1",
+          "index": 44,
+          "memberIndex": 0,
+          "label": "CERT-FR",
+          "title": "Multiples vulnérabilités dans Curl (02 septembre 2026)",
+          "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1108/",
+          "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+          "evidenceText": "Multiples vulnérabilités dans Curl (02 septembre 2026) De multiples vulnérabilités ont été découvertes dans Curl. Certaines d'entre elles permettent à un attaquant de provoquer une atteinte à la confidentialité des données, une atteinte à l'intégrité des données et un contournement de la politique de sécurité.",
+          "cves": []
+        },
+        {
+          "id": "S45.2",
+          "index": 44,
+          "memberIndex": 1,
+          "label": "CERT-FR",
+          "title": "Multiples vulnérabilités dans Google Chrome (02 septembre 2026)",
+          "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1105/",
+          "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+          "evidenceText": "Multiples vulnérabilités dans Google Chrome (02 septembre 2026) De multiples vulnérabilités ont été découvertes dans Google Chrome. Elles permettent à un attaquant de provoquer un problème de sécurité non spécifié par l'éditeur.",
+          "cves": []
+        },
+        {
+          "id": "S45.3",
+          "index": 44,
+          "memberIndex": 2,
+          "label": "CERT-FR",
+          "title": "Multiples vulnérabilités dans les produits Elastic (02 septembre 2026)",
+          "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1107/",
+          "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+          "evidenceText": "Multiples vulnérabilités dans les produits Elastic (02 septembre 2026) De multiples vulnérabilités ont été découvertes dans les produits Elastic. Certaines d'entre elles permettent à un attaquant de provoquer une exécution de code arbitraire à distance, une élévation de privilèges et une atteinte à la confidentialité des données.",
+          "cves": []
+        },
+        {
+          "id": "S45.4",
+          "index": 44,
+          "memberIndex": 3,
+          "label": "CERT-FR",
+          "title": "Multiples vulnérabilités dans les produits HPE Aruba Networking (02 septembre 2026)",
+          "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1104/",
+          "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+          "evidenceText": "Multiples vulnérabilités dans les produits HPE Aruba Networking (02 septembre 2026) De multiples vulnérabilités ont été découvertes dans les produits HPE Aruba Networking. Certaines d'entre elles permettent à un attaquant de provoquer une exécution de code arbitraire à distance, une élévation de privilèges et un déni de service à distance.",
+          "cves": []
+        },
+        {
+          "id": "S45.5",
+          "index": 44,
+          "memberIndex": 4,
+          "label": "CERT-FR",
+          "title": "Multiples vulnérabilités dans les produits Mozilla (02 septembre 2026)",
+          "url": "https://www.cert.ssi.gouv.fr/avis/CERTFR-2026-AVI-1106/",
+          "publishedAt": "Wed, 02 Sep 2026 00:00:00 +0000",
+          "evidenceText": "Multiples vulnérabilités dans les produits Mozilla (02 septembre 2026) De multiples vulnérabilités ont été découvertes dans les produits Mozilla. Certaines d'entre elles permettent à un attaquant de provoquer une élévation de privilèges, une atteinte à la confidentialité des données et un contournement de la politique de sécurité.",
+          "cves": []
+        },
+        {
+          "id": "S46.1",
+          "index": 45,
+          "memberIndex": 0,
+          "label": "CyberScoop",
+          "title": "European parliament members call for slowdown of Serbia’s EU entry over spyware use",
+          "url": "https://cyberscoop.com/eu-parliament-serbia-accession-spyware-demands/",
+          "publishedAt": "Fri, 04 Sep 2026 21:02:39 +0000",
+          "evidenceText": "European parliament members call for slowdown of Serbia’s EU entry over spyware use The letter follows revelations about Serbian student activists being infected with Pegasus and NoviSpy, and coincides with other pressures on Belgrade. The post European parliament members call for slowdown of Serbia’s EU entry over spyware use appeared first on CyberScoop.",
+          "cves": []
+        },
+        {
+          "id": "S47.1",
+          "index": 46,
+          "memberIndex": 0,
+          "label": "Schneier on Security",
+          "title": "AI Coding Agents Are Installing Unknown/Untrusted Code on Corporate Networks",
+          "url": "https://www.schneier.com/blog/archives/2026/09/ai-coding-agents-are-installing-unknown-untrusted-code-on-corporate-networks.html",
+          "publishedAt": "Fri, 04 Sep 2026 10:35:17 +0000",
+          "evidenceText": "AI Coding Agents Are Installing Unknown/Untrusted Code on Corporate Networks We cannot forget that AI coding agents are not yet trustworthy: Researchers at a stealth startup in Israel scanned 6,214 live domains belonging to defense contractors, Fortune 500, and Big Tech companies. Of the 8,265 llms.txt and llms-full.txt files they found (many sites hosted both an llms.txt...",
+          "cves": []
+        },
+        {
+          "id": "S48.1",
+          "index": 47,
+          "memberIndex": 0,
+          "label": "CrowdStrike Research",
+          "title": "CrowdStrike Announces Agentic Identity Provider",
+          "url": "https://www.crowdstrike.com/en-us/blog/crowdstrike-announces-agentic-identity-provider/",
+          "publishedAt": "Sep 02, 2026 00:00:00-0400",
+          "evidenceText": "CrowdStrike Announces Agentic Identity Provider",
+          "cves": []
+        },
+        {
+          "id": "S49.1",
+          "index": 48,
+          "memberIndex": 0,
+          "label": "Unit 42",
+          "title": "Attackers Expose Ongoing AI Tool Use Targeting Organizations in Latin America",
+          "url": "https://unit42.paloaltonetworks.com/ai-tool-use-targeting-latam-orgs/",
+          "publishedAt": "Thu, 03 Sep 2026 10:00:58 +0000",
+          "evidenceText": "Attackers Expose Ongoing AI Tool Use Targeting Organizations in Latin America Explore how attackers targeting Latin American entities use AI for data exfiltration and how basic OpSec errors allow defenders to disrupt operations. The post Attackers Expose Ongoing AI Tool Use Targeting Organizations in Latin America appeared first on Unit 42.",
+          "cves": []
+        },
+        {
+          "id": "S50.1",
+          "index": 49,
+          "memberIndex": 0,
+          "label": "Cloudflare Security",
+          "title": "Introducing context-aware vulnerability discovery and remediation with Cloudflare Managed Defense and OpenAI Daybreak models",
+          "url": "https://blog.cloudflare.com/vulnerability-discovery-remediation/",
+          "publishedAt": "Thu, 03 Sep 2026 21:03:02 GMT",
+          "evidenceText": "Introducing context-aware vulnerability discovery and remediation with Cloudflare Managed Defense and OpenAI Daybreak models Use production traffic and security signals to prioritize findings, prepare edge mitigations when safe, and propose code patches. By combining WAF data with OpenAI Daybreak models, Vulnerability Discovery and Remediation helps teams identify and patch the most critical threats first.",
+          "cves": []
+        },
+        {
+          "id": "NVD-CVE-2026-85046",
+          "index": null,
+          "memberIndex": null,
+          "label": "NVD",
+          "title": "NVD lookup: CVE-2026-85046",
+          "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-85046",
+          "publishedAt": "",
+          "evidenceText": "CVE-2026-85046: CVSS 8.8 (HIGH) — Affects: Google Chrome",
+          "cves": [
+            "CVE-2026-85046"
+          ]
+        },
+        {
+          "id": "NVD-CVE-2026-9586",
+          "index": null,
+          "memberIndex": null,
+          "label": "NVD",
+          "title": "NVD lookup: CVE-2026-9586",
+          "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-9586",
+          "publishedAt": "",
+          "evidenceText": "CVE-2026-9586: CVSS 9.8 (CRITICAL) — Affects: Sangoma Switchvox — exploit references exist",
+          "cves": [
+            "CVE-2026-9586"
+          ]
+        },
+        {
+          "id": "NVD-CVE-2026-48710",
+          "index": null,
+          "memberIndex": null,
+          "label": "NVD",
+          "title": "NVD lookup: CVE-2026-48710",
+          "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-48710",
+          "publishedAt": "",
+          "evidenceText": "CVE-2026-48710: CVSS 6.5 (MEDIUM) — Affects: Encode Starlette — exploit references exist",
+          "cves": [
+            "CVE-2026-48710"
+          ]
+        },
+        {
+          "id": "NVD-CVE-2026-49869",
+          "index": null,
+          "memberIndex": null,
+          "label": "NVD",
+          "title": "NVD lookup: CVE-2026-49869",
+          "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-49869",
+          "publishedAt": "",
+          "evidenceText": "CVE-2026-49869: CVSS 10 (CRITICAL) — Affects: Kestra Kestra — exploit references exist",
+          "cves": [
+            "CVE-2026-49869"
+          ]
+        },
+        {
+          "id": "NVD-CVE-2026-50522",
+          "index": null,
+          "memberIndex": null,
+          "label": "NVD",
+          "title": "NVD lookup: CVE-2026-50522",
+          "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-50522",
+          "publishedAt": "",
+          "evidenceText": "CVE-2026-50522: CVSS 9.8 (CRITICAL) — Affects: Microsoft Sharepoint-Server",
+          "cves": [
+            "CVE-2026-50522"
+          ]
+        },
+        {
+          "id": "NVD-CVE-2026-83548",
+          "index": null,
+          "memberIndex": null,
+          "label": "NVD",
+          "title": "NVD lookup: CVE-2026-83548",
+          "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-83548",
+          "publishedAt": "",
+          "evidenceText": "CVE-2026-83548: CVSS 10 (CRITICAL) — Affects: Sonicwall Sma8200v",
+          "cves": [
+            "CVE-2026-83548"
+          ]
+        },
+        {
+          "id": "NVD-CVE-2026-83549",
+          "index": null,
+          "memberIndex": null,
+          "label": "NVD",
+          "title": "NVD lookup: CVE-2026-83549",
+          "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-83549",
+          "publishedAt": "",
+          "evidenceText": "CVE-2026-83549: CVSS 7.8 (HIGH) — Affects: Sonicwall Sma8200v",
+          "cves": [
+            "CVE-2026-83549"
+          ]
+        },
+        {
+          "id": "NVD-CVE-2026-81578",
+          "index": null,
+          "memberIndex": null,
+          "label": "NVD",
+          "title": "NVD lookup: CVE-2026-81578",
+          "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-81578",
+          "publishedAt": "",
+          "evidenceText": "CVE-2026-81578: CVSS 9.8 (CRITICAL) — Affects: Papercut Papercut-MF",
+          "cves": [
+            "CVE-2026-81578"
+          ]
+        },
+        {
+          "id": "CISA-KEV",
+          "index": null,
+          "memberIndex": null,
+          "label": "CISA KEV catalog",
+          "title": "System-verified CISA KEV membership",
+          "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+          "publishedAt": "",
+          "evidenceText": "CVE-2026-85046 is in CISA KEV. CVE-2026-9586 is in CISA KEV. CVE-2026-48710 is in CISA KEV. CVE-2026-49869 is in CISA KEV. CVE-2026-59822 is in CISA KEV. CVE-2026-82329 is in CISA KEV. CVE-2026-83548 is in CISA KEV. CVE-2026-83549 is in CISA KEV. CVE-2026-32201 is in CISA KEV. CVE-2026-45659 is in CISA KEV. CVE-2026-56164 is in CISA KEV. CVE-2026-58644 is in CISA KEV. CVE-2026-50522 is in CISA KEV. CVE-2026-81578 is in CISA KEV. CVE-2026-82078 is in CISA KEV. CVE-2026-31431 is in CISA KEV.",
+          "cves": [
+            "CVE-2026-85046",
+            "CVE-2026-9586",
+            "CVE-2026-48710",
+            "CVE-2026-49869",
+            "CVE-2026-59822",
+            "CVE-2026-82329",
+            "CVE-2026-83548",
+            "CVE-2026-83549",
+            "CVE-2026-32201",
+            "CVE-2026-45659",
+            "CVE-2026-56164",
+            "CVE-2026-58644",
+            "CVE-2026-50522",
+            "CVE-2026-81578",
+            "CVE-2026-82078",
+            "CVE-2026-31431"
+          ]
+        }
+      ]
+    },
+    "judgmentEvidence": [
+      {
+        "signal": 1,
+        "sourceIds": [
+          "S6.1",
+          "S17.2",
+          "S4.1",
+          "S12.1"
+        ]
+      },
+      {
+        "signal": 2,
+        "sourceIds": [
+          "S1.1",
+          "S10.1",
+          "S3.1"
+        ]
+      },
+      {
+        "signal": 3,
+        "sourceIds": [
+          "S7.1",
+          "S8.1",
+          "S23.1"
+        ]
+      },
+      {
+        "signal": 4,
+        "sourceIds": [
+          "S4.1",
+          "S9.1"
+        ]
+      },
+      {
+        "signal": 5,
+        "sourceIds": [
+          "S16.1",
+          "S4.1",
+          "S22.1"
+        ]
+      },
+      {
+        "signal": 6,
+        "sourceIds": [
+          "S20.1"
+        ]
+      }
+    ],
+    "verification": {
+      "kevCatalogLoaded": true,
+      "kevCatalogSha256": "7b6e1263c6f262a3141c03389a095fd1b57e2e9a5e52adafc260e6c4b6cabc83",
+      "selectedKevCves": [
+        "CVE-2026-31431",
+        "CVE-2026-32201",
+        "CVE-2026-45659",
+        "CVE-2026-48710",
+        "CVE-2026-49869",
+        "CVE-2026-50522",
+        "CVE-2026-56164",
+        "CVE-2026-58644",
+        "CVE-2026-59822",
+        "CVE-2026-81578",
+        "CVE-2026-82078",
+        "CVE-2026-82329",
+        "CVE-2026-83548",
+        "CVE-2026-83549",
+        "CVE-2026-85046",
+        "CVE-2026-9586"
+      ],
+      "kevTiming": {
+        "CVE-2026-31431": {
+          "dateAdded": "2026-05-01",
+          "dueDate": "2026-05-15",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-32201": {
+          "dateAdded": "2026-04-14",
+          "dueDate": "2026-04-28",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-45659": {
+          "dateAdded": "2026-07-01",
+          "dueDate": "2026-07-04",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-48710": {
+          "dateAdded": "2026-09-02",
+          "dueDate": "2026-09-16",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-49869": {
+          "dateAdded": "2026-09-02",
+          "dueDate": "2026-09-05",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-50522": {
+          "dateAdded": "2026-07-22",
+          "dueDate": "2026-07-25",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-56164": {
+          "dateAdded": "2026-07-14",
+          "dueDate": "2026-07-17",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-58644": {
+          "dateAdded": "2026-07-16",
+          "dueDate": "2026-07-19",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-59822": {
+          "dateAdded": "2026-09-02",
+          "dueDate": "2026-09-16",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-81578": {
+          "dateAdded": "2026-08-31",
+          "dueDate": "2026-09-14",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-82078": {
+          "dateAdded": "2026-08-31",
+          "dueDate": "2026-09-14",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-82329": {
+          "dateAdded": "2026-09-02",
+          "dueDate": "2026-09-05",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-83548": {
+          "dateAdded": "2026-09-02",
+          "dueDate": "2026-09-05",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-83549": {
+          "dateAdded": "2026-09-02",
+          "dueDate": "2026-09-05",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-85046": {
+          "dateAdded": "2026-09-04",
+          "dueDate": "2026-09-18",
+          "scope": "FCEB",
+          "precision": "day"
+        },
+        "CVE-2026-9586": {
+          "dateAdded": "2026-09-02",
+          "dueDate": "2026-09-05",
+          "scope": "FCEB",
+          "precision": "day"
+        }
+      }
+    }
+  }
+}

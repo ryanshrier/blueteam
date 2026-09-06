@@ -37,10 +37,10 @@ describe('tagMitre — vendor-name false positives', () => {
     expect((hs[0].mitre || []).map(t => t.id)).not.toContain('T1098');
   });
 
-  test('explicit administrator-account creation still tags T1098', () => {
+  test('explicit administrator-account creation tags Create Account', () => {
     const hs = [{ title: 'Malware creates a hidden administrator account for persistence', description: '' }];
     tagMitre(hs);
-    expect((hs[0].mitre || []).map(t => t.id)).toContain('T1098');
+    expect((hs[0].mitre || []).map(t => t.id)).toContain('T1136');
   });
 });
 

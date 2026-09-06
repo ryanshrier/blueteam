@@ -1,6 +1,6 @@
 {
   "name": "blueteam-news",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "private": true,
   "description": "BlueTeam.News — an open-source, self-hosted threat-intelligence desk for cyber defense teams.",
   "author": "Ryan Shrier",
@@ -29,6 +29,7 @@
     "visual:serve": "node scripts/serve-visual-fixtures.mjs",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
+    "check:brief-eval": "node scripts/brief-eval.mjs",
     "check:secrets": "node scripts/check-no-secrets.mjs",
     "check:history-secrets": "node scripts/check-git-history-secrets.mjs",
     "check:cti-scope": "node scripts/check-cti-scope.mjs",
@@ -39,7 +40,12 @@
     "check:placeholders": "node scripts/check-no-placeholders.mjs",
     "check:assets": "node scripts/check-assets.mjs",
     "check:landing": "node scripts/check-landing-page.mjs",
-    "check:landing:render": "node scripts/check-landing-render.mjs"
+    "check:landing:render": "node scripts/check-landing-render.mjs",
+    "check:evidence:render": "node scripts/check-evidence-render.mjs",
+    "check:design:render": "node scripts/check-design-render.mjs",
+    "check:theme:render": "node scripts/check-theme-render.mjs",
+    "check:handoff:render": "node scripts/check-handoff-render.mjs",
+    "check:safari:render": "node scripts/check-safari-render.mjs"
   },
   "keywords": [
     "security-operations",
@@ -54,7 +60,7 @@
     "@anthropic-ai/sdk": "^0.110.0",
     "better-sqlite3": "^12.10.0",
     "compression": "^1.8.1",
-    "dompurify": "^3.4.12",
+    "dompurify": "^3.4.14",
     "dotenv": "^17.4.1",
     "express": "^4.21.2",
     "express-rate-limit": "^8.3.2",
@@ -75,6 +81,7 @@
     "test-exclude": "8.0.0",
     "glob": "13.0.6",
     "minimatch": "10.2.5",
-    "brace-expansion": "5.0.8"
+    "brace-expansion": "5.0.9",
+    "qs": "6.16.0"
   }
 }

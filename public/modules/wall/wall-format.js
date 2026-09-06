@@ -11,6 +11,17 @@
 export const JUDG_MAX = 5;   // judgment pages (one signal each), priority-ordered
 export const CONV_MAX = 3;   // convergence pages — capped like the judgments
 
+const hasText = value => typeof value === 'string' && Boolean(value.trim());
+const hasFields = (item, fields) => item && fields.some(field => hasText(item[field]));
+export function judgmentOverflowNote(stories = [], limit = JUDG_MAX) {
+  const count = stories.filter(item => hasFields(item, ['title', 'line', 'assessment'])).length;
+  return count > limit ? `First ${limit} of ${count} judgments · Full edition in Briefing` : '';
+}
+export function usableKevRecords(kev = {}) {
+  return (Array.isArray(kev?.recent) ? kev.recent : [])
+    .filter(item => item && /^CVE-\d{4}-\d{4,}$/i.test(String(item.cve || '').trim()));
+}
+
 export function buildPages(
   briefDoc,
   landscape,
@@ -19,20 +30,24 @@ export function buildPages(
   const out = [];
   if (briefLoadError) out.push({ kind: 'brieferror' });
   if (briefDoc) {
-    if (briefDoc.bluf) out.push({ kind: 'bluf' });
-    if (briefDoc.execSummary && briefDoc.execSummary.length) out.push({ kind: 'execsummary' });
-    (briefDoc.stories || []).slice(0, judgMax).forEach((_, i) => out.push({ kind: 'judgment', idx: i }));
-    if (briefDoc.developing && briefDoc.developing.length) out.push({ kind: 'developing' });
-    (briefDoc.convergence || []).slice(0, convMax).forEach((_, i) => out.push({ kind: 'convergence', idx: i }));
+    if (hasText(briefDoc.bluf)) out.push({ kind: 'bluf' });
+    if ((briefDoc.execSummary || []).some(item => hasFields(item, ['lead', 'tail']))) out.push({ kind: 'execsummary' });
+    (briefDoc.stories || []).map((item, idx) => ({ item, idx }))
+      .filter(({ item }) => hasFields(item, ['title', 'line', 'assessment']))
+      .slice(0, judgMax).forEach(({ idx }) => out.push({ kind: 'judgment', idx }));
+    if ((briefDoc.developing || []).some(item => hasFields(item, ['name', 'watch']))) out.push({ kind: 'developing' });
+    (briefDoc.convergence || []).map((item, idx) => ({ item, idx }))
+      .filter(({ item }) => hasFields(item, ['intersection', 'cascade', 'move']))
+      .slice(0, convMax).forEach(({ idx }) => out.push({ kind: 'convergence', idx }));
     // The watchlist remains part of the saved brief and continuity context, but
     // not the passive Wall rotation. Its speculative five-item ledger duplicated
     // developing situations and diluted the stronger judgment/convergence arc.
   }
   // Computed-intel pages from the landscape, between the brief and the wire:
   // recently added to CISA KEV (newly confirmed exploited).
-  if (landscape && landscape.kev && landscape.kev.recent && landscape.kev.recent.length) out.push({ kind: 'kev' });
+  if (usableKevRecords(landscape?.kev).length) out.push({ kind: 'kev' });
   // The live wire is one demoted reference page at the end — the brief leads.
-  if (landscape && (landscape.signals || []).length) out.push({ kind: 'wire' });
+  if ((landscape?.signals || []).some(item => hasFields(item, ['title']))) out.push({ kind: 'wire' });
   return out.length ? out : [{ kind: 'empty' }];
 }
 
@@ -65,8 +80,32 @@ export function executiveSummaryModel(items = []) {
   return { threat, exposure, context, decisions, commonDeadline };
 }
 
+/** Preserve legacy dates while keeping advisory targets distinct from due dates. */
+export function executiveTargetModel(value) {
+  const text = String(value || '').trim();
+  const recommended = text.match(/^recommended\s+target\s*[:·—–-]?\s+(.+)$/i);
+  return recommended
+    ? { label: 'Recommended target', value: recommended[1] }
+    : { label: 'Due', value: text.replace(/^due\s*[:·—–-]?\s+/i, '') };
+}
+
 function splitExecutiveDecisions(text) {
-  return String(text || '').split(/\s*;\s*/).map(clause => clause.trim()).filter(Boolean).map(clause => {
+  const clauses = [];
+  for (const fragment of String(text || '').split(/\s*;\s*/).map(value => value.trim()).filter(Boolean)) {
+    const ownerStart = fragment.match(/^([^;—–:\n]{1,80}?)(?:\s*[—–]\s*|\s+-\s+|:\s+)(.+)$/);
+    // A trailing "— recommended target ..." belongs to the preceding action,
+    // not to an owner named "if affected, patch ...". Preserve internal
+    // semicolons until a new owner/action record or a completed dated record.
+    const targetStart = /^(?:(?:recommended\s+)?target\b|due\b|by\b|today\b|tomorrow\b|this\s+(?:shift|week|month|quarter)\b|\d{4}-\d{2}-\d{2}\b)/i;
+    const newOwner = ownerStart && !targetStart.test(ownerStart[2]);
+    const previous = clauses.at(-1) || '';
+    const previousParts = previous.split(/\s*[—–]\s*|\s+-\s+/);
+    const finalSegment = previousParts.at(-1);
+    const previousComplete = previousParts.length >= 3 && looksLikeDeadline(finalSegment);
+    if (!clauses.length || newOwner || previousComplete) clauses.push(fragment);
+    else clauses[clauses.length - 1] += `; ${fragment}`;
+  }
+  return clauses.map(clause => {
     // The brief contract uses spaced em dashes, but archived/imported editions
     // also contain en dashes, unspaced typographic dashes, spaced hyphens, and
     // `Owner: action` forms. Parse all without treating hyphens inside products
@@ -103,13 +142,10 @@ export function splitBluf(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
   if (!t) return { headline: '', deck: '' };
 
-  // A BLUF can be structurally valid yet arrive as one long compound sentence.
-  // Search the lead half for increasingly softer editorial breakpoints. The
-  // fallback word break is intentionally reserved for genuinely long text: a
-  // slightly imperfect but complete two-level read is safer than silently
-  // clamping most of the day's thesis out of the cover.
+  // Use a sentence or explicit clause boundary, never an arbitrary word count
+  // or list comma. Long uninterrupted prose remains intact at a smaller scale.
   const min = 24;
-  const max = 150;
+  const max = 240;
   const firstMatch = (pattern, offset = 0) => {
     const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
     for (const match of t.matchAll(new RegExp(pattern.source, flags))) {
@@ -122,41 +158,26 @@ export function splitBluf(text) {
     return null;
   };
 
-  const dash = firstMatch(/\s[—–]\s/);
-  if (dash) return splitBlufAt(t, dash.index, dash.index + dash.length);
-
-  const sentence = firstMatch(/[.!?](?=\s+[A-Z(])/);
-  if (sentence) return splitBlufAt(t, sentence.index + 1, sentence.index + 1);
-
-  const clause = firstMatch(/[;:](?=\s)/);
-  if (clause) return splitBlufAt(t, clause.index, clause.index + 1);
-
-  const conjunction = firstMatch(/,\s+(?=(?:while|but|and|yet|as|with|so|which|meaning)\b)/i);
-  if (conjunction) return splitBlufAt(t, conjunction.index, conjunction.index + conjunction.length);
-
-  const comma = firstMatch(/,\s+/);
-  if (comma) return splitBlufAt(t, comma.index, comma.index + comma.length);
-
-  if (t.length > 180) {
-    let wordBreak = t.lastIndexOf(' ', 105);
-    if (wordBreak < 70) wordBreak = t.indexOf(' ', 90);
-    if (wordBreak >= min && wordBreak <= max) {
-      // This is a typographic break inside one continuous sentence, not a new
-      // sentence boundary. Preserve the source casing so the headline and deck
-      // still read grammatically when scanned together.
-      return splitBlufAt(t, wordBreak, wordBreak + 1, { capitalizeDeck: false });
-    }
+  const boundary = [
+    firstMatch(/\s[—–]\s/),
+    firstMatch(/[.!?](?=\s+[A-Z(])/),
+    firstMatch(/[;:](?=\s)/),
+    firstMatch(/,\s+(?=(?:while|but|yet)\b)/i),
+  ].filter(Boolean).sort((a, b) => a.index - b.index)[0];
+  if (boundary) {
+    const sentenceEnd = /[.!?]/.test(t[boundary.index]);
+    return splitBlufAt(t, boundary.index + (sentenceEnd ? 1 : 0), boundary.index + boundary.length);
   }
 
-  // A short thesis with no natural break remains one intact headline.
+  // No content is clamped: a thesis without a natural break stays complete.
   return { headline: t, deck: '' };
 }
 
-function splitBlufAt(text, headlineEnd, deckStart, { capitalizeDeck = true } = {}) {
+function splitBlufAt(text, headlineEnd, deckStart) {
   const headline = text.slice(0, headlineEnd).replace(/[,;:\s]+$/, '').trim();
   const deck = text.slice(deckStart).trim();
   if (!headline || !deck) return { headline: text, deck: '' };
-  return { headline, deck: capitalizeDeck ? capitalizeFirst(deck) : deck };
+  return { headline, deck: capitalizeFirst(deck) };
 }
 
 export function capitalizeFirst(s) {
@@ -208,7 +229,7 @@ export function cvssFrom(s) {
 export function cleanSummary(d) {
   return (typeof d === 'string' ? d : '')
     .replace(/\s*The post\b[\s\S]*?appeared first on[\s\S]*$/i, '')
-    .replace(/\s*(Read more|Continue reading|The article)\b[\s\S]*$/i, '')
+    .replace(/\s+(?:Read more|Continue reading)(?:\s+at)?\s+(?:https?:\/\/\S+|[\w.-]+\.[a-z]{2,}(?:\/\S*)?)\s*$/i, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

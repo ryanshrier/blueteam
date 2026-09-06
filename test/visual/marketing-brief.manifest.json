@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 1,
+  "generationId": "00000000-0000-4000-8000-000000000001",
+  "capturedAt": "2026-07-24T12:00:00Z",
+  "application": {
+    "name": "blueteam-news",
+    "version": "1.1.0",
+    "implementationSha256": {
+      "prompts": "04446a118b72ee707fb522580a78c43e1c638ed9b88e9fe3cbcf20e805c13235",
+      "grounding": "debb92dd957c1f6bc51d88be83e2622afe0dc526cc91d6ad978c21897052aeed",
+      "validation": "1adf2adbc254b7e96da941d9b7046e78e34e8d4cc438a757bd3e8cb871329aee",
+      "scoring": "14b75d6a420935bd953d3fa4c25e2d08718abf4a939a687a3357df04f280af47"
+    }
+  },
+  "edition": {
+    "date": "2026-07-24",
+    "timezone": "UTC",
+    "scheduled": false
+  },
+  "collection": {
+    "collectedAt": "2026-07-24T12:00:00Z",
+    "watchProfile": null,
+    "scoringConfiguration": null,
+    "configurationStatus": "unavailable",
+    "enrichmentFailures": [],
+    "evidenceRetentionStatus": "not-reported-failed"
+  },
+  "promptWatchProfile": null,
+  "promptConfiguration": {
+    "organization": {
+      "profile": "Fictional public demonstration",
+      "audience": "",
+      "sector": "Synthetic exercise",
+      "regions": [],
+      "watchTopics": []
+    },
+    "horizons": {
+      "1": {
+        "name": "",
+        "window": "",
+        "question": ""
+      },
+      "2": {
+        "name": "",
+        "window": "",
+        "question": ""
+      },
+      "3": {
+        "name": "",
+        "window": "",
+        "question": ""
+      }
+    },
+    "maxSignals": null,
+    "maxPatterns": null,
+    "maxConvergence": null
+  },
+  "generationSettings": {
+    "preferredModel": "synthetic-fixture",
+    "fallbackModel": "synthetic-fixture",
+    "maxTokens": 16000,
+    "thinkingEffort": "off",
+    "continuityDepth": 5
+  },
+  "selectedEvidence": [
+    {
+      "index": 0,
+      "title": "Fictional gateway exercise advisory",
+      "source": "Synthetic vendor advisory",
+      "url": "",
+      "publishedAt": "2026-07-24",
+      "horizon": 1,
+      "passage": {
+        "kind": "feed-excerpt",
+        "text": "In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory."
+      },
+      "sourceRevisions": [],
+      "groupMembers": [],
+      "revisionStatus": "unavailable",
+      "sources": [],
+      "corroboration": null,
+      "score": null,
+      "scoreComponents": {
+        "recency": null,
+        "corroboration": null,
+        "exploitation": null,
+        "severity": null,
+        "relevance": null
+      },
+      "scoreRationale": "",
+      "weight": null,
+      "alertMatched": false,
+      "alertBoost": null,
+      "enrichment": {
+        "cveData": "",
+        "cvssSeverityText": "",
+        "isKEV": null,
+        "kevCVE": "",
+        "kevDateAdded": "",
+        "epss": null,
+        "urgency": "",
+        "articleStale": false,
+        "mitre": [],
+        "actors": [],
+        "vendors": []
+      }
+    },
+    {
+      "index": 1,
+      "title": "Fictional response exercise timeline",
+      "source": "Synthetic incident report",
+      "url": "",
+      "publishedAt": "2026-07-23",
+      "horizon": 2,
+      "passage": {
+        "kind": "feed-excerpt",
+        "text": "The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification."
+      },
+      "sourceRevisions": [],
+      "groupMembers": [],
+      "revisionStatus": "unavailable",
+      "sources": [],
+      "corroboration": null,
+      "score": null,
+      "scoreComponents": {
+        "recency": null,
+        "corroboration": null,
+        "exploitation": null,
+        "severity": null,
+        "relevance": null
+      },
+      "scoreRationale": "",
+      "weight": null,
+      "alertMatched": false,
+      "alertBoost": null,
+      "enrichment": {
+        "cveData": "",
+        "cvssSeverityText": "",
+        "isKEV": null,
+        "kevCVE": "",
+        "kevDateAdded": "",
+        "epss": null,
+        "urgency": "",
+        "articleStale": false,
+        "mitre": [],
+        "actors": [],
+        "vendors": []
+      }
+    },
+    {
+      "index": 2,
+      "title": "Fictional annual assurance proposal",
+      "source": "Synthetic exercise planning note",
+      "url": "",
+      "publishedAt": "2026-07-24",
+      "horizon": 3,
+      "passage": {
+        "kind": "feed-excerpt",
+        "text": "The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet."
+      },
+      "sourceRevisions": [],
+      "groupMembers": [],
+      "revisionStatus": "unavailable",
+      "sources": [],
+      "corroboration": null,
+      "score": null,
+      "scoreComponents": {
+        "recency": null,
+        "corroboration": null,
+        "exploitation": null,
+        "severity": null,
+        "relevance": null
+      },
+      "scoreRationale": "",
+      "weight": null,
+      "alertMatched": false,
+      "alertBoost": null,
+      "enrichment": {
+        "cveData": "",
+        "cvssSeverityText": "",
+        "isKEV": null,
+        "kevCVE": "",
+        "kevDateAdded": "",
+        "epss": null,
+        "urgency": "",
+        "articleStale": false,
+        "mitre": [],
+        "actors": [],
+        "vendors": []
+      }
+    }
+  ],
+  "deterministicFacts": "Authored fictional evidence only; no live collection or provider calls.",
+  "grounding": {
+    "cves": [],
+    "urls": [],
+    "sources": [
+      {
+        "id": "S1.1",
+        "index": 0,
+        "memberIndex": 0,
+        "label": "Synthetic vendor advisory",
+        "title": "Fictional gateway exercise advisory",
+        "url": "",
+        "publishedAt": "2026-07-24",
+        "evidenceText": "Fictional gateway exercise advisory In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory.",
+        "retrievedAt": "",
+        "collectionStale": false,
+        "cves": [],
+        "sourceRevisions": []
+      },
+      {
+        "id": "S2.1",
+        "index": 1,
+        "memberIndex": 0,
+        "label": "Synthetic incident report",
+        "title": "Fictional response exercise timeline",
+        "url": "",
+        "publishedAt": "2026-07-23",
+        "evidenceText": "Fictional response exercise timeline The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification.",
+        "retrievedAt": "",
+        "collectionStale": false,
+        "cves": [],
+        "sourceRevisions": []
+      },
+      {
+        "id": "S3.1",
+        "index": 2,
+        "memberIndex": 0,
+        "label": "Synthetic exercise planning note",
+        "title": "Fictional annual assurance proposal",
+        "url": "",
+        "publishedAt": "2026-07-24",
+        "evidenceText": "Fictional annual assurance proposal The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet.",
+        "retrievedAt": "",
+        "collectionStale": false,
+        "cves": [],
+        "sourceRevisions": []
+      }
+    ]
+  },
+  "continuity": {
+    "kind": "prior-model-output-topic-labels-only",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "editions": []
+  },
+  "retention": {
+    "maxBytes": 4194304,
+    "policy": "Saved with the edition until the operator removes both files. Selected excerpts only; no full article cache or provider credentials.",
+    "promptRetention": "SHA-256 of exact provider inputs and implementation files; prompts and discarded model drafts are not retained."
+  },
+  "providerAttempts": [],
+  "validation": [
+    {
+      "draftSha256": "26f444d80ba8a83ee56c1595ad0bf0897697d5d04c0af33b3d4c0eddee09bcb5",
+      "valid": true,
+      "warnings": [],
+      "issues": []
+    }
+  ],
+  "generatedAt": "2026-07-24T12:00:00Z",
+  "synthetic": true,
+  "authoring": "Authored static demonstration fixture. Dates describe the fictional scenario, not a real generation.",
+  "filename": "brief-2026-07-24-01.md",
+  "outputSha256": "26f444d80ba8a83ee56c1595ad0bf0897697d5d04c0af33b3d4c0eddee09bcb5",
+  "modelUsed": "synthetic-fixture",
+  "verification": {
+    "kevCatalogLoaded": false,
+    "selectedKevCves": []
+  },
+  "judgmentEvidence": [
+    {
+      "signal": 1,
+      "sourceIds": [
+        "S1.1",
+        "S2.1"
+      ]
+    },
+    {
+      "signal": 2,
+      "sourceIds": [
+        "S2.1"
+      ]
+    },
+    {
+      "signal": 3,
+      "sourceIds": [
+        "S3.1"
+      ]
+    }
+  ],
+  "publicationValidation": {
+    "valid": true,
+    "warnings": [],
+    "issues": [],
+    "hardFail": false,
+    "trustFail": false,
+    "partial": false
+  },
+  "costEstimate": {
+    "usd": 0,
+    "currency": "USD",
+    "basis": "Authored fixture; no provider calls or billed generation."
+  }
+}

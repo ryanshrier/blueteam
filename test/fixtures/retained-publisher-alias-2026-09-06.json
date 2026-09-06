@@ -1,0 +1,33 @@
+{
+  "provenance": {
+    "capturedAt": "2026-09-06T15:56:13.361Z",
+    "source": "Local running application /api/headlines; public publisher identity and retained source references only",
+    "pipelineGeneratedAt": "2026-09-06T15:47:58.225Z"
+  },
+  "members": [
+    {
+      "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046)",
+      "source": "Help Net Security",
+      "link": "https://www.helpnetsecurity.com/2026/09/04/google-chrome-zero-day-cve-2026-85046/",
+      "date": "2026-09-04T12:09:13.000Z",
+      "evidence": [
+        {
+          "sourceId": "src_1498dd5f61061b0b285a948ee9531541125887f6133c8d949098d3f7fcc79d56",
+          "revisionId": "rev_b0e224e05c7cc69d82c655105e0b2033c620588fa943491e131173531828d429"
+        }
+      ]
+    },
+    {
+      "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - helpnetsecurity.com",
+      "source": "helpnetsecurity.com",
+      "link": "",
+      "date": "2026-09-04T12:09:13.000Z",
+      "evidence": [
+        {
+          "sourceId": "src_0b737bfe7fface03bb1bbd5af19d8a27f01358295f5320322444573e69091b5b",
+          "revisionId": "rev_ef1b1806d820af562b398be15f0a8e3e5f4702ad3ffeb690ed5657be0e6de8de"
+        }
+      ]
+    }
+  ]
+}
