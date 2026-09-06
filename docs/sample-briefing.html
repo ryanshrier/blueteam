@@ -48,7 +48,6 @@
 }
 </style>
 <style>
-
 :root{
   --paper:#fff; --paper-edge:#d8dce3; --desk:#e5e7eb;
   --ink:#1a1714; --ink-2:#3a352e; --ink-3:#5e574c; --ink-faint:#6f675a;   /* faint ink darkened to ~5:1 on paper — clears WCAG AA for the 9-10px colophon/byline */
@@ -416,6 +415,11 @@ body{
   }
   .np-body p{ orphans:2; widows:2; }
   .np-body .np-flow-long{ break-inside:auto; page-break-inside:auto; }
+  /* Parallel context columns must start together on a page. A text-length
+     threshold cannot predict their height; the print engine can honor avoid
+     when the row fits and relax it only for a row taller than the paper. */
+  .np-body .np-exec-facts{ break-inside:avoid-page; page-break-inside:avoid; }
+  .np-body .brief-exec-heading{ break-after:avoid-page; page-break-after:avoid; }
   a[href]{ color:var(--ink) !important; border-bottom:none !important; }
 }
 
@@ -446,7 +450,6 @@ body{
 }
 
 @media (prefers-reduced-motion: reduce){ *{ animation:none !important; } }
-
 </style>
 <style>.sample-navigation{max-width:1120px;margin:18px auto;padding:0 24px;font:13px/1.6 Inter,Arial,sans-serif;color:#3a352e}.sample-navigation a{color:#1d4ed8;text-underline-offset:3px}.sample-receipt{margin:26px 0 0;padding:16px 0;border-top:1px solid #1a1714;font:13px/1.6 Inter,Arial,sans-serif}.sample-receipt h2{font:600 15px/1.4 Inter,Arial,sans-serif;margin:0 0 8px}.sample-receipt p{margin:0 0 8px}.sample-receipt code{font-size:11px;overflow-wrap:anywhere}@media print{.sample-navigation{display:none}.sample-receipt{break-inside:avoid}}</style>
 </head>

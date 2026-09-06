@@ -145,8 +145,8 @@ jobs:
         run: npm test
 
   safari:
-    name: Safari / macOS Intel
-    runs-on: macos-26-intel
+    name: Safari / macOS 15 Intel
+    runs-on: macos-15-intel
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

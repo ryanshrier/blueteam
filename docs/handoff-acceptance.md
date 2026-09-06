@@ -58,13 +58,20 @@ PDF, save the file, reopen it, and inspect every page. Check browser download
 history and reopen the CSV/JSON files when testing their native download UI.
 
 The Chromium gate does not exercise Safari. A separate
-`npm run check:safari:render` job on `macos-26-intel` starts the installed Safari
+`npm run check:safari:render` job on `macos-15-intel` starts the installed Safari
 application through Apple's `/usr/bin/safaridriver` and standard W3C WebDriver
 HTTP commands. It requires Safari identity/version in returned capabilities and
 records the macOS version and actual viewport. It checks the unchanged landing
 page, Wire filtering, evidence disclosures with native forward/reverse Tab and
 Escape, saved Briefing, Print Edition notes/fonts/fit, Settings hydration and
 appearance, and a paused Wall view. No Selenium or generic WebKit package is used.
+
+The macOS 26 Intel runner failed during native Safari session creation, before
+opening any application page, despite matching driver/browser versions and
+enabled remote automation. The macOS 15 Intel job exercises the same installed
+Safari release on a different host OS with every browser assertion retained.
+Its result establishes only the browser and OS versions recorded in its artifact;
+it does not establish that macOS 26 Safari startup works.
 
 Its `safari-acceptance-<commit>` artifact contains screenshots, capabilities,
 passed checks, errors and the driver log. The job is required by Release
@@ -92,5 +99,5 @@ npm test -- --runInBand test/handoff-acceptance.test.js
 Protocol references: [Chromium downloads](https://chromedevtools.github.io/devtools-protocol/tot/Browser/#method-setDownloadBehavior)
 and [Chromium PDF output](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-printToPDF).
 Safari references: [Apple's Safari WebDriver and isolated automation windows](https://webkit.org/blog/6900/webdriver-support-in-safari-10/),
-[official macOS runner inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md),
+[official macOS runner inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md),
 and [the runner's Safari automation setup](https://github.com/actions/runner-images/blob/main/images/macos/scripts/build/install-safari.sh).
