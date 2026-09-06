@@ -138,8 +138,10 @@ try {
   const preview = await evaluate(page, `(() => {
     const frame = document.querySelector('.np-frame');
     const doc = frame.contentDocument;
-    const passages = [...doc.querySelectorAll('.np-body p, .np-body li:not(:has(li)):not(:has(p)), .np-exec-action-task > strong, .np-exec-action-due, .np-exec-fact-label, .np-body h2, .np-body h3, .np-validation li, .np-colophon')].map(e => e.innerText.trim()).filter(text => text.length > 15);
-    return { source: frame.srcdoc, dom: doc.documentElement.outerHTML, passages,
+    const passageElements = [...doc.querySelectorAll('.np-body p, .np-body li:not(:has(li)):not(:has(p)), .np-exec-action-task > strong, .np-exec-action-due, .np-exec-fact-label, .np-body h2, .np-body h3, .np-validation li, .np-colophon')].filter(e => e.innerText.trim().length > 15);
+    const passages = passageElements.map(e => e.innerText.trim());
+    const executiveContextIndices = passageElements.flatMap((e, index) => e.matches('.brief-exec-heading, .np-exec-facts p') ? [index] : []);
+    return { source: frame.srcdoc, dom: doc.documentElement.outerHTML, passages, executiveContextIndices,
       title: doc.title, warnings: [...doc.querySelectorAll('.np-validation li')].map(e => e.textContent.trim()),
       headings: [...doc.querySelectorAll('.np-body h2, .np-body h3')].map(e => e.textContent.trim()),
       viewport: { width: innerWidth, height: innerHeight, frameWidth: frame.clientWidth, frameHeight: frame.clientHeight },
@@ -190,11 +192,16 @@ try {
   report.pdf = { artifact: 'print-edition.pdf', sha256: hash(pdfBytes), bytes: pdfBytes.length, printOptions, images,
     sourceSha256: hash(preview.source), domSha256: hash(preview.dom), viewport: preview.viewport, fonts: preview.fonts, warnings: preview.warnings };
   const text = await readFile(join(directory, 'print-edition.txt'), 'utf8');
-  const textResult = inspectPdfText(text, preview.passages);
-  const bounds = inspectPdfBounds(await readFile(join(directory, 'print-edition-bounds.html'), 'utf8'));
+  const bboxHtml = await readFile(join(directory, 'print-edition-bounds.html'), 'utf8');
+  const textResult = inspectPdfText(text, preview.passages, bboxHtml);
+  const bounds = inspectPdfBounds(bboxHtml);
   assert.equal(bounds.length, textResult.pageCount, 'Bounding-box and text page counts agree');
   assert.equal(images.length, textResult.pageCount, 'Every PDF page has a review image');
   Object.assign(report.pdf, textResult, { bounds });
+  assert.equal(preview.executiveContextIndices.length, 3, 'Executive heading and both context paragraphs are located in the PDF');
+  const contextPages = new Set(preview.executiveContextIndices.flatMap(index => textResult.passagePositions[index].pages));
+  assert.equal(contextPages.size, 1, 'Executive heading and parallel context row fit together on one PDF page');
+  report.pdf.executiveContextPage = [...contextPages][0];
   assert.deepEqual(report.errors, [], 'No browser exceptions or external API requests');
   report.status = 'passed';
   console.log(`PASS: Chromium PDF has ${textResult.pageCount} nonblank pages, ${textResult.checkedPassages} retained passages, both review notes, final source evidence and verification footer.`);

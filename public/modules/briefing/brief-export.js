@@ -274,7 +274,7 @@ export function exportBriefNewspaper({
   protectUnbreakableTokens(clone);
   // Long authored units must be able to cross a page. Short callouts retain the
   // existing keep-together treatment; no text is shortened to fit the paper.
-  clone.querySelectorAll('.bluf, .np-lead-head, .np-exec-facts, .c-action, .the-line, .np-exec-actions > li').forEach(el => {
+  clone.querySelectorAll('.bluf, .np-lead-head, .c-action, .the-line, .np-exec-actions > li').forEach(el => {
     if ((el.textContent || '').length > 700) el.classList.add('np-flow-long');
   });
   clone.querySelectorAll('.brief-sources-appendix a.source-link').forEach(link => {
@@ -1052,6 +1052,11 @@ body{
   }
   .np-body p{ orphans:2; widows:2; }
   .np-body .np-flow-long{ break-inside:auto; page-break-inside:auto; }
+  /* Parallel context columns must start together on a page. A text-length
+     threshold cannot predict their height; the print engine can honor avoid
+     when the row fits and relax it only for a row taller than the paper. */
+  .np-body .np-exec-facts{ break-inside:avoid-page; page-break-inside:avoid; }
+  .np-body .brief-exec-heading{ break-after:avoid-page; page-break-after:avoid; }
   a[href]{ color:var(--ink) !important; border-bottom:none !important; }
 }
 

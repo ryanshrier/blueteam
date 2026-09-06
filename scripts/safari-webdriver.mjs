@@ -1,17 +1,26 @@
 // Minimal W3C WebDriver transport. SafariDriver owns browser interaction;
 // Node's built-in fetch is the only client dependency.
 export class SafariWebDriver {
-  constructor(origin, request = fetch) { this.origin = origin; this.request = request; this.sessionId = null; }
+  constructor(origin, request = fetch) { this.origin = origin; this.request = request; this.sessionId = null; this.events = []; }
 
   async command(method, path, body, timeoutMs = 30_000) {
-    const response = await this.request(this.origin + path, {
-      method, headers: { 'Content-Type': 'application/json' },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    const payload = await response.json();
-    if (!response.ok || payload.value?.error) throw new Error(`${method} ${path}: ${payload.value?.error || response.status}: ${payload.value?.message || 'WebDriver failed'}`);
-    return payload.value;
+    const event = { method, path, startedAt: new Date().toISOString(), timeoutMs };
+    const started = Date.now();
+    this.events.push(event);
+    try {
+      const response = await this.request(this.origin + path, {
+        method, headers: { 'Content-Type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.value?.error) throw new Error(`${payload.value?.error || response.status}: ${payload.value?.message || 'WebDriver failed'}`);
+      event.status = 'success';
+      return payload.value;
+    } catch (error) {
+      event.status = 'failed'; event.error = error.message;
+      throw new Error(`${method} ${path} (${timeoutMs}ms limit): ${error.message}`, { cause: error });
+    } finally { event.elapsedMs = Date.now() - started; }
   }
 
   session(method, path, body, timeoutMs) {

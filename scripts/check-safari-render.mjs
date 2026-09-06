@@ -1,14 +1,15 @@
 // Actual installed Safari via Apple's /usr/bin/safaridriver. No generic WebKit
 // package, Selenium, live operator data, external API, or paid generation.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { execFile, spawn } from 'node:child_process';
+import { copyFile, mkdir, mkdtemp, readdir, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
-import { tmpdir, release, arch } from 'node:os';
+import { tmpdir, release, arch, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import express from 'express';
 import { createFixtureApp } from './serve-visual-fixtures.mjs';
 import { SafariWebDriver } from './safari-webdriver.mjs';
+import { promisify } from 'node:util';
 
 assert.equal(process.platform, 'darwin', 'This acceptance check requires actual macOS Safari. Run its macOS CI job.');
 const directory = process.env.SAFARI_ARTIFACT_DIR ? resolve(process.env.SAFARI_ARTIFACT_DIR)
@@ -21,12 +22,35 @@ let driver, client, fixtureServer, docsServer;
 let driverLog = '';
 const delay = ms => new Promise(done => setTimeout(done, ms));
 const writes = [];
+const startedAt = Date.now();
+const run = promisify(execFile);
+async function diagnostic(command, args) {
+  try { const result = await run(command, args, { timeout: 10_000 }); return { stdout: result.stdout.trim(), stderr: result.stderr.trim() }; }
+  catch (error) { return { error: error.message, stdout: error.stdout, stderr: error.stderr }; }
+}
+async function copyDriverLogs(source, destination, depth = 0) {
+  if (depth > 5) return;
+  let entries;
+  try { entries = await readdir(source, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    const path = join(source, entry.name);
+    if (entry.isDirectory()) await copyDriverLogs(path, join(destination, entry.name), depth + 1);
+    else if (entry.isFile() && (await stat(path)).mtimeMs >= startedAt - 1000) {
+      await mkdir(destination, { recursive: true });
+      await copyFile(path, join(destination, entry.name));
+    }
+  }
+}
 try {
+  report.stage = 'driver-prerequisites';
+  report.driverVersion = await diagnostic('/usr/bin/safaridriver', ['--version']);
+  report.safariVersion = await diagnostic('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', '/Applications/Safari.app/Contents/Info.plist']);
+  report.remoteAutomation = await diagnostic('/usr/libexec/PlistBuddy', ['-c', 'Print :AllowRemoteAutomation', join(homedir(), 'Library/WebDriver/com.apple.Safari.plist')]);
   const socket = createServer();
   await new Promise(done => socket.listen(0, '127.0.0.1', done));
   const driverPort = socket.address().port;
   await new Promise(done => socket.close(done));
-  driver = spawn('/usr/bin/safaridriver', ['-p', String(driverPort)], { stdio: ['ignore', 'pipe', 'pipe'] });
+  driver = spawn('/usr/bin/safaridriver', ['--diagnose', '-p', String(driverPort)], { stdio: ['ignore', 'pipe', 'pipe'] });
   for (const stream of [driver.stdout, driver.stderr]) stream.on('data', data => { driverLog = (driverLog + data).slice(-30_000); });
   driver.on('error', error => { driverLog += error.message; });
   client = new SafariWebDriver(`http://127.0.0.1:${driverPort}`);
@@ -39,13 +63,17 @@ try {
     await delay(100);
   }
   assert(ready, `SafariDriver did not become ready: ${driverLog}`);
-  const session = await client.command('POST', '/session', { capabilities: { alwaysMatch: { browserName: 'safari', platformName: 'mac', pageLoadStrategy: 'normal' } } });
+  report.stage = 'creating-safari-session';
+  // A cold Safari process can outlive the ordinary command deadline. Wait once
+  // with a bound; never retry an uncertain creation and leave two sessions.
+  const session = await client.command('POST', '/session', { capabilities: { alwaysMatch: { browserName: 'safari', platformName: 'mac', pageLoadStrategy: 'normal' } } }, 90_000);
   client.sessionId = session.sessionId;
   report.capabilities = session.capabilities;
   assert.equal(session.capabilities.browserName.toLowerCase(), 'safari', 'Acceptance must use actual Safari');
   assert(session.capabilities.browserVersion, 'Record the Safari version');
   await client.session('POST', '/timeouts', { implicit: 0, pageLoad: 30_000, script: 15_000 });
   await client.session('POST', '/window/rect', { width: 1280, height: 900 });
+  report.stage = 'browser-acceptance';
 
   const fixtureApp = express();
   fixtureApp.use((req, _res, next) => { if (!['GET', 'HEAD'].includes(req.method)) writes.push(`${req.method} ${req.path}`); next(); });
@@ -146,12 +174,16 @@ try {
   await record('wall');
   assert.deepEqual(writes, [], 'Safari smoke performs no API writes');
   report.status = 'passed';
+  report.stage = 'completed';
   console.log(`Safari artifacts: ${directory}. Inspect screenshots before visual acceptance. Native print dialogs remain untested.`);
 } catch (error) {
   report.status = 'failed'; report.failure = error.stack || String(error);
   if (client?.sessionId) {
     try { await writeFile(join(directory, 'failure.png'), Buffer.from(await client.session('GET', '/screenshot', undefined, 5_000), 'base64')); } catch { /* Keep the initial error. */ }
   }
+  // A startup failure has no WebDriver session from which to request a
+  // screenshot. Capture only this disposable CI runner's screen for diagnosis.
+  if (process.env.CI === 'true') report.desktopCapture = await diagnostic('/usr/sbin/screencapture', ['-x', join(directory, 'safari-desktop-failure.png')]);
   throw error;
 } finally {
   if (client?.sessionId) { try { await client.session('DELETE', '', undefined, 5_000); } catch { /* Driver cleanup below. */ } }
@@ -160,6 +192,8 @@ try {
     await Promise.race([new Promise(done => driver.once('exit', done)), delay(3_000).then(() => driver.kill('SIGKILL'))]);
   }
   for (const server of [fixtureServer, docsServer]) if (server) { server.closeAllConnections(); await new Promise(done => server.close(done)); }
+  report.commands = client?.events || [];
+  await copyDriverLogs(join(homedir(), 'Library/Logs/com.apple.WebDriver'), join(directory, 'webdriver-diagnostics'));
   await writeFile(join(directory, 'safaridriver.log'), driverLog);
   await writeFile(join(directory, 'acceptance-report.json'), JSON.stringify(report, null, 2));
 }

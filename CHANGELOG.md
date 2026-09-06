@@ -51,6 +51,7 @@
 - Add offline Briefing evaluation, actual CSV/JSON download checks, Chromium
   Print Edition PDF inspection, and an actual Safari gate on macOS CI. Native
   print dialogs remain a manual acceptance check.
+- Keep parallel Print Edition summary columns together when they fit on a page.
 - Keep public evidence guidance and a concise roadmap separate from working
   audit records. Wire filters do not curate Briefing inputs; persistent analyst
   decisions and reviewed handoffs remain future work.
