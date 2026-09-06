@@ -2,8 +2,9 @@
 // package, Selenium, live operator data, external API, or paid generation.
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readdir, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
+import { createServer as createHttpsServer } from 'node:https';
 import { tmpdir, release, arch, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import express from 'express';
@@ -18,7 +19,7 @@ await mkdir(directory, { recursive: true });
 const report = { status: 'running', synthetic: true, gitCommit: process.env.GITHUB_SHA || null,
   system: { platform: process.platform, release: release(), architecture: arch() }, checks: [],
   limits: ['Native OS print/Save PDF dialogs and download destinations are not exercised.', 'Desktop Safari automation window; no iOS or phone viewport emulation.', 'Screenshots require human visual review.'] };
-let driver, client, fixtureServer, docsServer;
+let driver, client, fixtureServer, docsServer, tlsDirectory;
 let driverLog = '';
 const delay = ms => new Promise(done => setTimeout(done, ms));
 const writes = [];
@@ -66,11 +67,12 @@ try {
   report.stage = 'creating-safari-session';
   // A cold Safari process can outlive the ordinary command deadline. Wait once
   // with a bound; never retry an uncertain creation and leave two sessions.
-  const session = await client.command('POST', '/session', { capabilities: { alwaysMatch: { browserName: 'safari', platformName: 'mac', pageLoadStrategy: 'normal' } } }, 90_000);
+  const session = await client.command('POST', '/session', { capabilities: { alwaysMatch: { browserName: 'safari', platformName: 'mac', pageLoadStrategy: 'normal', acceptInsecureCerts: true } } }, 90_000);
   client.sessionId = session.sessionId;
   report.capabilities = session.capabilities;
   assert.equal(session.capabilities.browserName.toLowerCase(), 'safari', 'Acceptance must use actual Safari');
   assert(session.capabilities.browserVersion, 'Record the Safari version');
+  assert.equal(session.capabilities.acceptInsecureCerts, true, 'Isolated Safari session accepts the self-signed fixture certificate');
   await client.session('POST', '/timeouts', { implicit: 0, pageLoad: 30_000, script: 15_000 });
   await client.session('POST', '/window/rect', { width: 1280, height: 900 });
   report.stage = 'browser-acceptance';
@@ -78,11 +80,24 @@ try {
   const fixtureApp = express();
   fixtureApp.use((req, _res, next) => { if (!['GET', 'HEAD'].includes(req.method)) writes.push(`${req.method} ${req.path}`); next(); });
   fixtureApp.use(createFixtureApp());
+  // The deployed landing page retains upgrade-insecure-requests. Safari applies
+  // it even to loopback HTTP, so serve its unchanged bytes over actual TLS.
+  // Trust is limited to this WebDriver session; no OS keychain/TCC is modified.
+  tlsDirectory = await mkdtemp(join(tmpdir(), 'blueteam-safari-tls-'));
+  const keyPath = join(tlsDirectory, 'key.pem'), certPath = join(tlsDirectory, 'cert.pem'), configPath = join(tlsDirectory, 'openssl.cnf');
+  await writeFile(configPath, '[req]\ndistinguished_name=subject\nx509_extensions=extensions\nprompt=no\n[subject]\nCN=127.0.0.1\n[extensions]\nsubjectAltName=IP:127.0.0.1\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n');
+  await run('/usr/bin/openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', keyPath, '-out', certPath, '-days', '1', '-config', configPath], { timeout: 15_000 });
+  const docsApp = express();
+  report.landingRequests = [];
+  docsApp.use((req, res, next) => { res.once('finish', () => report.landingRequests.push({ method: req.method, path: req.url, status: res.statusCode })); next(); });
+  docsApp.use(express.static(resolve('docs'), { etag: false, maxAge: 0 }));
+  docsServer = createHttpsServer({ key: await readFile(keyPath), cert: await readFile(certPath) }, docsApp).listen(0, '127.0.0.1');
   fixtureServer = fixtureApp.listen(0, '127.0.0.1');
-  docsServer = express().use(express.static(resolve('docs'), { etag: false, maxAge: 0 })).listen(0, '127.0.0.1');
+  report.landingTransport = { protocol: 'https', certificate: 'One-day self-signed loopback-only test certificate', osTrustModified: false,
+    limitation: 'The isolated WebDriver session accepts certificate errors; public certificate trust is not tested.' };
   await Promise.all([fixtureServer, docsServer].map(server => new Promise(done => server.once('listening', done))));
   const origin = `http://127.0.0.1:${fixtureServer.address().port}`;
-  const docsOrigin = `http://127.0.0.1:${docsServer.address().port}`;
+  const docsOrigin = `https://127.0.0.1:${docsServer.address().port}`;
   async function until(expression, label = expression) {
     const deadline = Date.now() + 20_000;
     while (Date.now() < deadline) { if (await client.execute(`return (${expression});`)) return; await delay(75); }
@@ -105,6 +120,7 @@ try {
   }
   await navigate(docsOrigin + '/');
   await until('document.querySelector("#hero-title") && [...document.images].filter(i => i.loading !== "lazy").every(i => i.complete && i.naturalWidth > 0)', 'public landing heading and visible images');
+  assert(await client.execute('return [...document.querySelectorAll("link[rel=stylesheet]")].every(e => e.sheet) && [...document.fonts].some(f => f.status === "loaded");'), 'Safari landing styles and self-hosted fonts load');
   await record('landing');
   await client.click('a[href="#start"]');
   await until('location.hash === "#start" && Math.abs(document.querySelector("#start").getBoundingClientRect().top) < 200', 'landing setup link reaches its content');
@@ -179,6 +195,10 @@ try {
 } catch (error) {
   report.status = 'failed'; report.failure = error.stack || String(error);
   if (client?.sessionId) {
+    try { report.failurePage = await client.execute(`return { url:location.href, title:document.title,
+      images:[...document.images].map(i=>({src:i.currentSrc || i.src, complete:i.complete, width:i.naturalWidth})),
+      styles:[...document.querySelectorAll('link[rel="stylesheet"]')].map(e=>({href:e.href, loaded:!!e.sheet})),
+      resources:performance.getEntriesByType('resource').map(e=>({name:e.name,type:e.initiatorType,bytes:e.decodedBodySize})) };`); } catch { /* Keep the initial failure. */ }
     try { await writeFile(join(directory, 'failure.png'), Buffer.from(await client.session('GET', '/screenshot', undefined, 5_000), 'base64')); } catch { /* Keep the initial error. */ }
   }
   // A startup failure has no WebDriver session from which to request a
@@ -192,6 +212,10 @@ try {
     await Promise.race([new Promise(done => driver.once('exit', done)), delay(3_000).then(() => driver.kill('SIGKILL'))]);
   }
   for (const server of [fixtureServer, docsServer]) if (server) { server.closeAllConnections(); await new Promise(done => server.close(done)); }
+  if (tlsDirectory) {
+    for (const name of ['key.pem', 'cert.pem', 'openssl.cnf']) await rm(join(tlsDirectory, name), { force: true });
+    await rmdir(tlsDirectory);
+  }
   report.commands = client?.events || [];
   await copyDriverLogs(join(homedir(), 'Library/Logs/com.apple.WebDriver'), join(directory, 'webdriver-diagnostics'));
   await writeFile(join(directory, 'safaridriver.log'), driverLog);

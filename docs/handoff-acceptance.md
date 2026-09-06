@@ -73,6 +73,13 @@ Safari release on a different host OS with every browser assertion retained.
 Its result establishes only the browser and OS versions recorded in its artifact;
 it does not establish that macOS 26 Safari startup works.
 
+The unchanged landing page is served over loopback HTTPS because Safari applies
+its `upgrade-insecure-requests` policy to HTTP loopback assets. The test creates a
+one-day certificate, accepts certificate errors only within the isolated
+WebDriver session, and removes the temporary key afterward. It does not change
+OS certificate trust, TCC permissions, or the page's CSP. This checks page loading
+and rendering; it does not validate the deployed site's certificate trust.
+
 Its `safari-acceptance-<commit>` artifact contains screenshots, capabilities,
 passed checks, errors and the driver log. The job is required by Release
 readiness, but its results must actually pass and its screenshots must be
@@ -99,5 +106,6 @@ npm test -- --runInBand test/handoff-acceptance.test.js
 Protocol references: [Chromium downloads](https://chromedevtools.github.io/devtools-protocol/tot/Browser/#method-setDownloadBehavior)
 and [Chromium PDF output](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-printToPDF).
 Safari references: [Apple's Safari WebDriver and isolated automation windows](https://webkit.org/blog/6900/webdriver-support-in-safari-10/),
+[WebKit's loopback upgrade behavior](https://bugs.webkit.org/show_bug.cgi?id=250776),
 [official macOS runner inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md),
 and [the runner's Safari automation setup](https://github.com/actions/runner-images/blob/main/images/macos/scripts/build/install-safari.sh).
