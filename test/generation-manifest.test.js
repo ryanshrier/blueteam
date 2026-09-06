@@ -14,7 +14,7 @@ import { snapshotScoringConfiguration } from '../lib/scoring-snapshot.js';
 const profile = { schemaVersion: 1, technologies: ['Fortinet'], sectors: ['Health'], regions: ['US'], intelligenceQuestions: ['Which versions changed?'], exclusions: [], preferredHorizons: [1], teamProfile: 'One analyst' };
 const ref = { sourceId: 'src_original', revisionId: 'rev_2', source: 'Vendor', title: 'Affected versions change', canonicalUrl: 'https://vendor.example/advisory', passageKind: 'feed-excerpt', changed: true, publishedAt: '2026-09-04T10:00:00Z', retrievedAt: '2026-09-05T10:00:00Z' };
 function receipt(overrides = {}) {
-  const headlines = [{ title: ref.title, source: ref.source, link: ref.canonicalUrl, description: 'Version 2.1 is affected.', articleBody: 'Exact extracted body. '.repeat(60), horizon: 1, evidence: [ref],
+  const headlines = [{ title: ref.title, source: ref.source, link: ref.canonicalUrl, description: 'Version 2.1 is affected.', articleBody: 'The vendor confirmed affected versions. '.repeat(60), horizon: 1, evidence: [ref],
     cveData: 'CVE-2026-12345 CVSS 9.8', isKEV: true, kevCVE: 'CVE-2026-12345', epss: 0.6,
     sourceMembers: [{ title: ref.title, source: ref.source, link: ref.canonicalUrl, passage: 'Original vendor excerpt.', evidence: [ref] }],
     score: 90, scoreComponents: { recency: 0.8 },
@@ -29,7 +29,7 @@ describe('generation input receipt', () => {
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.generationId).toMatch(/^[a-f0-9-]{36}$/);
     expect(manifest.generationSettings).toMatchObject({ thinkingEffort: 'low', maxTokens: 16000 });
-    expect(manifest.selectedEvidence[0].passage).toEqual({ kind: 'article-opening', text: 'Exact extracted body. '.repeat(60).slice(0, 800) });
+    expect(manifest.selectedEvidence[0].passage).toEqual({ kind: 'article-opening', text: 'The vendor confirmed affected versions. '.repeat(60).slice(0, 800), quality: { status: 'substantive', substantive: true, reasons: ['retained-body-detail'] } });
     expect(manifest.selectedEvidence[0].sourceRevisions[0]).toMatchObject({ sourceId: 'src_original', revisionId: 'rev_2', changed: true });
     expect(manifest.selectedEvidence[0].groupMembers[0]).toMatchObject({ passage: 'Original vendor excerpt.', sourceRevisions: [expect.objectContaining({ revisionId: 'rev_2' })] });
     expect(manifest.selectedEvidence[0].enrichment).toMatchObject({ cveData: 'CVE-2026-12345 CVSS 9.8', isKEV: true, epss: 0.6 });

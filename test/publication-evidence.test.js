@@ -58,6 +58,14 @@ describe('publisher calendar dates shared by prompting and validation', () => {
 });
 
 describe('per-source CVE and CVSS association', () => {
+  test('accepts a sentence-final version while rejecting a longer version or suffix', () => {
+    const claim = 'Manager version 2.1.';
+    expect(auditClaim(claim, [{ ...vendor, description: 'Manager version 2.1.' }]).issues.map(issue => issue.code)).not.toContain('VERSION_UNSUPPORTED');
+    for (const version of ['2.1.7', '2.1-beta']) {
+      expect(auditClaim(claim, [{ ...vendor, description: `Manager version ${version}.` }]).issues.map(issue => issue.code)).toContain('VERSION_UNSUPPORTED');
+    }
+  });
+
   test.each(['CVSS 10.0', 'CVSS score 10.0', 'CVSS v3.1 score 10.0', 'CVSS 3.1 base score 10.0'])(
     'reads the complete supported score in %s', score => {
       const source = { ...vendor, description: 'CVE-2026-1234 has CVSS score 10.0.' };

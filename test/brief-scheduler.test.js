@@ -6,6 +6,7 @@ import {
   requestBriefGeneration,
   startDailyBriefSchedule,
   stopDailyBriefSchedule,
+  waitForDailyBriefIdle,
 } from '../lib/brief-scheduler.js';
 
 afterEach(() => _resetBriefScheduleForTests());
@@ -46,6 +47,37 @@ describe('dailyBriefDelay', () => {
 });
 
 describe('startDailyBriefSchedule', () => {
+  test('shutdown drains the completed edition ledger and legacy marker without rearming timers', async () => {
+    const callbacks = [];
+    const state = stateHarness();
+    let finishGeneration;
+    const generateBrief = jest.fn(() => new Promise(resolve => { finishGeneration = resolve; }));
+    const legacySaved = jest.fn();
+    startDailyBriefSchedule({
+      generateBrief, getScheduleConfig: () => ENABLED,
+      now: () => new Date(2026, 6, 12, 8),
+      getState: state.getState, setState: state.setState,
+      getLegacyLastSuccessDate: () => null, setLegacyLastSuccessDate: legacySaved,
+      setTimeoutFn: fn => { callbacks.push(fn); return callbacks.length; },
+      clearTimeoutFn: () => {}, logger: { info: jest.fn(), error: jest.fn() },
+    });
+    const attempt = callbacks[0]();
+    expect(state.state.outcome).toBe('running');
+    stopDailyBriefSchedule();
+    const idle = jest.fn();
+    const drain = waitForDailyBriefIdle().then(idle);
+    await Promise.resolve();
+    expect(idle).not.toHaveBeenCalled();
+    finishGeneration({ filename: 'brief-2026-07-12-00.md' });
+    await Promise.all([attempt, drain]);
+    expect(state.state.outcome).toBe('success');
+    expect(state.state.filename).toBe('brief-2026-07-12-00.md');
+    expect(legacySaved).toHaveBeenCalledWith('2026-07-12');
+    expect(callbacks).toHaveLength(1);
+    await callbacks[0](); // even an already queued timer cannot start new work
+    expect(generateBrief).toHaveBeenCalledTimes(1);
+  });
+
   test.each([false, true])('a retry after midnight retains its edition and leaves the next daily slot intact (restart=%s)', async restart => {
     const callbacks = [];
     const state = stateHarness();

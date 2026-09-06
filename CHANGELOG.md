@@ -14,6 +14,9 @@
 - Require populated decision fields and matching citation identities before new
   publication; strengthen bounded CVE, CVSS, version, and KEV checks. Freeform
   narrative and organizational applicability still require analyst review.
+- Classify retained evidence quality, recover useful same-publisher feed text
+  from unusable article openings, and stop weak-only inputs before provider spend.
+  Flag bounded unsupported durations, comparisons, and contradictory list counts.
 - Preserve historical citations and warnings across Briefing, Wall, and Print
   Edition. Add Wire Hidden recovery, evidence inspection, and Settings health
   diagnostics, with keyboard and storage-failure handling.
@@ -33,6 +36,8 @@
 - Use low thinking effort by default within the existing 16,000-token cap and
   300-second deadline. Preserve explicit operator settings; output-limit recovery
   lowers effort once and keeps incomplete output as a recoverable draft.
+- Drain refresh, KEV loading, alert delivery, and scheduled-generation accounting
+  before closing storage during shutdown; prevent schedule rearming while stopping.
 
 ### Collection and release maintenance
 
@@ -43,6 +48,9 @@
   improve grouping/taxonomy, and preserve first-observation scoring snapshots.
 - Update affected dependencies, add weekly dependency-update proposals, and
   combine repository policy and supported-runtime jobs into a release gate.
+- Add offline Briefing evaluation, actual CSV/JSON download checks, Chromium
+  Print Edition PDF inspection, and an actual Safari gate on macOS CI. Native
+  print dialogs remain a manual acceptance check.
 - Keep public evidence guidance and a concise roadmap separate from working
   audit records. Wire filters do not curate Briefing inputs; persistent analyst
   decisions and reviewed handoffs remain future work.

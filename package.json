@@ -29,6 +29,7 @@
     "visual:serve": "node scripts/serve-visual-fixtures.mjs",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
+    "check:brief-eval": "node scripts/brief-eval.mjs",
     "check:secrets": "node scripts/check-no-secrets.mjs",
     "check:history-secrets": "node scripts/check-git-history-secrets.mjs",
     "check:cti-scope": "node scripts/check-cti-scope.mjs",
@@ -40,7 +41,9 @@
     "check:assets": "node scripts/check-assets.mjs",
     "check:landing": "node scripts/check-landing-page.mjs",
     "check:landing:render": "node scripts/check-landing-render.mjs",
-    "check:evidence:render": "node scripts/check-evidence-render.mjs"
+    "check:evidence:render": "node scripts/check-evidence-render.mjs",
+    "check:handoff:render": "node scripts/check-handoff-render.mjs",
+    "check:safari:render": "node scripts/check-safari-render.mjs"
   },
   "keywords": [
     "security-operations",

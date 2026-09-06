@@ -266,7 +266,7 @@ beforeEach(() => {
   generationMetadata.clear();
   setMetaMock.mockReset().mockImplementation((key, value) => generationMetadata.set(key, value));
   getConfigMock.mockReset().mockReturnValue({ analysisSettings: {}, horizons: {}, organization: {} });
-  getFreshRunMock.mockReset().mockResolvedValue({ headlines: [{ title: 'A headline', horizon: 1, source: 'Feed A' }], stats: { enriched: 1 } });
+  getFreshRunMock.mockReset().mockResolvedValue({ headlines: [{ title: 'A headline', description: 'The source reports a change.', horizon: 1, source: 'Feed A' }], stats: { enriched: 1 } });
   saveBriefMock.mockReset().mockReturnValue('brief-2026-07-02.md');
   saveBriefMetaMock.mockReset();
   indexBriefMock.mockReset();
@@ -873,6 +873,18 @@ describe('POST /api/brief — grounding publication gate', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
+  test('rejects an all-title-only collection before any provider or accounting mutation, even with catalog membership', async () => {
+    getFreshRunMock.mockResolvedValue({ headlines: Array.from({ length: 5 }, (_, i) => ({ title: `Advisory CVE-2026-${10000 + i}`, source: `Feed ${i}`, horizon: 1, isKEV: true, kevCVE: `CVE-2026-${10000 + i}` })), stats: { enriched: 5 } });
+    getKEVSetMock.mockReturnValue(new Set(Array.from({ length: 5 }, (_, i) => `CVE-2026-${10000 + i}`)));
+    const stream = jest.fn(textStream(GOOD_BRIEF));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.find(event => event.error)).toMatchObject({ code: 'E_EVIDENCE_UNUSABLE' });
+    expect(stream).not.toHaveBeenCalled();
+    expect(setMetaMock).not.toHaveBeenCalled();
+    expect(saveBriefMock).not.toHaveBeenCalled();
+  });
+
   test.each([false, true])('uses captured KEV dates through corrective retry (corrected: %s)', async corrected => {
     const cves = ['CVE-2026-83548', 'CVE-2026-83549'];
     getKEVSetMock.mockReturnValue(new Set(cves));
@@ -997,7 +1009,7 @@ describe('POST /api/brief — grounding publication gate', () => {
   test('keeps the system-shown CISA KEV catalog citation live', async () => {
     getFreshRunMock.mockResolvedValue({
       headlines: [{
-        source: 'Vendor', title: 'Known exploited issue', horizon: 1,
+        source: 'Vendor', title: 'Known exploited issue', description: 'The source reports a change.', horizon: 1,
         isKEV: true, kevCVE: 'CVE-2026-10520', cveData: 'CVE-2026-10520',
       }],
       stats: { enriched: 1 },
@@ -1014,7 +1026,7 @@ describe('POST /api/brief — grounding publication gate', () => {
   test('fails closed on an affirmative KEV claim when the runtime catalog is empty', async () => {
     const cve = 'CVE-2026-4555';
     getFreshRunMock.mockResolvedValue({
-      headlines: [{ source: 'Vendor', title: `Vendor advisory ${cve}`, horizon: 1 }],
+      headlines: [{ source: 'Vendor', title: `Vendor advisory ${cve}`, description: 'The source reports a change.', horizon: 1 }],
       stats: { enriched: 1 },
     });
     getKEVSetMock.mockReturnValue(new Set());
@@ -1041,7 +1053,7 @@ describe('POST /api/brief — grounding publication gate', () => {
 
   test('strips raw HTML anchors without corrupting their visible labels or spending a retry', async () => {
     getFreshRunMock.mockResolvedValue({
-      headlines: [{ source: 'Feed', title: 'Source story', horizon: 1, link: 'https://example.com/allowed' }],
+      headlines: [{ source: 'Feed', title: 'Source story', description: 'The source reports a change.', horizon: 1, link: 'https://example.com/allowed' }],
       stats: { enriched: 1 },
     });
     const draft = GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', '[Feed, date unavailable](https://example.com/allowed)') + '\n\n<a href="https://example.com/allowed">Allowed source label</a>';
@@ -1063,7 +1075,7 @@ describe('POST /api/brief — grounding publication gate', () => {
   test('publishes a grounded future KEV Watchlist condition when the CVE is absent from a loaded catalog', async () => {
     const cve = 'CVE-2026-4555';
     getFreshRunMock.mockResolvedValue({
-      headlines: [{ source: 'Vendor', title: `Vendor advisory ${cve}`, horizon: 1 }],
+      headlines: [{ source: 'Vendor', title: `Vendor advisory ${cve}`, description: 'The source reports a change.', horizon: 1 }],
       stats: { enriched: 1 },
     });
     getKEVSetMock.mockReturnValue(new Set(['CVE-2026-9999']));

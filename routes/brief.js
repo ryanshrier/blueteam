@@ -596,6 +596,11 @@ export function createBriefRouter({
       const groundTruth = buildGroundTruth(run);
       const capturedKevSet = new Set(getKEVSet());
       const groundingManifest = buildGroundingManifest({ headlines, extraSourceText: groundTruth, kevSet: capturedKevSet });
+      if (!groundingManifest.members.some(source => source.id !== 'CISA-KEV' && source.quality?.substantive)) {
+        const error = new Error('No substantive source passages are available for a new Briefing. The Wire retains headline leads; refresh or inspect the original sources before generating. No provider request was made.');
+        error.code = 'E_EVIDENCE_UNUSABLE';
+        throw error;
+      }
       const capturedKevTiming = captureKevTiming(getKEVDueDates([...groundingManifest.cves]), capturedKevSet);
       const userPrompt = buildUserPrompt({
         headlines,

@@ -3,6 +3,9 @@
 // API cache and lets a reviewer invoke real polling callbacks without waiting a
 // minute. No content, status, or rendering functions are replaced.
 (() => {
+  window.__fixtureErrors = [];
+  addEventListener('error', event => window.__fixtureErrors.push(event.message || 'Fixture resource error'));
+  addEventListener('unhandledrejection', event => window.__fixtureErrors.push(String(event.reason?.message || event.reason)));
   const params = new URLSearchParams(location.search);
   let capturedClipboardText = '';
   const clipboardMode = params.get('clipboard');
@@ -19,7 +22,7 @@
       },
     } });
   }
-  const scenarios = ['normal', 'sample', 'long', 'sparse', 'stale', 'loading', 'sourceerror', 'brieferror', 'empty', 'changed', 'evidence', 'source-revision', 'evidence-unavailable', 'health-healthy', 'health-degraded', 'health-unavailable', 'health-loading', 'health-minimal', 'no-key', 'settings-loading', 'settings-unavailable'];
+  const scenarios = ['normal', 'sample', 'long', 'handoff', 'sparse', 'stale', 'loading', 'sourceerror', 'brieferror', 'empty', 'changed', 'evidence', 'source-revision', 'evidence-unavailable', 'health-healthy', 'health-degraded', 'health-unavailable', 'health-loading', 'health-minimal', 'no-key', 'settings-loading', 'settings-unavailable'];
   let scenario = scenarios.includes(params.get('scenario')) ? params.get('scenario') : 'normal';
   let offset = 0;
   const NativeDate = Date;

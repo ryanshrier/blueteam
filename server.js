@@ -45,10 +45,11 @@ import {
   apiSecretValidationError,
 } from './lib/middleware.js';
 import { createCompressionMiddleware } from './lib/compression.js';
-import { startRefreshSchedule, stopRefreshSchedule, getLatestRun, getRunAgeMs } from './lib/refresher.js';
+import { startRefreshSchedule, stopRefreshSchedule, waitForRefreshIdle, getLatestRun, getRunAgeMs } from './lib/refresher.js';
 import {
   startDailyBriefSchedule,
   stopDailyBriefSchedule,
+  waitForDailyBriefIdle,
   requestBriefGeneration,
   getDailyBriefScheduleStatus,
 } from './lib/brief-scheduler.js';
@@ -76,6 +77,7 @@ import {
   createBriefGenerationTracker,
   shutdownGuardMs,
 } from './lib/brief-lifecycle.js';
+import { createShutdownCoordinator } from './lib/server-lifecycle.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -163,9 +165,9 @@ setEnrichers(cyberEnrichers);
 // Warm the CISA KEV catalog at boot (non-blocking). Otherwise a brief generated
 // in the first seconds — before the first pipeline run enriches KEV — sees an
 // empty catalog and reports "0 new KEV" when the truth is simply "not yet
-// loaded." Fire-and-forget: the catalog loads ASAP and failures are logged,
-// never fatal (refreshKEV falls back to the SQLite cache internally).
-refreshKEV().catch(err => log.warn('kev', `Boot KEV warm-up failed: ${err.message}`));
+// loaded." Retain the promise so shutdown keeps SQLite alive through both the
+// successful insert and the cache fallback; startup still never waits on it.
+const bootKevWarmup = refreshKEV().catch(err => log.warn('kev', `Boot KEV warm-up failed: ${err.message}`));
 
 // ── Environment validation ──
 const API_KEY_PRIMARY = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY_PRIMARY;
@@ -554,6 +556,7 @@ const server = app.listen(PORT, HOST, () => {
 });
 
 function armDailyBriefSchedule() {
+  if (shuttingDown) return;
   return startDailyBriefSchedule({
     generateBrief: generateScheduledBrief,
     getScheduleConfig: () => getBriefScheduleSettings(),
@@ -638,47 +641,49 @@ async function runStartupSmoke() {
 // ── Graceful shutdown ──
 let shutdownStarted = false;
 let shutdownExitCode = 0;
+const drainAndClose = createShutdownCoordinator({
+  stopWork: [stopConfigWatch, stopRefreshSchedule, stopDailyBriefSchedule],
+  requestDrains: [
+    () => new Promise(resolve => {
+      server.close(err => {
+        if (err) log.warn('server', `Closing HTTP server reported: ${err.message}`);
+        resolve();
+      });
+    }),
+    () => briefGenerationTracker.waitForIdle(),
+  ],
+  backgroundDrains: [() => bootKevWarmup, waitForRefreshIdle, waitForDailyBriefIdle],
+  closeOutbound: closeOutboundDispatchers,
+  closeStorage: closeDB,
+  onError: err => log.warn('server', `Graceful shutdown cleanup failed: ${err.message}`),
+  onTimeout: guardMs => {
+    log.error('server', `Forced exit after ${Math.ceil(guardMs / 1000)}s shutdown guard`);
+    process.exit(1);
+  },
+});
 function shutdown(signal, exitCode = 0) {
   shutdownExitCode = Math.max(shutdownExitCode, exitCode);
   if (shutdownStarted) return;
   shutdownStarted = true;
   shuttingDown = true;
   log.info('server', `${signal} received — shutting down gracefully`);
-  stopConfigWatch();
-  stopRefreshSchedule();
-  stopDailyBriefSchedule();
-
   const guardMs = shutdownGuardMs({
     activeBriefings: briefGenerationTracker.activeCount,
     maxGenerationTimeoutSec: MAX_GENERATION_TIMEOUT_SEC,
     startupSmoke: signal === 'STARTUP_SMOKE',
   });
-  const forceExitTimer = setTimeout(() => {
-    log.error('server', `Forced exit after ${Math.ceil(guardMs / 1000)}s shutdown guard`);
-    process.exit(1);
-  }, guardMs);
-  // Do not keep an otherwise clean shutdown alive just for the safeguard. If
-  // another handle is genuinely stuck, that handle keeps the loop active and
-  // this timer still fires.
-  forceExitTimer.unref();
-
   // server.close() only waits for sockets. A disconnected SSE client can leave
-  // paid generation and synchronous publication work running in the route, so
-  // keep SQLite and outbound pools alive until that explicit tracker is idle.
-  const serverClosed = new Promise(resolve => {
-    server.close(err => {
-      if (err) log.warn('server', `Closing HTTP server reported: ${err.message}`);
-      resolve();
-    });
-  });
-  Promise.all([serverClosed, briefGenerationTracker.waitForIdle()])
-    .then(() => closeOutboundDispatchers())
-    .catch(err => log.warn('server', `Graceful shutdown cleanup failed: ${err.message}`))
-    .finally(() => {
-      clearTimeout(forceExitTimer);
-      closeDB();
+  // paid work running; boot KEV, refresh alerts, and scheduler accounting also
+  // outlive HTTP. Drain them before closing outbound pools and then SQLite.
+  drainAndClose(guardMs)
+    .then(({ forced }) => {
+      if (forced) return;
       log.info('server', 'All connections closed');
       process.exitCode = shutdownExitCode;
+    })
+    .catch(err => {
+      log.error('server', `Graceful shutdown failed: ${err.message}`);
+      process.exit(1);
     });
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
