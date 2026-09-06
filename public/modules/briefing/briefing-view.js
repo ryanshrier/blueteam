@@ -992,7 +992,7 @@ export async function handleCopyDecision(event) {
   }
 }
 
-function handleExport() {
+function handleExport(event) {
   const content = document.getElementById('briefContent');
   const { currentBrief, isGenerating } = getState();
   if (!isBriefReadyForExport(content, currentBrief, isGenerating)) {
@@ -1002,6 +1002,7 @@ function handleExport() {
   try {
     exportBriefNewspaper({
       contentEl: content,
+      opener: event?.currentTarget || document.getElementById('briefExport'),
       filename: currentBrief.filename || null,
       metaText: document.getElementById('briefMeta')?.textContent || '',
       model: currentBrief.model || '',

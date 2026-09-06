@@ -108,6 +108,9 @@ try {
     await client.session('POST', '/execute/async', { script: 'const done = arguments[arguments.length - 1]; document.fonts.ready.then(() => done(true), () => done(false));', args: [] });
   }
   async function record(name) {
+    // WebDriver's click response can precede Safari's next composited frame.
+    // Capture only after two rendering frames, without changing app state.
+    await client.session('POST', '/execute/async', { script: 'const done = arguments[arguments.length - 1]; requestAnimationFrame(() => requestAnimationFrame(() => done(true)));', args: [] });
     const metrics = await client.execute(`return { title:document.title, url:location.href, viewport:{width:innerWidth,height:innerHeight}, scrollWidth:document.documentElement.scrollWidth,
       errors:window.__fixtureErrors || [], failedImages:[...document.images].filter(i => i.complete && i.naturalWidth === 0).map(i => i.src) };`);
     assert(metrics.scrollWidth <= metrics.viewport.width + 1, `${name}: no page horizontal overflow`);
@@ -130,6 +133,9 @@ try {
   await until('document.querySelectorAll(".wire-item").length === 4');
   await client.click('[data-horizon="1"]');
   await until('document.querySelectorAll(".wire-item").length === 2');
+  report.wireSelection = await client.execute(`return [...document.querySelectorAll('#wireHorizon .wire-filter')].map(e => ({ horizon:e.dataset.horizon, active:e.classList.contains('active'), checked:e.getAttribute('aria-checked'), tabIndex:e.tabIndex }));`);
+  assert.deepEqual(report.wireSelection.filter(value => value.active || value.checked === 'true' || value.tabIndex === 0),
+    [{ horizon: '1', active: true, checked: 'true', tabIndex: 0 }], 'Safari Wire selection appearance, radio state and keyboard entry agree with filtered rows');
   await record('wire-filtered');
   await client.execute('window.__evidenceOpener = document.querySelector("[data-evidence]");');
   await client.click('[data-evidence]');
@@ -173,7 +179,23 @@ try {
   }
   report.edition = edition;
   await record('print-preview');
-  await client.execute('const doc = document.querySelector(".np-frame").contentDocument; doc.defaultView.scrollTo(0, doc.documentElement.scrollHeight);');
+  await client.execute(`const frame = document.querySelector('.np-frame'); const doc = frame.contentDocument;
+    doc.querySelector('.np-colophon').scrollIntoView({ block:'end', inline:'nearest', behavior:'instant' });
+    // Some Safari iframe layouts expand in their flex parent. Reach the end
+    // of that outer scroll container as well as the inner document.
+    doc.scrollingElement.scrollTop = doc.scrollingElement.scrollHeight;
+    const overlay = document.querySelector('.np-overlay'); overlay.scrollTop = overlay.scrollHeight;`);
+  await until(`(() => { const frame = document.querySelector('.np-frame'); const box = frame.getBoundingClientRect();
+    const footer = frame.contentDocument.querySelector('.np-colophon').getBoundingClientRect();
+    const top = box.top + frame.clientTop + footer.top, bottom = top + footer.height;
+    const overlay = document.querySelector('.np-overlay').getBoundingClientRect();
+    return footer.height > 0 && top >= Math.max(0, box.top + frame.clientTop, overlay.top) - 1
+      && bottom <= Math.min(innerHeight, box.bottom, overlay.bottom) + 1; })()`, 'actual Print Edition verification footer is fully visible after scrolling');
+  report.edition.endPosition = await client.execute(`const frame = document.querySelector('.np-frame'), doc = frame.contentDocument, overlay = document.querySelector('.np-overlay');
+    const footer = doc.querySelector('.np-colophon').getBoundingClientRect(); return { innerScrollTop:doc.scrollingElement.scrollTop,
+      outerScrollTop:overlay.scrollTop, frameTop:frame.getBoundingClientRect().top, frameHeight:frame.clientHeight,
+      footerTop:footer.top, footerBottom:footer.bottom, footerText:doc.querySelector('.np-colophon').textContent.trim() };`);
+  assert(report.edition.endPosition.innerScrollTop > 0 || report.edition.endPosition.outerScrollTop > 0, 'Safari genuinely scrolls the long print preview');
   await record('print-preview-end');
   await client.click('.np-ov-close');
   assert(await client.execute('return !document.querySelector(".np-overlay") && document.activeElement.id === "briefExport";'), 'Safari closes Print Edition and restores its opener');

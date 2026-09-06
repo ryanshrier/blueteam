@@ -220,6 +220,7 @@ function protectUnbreakableTokens(root) {
  * @param {string|null} generatedAt machine-readable generation timestamp, when known
  * @param {number|string|null} readMins app-computed reading time; preferred over recounting the clone
  * @param {string[]}    warnings   persisted validation warnings, if any
+ * @param {HTMLElement} opener     control that opened the edition, if known
  */
 export function exportBriefNewspaper({
   contentEl,
@@ -229,6 +230,7 @@ export function exportBriefNewspaper({
   generatedAt = null,
   readMins = null,
   warnings = [],
+  opener = null,
 }) {
   const editionWarnings = collectEditionWarnings(contentEl, warnings);
   const clone = contentEl.cloneNode(true);
@@ -304,7 +306,9 @@ export function exportBriefNewspaper({
   // a bounded fallback when popup policy refuses the top-level document.
   // A true modal dialog (not a div with role=toolbar): aria-modal, a labelled title,
   // focus moved in on open + trapped, and returned to the Export button on close.
-  const returnFocusTo = document.activeElement;
+  // Safari pointer activation does not necessarily focus the clicked button.
+  // Prefer the explicit invoking control over the previously focused document.
+  const returnFocusTo = opener || document.activeElement;
   const overlay = document.createElement('dialog');
   overlay.className = 'np-overlay';
   // Redundant on browsers with native dialog semantics, but valuable to older

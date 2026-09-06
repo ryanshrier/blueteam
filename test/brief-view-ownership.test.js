@@ -5,6 +5,7 @@ const fetchBriefs = jest.fn();
 const searchBriefs = jest.fn();
 const navigate = jest.fn();
 const showToast = jest.fn();
+const exportBriefNewspaper = jest.fn();
 const originalFetch = globalThis.fetch;
 const fetchStatus = jest.fn();
 jest.unstable_mockModule('../public/modules/core/api.js', () => ({
@@ -24,7 +25,7 @@ jest.unstable_mockModule('../public/modules/briefing/brief-renderer.js', () => (
   applySemanticStyling: jest.fn(), extractSections: () => [],
   decisionCardContent: () => ({}), decisionCopyText: () => '',
 }));
-jest.unstable_mockModule('../public/modules/briefing/brief-export.js', () => ({ exportBriefNewspaper: jest.fn() }));
+jest.unstable_mockModule('../public/modules/briefing/brief-export.js', () => ({ exportBriefNewspaper }));
 const { render, unmount, runSearch } = await import('../public/modules/briefing/briefing-view.js');
 const { emit, getState, setState } = await import('../public/modules/core/store.js');
 
@@ -86,6 +87,17 @@ test('bare Briefing route restores persisted review notes with the selected save
   expect(elements.get('briefContent').innerHTML).toContain('Check this vendor claim.');
   expect(elements.get('briefContent').innerHTML).toContain('1 automated check needs review');
   expect(elements.get('briefContent')._validatedBriefContent).toBe(oldBrief().content);
+});
+
+test('Print Edition retains its invoking button when a pointer click leaves focus elsewhere', async () => {
+  render(element());
+  await flush();
+  const button = elements.get('briefExport');
+  document.activeElement = { tagName: 'BODY' };
+  const handleClick = button.addEventListener.mock.calls.find(([name]) => name === 'click')[1];
+  handleClick({ currentTarget: button, target: { tagName: 'svg' } });
+  expect(exportBriefNewspaper).toHaveBeenCalledWith(expect.objectContaining({ opener: button, contentEl: elements.get('briefContent') }));
+  expect(document.activeElement).not.toBe(button);
 });
 
 test('returning after an off-view failure shows durable outcome and cost beside the unchanged saved edition', async () => {
