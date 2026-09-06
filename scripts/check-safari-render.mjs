@@ -131,13 +131,17 @@ try {
 
   await navigate(origin + '/wire?scenario=source-revision&theme=dark&capture&reducedMotion');
   await until('document.querySelectorAll(".wire-item").length === 4');
+  await client.click('#wireFilterPanel > summary');
   await client.click('[data-horizon="1"]');
   await until('document.querySelectorAll(".wire-item").length === 2');
+  await client.click('#wireFilterPanel > summary');
   report.wireSelection = await client.execute(`return [...document.querySelectorAll('#wireHorizon .wire-filter')].map(e => ({ horizon:e.dataset.horizon, active:e.classList.contains('active'), checked:e.getAttribute('aria-checked'), tabIndex:e.tabIndex }));`);
   assert.deepEqual(report.wireSelection.filter(value => value.active || value.checked === 'true' || value.tabIndex === 0),
     [{ horizon: '1', active: true, checked: 'true', tabIndex: 0 }], 'Safari Wire selection appearance, radio state and keyboard entry agree with filtered rows');
   await record('wire-filtered');
   await client.execute('window.__evidenceOpener = document.querySelector("[data-evidence]");');
+  await client.click('.wire-item:has([data-evidence]) .wire-details > summary');
+  await until('document.querySelector("[data-evidence]").closest(".wire-details").open');
   await client.click('[data-evidence]');
   await until('document.querySelector(".evidence-dialog ins")');
   assert(await client.execute('return document.querySelector(".evidence-dialog").contains(document.activeElement);'), 'Evidence dialog owns initial focus');
@@ -163,17 +167,20 @@ try {
   await navigate(origin + '/briefing?scenario=handoff&theme=light&capture&reducedMotion');
   await until('document.querySelectorAll(".brief-judgment-card").length === 3 && !document.querySelector("#briefExport").disabled');
   await record('briefing');
+  await client.click('#briefEditionTools > summary');
   await client.click('#briefExport');
   await until('document.querySelector(".np-frame")?.contentDocument?.querySelector(".np-colophon") && !document.querySelector(".np-ov-print").disabled');
+  assert(await client.execute('return document.querySelector(".np-overlay-reading-note").textContent.includes("Continuous reading preview") && document.querySelector(".np-frame").title.includes("continuous reading preview");'), 'Safari preview distinguishes continuous reading from print pagination');
   const edition = await client.execute(`const frame = document.querySelector('.np-frame'); const doc = frame.contentDocument; return {
     warnings:[...doc.querySelectorAll('.np-validation li')].map(e=>e.textContent.trim()),
     headings:[...doc.querySelectorAll('h2,h3')].map(e=>e.textContent.trim()),
     width:frame.clientWidth, scrollWidth:doc.documentElement.scrollWidth, fonts:[...doc.fonts].filter(f=>f.status==='loaded').map(f=>f.family),
-    colophon:doc.querySelector('.np-colophon').textContent.trim() };`);
+    colophon:doc.querySelector('.np-colophon').textContent.trim(), supportDisclosures:doc.querySelectorAll('.brief-judgment-support').length };`);
   assert.equal(edition.warnings.length, 2, 'Safari Print Edition preserves saved review notes');
   assert(edition.fonts.length > 0, 'Safari loads print fonts');
   assert(edition.scrollWidth <= edition.width + 1, 'Safari Print Edition fits the iframe');
   assert(edition.colophon.includes('Verify every CVE ID'), 'Safari retains the print verification footer');
+  assert.equal(edition.supportDisclosures, 0, 'Print includes supporting evidence without collapsed reader disclosures');
   for (const label of ['Executive summary', 'Developing situations', 'Convergence', 'Watchlist', 'Sources']) {
     assert(edition.headings.some(value => value.toLowerCase().includes(label.toLowerCase())), `Safari print preview contains ${label}`);
   }

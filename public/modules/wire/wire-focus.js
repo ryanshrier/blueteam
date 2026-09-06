@@ -2,7 +2,7 @@
 const ACTIONS = [
   '[data-mark-read]', '[data-dismiss]', '[data-restore]', '[data-evidence]',
   '[data-summary]', '[data-copy-link]', '[data-copy-cve]', '.wire-item-title',
-  '.wire-score summary',
+  '.wire-score summary', '.wire-details > summary', '[data-copy-source]',
 ];
 
 export function captureWireFocus(list, activeElement) {

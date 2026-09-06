@@ -1,5 +1,5 @@
 // Shared reader/print presentation. The saved Markdown remains authoritative.
-import { executiveSummaryModel } from '../wall/wall-format.js';
+import { executiveSummaryModel, executiveTargetModel } from '../wall/wall-format.js';
 
 export function documentExecutiveModel(items) {
   const model = executiveSummaryModel(items);
@@ -52,8 +52,11 @@ export function structureExecutiveSummary(root, { prefix = 'np' } = {}) {
   if (model.decisions.length) {
     const queue = make('div', 'queue');
     const head = make('div', 'queue-head');
-    head.appendChild(make('span', '', `${model.decisions.length} ${model.decisions.length === 1 ? 'decision' : 'decisions'}`));
-    if (model.commonDeadline) head.appendChild(make('span', 'common-due', `Due ${model.commonDeadline}`));
+    head.appendChild(make('span', '', `${model.decisions.length} ${model.decisions.length === 1 ? 'action preview' : 'action previews'} · complete responses below`));
+    if (model.commonDeadline) {
+      const target = executiveTargetModel(model.commonDeadline);
+      head.appendChild(make('span', 'common-due', `${target.label} · ${target.value}`));
+    }
     queue.appendChild(head);
     const actions = make('ol', 'actions');
     model.decisions.forEach((decision, index) => {
@@ -61,18 +64,21 @@ export function structureExecutiveSummary(root, { prefix = 'np' } = {}) {
       item.appendChild(make('span', 'action-index', String(index + 1).padStart(2, '0')));
       const task = make('div', 'action-task');
       // "Unassigned" is the parser's fallback, not an authored owner.
-      if (decision.owner !== 'Unassigned') task.appendChild(make('strong', '', decision.owner));
+      const product = decision.action.match(/\b(SMA1000|Chrome|PaperCut(?: MF\/NG)?|Artifactory|Switchvox|MikroTik|Magento(?:\/Adobe Commerce)?)\b/i)?.[0];
+      if (product) task.appendChild(make('strong', 'product', product === 'SMA1000' ? 'SonicWall SMA1000' : product));
       task.appendChild(make('p', '', decision.action));
+      if (decision.owner !== 'Unassigned') task.appendChild(make('span', 'owner', `Owner · ${decision.owner}`));
       item.appendChild(task);
       if (decision.deadline && !model.commonDeadline) {
+        const target = executiveTargetModel(decision.deadline);
         const due = make('span', 'action-due');
-        due.append(make('span', 'due-label', 'Due'), make('span', '', decision.deadline));
+        due.append(make('span', 'due-label', `${target.label} ·`), make('span', '', target.value));
         item.appendChild(due);
       }
       actions.appendChild(item);
     });
     queue.appendChild(actions);
-    panel.appendChild(queue);
+    panel.prepend(queue);
   }
   list.replaceWith(panel);
 }

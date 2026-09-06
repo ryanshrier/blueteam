@@ -62,7 +62,9 @@ export function fetchBriefs({ fresh = false } = {}) {
 }
 
 export function fetchBrief(filename) {
-  return getJson(`/api/brief/${encodeURIComponent(filename)}`, { ttlMs: 5 * 60_000 });
+  // Markdown is immutable, but review and publication disposition may change.
+  // Re-entering an edition must request its current review state.
+  return getJson(`/api/brief/${encodeURIComponent(filename)}`);
 }
 
 export function fetchHealth() {
@@ -91,8 +93,8 @@ export function fetchEdition() {
   return getJson('/api/edition', { ttlMs: 5 * 60_000 });
 }
 
-export async function searchBriefs(query) {
-  const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+export async function searchBriefs(query, sort = 'relevance') {
+  const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&sort=${sort === 'newest' ? 'newest' : 'relevance'}`, { signal: AbortSignal.timeout(15_000), cache: 'no-store' });
   if (!res.ok) throw new Error(`Search failed: ${res.status}`);
   return res.json();
 }

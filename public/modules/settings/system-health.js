@@ -1,5 +1,6 @@
 import { fetchDiagnostics } from '../core/api.js';
 import { escapeHtml } from '../core/sanitize.js';
+import { formatEventTime } from '../core/brief-date.js';
 
 const number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER ? value : null;
 const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)
@@ -39,7 +40,7 @@ export function sanitizeDiagnostics(data) {
       if (reason) issueCounts[reason] = (issueCounts[reason] || 0) + 1;
     }
     result.feeds = {
-      availableIncludingCache: number(data.feeds.ok), total: number(data.feeds.total),
+      reachable: number(data.feeds.ok), total: number(data.feeds.total),
       configured: number(data.feeds.configured), fresh: number(data.feeds.fresh), issueCounts,
     };
   }
@@ -51,15 +52,27 @@ export function sanitizeDiagnostics(data) {
   return result;
 }
 
-function feedIssues(data) {
-  return Object.entries(data?.feeds?.health || {}).flatMap(([name, value]) => {
+export function feedIssues(data) {
+  return Object.entries(data?.feeds?.health || {}).flatMap(([name, value], index) => {
     const reason = feedReason(value);
     if (!reason) return [];
     // Labels help the local operator identify a source, but are never copied.
     // A URL or suspicious label is replaced, not partially redacted.
-    const label = /^[\p{L}\p{N} .,&()'’_-]{1,80}$/u.test(name) ? name : 'Unnamed source';
+    let label = /^[\p{L}\p{N} .,&()'’_+\/-]{1,80}$/u.test(name) && !name.includes('://') ? name : `Source ${index + 1}`;
+    if (/^https?:\/\//i.test(name)) {
+      try { label = new URL(name).hostname; } catch { /* safe numbered identity */ }
+    }
     return [{ label, reason: FEED_REASONS[reason] || (reason.startsWith('http-') ? `Source returned HTTP ${reason.slice(5)}` : 'Source status unavailable') }];
   });
+}
+
+export function groupFeedIssues(issues = []) {
+  const groups = new Map();
+  for (const issue of issues) {
+    if (!groups.has(issue.reason)) groups.set(issue.reason, []);
+    groups.get(issue.reason).push(issue.label);
+  }
+  return [...groups].map(([reason, sources]) => ({ reason, sources })).sort((a, b) => b.sources.length - a.sources.length);
 }
 
 export function createDiagnosticsController({
@@ -109,9 +122,7 @@ export function createDiagnosticsController({
 }
 
 function at(value) {
-  return value ? new Date(value).toLocaleString('en-US', {
-    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC', hourCycle: 'h23',
-  }) + ' UTC' : 'Not available';
+  return formatEventTime(value) || 'Not available';
 }
 function uptime(value) {
   if (value === undefined) return 'Not available';
@@ -121,12 +132,12 @@ function uptime(value) {
 
 export function mountSystemHealth(section) {
   if (!section) return () => {};
-  section.innerHTML = `<h2 id="set-health">System health</h2>
+  section.innerHTML = `<div class="settings-section-heading"><h2 id="set-health">System health</h2><button class="btn-ghost-sm" id="refreshDiagnostics" type="button">Refresh diagnostics</button></div>
     <p class="settings-note">Check collection and storage on this server.</p>
     <div id="systemHealthStatus" class="settings-status system-health-status" data-state="loading" role="status" aria-live="polite">Loading diagnostics…</div>
-    <div class="system-health-actions"><button class="btn-ghost-sm" id="refreshDiagnostics" type="button">Refresh diagnostics</button><button class="btn-ghost-sm" id="copyDiagnostics" type="button" disabled>Copy diagnostics</button></div>
     <div id="systemHealthDetails"></div>
-    <p class="settings-help">Copied diagnostics include health counts, version, timing, and database size. Source names, URLs, secrets, organization settings, and raw error messages are excluded.</p>
+    <div class="system-health-actions"><button class="btn-ghost-sm" id="copyDiagnostics" type="button" disabled>Copy diagnostics</button></div>
+    <details class="profile-details"><summary>About copied diagnostics</summary><p class="settings-help">Includes health counts, version, timing, and database size. Source names, URLs, secrets, organization settings, and raw error messages are excluded.</p></details>
     <p id="diagnosticsFeedback" class="settings-feedback" role="status" aria-live="polite"></p>
     <textarea id="diagnosticsCopyFallback" class="settings-input system-health-copy" readonly hidden aria-label="Sanitized diagnostics to copy"></textarea>`;
   const status = section.querySelector('#systemHealthStatus');
@@ -138,7 +149,7 @@ export function mountSystemHealth(section) {
   const controller = createDiagnosticsController({ onChange(state) {
     status.dataset.state = state.phase;
     status.textContent = state.phase === 'loading' ? 'Loading diagnostics…'
-      : state.phase === 'healthy' ? 'Healthy — server readiness checks passed.'
+      : state.phase === 'healthy' ? 'Collection and storage · Healthy'
         : state.phase === 'degraded' ? 'Degraded — collection or storage needs attention.'
           : 'Diagnostics unavailable — check the server connection and retry.';
     refresh.disabled = state.phase === 'loading';
@@ -151,18 +162,25 @@ export function mountSystemHealth(section) {
     const age = d.pipeline?.ageSeconds;
     const ageLabel = typeof age === 'number' ? age < 60 ? 'Less than a minute ago' : age < 3600 ? `${Math.floor(age / 60)} min ago` : age < 86400 ? `${Math.floor(age / 3600)} hr ago` : `${Math.floor(age / 86400)} days ago` : '';
     const rows = [
-      ['Sources available (including cache)', d.feeds?.availableIncludingCache !== null && d.feeds?.total !== null && d.feeds ? `${d.feeds.availableIncludingCache} / ${d.feeds.total}` : 'Not available'],
-      ['Last collection', `${ageLabel ? 'At last check: ' + ageLabel.toLowerCase() + ' · ' : ''}${at(d.pipeline?.lastRefreshAt)}`],
-      ['Version', d.version || 'Not available'], ['Uptime', uptime(d.uptimeSeconds)],
+      ['Sources reachable', d.feeds?.reachable !== null && d.feeds?.total !== null && d.feeds ? `${d.feeds.reachable} / ${d.feeds.total}` : 'Not available'],
+      ['Fresh source observations', typeof d.feeds?.fresh === 'number' ? `${d.feeds.fresh} / ${d.feeds.configured ?? d.feeds.total ?? 'unknown'}` : 'Not available'],
+      ['Collection age at check', ageLabel || 'Not available'], ['Uptime', uptime(d.uptimeSeconds)],
+      ['Last collection', at(d.pipeline?.lastRefreshAt)], ['Version', d.version || 'Not available'],
     ];
     if (d.database) rows.push(['Database', `${d.database.sizeMb === null ? 'Size unavailable' : d.database.sizeMb + ' MB'} · ${d.database.status}`]);
+    const notices = [
+      d.pipeline?.stale ? 'Collection is overdue. Check server connectivity and the collection logs.' : '',
+      d.configReloadRejected ? 'The last configuration update was rejected. The previous configuration remains active; check server logs before editing again.' : '',
+      d.database && ['warning', 'growing', 'missing', 'error'].includes(d.database.status)
+        ? ['missing', 'error'].includes(d.database.status) ? 'Database access needs attention. Check server logs and storage permissions.' : 'Database storage is growing. Review retention and available disk space.' : '',
+    ].filter(Boolean);
+    const factRows = list => list.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join('');
     details.innerHTML = `<p class="system-health-checked${retained ? ' retained' : ''}">${retained ? 'Showing the last successful check from ' : 'Checked '}${escapeHtml(at(state.checkedAt))}</p>
-      <dl class="system-health-facts">${rows.filter(([, value]) => value !== 'Not available').map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>
+      ${notices.length ? `<div class="system-health-attention"><ul>${notices.map(notice => `<li>${escapeHtml(notice)}</li>`).join('')}</ul></div>` : ''}
+      <dl class="system-health-facts">${factRows(rows.slice(0, 3))}</dl>
+      <details class="profile-details"><summary>Collection and storage details</summary><dl class="system-health-facts system-health-facts--secondary">${factRows(rows.slice(3))}</dl></details>
       ${!d.pipeline && !d.feeds && !d.database ? '<p class="system-health-notice"><strong>Limited diagnostics.</strong> Detailed diagnostics are not available to this client.</p>' : ''}
-      ${d.pipeline?.stale ? '<p class="system-health-notice">Collection is overdue. Check the server logs and source connectivity.</p>' : ''}
-      ${d.configReloadRejected ? '<p class="system-health-notice">The last configuration update was rejected. The previous configuration remains active; check the server logs before editing it again.</p>' : ''}
-      ${d.database && ['warning', 'growing', 'missing', 'error'].includes(d.database.status) ? `<p class="system-health-notice">${['missing', 'error'].includes(d.database.status) ? 'Database access needs attention. Check server logs and storage permissions.' : 'Database storage is growing. Review retention and available disk space.'}</p>` : ''}
-      ${state.issues.length ? `<details class="system-health-issues"${state.issues.length <= 5 ? ' open' : ''}><summary>${state.issues.length} ${state.issues.length === 1 ? 'source needs' : 'sources need'} attention</summary><ul>${state.issues.map(item => `<li><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.reason)}</span></li>`).join('')}</ul></details>` : ''}`;
+      ${state.issues.length ? `<div class="system-health-issues"><h3>${state.issues.length} ${state.issues.length === 1 ? 'source needs' : 'sources need'} attention</h3>${groupFeedIssues(state.issues).map(group => `<details${group.sources.length <= 3 ? ' open' : ''}><summary>${group.sources.length} · ${escapeHtml(group.reason)}</summary><ul>${group.sources.map(source => `<li>${escapeHtml(source)}</li>`).join('')}</ul></details>`).join('')}<p class="settings-help">When many sources fail together, inspect server connectivity, proxy configuration, and logs at the collection time. For isolated failures, check that source’s URL and response status. Cached availability does not mean the source was reached.</p><a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md#network-behavior" target="_blank" rel="noopener noreferrer">Collection troubleshooting and network behavior</a></div>` : ''}`;
   } });
   const handleRefresh = () => { void controller.refresh(); };
   const handleCopy = async () => {

@@ -1,0 +1,10 @@
+/* Shared reading and interaction refinements. Preserve the editorial theme. */
+html { scrollbar-gutter: stable; }
+body:has(dialog[open], [role="dialog"]) { overflow: hidden; }
+.app-header a.wordmark, .app-header a.nav-btn, .app-header a.icon-btn { text-decoration: none; }
+.app-header a.icon-btn { display: inline-flex; align-items: center; justify-content: center; }
+.help-note, .help-defs, .help-tier-row { font-size: .875rem; }
+[role="dialog"], dialog { overscroll-behavior: contain; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}

@@ -45,6 +45,29 @@ try {
     await connection.call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, ...(key === 'Enter' ? { text: '\r', unmodifiedText: '\r' } : {}), modifiers: shift ? 8 : 0, windowsVirtualKeyCode: key === 'Tab' ? 9 : key === 'Escape' ? 27 : 13 });
     await connection.call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, modifiers: shift ? 8 : 0 });
   }
+  async function activate(selector) {
+    await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus()`);
+    await key('Enter');
+  }
+  async function openDisclosure(selector) {
+    if (await evaluate(`document.querySelector(${JSON.stringify(selector)}).open`)) return;
+    await activate(`${selector} > summary`);
+    await until(`document.querySelector(${JSON.stringify(selector)}).open`);
+  }
+  async function openSignalDetails(selector) {
+    if (await evaluate('innerWidth >= 1000')) {
+      await activate(`${selector} > summary`);
+      await until('document.querySelector("#wireInspector:not([hidden]) .wire-inspector-content")');
+      return '#wireInspector';
+    }
+    await openDisclosure(selector);
+    return `${selector}[open]`;
+  }
+  async function openEvidence() {
+    await until('document.querySelector("[data-evidence]")');
+    const scope = await openSignalDetails('.wire-item:has([data-evidence]) .wire-details');
+    await activate(`${scope} [data-evidence]`);
+  }
   async function assertDialogKeyboardTraversal(label) {
     // The expectation is native document focus membership, independent of the
     // application's tabbable-control helper. Repeated traversal crosses both
@@ -62,9 +85,7 @@ try {
   for (const width of [390, 1280]) for (const theme of ['dark', 'light']) {
     await connection.call('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: width < 500 });
     await navigate(`/wire?scenario=source-revision&theme=${theme}&capture&reducedMotion`);
-    await until('document.querySelector("[data-evidence]")');
-    await evaluate('document.querySelector("[data-evidence]").focus()');
-    await key('Enter');
+    await openEvidence();
     await until('document.querySelector(".evidence-dialog ins")');
     assert(await evaluate('document.querySelector(".evidence-dialog").contains(document.activeElement)'), 'Dialog owns initial focus');
     assert(await evaluate('document.querySelector(".evidence-dialog").textContent.includes("Local exposure and mitigation remain unverified")'));
@@ -86,30 +107,40 @@ try {
       const shot = await connection.call('Page.captureScreenshot', { format: 'png' });
       await writeFile(resolve(directory, `evidence-${width}-${theme}.png`), Buffer.from(shot.data, 'base64'));
     }
-    await evaluate('document.querySelector("#evidenceSource").value = "1"; document.querySelector("#evidenceSource").dispatchEvent(new Event("change"))');
+    await openDisclosure('.evidence-source-picker');
+    assert(await evaluate(`document.querySelector('[data-evidence-source="1"]')?.textContent.includes('Gateway investigation notes')`), 'Source picker keeps the distinguishing title readable');
+    await activate('[data-evidence-source="1"]');
     await until('document.querySelector("#evidenceRecord").textContent.includes("independent source")');
+    assert(await evaluate(`document.querySelector('[data-evidence-source="1"]').getAttribute('aria-pressed') === 'true' && !document.querySelector('.evidence-source-picker').open`), 'Source selection updates and returns to the excerpt');
     await key('Escape');
     assert(await evaluate('!document.querySelector(".evidence-dialog") && document.activeElement.matches("[data-evidence]")'), 'Escape restores row control focus');
     await navigate(`/wire?scenario=evidence-unavailable&theme=${theme}&capture`);
-    await until('document.querySelector("[data-evidence]")');
-    await evaluate('document.querySelector("[data-evidence]").click()');
+    await openEvidence();
     await until('document.querySelector("[data-evidence-retry]")');
     await key('Escape');
     await navigate(`/wire?scenario=normal&theme=${theme}&capture`);
-    await until('document.querySelector("[data-evidence]")');
-    await evaluate('document.querySelector("[data-evidence]").click()');
-    await until('document.querySelector("#evidenceRecord").textContent.includes("No retained source observation")');
-    await key('Escape');
+    await until('document.querySelector(".wire-details")');
+    const legacyScope = await openSignalDetails('.wire-details');
+    assert(await evaluate(`document.querySelector(${JSON.stringify(`${legacyScope} .wire-evidence-row .wire-retention-note`)})?.textContent.includes("No retained excerpt")`), 'Legacy evidence availability is explained in the responsive inspector');
+    assert(await evaluate('!document.querySelector("[data-evidence]") && !document.querySelector(".evidence-dialog")'), 'Legacy rows do not offer an empty evidence dialog');
     await navigate(`/settings?scenario=normal&theme=${theme}&capture`);
     await until('document.body.textContent.includes("Watch profile")');
     assert(await evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), 'Settings fits viewport');
     await navigate(`/briefing?scenario=source-revision&theme=${theme}&capture`);
-    await until('document.querySelector("#briefInputManifest a")');
-    assert(await evaluate('document.querySelector("#briefInputManifest a").getAttribute("href").endsWith("/manifest")'), 'Saved input link names the current edition');
-    assert(await evaluate('fetch(document.querySelector("#briefInputManifest a").href).then(r => r.json()).then(r => r.schemaVersion === 1 && r.synthetic === true)'), 'Rendered link resolves to the synthetic input receipt');
+    await until('document.querySelector("[data-open-inputs]")');
+    await openDisclosure('#briefEditionTools');
+    await activate('[data-open-inputs]');
+    await until('document.querySelector(".brief-input-dialog .brief-input-intro")');
+    assert(await evaluate('document.querySelector("#briefInputTitle").textContent === "Edition sources and inputs" && !!document.querySelector(".brief-input-facts")'), 'Saved inputs open as a readable edition summary');
+    await openDisclosure('.brief-input-download');
+    assert(await evaluate('document.querySelector(".brief-input-download a").getAttribute("href").endsWith("/manifest") && document.querySelector(".brief-input-download a").hasAttribute("download")'), 'Advanced JSON download names the current edition');
+    assert(await evaluate('(() => { const link = document.querySelector(".brief-input-download a"); return fetch(link.href).then(r => r.json()).then(r => r.schemaVersion === 1 && r.synthetic === true && r.edition.filename === decodeURIComponent(new URL(link.href).pathname.split("/")[3])); })()'), 'Readable receipt and optional JSON download resolve to the current synthetic edition');
+    await key('Escape');
+    assert(await evaluate('!document.querySelector(".brief-input-dialog") && document.activeElement.matches("[data-open-inputs]")'), 'Saved-input dialog restores its opener');
     await navigate(`/briefing?scenario=normal&theme=${theme}&capture`);
     await until('document.querySelector("#briefInputManifest")?.textContent.includes("unavailable for this edition")');
-    assert(await evaluate('!document.querySelector("#briefInputManifest a")'), 'Historical edition has no fabricated receipt link');
+    await openDisclosure('#briefEditionTools');
+    assert(await evaluate('!document.querySelector("[data-open-inputs]") && !document.querySelector("#briefInputManifest a")'), 'Historical edition has no fabricated receipt action');
     console.log(`PASS evidence ${width}px ${theme}: excerpts, changes, keyboard, source switch, errors, legacy, Settings, Briefing receipts`);
   }
   assert.deepEqual(errors, [], 'Browser errors or unexpected requests');

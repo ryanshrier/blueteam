@@ -1,0 +1,363 @@
+/* Scan first; one disclosure owns the supporting context for each signal. */
+.wire-view { max-width: var(--workspace-width); overflow-anchor: none; }
+.wire-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+.wire-scan-column { min-width: 0; }
+.wire-inspector { display: none; }
+.wire-inspector[hidden] { display: none !important; }
+.wire-local-state { margin: 0 0 16px; color: var(--text-secondary); font: 13px/1.5 var(--font-mono); }
+.wire-source-context, .wire-label-explanations, .wire-evidence-gaps { margin: 12px 0; border-top: 1px solid var(--border-subtle); padding-top: 4px; }
+.wire-source-context > summary, .wire-label-explanations > summary, .wire-evidence-gaps > summary { min-height: 40px; align-content: center; cursor: pointer; color: var(--text-secondary); font: 500 14px/1.5 var(--font-sans); }
+.wire-evidence-gaps li { margin-bottom: 6px; color: var(--text-secondary); font: 14px/1.55 var(--font-sans); }
+.wire-row-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wire-row-menu { position: relative; order: 2; }
+.wire-row-menu > summary { display: flex; gap: 6px; align-items: center; min-height: 40px; padding: 2px 6px; color: var(--text-secondary); font: 14px/1.4 var(--font-sans); cursor: pointer; list-style: none; }
+.wire-row-menu > summary::-webkit-details-marker { display: none; }
+.wire-row-menu:not([open]) > .wire-quick-actions { display: none; }
+.wire-row-menu[open] > .wire-quick-actions { position: absolute; right: 0; top: 100%; z-index: 9; display: grid; min-width: 150px; padding: 5px; border: 1px solid var(--border); background: var(--bg-elevated); box-shadow: var(--shadow-sm); }
+.wire-row-menu .wire-quick-actions button { min-height: 40px; text-align: left; }
+.wire-item:has(.wire-row-menu[open]) { position: relative; z-index: 9; }
+.wire-density select, .wire-sort-select { min-height: 36px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border); border-radius: 0; padding: 4px 8px; font: 14px var(--font-sans); }
+.wire-sort-label { display: none; }
+#wireActiveFilters button { min-height: 28px; max-width: 100%; overflow-wrap: anywhere; text-align: left; padding: 3px 7px; border: 1px solid var(--border); border-radius: 0; background: var(--bg-primary); color: var(--text-secondary); font: inherit; cursor: pointer; }
+.wire-update-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.wire-hidden-notice:empty { display: none; }
+.wsb-contribution { grid-column: 1 / -1; text-align: right; font: 13px/1.5 var(--font-sans); color: var(--text-secondary); }
+.wire-update-row:has(button:not([hidden])) { padding-top: 6px; }
+.wire-update-row button, .wire-quick-actions button, .wire-inspector-nav button, .wire-inspector-head > button, .evidence-revision-actions button { min-height: 32px; padding: 4px 7px; background: var(--bg-primary); color: var(--brand-text); border: 1px solid var(--border); border-radius: 0; font: 13px/1.4 var(--font-sans); cursor: pointer; }
+.wire-update-row button[hidden] { display: none; }
+.wire-quick-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.wire-quick-actions button { color: var(--text-secondary); border-color: transparent; }
+.wire-quick-actions svg { width: 14px; height: 14px; }
+.wire-item.is-selected { box-shadow: inset 3px 0 var(--brand-text); background: var(--bg-selected); }
+.wire-scan-identity { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; color: var(--text-secondary); font: 12px/1.4 var(--font-sans); }
+.wire-scan-identity:empty { display: none; }
+.wire-scan-identity button { padding: 2px 0; border: 0; background: none; color: var(--brand-text); cursor: pointer; font: 12px/1.4 var(--font-mono); }
+.wire-product { font-weight: 600; }
+.wire-outcome-chip { border-left: 1px solid var(--border); padding-left: 8px; }
+.wire-outcome { margin: 18px 0; border-top: 1px solid var(--border); padding-top: 8px; }
+.wire-outcome > summary { cursor: pointer; min-height: 36px; align-content: center; font-weight: 600; }
+.wire-outcome form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.wire-outcome label { display: grid; gap: 4px; font: 13px/1.5 var(--font-sans); color: var(--text-secondary); }
+.wire-outcome input, .wire-outcome select, .wire-outcome textarea { width: 100%; min-width: 0; min-height: 44px; padding: 10px; border: 1px solid var(--border-control); border-radius: var(--radius-control); color: var(--text-primary); background: var(--bg-input); font: 15px/1.5 var(--font-sans); }
+.wire-outcome textarea { resize: vertical; }
+.wire-outcome-note { grid-column: 1 / -1; }
+.wire-context-fact h4 { margin: 12px 0 4px; color: var(--text-primary); font: 600 14px/1.5 var(--font-sans); }
+.wire-context-fact p, .wire-cve-records p { margin: 0 0 12px; font: 16px/1.55 var(--font-sans); }
+.wire-cve-records summary { min-height: 36px; cursor: pointer; }
+.wire-cve-records section + section { border-top: 1px solid var(--border); padding-top: 8px; }
+.evidence-compare-control { display: flex; align-items: center; gap: 8px; margin: 12px 0; font: 14px/1.5 var(--font-sans); }
+.evidence-revision-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+@media (min-width: 1000px) {
+  .wire-view .wire-head { margin-bottom: 8px; }
+  .wire-view .wire-head .view-sub { display: none; }
+  .wire-view .wire-converge-head { min-height: 32px; padding-block: 3px; font-size: 13px; }
+  .wire-view .wire-converge { margin-bottom: 2px; }
+  .wire-view .wire-colhead { padding-block: 5px; }
+  /* A reading sheet leaves the index geometry unchanged when a signal opens. */
+  .wire-workspace.has-inspector { grid-template-columns: minmax(0, 1fr); }
+  .wire-inspector { display: block; position: fixed; z-index: 35; top: calc(var(--header-rendered-height, var(--header-height)) + 16px); right: var(--workspace-gutter); width: clamp(460px, 36vw, 560px); max-height: calc(100dvh - var(--header-rendered-height, var(--header-height)) - 32px); overflow: auto; overscroll-behavior: contain; padding: 0 24px 24px; border: 1px solid var(--hairline-strong); border-radius: 0; background: var(--bg-reading); box-shadow: var(--shadow-lg); container-type: inline-size; }
+  .wire-inspector-chrome { position: sticky; top: 0; z-index: 2; margin-inline: -24px; padding: 8px 24px 0; background: var(--bg-reading); border-bottom: 1px solid var(--border); }
+  .wire-inspector-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+  .wire-inspector h2 { margin: 20px 0; font: 650 24px/1.3 var(--font-sans); letter-spacing: -.02em; }
+  .wire-inspector-head > button { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; }
+  .wire-inspector-head > button span { font-size: 22px; }
+  .wire-inspector-head .wire-retention-note { margin-block: 12px; }
+  .wire-inspector-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 13px; }
+  .wire-inspector-nav a { margin-left: auto; color: var(--brand-text); }
+  .wire-inspector .wire-row-actions { display: flex; flex-wrap: wrap; }
+  .wire-item .wire-details > .wire-detail-content { display: none !important; }
+  .wire-view[data-density="compact"] .wire-item { padding: 10px 8px; }
+  .wire-view[data-density="compact"] .wire-item-title { font-size: 16px; line-height: 1.4; }
+  .wire-view[data-density="compact"] .wire-scan-meta { gap: 4px 8px; font-size: 13px; margin-top: 3px; }
+  .wire-view[data-density="compact"] .wire-scan-meta .wire-src, .wire-view[data-density="compact"] .wire-scan-meta .wire-age { font-size: 13px; }
+  .wire-item .wire-details { display: inline-block; }
+  .wire-item .wire-details > summary { display: inline-flex; min-height: 40px; font-size: 14px; }
+  .evidence-dialog.evidence-dialog { width: min(1120px, calc(100vw - 48px)); }
+  .evidence-diff { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+  .evidence-diff .evidence-quotation { min-width: 0; margin-top: 0; }
+}
+@media (min-width: 1100px) {
+  .wire-workspace .wire-lead { display: grid; grid-template-columns: minmax(0, 1fr) 190px 150px; column-gap: 20px; }
+  .wire-workspace .wire-item-h { grid-column: 1; grid-row: 1; }
+  .wire-workspace .wire-scan-identity { grid-column: 1; grid-row: 2; }
+  .wire-workspace .wire-scan-meta { grid-column: 2; grid-row: 1 / span 2; align-content: start; align-items: start; margin: 0; gap: 4px 10px; }
+  .wire-workspace .wire-scan-meta .wire-src { flex-basis: 100%; }
+  .wire-workspace .wire-row-tools { grid-column: 3; grid-row: 1 / span 2; align-self: start; flex-wrap: nowrap; gap: 4px; }
+  .wire-head-right { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  .wire-colhead .ch-score small { display: none; }
+}
+@media (max-width: 700px) {
+  .wire-view .wire-command-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wire-view .wire-search-wrap { grid-column: 1 / -1; grid-row: 1; }
+  #wireSortHost { grid-row: 2; grid-column: 1; }
+  .wire-density { grid-row: 2; grid-column: 2; }
+  .wire-view .wire-filter-panel { grid-row: 3; grid-column: 1; }
+  .wire-view .wire-export { grid-row: 3; grid-column: 2; }
+  .wire-view .wire-command-row :is(select, summary) { width: 100%; min-height: 44px; }
+  .wire-view .wire-density > span { display: none; }
+  .wire-outcome form { grid-template-columns: minmax(0, 1fr); }
+}
+.wire-head { align-items: center; gap: 8px 20px; margin-bottom: 14px; }
+.wire-head .view-title { font-size: 30px; margin: 0; }
+.wire-head .view-sub { margin: 3px 0 0; font-size: 14px; }
+.wire-head-right { gap: 4px 16px; }
+.wire-meta, .wire-brieflink, .wire-collection-health { font: 13px/1.5 var(--font-sans); letter-spacing: 0; text-transform: none; }
+.wire-collection-health { color: var(--text-secondary); text-underline-offset: 3px; }
+.wire-collection-health.is-degraded { color: var(--warn); }
+.wire-collection-health[hidden] { display: none; }
+.wire-controls { position: sticky; top: var(--header-rendered-height, var(--header-height)); z-index: 25; padding: 8px 0; gap: 2px; margin-bottom: 10px; background: var(--bg-primary); border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
+.wire-command-row { grid-template-columns: minmax(120px, 1fr) auto auto auto auto; gap: 8px; align-items: center; }
+.wire-search-wrap { grid-column: auto; }
+.wire-search { font-size: 16px; }
+.wire-toolbar-status { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 12px; min-width: 0; }
+.wire-shown { font-size: 13px; }
+#wireActiveFilters { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; color: var(--text-secondary); font: 13px/1.4 var(--font-sans); }
+.wire-clear-control { padding: 0 6px; min-height: 32px; border: 0; }
+.wire-filter-panel > summary { white-space: nowrap; }
+.wire-filter-content { position: absolute; inset: calc(100% + 4px) 0 auto; max-height: min(65dvh, 520px); overflow-y: auto; padding: 16px; background: var(--bg-elevated); border: 1px solid var(--hairline-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); }
+.wire-filter-panel:not([open]) .wire-filter-content { display: none; }
+.wire-filter-heading { margin: 0 0 10px; font: 600 16px/1.4 var(--font-sans); color: var(--text-primary); }
+.wire-filter-row { gap: 12px; align-items: start; }
+.wire-filter-row .wire-filters { flex: 0 1 auto; max-width: 100%; }
+.wire-filter-row .wire-toggles { flex: 1 1 100%; gap: 6px; }
+.wire-filter-row .wire-toggle { font-family: var(--font-sans); font-size: 14px; letter-spacing: 0; text-transform: none; padding: 8px 12px; border-color: var(--border); border-radius: 0; }
+.wire-control-divider { display: none; }
+.wire-sort { margin-left: 0; }
+.wire-sort-select, .wire-sort-label { font-size: 14px; }
+.wire-hidden-notice { margin-top: 3px; padding: 8px; }
+.wire-status-row:not(:empty) { position: fixed; bottom: max(20px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 60; max-width: calc(100vw - 24px); }
+.wire-undo-chip { min-height: 44px; background: var(--bg-elevated); color: var(--text-primary); font: 14px/1.5 var(--font-sans); border-color: var(--hairline-strong); box-shadow: var(--shadow-md); white-space: nowrap; }
+.wire-converge { display: block; padding: 0; margin-bottom: 8px; border-color: var(--border-subtle); }
+.wire-converge-head { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 6px 12px; min-height: 44px; padding: 6px 2px; border: 0; font: 500 14px/1.4 var(--font-sans); letter-spacing: 0; cursor: pointer; }
+.wire-converge-head::before { content: '▸'; }
+.wire-converge[open] .wire-converge-head::before { content: '▾'; }
+.wire-converge-head::-webkit-details-marker { display: none; }
+.wire-converge:not([open]) > .wire-converge-row { display: none; }
+.wire-converge-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 8px; overflow: visible; padding-bottom: 10px; }
+.wire-converge-card { min-width: 0; max-width: none; padding: 10px; text-decoration: none; border: 1px solid var(--border); }
+.wire-converge-card:hover { background: var(--wash); border-color: var(--brand-text); }
+.wire-converge-key, .wire-converge-title, .wire-converge-n, .wire-converge-count { font-family: var(--font-sans); font-size: 13px; letter-spacing: 0; }
+.wire-item, .wire-colhead { grid-template-columns: [score] 46px [lead] minmax(0, 1fr); column-gap: 14px; }
+.wire-colhead { padding-inline: 10px; border-left: 1px solid transparent; font: 500 12px/1.5 var(--font-sans); letter-spacing: 0; text-transform: none; }
+.wire-colhead .ch-meta { display: none; }
+.wire-item { padding: 12px 10px; scroll-margin-top: calc(var(--header-rendered-height, var(--header-height)) + 100px); }
+.wire-item-title { font-size: 17px; line-height: 1.45; font-weight: 600; }
+.wire-item:not(.is-read) .wire-item-h::before { content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 7px 3px 0; border-radius: 50%; background: var(--brand-text); }
+.wire-item.is-read .wire-item-title { color: var(--text-primary); font-weight: 500; }
+.wire-item.is-selected .wire-item-title { font-weight: 600; }
+.wire-item.is-read .wire-item-h::before { content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 7px 3px 0; }
+.wire-scan-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; color: var(--text-secondary); }
+.wire-scan-meta .wire-age { font-size: 13px; padding: 0; background: transparent; }
+.wire-scan-meta .wire-src { font-size: 13px; }
+.wire-priority.watch { color: var(--brand-text); border: 0; background: transparent; }
+.wire-priority.changed { color: var(--text-secondary); border: 0; background: transparent; padding: 0; font-family: var(--font-sans); font-weight: 400; }
+.wire-details > summary { width: fit-content; min-height: 40px; display: flex; align-items: center; gap: 6px; color: var(--brand-text); font: 500 14px/1.4 var(--font-sans); cursor: pointer; list-style: none; }
+.wire-details > summary::-webkit-details-marker { display: none; }
+.wire-details > summary::before { content: '▸'; }
+.wire-details[open] > summary::before { content: '▾'; }
+.wire-detail-content { padding: 10px 12px; margin: 0 0 4px; background: var(--wash-soft); border-left: 2px solid var(--border); }
+.wire-details:not([open]) > .wire-detail-content { display: none; }
+.wire-detail-description { margin: 0 0 10px; font: 15px/1.65 var(--font-sans); color: var(--text-secondary); overflow-wrap: anywhere; }
+.wire-tier, .wire-priority, .wire-corrob, .wire-submeta, .wire-cve-cluster, .wire-affects, .wire-actor, .wire-vendor { font-size: 13px; line-height: 1.5; letter-spacing: 0; }
+.wire-submeta { margin-top: 8px; font-family: var(--font-sans); }
+.wire-label-explanations { margin-top: 12px; color: var(--text-secondary); font: 13px/1.6 var(--font-sans); }
+.wire-label-explanations h4 { margin: 0 0 4px; font-size: 13px; color: var(--text-primary); }
+.wire-label-explanations p { margin: 3px 0; }
+.wire-evidence-row { margin-top: 10px; }
+.wire-retention-note { margin: 4px 0; font-size: 13px; }
+.wire-inspect, .wire-evidence-count { font-size: 14px; }
+.wire-row-actions { display: flex; justify-content: flex-start; gap: 6px; margin-top: 12px; }
+.wire-copy-link, .wire-copy-source { width: auto; min-height: 44px; gap: 6px; padding: 6px 8px; color: var(--text-secondary); background: none; border: 1px solid var(--border); border-radius: 0; font: 13px/1.4 var(--font-sans); cursor: pointer; }
+.wire-mark-read, .wire-dismiss { border: 1px solid var(--border); }
+.wire-score-breakdown { width: min(360px, calc(100vw - 48px)); max-height: min(65dvh, 600px, var(--score-space, 600px)); padding: 16px; }
+.wire-score-breakdown[data-placement="above"] { top: auto; bottom: calc(100% + 4px); }
+.wire-score-breakdown .wsb-axis { grid-template-columns: minmax(0, 1fr) 76px 30px; gap: 4px 10px; padding-block: 8px; font: 14px/1.5 var(--font-sans); }
+.wire-score-breakdown .wsb-ledger { font: 14px/1.6 var(--font-sans); }
+.wire-score-breakdown .wsb-val { font-family: var(--font-mono); font-size: 13px; }
+.wire-score-breakdown .wsb-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -8px 0 8px; color: var(--text-primary); font: 600 14px/1.5 var(--font-sans); }
+.wire-score-breakdown .wsb-heading button { min-width: 44px; min-height: 44px; border: 0; background: none; color: var(--text-secondary); font-size: 22px; cursor: pointer; }
+.wsb-axis.wsb-unavailable { grid-template-columns: 1fr; gap: 4px; }
+.wsb-unavailable > span:last-child { font: 13px/1.5 var(--font-sans); color: var(--text-secondary); }
+.wire-reconnect { top: calc(var(--header-rendered-height, var(--header-height)) + 95px); }
+.evidence-dialog { width: min(860px, calc(100vw - 24px)); overscroll-behavior: contain; scrollbar-gutter: auto; }
+.evidence-dialog-head { padding-block: 8px; }
+.evidence-dialog .evidence-signal-title { font-size: 16px; margin: 8px 0; }
+.evidence-source-picker { border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.evidence-source-picker > summary { font-size: 14px; }
+.evidence-source-list { display: grid; gap: 6px; margin: 0 0 12px; }
+.evidence-source-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 0; font: 14px/1.5 var(--font-sans); cursor: pointer; }
+.evidence-source-choice[aria-pressed="true"] { border-color: var(--brand-text); background: var(--bg-selected); }
+.evidence-source-choice small { font-size: 13px; color: var(--text-secondary); }
+.evidence-source-link { margin: 4px 0; }
+.evidence-revision > summary { padding-block: 8px; font-size: 14px; }
+.evidence-change-summary { color: var(--text-primary); font: 600 14px/1.5 var(--font-sans); }
+.evidence-quotation { margin-block: 8px 12px; }
+.evidence-passage { font-size: 17px; line-height: 1.55; padding: 10px 12px; }
+.evidence-context { margin-top: 16px; border-top: 1px solid var(--border); }
+.evidence-context > summary { font-size: 14px; }
+.evidence-retention { font-size: 13px; }
+@media (max-width: 600px) {
+  .wire-head { display: block; }
+  .wire-head-right { align-items: flex-start; text-align: left; margin-top: 5px; }
+  .wire-brieflink { display: none; }
+  .wire-head .view-sub { display: none; }
+  .wire-controls { padding: 6px; }
+  .wire-command-row { gap: 4px; }
+  .wire-export-trigger { padding-inline: 7px; }
+  .wire-item, .wire-colhead { grid-template-columns: [lead] minmax(0, 1fr); position: relative; }
+  .wire-colhead { display: none; }
+  .wire-item > .wire-score { position: absolute; top: 12px; left: 8px; }
+  .wire-item-h { min-height: 44px; padding-left: 56px; }
+  .wire-item-title { font-size: 16px; }
+  .wire-scan-meta { margin-top: 7px; }
+  .wire-detail-content { padding-inline: 8px; }
+  .wire-score-breakdown { width: min(360px, calc(100vw - 48px)); }
+  .wire-filters { border-radius: 0; flex-wrap: wrap; overflow-x: visible; }
+  .wire-filter { font-family: var(--font-sans); font-size: 13px; letter-spacing: 0; padding-inline: 7px; }
+  .wire-filter-content { padding: 12px; }
+  .evidence-dialog { padding-inline: 12px; }
+  .evidence-dialog h2 { font-size: 23px; }
+  .evidence-passage { font-size: 16px; }
+}
+
+/* A small command surface leaves the scan list in the first viewport. */
+.wire-view .wire-command-row { grid-template-columns: minmax(100px, 1fr) auto auto; }
+.wire-view .wire-search-wrap, .wire-view .wire-filter-panel, .wire-view .wire-view-tools { grid-row: 1; grid-column: auto; }
+.wire-view-tools:not([open]) > .wire-view-tools-content { display: none; }
+.wire-view-tools-content { position: absolute; z-index: 30; top: calc(100% + 4px); right: 0; width: min(310px, 100%); box-sizing: border-box; padding: 16px; border: 1px solid var(--border); background: var(--bg-elevated); box-shadow: var(--shadow-sm); }
+.wire-view-tools-content #wireSortHost { display: block; }
+.wire-view-tools-content :is(.wire-sort, .wire-density) { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 0 0 12px; font: 14px/1.4 var(--font-sans); }
+.wire-view-tools-content .wire-sort-label, .wire-view-tools-content .wire-density > span { display: block; color: var(--text-secondary); font: inherit; }
+.wire-view-tools-content :is(select, summary) { width: 100%; min-height: 44px; }
+.wire-view-tools-content .wire-export { display: block; position: static; }
+.wire-view-tools-content .wire-export-menu { position: static; width: 100%; box-sizing: border-box; margin-top: 8px; box-shadow: none; }
+.wire-view-tools-content .wire-export-menu button { min-height: 44px; }
+.wire-view-tools > summary { min-height: 44px; }
+.wire-view-tools > summary::-webkit-details-marker { display: none; }
+.wire-view :is(button, input, select, .wire-filter-content, .wire-view-tools-content, .wire-filters, .wire-export-trigger, .wire-export-menu),
+.evidence-dialog, .evidence-dialog :is(button, select, .evidence-source-choice, .evidence-notice, .evidence-state) { border-radius: 0; }
+.wire-item:is(.h1, .h2, .h3) { border-left-width: 1px; }
+.wire-item:not(.is-read) .wire-item-h::before { background: var(--text-secondary); }
+.wire-tier:is(.h1, .h2, .h3), .wire-corrob, .wire-priority.watch { color: var(--text-secondary); background: transparent; }
+.wire-new { color: var(--text-primary); background: var(--wash); border-radius: 0; }
+.wire-score:not(.has-breakdown), .wire-score.has-breakdown > summary { flex-direction: column; gap: 4px; border-width: 1px; border-color: var(--border); border-radius: 0; }
+.wire-score > span, .wire-score > summary > span { display: block; font: 400 12px/1 var(--font-sans); color: var(--text-secondary); letter-spacing: 0; }
+.wire-score.has-breakdown > summary::after { right: 2px; top: 1px; bottom: auto; font-size: 10px; }
+.wire-score-breakdown .wsb-bar > i { background: var(--text-secondary); border-radius: 0; }
+.wire-published { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px; color: var(--text-secondary); }
+.wire-published > span { font: 12px/1.4 var(--font-sans); }
+.wire-age[data-age-band] { padding: 0; border-radius: 0; background: none; }
+.wire-severity { color: var(--text-secondary); font: 12px/1.5 var(--font-sans); }
+.wire-severity[data-level="high"] { color: var(--warn); }
+.wire-severity[data-level="critical"] { color: var(--sev-critical); }
+.wire-severity-scope { color: var(--text-secondary); font-family: var(--font-mono); }
+.wire-local-state { font-family: var(--font-sans); }
+.wire-inspector .assessment-meta { margin-top: 0; }
+.wire-item .assessment-meta { margin-block: 8px 16px; }
+.evidence-dialog h2, .evidence-dialog h3, .evidence-dialog .evidence-passage { font-family: var(--font-sans); }
+.evidence-dialog .evidence-passage { border-left: 2px solid var(--border); }
+.evidence-diff ins { color: var(--text-diff); background: var(--bg-diff-added); text-decoration-color: var(--mark-added); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.evidence-diff del { color: var(--text-diff); background: var(--bg-diff-removed); text-decoration-color: var(--mark-removed); text-decoration-thickness: 1px; }
+.evidence-dialog .assessment-meta { margin-block: 12px; }
+.evidence-dialog .evidence-revision-actions button { min-height: 44px; }
+.evidence-timeline, .evidence-relationships { border-top: 1px solid var(--border); }
+.evidence-timeline ol { margin: 4px 0 12px; padding: 0; list-style: none; }
+.evidence-timeline li { display: grid; grid-template-columns: minmax(155px, 1fr) minmax(0, 2fr); gap: 16px; padding-block: 10px; border-top: 1px solid var(--border-subtle); }
+.evidence-timeline time { color: var(--text-secondary); font: 12px/1.6 var(--font-mono); }
+.evidence-timeline li div { display: grid; gap: 2px; }
+.evidence-timeline li strong { font: 600 14px/1.5 var(--font-sans); }
+.evidence-timeline li span { color: var(--text-secondary); font: 13px/1.5 var(--font-sans); overflow-wrap: anywhere; }
+.evidence-relationship-path { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 2fr) auto minmax(0, 1fr); gap: 12px; align-items: start; list-style: none; margin: 12px 0; padding: 0; }
+.evidence-relationship-path > li:not(.evidence-edge) { display: grid; gap: 6px; padding-block: 8px; border-top: 1px solid var(--border); }
+.evidence-node-label, .evidence-edge { color: var(--text-secondary); font: 12px/1.5 var(--font-sans); }
+.evidence-edge { align-self: center; }
+.evidence-related-cve { font: 12px/1.5 var(--font-mono); }
+@media (min-width: 1000px) {
+  .wire-view[data-density="compact"] .wire-colhead { padding-inline: 8px; }
+}
+
+/* Reading hierarchy and a consistent, compact command surface. */
+.wire-cve-fact { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.wire-scan-identity { font-size: 13px; line-height: 1.5; gap: 4px 10px; }
+.wire-scan-identity button, .wire-severity { font-size: 13px; }
+.wire-published > span { display: none; }
+.wire-context-fact p { font-size: 17px; line-height: 1.6; }
+.wire-detail-description { color: var(--text-primary); font-size: 16px; }
+.wire-outcome label { font-size: 14px; color: var(--text-primary); }
+.wire-decision-save { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.wire-decision-save > button { min-height: 44px; font-size: 14px; }
+.wire-decision-status { color: var(--text-secondary); font: 13px/1.5 var(--font-sans); }
+.wire-row-tools .wire-details > summary { color: var(--text-secondary); }
+.wire-item:is(:hover, :focus-within, .is-selected) .wire-details > summary { color: var(--brand-text); }
+.wire-row-menu .wire-quick-actions button { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.wire-view :is(.wire-search, .wire-sort-select, .wire-density select, .wire-export-trigger, .wire-copy-link, .wire-copy-source, .wire-inspector-nav button, .wire-inspector-head > button) { border-color: var(--border-control); border-radius: var(--radius-control); }
+.wire-view :is(.wire-search, .wire-sort-select, .wire-density select) { background: var(--bg-input); }
+.wire-inspector-nav button, .wire-inspector-head > button { min-height: 44px; }
+.wire-filter-content { max-width: 720px; left: auto; width: 100%; }
+.wire-filter-row .wire-filters { display: flex; flex: 1 1 100%; }
+.wire-filters .wire-filter { flex: 1; font: 500 14px/1.4 var(--font-sans); letter-spacing: 0; border-radius: var(--radius-control); }
+.wire-filter-row .wire-toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.wire-filter-row .wire-toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 8px 10px; text-align: left; font-weight: 500; color: var(--text-primary); border-color: var(--border-control); border-radius: var(--radius-control); }
+.wire-toggle[aria-pressed="false"]::after { content: ''; width: 13px; height: 13px; flex: none; border: 1px solid var(--border-control); border-radius: 2px; }
+.wire-toggle[aria-pressed="true"]::after { content: '✓'; flex: none; color: var(--brand-text); }
+.wire-view-tools-content .wire-export { padding-top: 12px; border-top: 1px solid var(--border); }
+.wire-export-label { margin: 0 0 8px; color: var(--text-secondary); font: 14px/1.5 var(--font-sans); }
+.wire-view-tools-content section.wire-export .wire-export-menu { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; border: 0; background: none; }
+.wire-view-tools-content .wire-export-menu button { padding: 10px; color: var(--text-primary); border: 1px solid var(--border-control); border-radius: var(--radius-control); }
+.wire-view-tools-content .wire-export-menu small { margin-top: 3px; }
+.wire-export.is-disabled { opacity: 1; }
+.wire-export.is-disabled .wire-export-menu button { opacity: .5; }
+.wire-inspector .assessment-meta { grid-template-columns: minmax(0, 1fr); gap: 12px; padding-block: 16px; margin-block: 16px; border-block: 1px solid var(--border); }
+.wire-inspector .assessment-meta__item { display: grid; grid-template-columns: 115px minmax(0, 1fr); gap: 12px; }
+.wire-inspector .assessment-meta__value { font-size: 14px; font-weight: 400; }
+.wire-inspector .assessment-meta__label { font-size: 13px; }
+.wire-inspector .assessment-meta__value time { font: 13px/1.6 var(--font-sans); }
+.evidence-controls { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 0 16px; border-bottom: 1px solid var(--border); }
+.evidence-controls .evidence-source-picker { flex: 1 1 240px; border: 0; margin: 0; }
+.evidence-controls .evidence-compare-control { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0; font-weight: 400; }
+.evidence-controls .evidence-compare-control input { width: 16px; height: 16px; }
+.evidence-signal-context { border-top: 1px solid var(--border); margin-top: 16px; }
+.evidence-dialog .evidence-state { min-height: 140px; }
+.evidence-dialog :is(button, select) { border-radius: var(--radius-control); border-color: var(--border-control); }
+.evidence-revision > summary { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; }
+.evidence-revision > summary::before { content: '▸'; }
+.evidence-revision[open] > summary::before { content: '▾'; }
+.evidence-revision > summary::-webkit-details-marker { display: none; }
+.evidence-revision > summary > span { flex: 1; }
+.evidence-revision > summary time { margin-left: 0; }
+.evidence-quotation figcaption { padding-left: 0; font-size: 13px; }
+@container (max-width: 400px) {
+  .wire-outcome form { grid-template-columns: minmax(0, 1fr); }
+  .wire-inspector .assessment-meta__item { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+@media (min-width: 1000px) {
+  .wire-score > span, .wire-score > summary > span { display: none; }
+  .wire-score:not(.has-breakdown), .wire-score.has-breakdown > summary { border-color: transparent; background: none; font-size: 19px; font-weight: 650; }
+}
+@media (max-width: 700px) {
+  .wire-filter-content { max-width: none; }
+  .wire-score-breakdown, .wire-score-breakdown[data-placement="above"] { position: fixed; z-index: 45; inset: auto 16px 16px; width: auto; max-height: min(65dvh, 580px); }
+  .wire-filters .wire-filter { font-size: 13px; padding-inline: 5px; }
+  .wire-filter-row .wire-toggle { font-size: 13px; }
+  .wire-scan-identity { margin-top: 3px; }
+  .wire-detail-content { margin-top: 4px; padding: 12px; }
+  .wire-detail-content .assessment-meta { grid-template-columns: minmax(0, 1fr); gap: 10px; padding-block: 14px; border-block: 1px solid var(--border); }
+  .wire-detail-content .assessment-meta__item { display: grid; grid-template-columns: 95px minmax(0, 1fr); gap: 10px; }
+  .wire-detail-content .assessment-meta__value { font-size: 14px; }
+  .evidence-controls { display: block; }
+  .evidence-revision > summary { justify-content: flex-start; }
+  .evidence-revision > summary time { flex-basis: 100%; margin-left: 18px; }
+}
+@media (max-width: 700px) {
+  .wire-view .wire-command-row { grid-template-columns: minmax(90px, 1fr) auto auto; gap: 4px; }
+  .wire-view .wire-command-row :is(.wire-filter-panel, .wire-view-tools) > summary { min-height: 44px; padding-inline: 8px; }
+  .wire-controls { padding-inline: 0; }
+  .wire-view .wire-search { min-height: 44px; }
+  .wire-view .wire-converge-head { min-height: 44px; padding-block: 8px; font-size: 12px; }
+  .wire-head { margin-bottom: 8px; }
+  .wire-head-right { flex-direction: row; flex-wrap: wrap; }
+  .wire-view-tools-content .wire-density > span { display: block; }
+  .evidence-timeline li { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .evidence-relationship-path { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .evidence-relationship-path .evidence-edge { padding-left: 12px; }
+}

@@ -21,13 +21,16 @@ export function readingStops(body) {
   // overlapping-line fallback; the document itself is never clipped or copied.
   const blocks = [];
   if (body.getBoundingClientRect && body.querySelectorAll) {
-    const origin = body.getBoundingClientRect().top;
+    const bodyRect = body.getBoundingClientRect();
+    const origin = bodyRect.top;
+    // DOM rectangles include CSS zoom, while scrollTop/clientHeight do not.
+    const scale = bodyRect.height > 0 && height > 0 ? bodyRect.height / height : 1;
     const scrollTop = Number(body.scrollTop) || 0;
-    for (const element of body.querySelectorAll('.nb-exec-decision, .nb-act, .nb-conv-move, .nb-led-row, .nb-item, .nb-dev, .nb-exec-fact')) {
+    for (const element of body.querySelectorAll('.nb-exec-decision, .nb-response-action, .nb-act, .nb-conv-move, .nb-led-row, .nb-item, .nb-dev, .nb-exec-fact')) {
       if (!element.getBoundingClientRect) continue;
       const rect = element.getBoundingClientRect();
-      const top = Math.floor(rect.top - origin + scrollTop);
-      const bottom = rect.bottom - origin + scrollTop;
+      const top = Math.floor((rect.top - origin) / scale + scrollTop);
+      const bottom = (rect.bottom - origin) / scale + scrollTop;
       if (bottom > top && bottom - top <= height) blocks.push({ top, bottom });
     }
   }

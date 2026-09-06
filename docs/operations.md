@@ -23,9 +23,9 @@ Only run one process against a repository's `data/` directory. Concurrent server
 
 Open `http://127.0.0.1:3000/wall` on the display. The Wall hides the pointer, rotates through the available views, and uses regular HTML and CSS rather than WebGL or canvas. Press `Esc` to leave it.
 
-For staffed use, the app's **WALL** button and `G`, then `L` shortcut open `/wall?operator`. Visible previous/next controls and the arrow keys select and pause on a page; `Space` or the pause/resume button controls rotation. Compact and portrait layouts start paused and support scrolling. `/wall` and `/wall?kiosk` remain the unattended entry points. The status area distinguishes feed freshness, the saved Briefing's publication time (UTC, or its edition date if no time is known), and playback state.
+The app's **WALL** button and `G`, then `L` shortcut also open `/wall` directly as an automatic TV loop with no visible navigation or setup step. Configure text size, margins, playback, fullscreen, and supported screen-awake behavior in **Settings → Wall display**. If fullscreen is enabled, the navigation gesture requests it without blocking entry; a direct URL or reload does not. The Wall fills the viewport even if the browser declines fullscreen. Feed freshness remains separate from the saved Briefing's publication time (UTC, or its edition date if no time is known).
 
-Without an Anthropic key, the Wall still shows KEV changes and prioritized signals. It adopts the latest saved Briefing when one is available.
+Without an Anthropic key, the Wall still shows KEV changes and prioritized signals. It adopts the latest eligible saved Briefing when one is available; review-required and superseded editions remain outside that default selection.
 
 ## Runtime support
 

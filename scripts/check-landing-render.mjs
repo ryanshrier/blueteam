@@ -380,6 +380,7 @@ const METRICS_EXPRESSION = String.raw`
       right: Math.round(bounds.right),
     }));
   const productProof =
+    document.querySelector('.hero-product-image, [data-product-proof]') ||
     [...document.images].find(image => /briefing|print edition/i.test(image.alt)) ||
     document.querySelector('[data-product-proof], .surface-featured img, .product-proof img');
   const headerControls = [...document.querySelectorAll('header a, header button')]
@@ -408,6 +409,14 @@ const METRICS_EXPRESSION = String.raw`
     overflow,
     mobileBackgroundAttachment: getComputedStyle(document.body).backgroundAttachment,
     headerControls,
+    designMismatches: [...document.querySelectorAll('.btn, .release-badge, .mobile-nav summary, .copy, .hero-media, .surface-proof, .briefing-format, .code, .egress')]
+      .filter(visible).filter(element => {
+        const style = getComputedStyle(element);
+        return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius].some(value => parseFloat(value) !== 0)
+          || style.boxShadow !== 'none';
+      }).map(element => element.className),
+    navigationFontMismatches: [...document.querySelectorAll('.topbar-actions a, .mobile-nav summary')]
+      .filter(visible).filter(element => !getComputedStyle(element).fontFamily.includes('Inter')).map(label),
     productProofTop: productProof ? Math.round(productProof.getBoundingClientRect().top) : null,
     productProofVisible: visible(productProof),
   }))));
@@ -546,11 +555,13 @@ async function renderViewport(debugOrigin, origin, viewport) {
       );
     }
     if (metrics?.brokenImages?.length) fail(label, `broken images: ${metrics.brokenImages.join(', ')}`);
+    if (metrics?.designMismatches?.length) fail(label, `rounded or shadowed desk surfaces: ${metrics.designMismatches.join(', ')}`);
+    if (metrics?.navigationFontMismatches?.length) fail(label, `inconsistent navigation type: ${metrics.navigationFontMismatches.join(', ')}`);
     if ((metrics?.headerControls?.length ?? 0) < 2) {
       fail(label, `header exposes fewer than two visible controls (${metrics?.headerControls?.join(', ') || 'none'})`);
     }
     if (!viewport.mobile && (!metrics?.productProofVisible || metrics.productProofTop > viewport.height)) {
-      fail(label, 'Briefing/Print Edition product proof is not visible in the first desktop viewport');
+      fail(label, 'Product proof is not visible in the first desktop viewport');
     }
     if (viewport.mobile && metrics?.mobileBackgroundAttachment === 'fixed') {
       fail(label, 'body background-attachment remains fixed at phone width');

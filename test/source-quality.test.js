@@ -1,4 +1,5 @@
 import { describe, expect, test } from '@jest/globals';
+import { readFileSync } from 'node:fs';
 import { classifySourceEvidence, selectSourcePassage } from '../lib/evidence-quality.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { buildUserPrompt } from '../lib/prompts.js';
@@ -8,6 +9,7 @@ import { enumeratedCountIssues, assertionPrecisionIssues } from '../lib/claim-ch
 
 const source = { source: 'Vendor', title: 'Vendor patches CVE-2026-12345', description: 'Version 2.4 fixes CVE-2026-12345. The vendor confirmed active exploitation.', link: 'https://vendor.example/advisory', date: '2026-09-04', horizon: 1 };
 const ad = 'What does your monitoring catch? A 6-day certification course rebuilds hybrid detection across endpoint and network. Enroll today.';
+const retainedSources = JSON.parse(readFileSync(new URL('./fixtures/retained-source-quality-2026-09-06.json', import.meta.url), 'utf8')).records;
 function draft(claim) {
   return `## BLUF
 Check affected inventory.
@@ -70,6 +72,55 @@ describe('substantive source evidence', () => {
     const receipt = buildGenerationManifest({ run: { headlines: [headline] }, config: {}, editionContext: { date: '2026-09-05' }, groundingManifest: grounding });
     expect(receipt.selectedEvidence[0]).toMatchObject({ passage: { text: source.description, kind: 'feed-excerpt' }, excludedArticle: { text: ad } });
     expect(receipt.grounding.sources[0]).toMatchObject({ label: source.source, url: source.link, passage: source.description, quality: { substantive: true } });
+  });
+
+  test.each(retainedSources)('rejects the same retained course advert for $title and keeps source identity through the prompt and receipt', headline => {
+    const before = JSON.stringify(headline);
+    expect(classifySourceEvidence({ title: headline.title, passage: headline.articleBody }).status).toBe('contaminated');
+    expect(selectSourcePassage(headline)).toMatchObject({ passage: headline.description, kind: 'feed-excerpt', quality: { substantive: true }, excludedArticle: { passage: headline.articleBody, quality: { status: 'contaminated' } } });
+    const grounding = buildGroundingManifest({ headlines: [headline] });
+    expect(grounding.members[0]).toMatchObject({ id: 'S1.1', label: headline.source, url: headline.link, passage: headline.description, passageKind: 'feed-excerpt', sourceRevisions: headline.sourceMembers[0].evidence });
+    const prompt = buildUserPrompt({ headlines: [headline], groundingManifest: grounding, config: {} });
+    expect(prompt).toContain(headline.description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+    expect(prompt).not.toContain(headline.articleBody);
+    const receipt = buildGenerationManifest({ run: { headlines: [headline] }, config: {}, editionContext: { date: '2026-09-06' }, groundingManifest: grounding });
+    expect(receipt.selectedEvidence[0]).toMatchObject({ passage: { text: headline.description, kind: 'feed-excerpt' }, excludedArticle: { text: headline.articleBody }, sourceRevisions: headline.evidence });
+    expect(receipt.grounding.sources[0]).toMatchObject({ passage: headline.description, passageKind: 'feed-excerpt', sourceRevisions: headline.sourceMembers[0].evidence });
+    expect(JSON.stringify(headline)).toBe(before);
+  });
+
+  test('recovers the exact retained primary feed member when the grouped description is unusable', () => {
+    const original = retainedSources[1];
+    const headline = { ...original, description: original.articleBody };
+    expect(selectSourcePassage(headline)).toMatchObject({ passage: original.description, kind: 'feed-excerpt' });
+    expect(buildGroundingManifest({ headlines: [headline] }).members[0]).toMatchObject({ passage: original.description, sourceRevisions: original.sourceMembers[0].evidence });
+  });
+
+  test('keeps recovered feed revision identity when an earlier tracking-URL record has a different revision', () => {
+    const original = retainedSources[1];
+    const earlier = { ...original.sourceMembers[0], link: `${original.link}?utm_source=earlier`, passage: original.articleBody,
+      evidence: [{ ...original.evidence[0], revisionId: 'rev_earlier-unusable' }] };
+    const headline = { ...original, description: original.articleBody, sourceMembers: [earlier, ...original.sourceMembers] };
+    const grounding = buildGroundingManifest({ headlines: [headline] });
+    expect(grounding.members[0]).toMatchObject({ passage: original.description, sourceRevisions: original.sourceMembers[0].evidence });
+    expect(grounding.members[0].sourceRevisions[0].revisionId).not.toBe('rev_earlier-unusable');
+    const receipt = buildGenerationManifest({ run: { headlines: [headline] }, config: {}, editionContext: { date: '2026-09-06' }, groundingManifest: grounding });
+    expect(receipt.grounding.sources[0].sourceRevisions).toEqual(original.sourceMembers[0].evidence);
+  });
+
+  test.each(['publisher', 'article'])('never recovers another %s as the primary feed passage', difference => {
+    const original = retainedSources[1];
+    const member = { ...original.sourceMembers[0], ...(difference === 'publisher' ? { source: 'Another publisher' } : { link: `${original.link}?article=different` }) };
+    const headline = { ...original, description: original.articleBody, sourceMembers: [member] };
+    expect(selectSourcePassage(headline)).toMatchObject({ passage: '', kind: 'title-only', quality: { substantive: false } });
+  });
+
+  test('does not reject topical reporting that mentions training or contains a course promotion after real details', () => {
+    const original = retainedSources[1];
+    const articleBody = `${original.description} The advisory recommends training responders to review affected stores. ${original.articleBody}`;
+    expect(classifySourceEvidence({ title: original.title, passage: articleBody }).substantive).toBe(true);
+    expect(selectSourcePassage({ ...original, articleBody }).kind).toBe('article-excerpts');
+    expect(classifySourceEvidence({ title: 'SANS announces incident-response training', passage: 'A 6-day SANS course teaches network incident handling. Register today.' }).substantive).toBe(true);
   });
 
   test('does not use a promotional body or a related member as primary publisher facts', () => {

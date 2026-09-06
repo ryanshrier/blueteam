@@ -42,6 +42,8 @@
     "check:landing": "node scripts/check-landing-page.mjs",
     "check:landing:render": "node scripts/check-landing-render.mjs",
     "check:evidence:render": "node scripts/check-evidence-render.mjs",
+    "check:design:render": "node scripts/check-design-render.mjs",
+    "check:theme:render": "node scripts/check-theme-render.mjs",
     "check:handoff:render": "node scripts/check-handoff-render.mjs",
     "check:safari:render": "node scripts/check-safari-render.mjs"
   },

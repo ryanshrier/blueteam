@@ -19,11 +19,11 @@
 
 import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import express from 'express';
-import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { CISA_KEV_CATALOG_URL } from '../lib/grounding.js';
-import { listBriefEditions as realListBriefEditions, saveBrief as realSaveBrief } from '../lib/history.js';
+import { listBriefEditions as realListBriefEditions, saveBrief as realSaveBrief, extractBluf as realExtractBluf } from '../lib/history.js';
 import { createBriefGenerationTracker } from '../lib/brief-lifecycle.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
 import { generationManifestFilename, sha256 } from '../lib/generation-manifest.js';
@@ -95,7 +95,7 @@ jest.unstable_mockModule('../lib/logger.js', () => ({
   log: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 
-const { createBriefRouter, streamWithRecovery, safeErrorMsg, estimateCostUsd, supportsAdaptiveThinking, applyThinking, buildGroundTruth } = await import('../routes/brief.js');
+const { createBriefRouter, streamWithRecovery, safeErrorMsg, estimateCostUsd, supportsAdaptiveThinking, applyThinking, buildGroundTruth, correctiveGuidance } = await import('../routes/brief.js');
 
 // A well-formed brief long enough to clear the 2,000-char structural floor and
 // carry every section the Wall/validator expect — reused as the "happy path"
@@ -119,7 +119,7 @@ One sharp judgment about today's landscape that fits comfortably under budget.
 
 ### Signal 1 — [Horizon 1] Something happened
 **Assessment:** It matters to the floor today.
-**Confidence:** Likely (55-80%) — reported by one source.
+**Confidence:** Moderate — reported by one source.
 **What happened:** The source reports a change. [Feed A, date unavailable]
 **Defender impact:** Check applicability before changing systems.
 **Recommended actions:**
@@ -129,7 +129,7 @@ One sharp judgment about today's landscape that fits comfortably under budget.
 
 ### Signal 2 — [Horizon 2] Something else happened
 **Assessment:** It matters operationally.
-**Confidence:** Likely (55-80%) — reported by one source.
+**Confidence:** Moderate — reported by one source.
 **What happened:** The source reports a change. [Feed A, date unavailable]
 **Defender impact:** Check applicability before changing systems.
 **Recommended actions:**
@@ -141,10 +141,7 @@ One sharp judgment about today's landscape that fits comfortably under budget.
 
 ## CONVERGENCE
 
-### Two things intersect
-**The intersection:** Where they meet, named in plain prose.
-**The cascade:** If exposure continues, delayed review extends risk.
-**The move:** Observe the trend for another cycle.
+No supported intersection was found in the retained source evidence.
 
 ---
 
@@ -236,6 +233,7 @@ function makeServer({
   app.use((req, res, next) => { res.locals.authenticated = authenticated; next(); });
   const cooldown = { check: cooldownCheck };
   app.use('/api', createBriefRouter({
+    reviewDir: new URL('./fixtures/reviews/', import.meta.url).pathname.replace(/^\/(?=[A-Za-z]:)/, ''),
     getAnthropic,
     rotateKey,
     historyDir,
@@ -873,6 +871,15 @@ describe('POST /api/brief — grounding publication gate', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
+  test('convergence recovery requires citations in the failed field or explicit omission of unsupported analysis', () => {
+    const guidance = correctiveGuidance([{ code: 'CONVERGENCE_EVIDENCE_WEAK' }]);
+    expect(guidance).toContain('**The intersection:** paragraph itself');
+    expect(guidance).toContain('Do not attach citations to a mechanism they do not establish');
+    expect(guidance).toContain('No supported intersection is established');
+    expect(guidance).not.toContain('Score repair');
+    expect(correctiveGuidance([])).toBe('');
+  });
+
   test('rejects an all-title-only collection before any provider or accounting mutation, even with catalog membership', async () => {
     getFreshRunMock.mockResolvedValue({ headlines: Array.from({ length: 5 }, (_, i) => ({ title: `Advisory CVE-2026-${10000 + i}`, source: `Feed ${i}`, horizon: 1, isKEV: true, kevCVE: `CVE-2026-${10000 + i}` })), stats: { enriched: 5 } });
     getKEVSetMock.mockReturnValue(new Set(Array.from({ length: 5 }, (_, i) => `CVE-2026-${10000 + i}`)));
@@ -1199,6 +1206,78 @@ describe('GET /api/brief/:filename — traversal guard', () => {
   });
 });
 
+describe('GET /api/briefs — paginated archive', () => {
+  let ctx;
+  let archiveDir;
+  afterEach(async () => {
+    if (ctx?.server) await new Promise(resolve => ctx.server.close(resolve));
+    if (archiveDir) rmSync(archiveDir, { recursive: true, force: true });
+    getBriefMetaMock.mockReset().mockReturnValue(null);
+  });
+
+  test('browses beyond the legacy thirty-edition cap without duplicates or lost summaries', async () => {
+    archiveDir = mkdtempSync(join(tmpdir(), 'blueteam-paged-archive-'));
+    const names = Array.from({ length: 35 }, (_, index) => `brief-2026-09-05-${String(index + 1).padStart(2, '0')}.md`);
+    names.forEach(name => writeFileSync(join(archiveDir, name), GOOD_BRIEF));
+    getBriefMetaMock.mockImplementation(filename => ({ bluf: `Assessment for ${filename}`, word_count: 660,
+      generated_at: new Date(Date.UTC(2026, 8, 5, 0, names.indexOf(filename))).toISOString() }));
+    ctx = await makeServer({ getAnthropic: () => null, historyDir: archiveDir });
+    const legacy = await (await fetch(`${ctx.base}/api/briefs`)).json();
+    expect(legacy).toHaveLength(30);
+    const pages = [];
+    for (let page = 1; page <= 3; page++) pages.push(await (await fetch(`${ctx.base}/api/briefs?page=${page}&pageSize=12`)).json());
+    expect(pages.map(page => page.items.length)).toEqual([12, 12, 11]);
+    expect(pages.every(page => page.total === 35)).toBe(true);
+    expect(new Set(pages.flatMap(page => page.items.map(item => item.filename))).size).toBe(35);
+    expect(pages[0].items[0]).toMatchObject({ filename: names[34], bluf: `Assessment for ${names[34]}` });
+    const last = await (await fetch(`${ctx.base}/api/briefs?page=999&pageSize=12`)).json();
+    expect(last.page).toBe(3);
+  });
+
+  test('rejects unbounded or invalid archive page parameters', async () => {
+    ctx = await makeServer({ getAnthropic: () => null });
+    for (const query of ['page=0', 'page=-1', 'page=1.5', 'page=1&pageSize=10000']) {
+      expect((await fetch(`${ctx.base}/api/briefs?${query}`)).status).toBe(400);
+    }
+  });
+
+  test('archive summaries use the verified correction while search identifies its original indexed text', async () => {
+    archiveDir = mkdtempSync(join(tmpdir(), 'blueteam-reviewed-archive-'));
+    const replay = JSON.parse(readFileSync(new URL('./fixtures/retained-briefing-2026-09-05.json', import.meta.url), 'utf8'));
+    const filename = replay.provenance.filename;
+    writeFileSync(join(archiveDir, filename), replay.original);
+    getBriefMetaMock.mockReturnValue({ bluf: 'Seven actively exploited vulnerabilities; perimeter exposure outpaces patch cadence.', word_count: 9999 });
+    extractBlufMock.mockImplementationOnce(realExtractBluf);
+    ctx = await makeServer({ getAnthropic: () => null, historyDir: archiveDir });
+    const page = await (await fetch(`${ctx.base}/api/briefs?page=1`)).json();
+    expect(page.items[0].reviewStatus).toBe('editorially-corrected');
+    expect(page.items[0].bluf).not.toContain('outpaces');
+    expect(page.items[0].bluf).not.toContain('Seven actively');
+    expect(page.items[0].wordCount).not.toBe(9999);
+    searchBriefsMock.mockReturnValueOnce([{ filename, snippet: 'perimeter exposure outpaces patch cadence' }]);
+    const matches = await (await fetch(`${ctx.base}/api/search?q=perimeter`)).json();
+    expect(matches[0]).toMatchObject({ snippet: 'perimeter exposure outpaces patch cadence', snippetVersion: 'original-generated-edition', reviewStatus: 'editorially-corrected' });
+    expect(readFileSync(join(archiveDir, filename), 'utf8')).toBe(replay.original);
+  });
+
+  test('marks omitted BLUF text without clipping a word in metadata or legacy editions', async () => {
+    archiveDir = mkdtempSync(join(tmpdir(), 'blueteam-archive-snippet-'));
+    const filename = 'brief-2026-09-05-01.md';
+    writeFileSync(join(archiveDir, filename), GOOD_BRIEF);
+    const text = `**Review** [the advisory](https://example.test/${'long-citation-path'.repeat(20)}) ${'completeword '.repeat(40)}`;
+    getBriefMetaMock.mockReturnValue({ bluf: text, word_count: 660 });
+    ctx = await makeServer({ getAnthropic: () => null, historyDir: archiveDir });
+    const metadata = await (await fetch(`${ctx.base}/api/briefs?page=1`)).json();
+    const excerpt = metadata.items[0].bluf;
+    expect(excerpt).toMatch(/^Review the advisory (completeword )*completeword…$/);
+    expect(excerpt.length).toBeLessThanOrEqual(250);
+    getBriefMetaMock.mockReturnValue(null);
+    extractBlufMock.mockReturnValueOnce(text);
+    const legacy = await (await fetch(`${ctx.base}/api/briefs?page=1`)).json();
+    expect(legacy.items[0].bluf).toBe(excerpt);
+  });
+});
+
 describe('GET /api/search — FTS5 sanitizer', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
@@ -1208,7 +1287,7 @@ describe('GET /api/search — FTS5 sanitizer', () => {
     ctx = await makeServer({ getAnthropic: () => null });
     const res = await fetch(`${ctx.base}/api/search?q=CVE-2026-1234`);
     expect(res.status).toBe(200);
-    expect(searchBriefsMock).toHaveBeenCalledWith('"CVE-2026-1234"', 20);
+    expect(searchBriefsMock).toHaveBeenCalledWith('"CVE-2026-1234"', 20, { sort: 'relevance' });
     const body = await res.json();
     expect(body).toHaveLength(1);
   });
@@ -1218,15 +1297,15 @@ describe('GET /api/search — FTS5 sanitizer', () => {
     ctx = await makeServer({ getAnthropic: () => null });
     const res = await fetch(`${ctx.base}/api/search?q=${encodeURIComponent('ransomware OR NOT')}`);
     expect(res.status).toBe(200);
-    expect(searchBriefsMock).toHaveBeenCalledWith('"ransomware" "OR" "NOT"', 20);
+    expect(searchBriefsMock).toHaveBeenCalledWith('"ransomware" "OR" "NOT"', 20, { sort: 'relevance' });
   });
 
-  test('an FTS5 error from a malformed query is swallowed into an empty array, not a 500', async () => {
+  test('an FTS5 failure is distinct from a successfully evaluated empty result', async () => {
     searchBriefsMock.mockReset().mockImplementation(() => { throw new Error('fts5: syntax error'); });
     ctx = await makeServer({ getAnthropic: () => null });
     const res = await fetch(`${ctx.base}/api/search?q=whatever`);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([]);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ code: 'E_SEARCH_UNAVAILABLE' });
   });
 
   test('a query shorter than 2 chars is rejected with 400 E005', async () => {
@@ -1439,17 +1518,92 @@ describe('buildGroundTruth — KEV ground-truth facts', () => {
     expect(gt).not.toMatch(/\b\d{1,2}:\d{2}\b|\bCT\b/);
   });
 
-  test('an enrichment failure this run is surfaced as a hedge instruction, not silence', () => {
+  test('CVE and KEV failures keep distinct scope and preserve retained facts', () => {
     getKEVSetMock.mockReturnValue(new Set(['CVE-2026-0001']));
     countKEVAddedTodayMock.mockReturnValue(0);
     const gt = buildGroundTruth({ stats: { enrichmentFailures: ['CVSS', 'KEV'] } });
-    expect(gt).toMatch(/Enrichment note: CVSS and KEV enrichment was unavailable/);
-    expect(gt).toMatch(/never as "not severe" or "no vulnerability/);
+    expect(gt).toMatch(/Enrichment note — NVD: some current CVE lookups were incomplete/);
+    expect(gt).toMatch(/never "not severe" or "no vulnerability/);
+    expect(gt).toMatch(/Enrichment note — KEV: the current catalog refresh was incomplete/);
+    expect(gt).toMatch(/retain their captured facts/);
+    expect(gt).toMatch(/do not label every retained score provisional/);
+  });
+
+  test('one failed article extraction does not imply an NVD or KEV outage', () => {
+    getKEVSetMock.mockReturnValue(new Set(['CVE-2026-0001']));
+    countKEVAddedTodayMock.mockReturnValue(0);
+    const gt = buildGroundTruth({ stats: { enrichmentFailures: ['article'] } });
+    expect(gt).toContain('some current article bodies could not be obtained');
+    expect(gt).toContain('does not invalidate successful NVD or KEV lookups');
+    expect(gt).toContain('only where it limits a specific assessment');
+    expect(gt).not.toMatch(/Enrichment note — (?:NVD|KEV):/);
+    expect(gt).not.toContain('CVSS scores, affected-product detail, and KEV membership may be incomplete');
+  });
+
+  test('EPSS and unfamiliar stage failures do not declare a severity outage', () => {
+    getKEVSetMock.mockReturnValue(new Set(['CVE-2026-0001']));
+    countKEVAddedTodayMock.mockReturnValue(0);
+    const gt = buildGroundTruth({ stats: { enrichmentFailures: ['EPSS', 'EPSS', 'custom'] } });
+    expect(gt.match(/Enrichment note — EPSS:/g)).toHaveLength(1);
+    expect(gt).toContain('other incomplete stages: custom');
+    expect(gt).not.toMatch(/Enrichment note — (?:NVD|KEV|article retrieval):/);
   });
 
   test('a getKEVSet throw degrades to no ground-truth block rather than crashing generation', () => {
     getKEVSetMock.mockImplementation(() => { throw new Error('db locked'); });
     expect(() => buildGroundTruth({})).not.toThrow();
+  });
+});
+
+describe('retained rejected drafts — HTTP recovery without provider calls', () => {
+  let ctx;
+  let dir;
+  afterEach(async () => {
+    if (ctx?.server) await new Promise(resolve => ctx.server.close(resolve));
+    ctx = null;
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  test('a rejected SSE artifact survives reload, repair and explicit revalidation', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'brief-recovery-http-'));
+    const wrong = GOOD_BRIEF.replace('The source reports a change.', 'CVE-2026-99999 is now exploited.');
+    const stream = jest.fn(textStream(wrong));
+    ctx = await makeServer({ historyDir: dir, getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const failure = events.find(event => event.draftArtifact);
+    expect(failure).toMatchObject({ draft: wrong, sourceCheckStatus: 'findings', editorialReviewStatus: 'not-reviewed' });
+    const calls = stream.mock.calls.length;
+    const list = await fetch(`${ctx.base}/api/brief/drafts`).then(response => response.json());
+    expect(list.items).toEqual([expect.objectContaining({ id: failure.draftArtifact.id, revisionCount: 1 })]);
+    const response = await fetch(`${ctx.base}${failure.draftArtifact.url}`);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    const original = await response.json();
+    expect(original.revisions[0].content).toBe(wrong);
+    expect(original.revisions[0].validation.issues.every(issue => issue.location.line > 0)).toBe(true);
+    const repairedResponse = await fetch(`${ctx.base}${failure.draftArtifact.url}/revalidate`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({content: GOOD_BRIEF,baseRevision:1}),
+    });
+    expect(repairedResponse.status).toBe(200);
+    const repaired = await repairedResponse.json();
+    expect(repaired.revisions).toHaveLength(2);
+    expect(repaired.manifestSha256).toBe(original.manifestSha256);
+    expect(repaired.revisions[0]).toEqual(original.revisions[0]);
+    expect(stream).toHaveBeenCalledTimes(calls);
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    expect(indexBriefMock).not.toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+    const stale = await fetch(`${ctx.base}${failure.draftArtifact.url}/revalidate`, { method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({baseRevision:1}) });
+    expect(stale.status).toBe(409);
+  });
+
+  test('unauthenticated network callers cannot enumerate, fetch, or repair private drafts', async () => {
+    ctx = await makeServer({loopback:false,getAnthropic:()=>null});
+    const id='12345678-1234-1234-1234-123456789abc';
+    for (const [path, method] of [['/brief/drafts','GET'],[`/brief/drafts/${id}`,'GET'],[`/brief/drafts/${id}/revalidate`,'POST']]) {
+      const response = await fetch(`${ctx.base}/api${path}`,{method, ...(method==='POST'?{headers:{'content-type':'application/json'},body:'{}'}:{})});
+      expect(response.status).toBe(403);
+    }
   });
 });
 

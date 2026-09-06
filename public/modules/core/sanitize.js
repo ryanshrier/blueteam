@@ -48,6 +48,9 @@ export function cleanSearchExcerpt(value) {
     .replace(/(^|\n)\s{0,3}#{1,6}[ \t]+/g, '$1')
     .replace(/(^|\n)\s*(?:[-*+]\s+|\d+[.)]\s+|>\s*)/g, '$1')
     .replace(/!?\[([^\]\n]+)\]\([^\n]*?\)/g, '$1')
+    // FTS cuts snippets by token count and may end midway through a Markdown
+    // destination. Retain its readable label without exposing a raw URL tail.
+    .replace(/!?\[([^\]\n]+)\]\([^\n)]*$/g, '$1…')
     .replace(/\*\*|__|~~|`/g, '')
     .replace(/\s+/g, ' ').trim();
 }

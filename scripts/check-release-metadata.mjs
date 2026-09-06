@@ -39,7 +39,7 @@ const metadata = {
   ),
   'landing-page release badge': capture(
     landingPage,
-    /class="release-badge"[^>]*>\s*v([^<\s]+)\s*</,
+    /class="release-badge"[^>]*>\s*v([^<\s]+)(?:\s+candidate)?\s*</,
     'release badge from docs/index.html',
   ),
 };
@@ -72,6 +72,7 @@ for (const [label, date] of Object.entries(dates)) {
 }
 
 if (process.env.GITHUB_REF_TYPE === 'tag') {
+  if (/class="release-badge"[^>]*>[^<]*\bcandidate\b/.test(landingPage)) errors.push('A release tag cannot publish candidate labeling');
   const expectedTag = `v${changelogVersion}`;
   if (process.env.GITHUB_REF_NAME !== expectedTag) {
     errors.push(`release tag is ${process.env.GITHUB_REF_NAME}; expected ${expectedTag}`);

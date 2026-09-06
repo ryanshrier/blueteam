@@ -80,8 +80,32 @@ export function executiveSummaryModel(items = []) {
   return { threat, exposure, context, decisions, commonDeadline };
 }
 
+/** Preserve legacy dates while keeping advisory targets distinct from due dates. */
+export function executiveTargetModel(value) {
+  const text = String(value || '').trim();
+  const recommended = text.match(/^recommended\s+target\s*[:·—–-]?\s+(.+)$/i);
+  return recommended
+    ? { label: 'Recommended target', value: recommended[1] }
+    : { label: 'Due', value: text.replace(/^due\s*[:·—–-]?\s+/i, '') };
+}
+
 function splitExecutiveDecisions(text) {
-  return String(text || '').split(/\s*;\s*/).map(clause => clause.trim()).filter(Boolean).map(clause => {
+  const clauses = [];
+  for (const fragment of String(text || '').split(/\s*;\s*/).map(value => value.trim()).filter(Boolean)) {
+    const ownerStart = fragment.match(/^([^;—–:\n]{1,80}?)(?:\s*[—–]\s*|\s+-\s+|:\s+)(.+)$/);
+    // A trailing "— recommended target ..." belongs to the preceding action,
+    // not to an owner named "if affected, patch ...". Preserve internal
+    // semicolons until a new owner/action record or a completed dated record.
+    const targetStart = /^(?:(?:recommended\s+)?target\b|due\b|by\b|today\b|tomorrow\b|this\s+(?:shift|week|month|quarter)\b|\d{4}-\d{2}-\d{2}\b)/i;
+    const newOwner = ownerStart && !targetStart.test(ownerStart[2]);
+    const previous = clauses.at(-1) || '';
+    const previousParts = previous.split(/\s*[—–]\s*|\s+-\s+/);
+    const finalSegment = previousParts.at(-1);
+    const previousComplete = previousParts.length >= 3 && looksLikeDeadline(finalSegment);
+    if (!clauses.length || newOwner || previousComplete) clauses.push(fragment);
+    else clauses[clauses.length - 1] += `; ${fragment}`;
+  }
+  return clauses.map(clause => {
     // The brief contract uses spaced em dashes, but archived/imported editions
     // also contain en dashes, unspaced typographic dashes, spaced hyphens, and
     // `Owner: action` forms. Parse all without treating hyphens inside products

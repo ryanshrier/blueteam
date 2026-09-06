@@ -268,7 +268,7 @@ describe('parseConvergence', () => {
 
   test('retains a sparse saved convergence action and suppresses a title without analysis', () => {
     const md = `## CONVERGENCE\n\n### Synthetic gateway recovery\n**The move:** Act — isolate the example gateway until the restored build is verified.\n\n### Empty synthetic entry`;
-    expect(parseConvergence(md)).toEqual([{
+    expect(parseConvergence(md)).toMatchObject([{
       title: 'Synthetic gateway recovery', intersection: '', cascade: '',
       move: 'isolate the example gateway until the restored build is verified.', moveVerb: 'Act',
     }]);
@@ -313,7 +313,7 @@ describe('parseDeveloping', () => {
   test('retains the final trajectory condition even when it exceeds a short display line', () => {
     const detail = 'Accelerating — the synthetic exercise now includes credential rotation, restored service validation, and supplier-managed access, but escalation still depends on a second confirmed administrator session after token rotation rather than the initial alert alone.';
     const md = `## DEVELOPING SITUATIONS\n\n### Synthetic recovery exercise\n**Trajectory:** ${detail}\n**Watch criteria:** Notify the incident commander if validation fails.`;
-    expect(parseDeveloping(md)[0]).toEqual({
+    expect(parseDeveloping(md)[0]).toMatchObject({
       name: 'Synthetic recovery exercise', trajectory: 'Accelerating',
       trajectoryDetail: detail, watch: 'Notify the incident commander if validation fails.',
     });

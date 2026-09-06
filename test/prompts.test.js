@@ -4,6 +4,7 @@ import { setDomainPack } from '../lib/domain.js';
 import { cyberPack } from '../config/domains/cyber.js';
 import {
   BLUF_MAX_WORDS, DECISION_WINDOW_VALUES, WATCHLIST_MIN_ITEMS, WATCHLIST_MAX_ITEMS,
+  rawField, bullets, parseRecommendedActions,
 } from '../lib/brief-schema.js';
 import { buildGroundingManifest, CISA_KEV_CATALOG_URL, isAllowedSourceUrl } from '../lib/grounding.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
@@ -25,6 +26,36 @@ describe('buildSystemPrompt — pack-driven brief frame + persona', () => {
     expect(p).toContain('### Threat Landscape Briefing · {date} · {weekday}');
     expect(p).toContain('You are the daily threat landscape briefer for a cyber defense team.');
     expect(p).toContain('if a blue-team lead reads only the BLUF and one signal');
+  });
+
+  test('cyber reliability examples survive domain validation and remain in its generated prompt', () => {
+    setDomainPack(cyberPack);
+    const p = buildSystemPrompt(cfg);
+    for (const key of ['responseCompleteness', 'actionCoordination', 'convergenceLimitations', 'uncataloguedAction']) {
+      expect(p).toContain(cyberPack.brief.exemplars[key]);
+    }
+    for (const key of ['eventTimingInstruction', 'evidenceAvailabilityInstruction', 'statisticalExample']) {
+      expect(p).toContain(cyberPack.brief.grounding[key]);
+    }
+    expect(p).toContain('**Dependencies:**');
+    expect(p).toContain('Never schedule a stated prerequisite after the task that depends on it.');
+  });
+
+  test('the complete action template survives the field, bullet and canonical action parsers', () => {
+    setDomainPack(cyberPack);
+    const p = buildSystemPrompt(cfg);
+    const example = p.match(/^\*\*Recommended actions:\*\*\n\n(- .+)$/m)?.[0];
+    expect(example).toBeDefined();
+    const block = `${example.replace('{Month D, YYYY}', 'September 8, 2026')}\n\n**Decision window:** Current shift`;
+    const actionLines = bullets(rawField(block, 'Recommended actions'));
+    expect(actionLines).toHaveLength(1);
+    expect(actionLines[0]).toMatch(/^Act now: Operations — .+ — recommended target September 8, 2026\.$/);
+    expect(actionLines[0]).toContain('Initiation: start the inventory and exposure check this shift');
+    expect(actionLines[0]).toContain('Completion criterion: record verified applicability and the response outcome');
+    const records = parseRecommendedActions(block);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ owner:'Operations', target:'September 8, 2026', targetType:'recommended' });
+    expect(records[0].text).toContain('Condition: if affected, begin the documented response');
   });
 
   test('a CTI specialization flips the frame + persona by configuration alone', () => {

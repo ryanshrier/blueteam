@@ -2,19 +2,15 @@
 // G then B / W / L / S — Briefing / Wire / waLL / Settings · Ctrl+Enter — generate
 // · / — focus the active search field · Esc — exit wall
 
-import { getState, on, emit } from './store.js';
-import { navigate } from './router.js';
+import { getState, emit } from './store.js';
+import { navigate, currentViewUrl, getWallReturnUrl } from './router.js';
 import { openHelp, closeHelp } from './help.js';
+import { requestWallFullscreen } from '../wall/wall-browser.js';
 
 let gPending = false;
 let gTimer = null;
-// Remember the surface we came from so Esc returns there, not a fixed home.
-// Wire is the canonical fallback (see store.js).
-let lastNonWallMode = 'wire';
-
 export function initShortcuts() {
   document.addEventListener('keydown', handleKeydown);
-  on('mode-changed', (mode) => { if (mode !== 'wall') lastNonWallMode = mode; });
 }
 
 // Native <dialog>.showModal() supplies modal accessibility semantics without
@@ -60,7 +56,7 @@ function handleKeydown(e) {
   // Esc exits the wall back to the previously-active surface (fallback /wire)
   if (e.code === 'Escape' && state.mode === 'wall') {
     e.preventDefault();
-    navigate(`/${lastNonWallMode || 'wire'}`);
+    navigate(getWallReturnUrl());
     return;
   }
 
@@ -68,9 +64,9 @@ function handleKeydown(e) {
   if (gPending) {
     gPending = false;
     clearTimeout(gTimer);
-    if (key === 'b') { e.preventDefault(); navigate('/briefing'); return; }
-    if (key === 'w') { e.preventDefault(); navigate('/wire'); return; }
-    if (key === 'l') { e.preventDefault(); navigate('/wall?operator'); return; }
+    if (key === 'b') { e.preventDefault(); navigate(currentViewUrl('briefing')); return; }
+    if (key === 'w') { e.preventDefault(); navigate(currentViewUrl('wire')); return; }
+    if (key === 'l') { e.preventDefault(); requestWallFullscreen(); navigate('/wall'); return; }
     // #82 — Settings was only mouse-reachable (the header gear); the G-chord
     // covered B/W/L but not S, leaving the help overlay's keyboard map unable
     // to reach a core destination.
@@ -94,7 +90,7 @@ function handleKeydown(e) {
   // already keeps this from firing while a field has focus, so a literal '/'
   // typed into a field is never hijacked.
   if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    const field = document.getElementById('wireSearch') || document.getElementById('briefSearch');
+    const field = document.getElementById('wireSearch') || document.getElementById('archiveQuery') || document.getElementById('briefSearch');
     if (field) { e.preventDefault(); field.focus(); }
   }
 }

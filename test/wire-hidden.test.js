@@ -16,7 +16,8 @@ function element() {
   const listeners = new Map();
   const classes = new Set();
   return {
-    innerHTML: '', textContent: '', dataset: {}, style: {},
+    innerHTML: '', textContent: '', dataset: {}, style: { setProperty: jest.fn() },
+    getBoundingClientRect: () => ({ top: 0, bottom: 0, height: 60 }),
     classList: {
       add: name => classes.add(name), remove: name => classes.delete(name),
       toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name),
@@ -45,6 +46,8 @@ describe('Wire Hidden recovery', () => {
   };
   const toggleHidden = () => click('wireToggles', '.wire-toggle', { toggle: 'hidden' });
   const start = async () => {
+    get('main').querySelector = selector => selector === '.wire-view' ? get('wireSurface') : null;
+    get('wireSurface').querySelector = selector => selector === '.wire-controls' ? get('wireControls') : null;
     wire = await import('../public/modules/wire/wire-view.js');
     wire.render(get('main'));
     await jest.advanceTimersByTimeAsync(0);
@@ -53,6 +56,8 @@ describe('Wire Hidden recovery', () => {
     wire.unmount();
     jest.resetModules();
     elements = new Map();
+    get('main').querySelector = selector => selector === '.wire-view' ? get('wireSurface') : null;
+    get('wireSurface').querySelector = selector => selector === '.wire-controls' ? get('wireControls') : null;
     await start();
   };
 
@@ -69,6 +74,7 @@ describe('Wire Hidden recovery', () => {
       createElement: element,
     };
     global.window = {
+      addEventListener: jest.fn(), removeEventListener: jest.fn(),
       location: { href: 'http://localhost/wire', pathname: '/wire', search: '', origin: 'http://localhost' },
       scrollY: 0, scrollTo: jest.fn(),
     };
@@ -159,6 +165,46 @@ describe('Wire Hidden recovery', () => {
     expect(get('wireUndoRow').innerHTML).toBe('');
   });
 
+  test('selected investigation survives a hidden row and a view round trip, with live read and restore controls', async () => {
+    window.matchMedia = () => ({ matches: true });
+    await start();
+    const row = { ...element(), dataset: { key: signals[0].link } };
+    row.closest = selector => selector === '.wire-item' ? row : null;
+    get('wireList').dispatch('keydown', { key: 'Enter', target: row, preventDefault: jest.fn() });
+    expect(get('wireInspector').innerHTML).toContain('Synthetic Alpha');
+    click('wireInspector', '[data-mark-read]', { markRead: signals[0].link });
+    expect(get('wireInspector').innerHTML).toContain('aria-label="Mark read"');
+    click('wireInspector', '[data-dismiss]', { dismiss: signals[0].link });
+    expect(get('wireList').innerHTML).not.toContain('Synthetic Alpha');
+    expect(get('wireInspector').innerHTML).toContain('outside the current results');
+    expect(get('wireInspector').innerHTML).toContain(`data-restore="${signals[0].link}"`);
+    wire.unmount();
+    elements = new Map();
+    await start();
+    expect(get('wireList').innerHTML).not.toContain('Synthetic Alpha');
+    expect(get('wireInspector').innerHTML).toContain('Synthetic Alpha');
+    click('wireInspector', '[data-restore]', { restore: signals[0].link });
+    expect(get('wireList').innerHTML).toContain('Synthetic Alpha');
+    expect(get('wireInspector').innerHTML).toContain(`data-dismiss="${signals[0].link}"`);
+  });
+
+  test.each([0, 150])('late-arriving groups preserve masthead or reading anchor at scrollY=%s', async scroll => {
+    let resolveLandscape;
+    fetchLandscape.mockImplementationOnce(() => new Promise(resolve => { resolveLandscape = resolve; }));
+    await start();
+    const row = { ...element(), dataset: { key: signals[0].link }, getBoundingClientRect: () => {
+      const top = 250 + (get('wireAboveList').innerHTML.includes('wire-converge-head') ? 36 : 0);
+      return { top, bottom: top + 90 };
+    } };
+    get('wireList').querySelectorAll = selector => selector === '.wire-item' ? [row] : [];
+    window.scrollY = scroll;
+    window.scrollTo.mockClear();
+    resolveLandscape({ convergence: [{ id: 'vendor:Google', label: 'Google', type: 'vendor', count: 2, sourceCount: 2 }] });
+    await jest.advanceTimersByTimeAsync(0);
+    if (scroll) expect(window.scrollTo).toHaveBeenLastCalledWith(0, scroll + 36);
+    else expect(window.scrollTo).not.toHaveBeenCalled();
+  });
+
   test('copy writes the URL payload and waits for clipboard confirmation before announcing success', async () => {
     await start();
     const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
@@ -168,9 +214,11 @@ describe('Wire Hidden recovery', () => {
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText } } });
     showToast.mockClear();
     try {
-      expect(get('wireList').innerHTML).toContain(`data-copy-link="${signals[0].link}"`);
-      click('wireList', '[data-copy-link]', { copyLink: signals[0].link });
-      expect(writeText).toHaveBeenCalledWith(signals[0].link);
+      const link = `http://localhost/wire?signal=${encodeURIComponent(signals[0].link)}`;
+      expect(get('wireList').innerHTML).toContain(`data-copy-link="${link}"`);
+      expect(get('wireList').innerHTML).toContain(`data-copy-source="${signals[0].link}"`);
+      click('wireList', '[data-copy-link]', { copyLink: link });
+      expect(writeText).toHaveBeenCalledWith(link);
       expect(showToast).not.toHaveBeenCalled();
       finish();
       await Promise.resolve();
@@ -244,5 +292,95 @@ describe('Wire Hidden recovery', () => {
     expect(html).toContain('Evidence axes · 0–100');
     expect(html).not.toContain('NaN');
     expect(html).not.toContain('Infinity');
+  });
+
+  test('the index omits CVSS placeholders for non-vulnerability news while the inspector keeps missing data explicit', async () => {
+    await start();
+    const html = get('wireList').innerHTML;
+    const scanLines = [...html.matchAll(/<div class="wire-scan-identity">([\s\S]*?)<\/div>/g)];
+    expect(scanLines).toHaveLength(3);
+    expect(scanLines.every(([, line]) => !line.includes('CVSS'))).toBe(true);
+    expect(html).toContain('CVSS severity');
+    expect(html).toContain('Not available');
+  });
+
+  test('a linked signal expands details and route changes restore the selected or unfiltered feed', async () => {
+    window.location.search = `?signal=${encodeURIComponent(signals[0].link)}`;
+    await start();
+    expect(get('wireList').innerHTML).toContain(`data-row-details="${signals[0].link}" open`);
+    expect(get('wireList').innerHTML).not.toContain('Synthetic Beta');
+    const { emit } = await import('../public/modules/core/store.js');
+    window.location.search = `?signal=${encodeURIComponent(signals[1].link)}`;
+    emit('route-changed', { mode: 'wire' });
+    expect(get('wireList').innerHTML).toContain('Synthetic Beta');
+    expect(get('wireList').innerHTML).not.toContain('Synthetic Alpha');
+    window.location.search = '';
+    emit('route-changed', { mode: 'wire' });
+    expect(get('wireShown').textContent).toBe('3 signals');
+    window.location.search = '?signal=no-longer-in-feed';
+    emit('route-changed', { mode: 'wire' });
+    expect(get('wireAboveList').innerHTML).toContain('Signal outside current feed');
+    expect(get('wireAboveList').innerHTML).toContain('current feed');
+  });
+
+  test('passive source inspection updates the visible read state without replacing the list', async () => {
+    await start();
+    const button = element();
+    const row = { ...element(), dataset: { key: signals[0].link }, querySelector: () => button, querySelectorAll: () => [button] };
+    document.querySelectorAll = selector => selector === '#wireList .wire-item' ? [row] : [];
+    const html = get('wireList').innerHTML;
+    get('wireList').dispatch('click', { target: { closest: selector => selector === '.wire-item-title' ? {} : selector === '.wire-item' ? row : null } });
+    expect(row.classList.contains('is-read')).toBe(true);
+    expect(button['aria-pressed']).toBe('true');
+    expect(button['aria-label']).toBe('Mark unread');
+    expect(button.innerHTML).toContain('>Read</span>');
+    expect(get('wireList').innerHTML).toBe(html);
+  });
+
+  test('a newer snapshot waits for explicit application without replacing the reading set', async () => {
+    await start();
+    fetchHeadlines.mockResolvedValue({ headlines: [{ ...signals[0], title: 'Updated retained Alpha' }], generatedAt: '2026-09-04T12:05:00Z' });
+    await jest.advanceTimersByTimeAsync(300001);
+    expect(get('wireList').innerHTML).toContain('Synthetic Beta');
+    expect(get('wireList').innerHTML).not.toContain('Updated retained Alpha');
+    expect(get('wireApplyUpdates').hidden).toBe(false);
+    get('wireApplyUpdates').dispatch('click');
+    expect(get('wireList').innerHTML).toContain('Updated retained Alpha');
+    expect(get('wireList').innerHTML).not.toContain('Synthetic Beta');
+    expect(get('wireApplyUpdates').hidden).toBe(true);
+  });
+
+  test('Unread inspection holds a reviewed row explicitly until the analyst removes reviewed rows', async () => {
+    window.location.search = '?unread=1';
+    await start();
+    const row = { ...element(), dataset: { key: signals[0].link } };
+    document.querySelectorAll = selector => selector === '#wireList .wire-item' ? [row] : [];
+    get('wireList').dispatch('click', { target: { closest: selector => selector === '.wire-item-title' ? {} : selector === '.wire-item' ? row : null } });
+    expect(get('wireClearReviewed').textContent).toContain('1 reviewed, held here');
+    get('wireSort').value = 'newest';
+    get('wireSort').dispatch('change');
+    expect(get('wireList').innerHTML).toContain('Synthetic Alpha');
+    get('wireClearReviewed').dispatch('click');
+    expect(get('wireList').innerHTML).not.toContain('Synthetic Alpha');
+    expect(get('wireShown').textContent).toBe('2 of 3 signals');
+  });
+
+  test('recent snapshot time does not conceal degraded source collection', async () => {
+    fetchLandscape.mockResolvedValueOnce({ convergence: [], feeds: { ok: 0, total: 41 } });
+    await start();
+    expect(get('wireMeta').textContent).toBe('Snapshot processed just now');
+    expect(get('wireCollectionHealth').textContent).toBe('0/41 sources reachable · collection needs attention');
+    expect(get('wireCollectionHealth').classList.contains('is-degraded')).toBe(true);
+  });
+
+  test('compact rows keep supporting information in Details and do not offer an empty evidence modal', async () => {
+    fetchHeadlines.mockResolvedValueOnce({ headlines: [{ ...signals[0], description: 'Supporting text', scoreComponents: { severity: 0 } }], generatedAt: new Date().toISOString() });
+    await start();
+    const html = get('wireList').innerHTML;
+    expect(html.indexOf('Supporting text')).toBeGreaterThan(html.indexOf('<summary>Details'));
+    expect(html).not.toContain('data-evidence=');
+    expect(html).toContain('No retained excerpt');
+    expect(html).toContain('Severity unavailable');
+    expect(html).toContain('0 ranking contribution');
   });
 });

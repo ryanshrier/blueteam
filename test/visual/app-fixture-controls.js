@@ -93,7 +93,7 @@
     while (NativeDate.now() - started < 20_000) {
       if (landscapeSeen && (!expectedBrief || seenBriefs.has(expectedBrief))
         && pendingRequests === 0 && NativeDate.now() - lastApiActivity >= 250
-        && document.querySelector('#nbBody .nb-section')) return;
+        && document.querySelector('#nbBody .nb-section, #nbBody .nb-display-card')) return;
       await settle();
     }
     throw new Error('Fixture data did not finish loading');

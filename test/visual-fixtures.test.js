@@ -242,6 +242,15 @@ describe('KEV visual renderer', () => {
     expect(html).toContain('row-count-6');
   });
 
+  test('distinguishes a full catalog weekly count from the capped snapshot preview', () => {
+    const recent = Array.from({ length: 8 }, (_, i) => ({ cve: `CVE-2026-${1000 + i}` }));
+    const html = renderKevSection({ added7d: 10, recent });
+    expect(html).toContain('Catalog total · 10 additions in the past 7 days');
+    expect(html).toContain('Preview · 6 of the 8 newest catalog entries in this snapshot');
+    expect(renderKevSection({ recent })).not.toContain('in the past 7 days');
+    expect(renderKevSection({ added7d: 0, recent })).toContain('Catalog total · 0 additions in the past 7 days');
+  });
+
   test('includes a deterministic six-row density fixture for 720p QA', () => {
     const fixture = buildFixtureData(new Date('2026-07-12T12:00:00-05:00'))['kev-six'];
     const html = renderKevSection(fixture);

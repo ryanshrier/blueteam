@@ -4,6 +4,7 @@
 
 import { formatDecisionWindow, judgmentCertainty } from '/vendor/brief-schema.js';
 import { TIER_NAMES } from '../core/tiers.js';
+import { assessmentSources, renderAssessmentMeta } from '../core/assessment-meta.js';
 import { structureExecutiveSummary } from './brief-executive.js';
 
 // Distinguish the generated citation ledger from any authored Sources section.
@@ -24,6 +25,10 @@ export function judgmentSignalLink(text, tier) {
   return label
     ? { href: `/wire?h=${encodeURIComponent(tier)}`, label: `Browse ${label[0]}${label.slice(1).toLowerCase()} signals →` }
     : { href: '/wire', label: 'Browse current Wire →' };
+}
+
+export function judgmentTopic(text) {
+  return String(text || '').replace(/^Signal\s+\d+\s*[—–-]\s*/i, '').replace(/^\[Horizon\s+\d+\]\s*/i, '').split(/:\s|\s[—–]\s/)[0].trim();
 }
 
 /** Plain-text handoff from a saved judgment. Keep the authored action intact:
@@ -65,7 +70,7 @@ export function authoredText(element) {
 export function actionRoleHtml(html) {
   const source = String(html || '');
   if (/brief-action-owner|brief-action-target/.test(source)) return source;
-  const match = source.match(/^([^<>]{1,80}?)(\s+[—–]\s+)([\s\S]+)$/);
+  const match = source.match(/^(?:<strong>)?([^<>]{1,80}?)(?:<\/strong>)?(\s+[—–]\s+)([\s\S]+)$/);
   if (!match) return source;
   let body = match[3];
   const tail = body.match(/(\s+[—–]\s+)([^<>]+)$/);
@@ -87,9 +92,49 @@ export function decisionCardContent(card) {
     decisionWindow: card.querySelector('.bjm-window')?.dataset.decisionWindow || '',
     certainty: authoredText(card.querySelector('.brief-certainty')),
     sources: [...card.querySelectorAll('.brief-cite-link')].map(link => ({
-      href: link.getAttribute('href') || '', label: link.dataset.sourceLabel || '',
+      href: link.dataset.sourceUrl || link.getAttribute('href') || '', label: link.dataset.sourceLabel || '',
     })),
   };
+}
+
+/** Read only edition-bound authored fields. A citation's date or today's feed
+ * cannot establish when this individual judgment was last updated. */
+export function briefAssessmentMetadata(card) {
+  const certaintyText = authoredText(card.querySelector('.brief-certainty'))
+    .replace(/^(?:assessment confidence|confidence|likelihood):\s*/i, '');
+  const certainty = judgmentCertainty(certaintyText);
+  // Decision layout moves authored paragraphs after the initial metadata render.
+  // Reusing its displayed sources keeps Overview and Full report in the same
+  // order; only the first attachment reads the original citation DOM order.
+  const displayed = card.querySelector(':scope > .assessment-meta');
+  const sources = displayed
+    ? [...displayed.querySelectorAll('.assessment-meta__source')].map(link => ({
+      href: link.getAttribute('href') || '', label: link.textContent || '',
+    }))
+    : [...card.querySelectorAll('.brief-cite-link')].map(link => ({
+      href: link.dataset.sourceUrl || '', label: link.dataset.sourceLabel || '',
+    }));
+  return {
+    sources: assessmentSources(sources),
+    time: { label: 'Assessment updated', value: 'Not available' },
+    severity: { label: 'Assessment severity', value: 'Not assessed' },
+    certainty: {
+      label: certainty.label === 'Likelihood' ? 'Likelihood' : 'Assessment confidence',
+      value: new Set((certaintyText.match(/\b(?:high|moderate|medium|low)\b/gi) || []).map(value => value.toLowerCase())).size > 1
+        && new Set((certainty.value?.match(/\b(?:high|moderate|medium|low)\b/gi) || []).map(value => value.toLowerCase())).size < 2 ? certaintyText : certainty.value || 'Not assessed',
+    },
+  };
+}
+
+function attachAssessmentMetadata(card) {
+  const heading = card.querySelector(':scope > h3');
+  if (!heading) return;
+  card.querySelector(':scope > .assessment-meta')?.remove();
+  const host = card.ownerDocument.createElement('div');
+  host.innerHTML = renderAssessmentMeta({ ...briefAssessmentMetadata(card), omitUnavailable: true });
+  const metadata = host.firstElementChild;
+  metadata.dataset.readerMetadata = 'true';
+  heading.after(metadata);
 }
 
 // The model emits a compact Markdown document, and marked's `breaks:true` mode
@@ -99,10 +144,10 @@ export function decisionCardContent(card) {
 // the old export-only splitter knew about judgments but left Developing and
 // Convergence packed into visually dense, pagination-hostile paragraphs.
 const BRIEF_FIELD_LABELS = new Set([
-  'assessment', 'confidence', 'what happened', 'defender impact', 'impact',
+  'assessment', 'confidence', 'forecast', 'what happened', 'defender impact', 'impact',
   'relevance', 'recommended actions', 'decision window', 'the line',
   'revises if', 'increases if', 'decreases if', 'act now',
-  'trajectory', 'watch criteria', 'the intersection', 'the cascade', 'the move',
+  'trajectory', 'watch criteria', 'the intersection', 'the cascade', 'the move', 'confirmation', 'action rationale',
 ]);
 
 function leadingFieldLabel(html) {
@@ -445,7 +490,7 @@ export function applySemanticStyling(container, { decisionControls = false } = {
   const sources = [];                 // [{ href, label }] in first-seen order
   const numberByHref = new Map();
   container.querySelectorAll('a[href]').forEach(a => {
-    if (a.closest('.brief-cite, .brief-sources-appendix') || a.classList.contains('brief-cite-label')) return;
+    if (a.closest('.brief-cite, .brief-sources-appendix, .assessment-meta') || a.classList.contains('brief-cite-label')) return;
     const href = a.getAttribute('href') || '';
     if (!/^https?:/i.test(href)) return;
     let n = numberByHref.get(href);
@@ -462,23 +507,27 @@ export function applySemanticStyling(container, { decisionControls = false } = {
     const source = sources[n - 1];
     const ref = document.createElement('a');
     ref.className = 'brief-cite-link';
-    ref.href = href;
-    ref.target = '_blank';
-    ref.rel = 'noopener noreferrer';
+    ref.href = `#brief-source-${n}`;
+    ref.dataset.sourceUrl = href;
+    ref.id = `brief-citation-${n}-${container.querySelectorAll('.brief-cite').length + 1}`;
     ref.textContent = `[${n}]`;
     ref.dataset.tip = href;
     ref.dataset.sourceLabel = source?.label || source?.host || href;
     ref.tabIndex = 0;
-    ref.setAttribute('aria-label', `Source ${n}: ${source?.label || source?.host || href}. Opens ${href} in a new tab.`);
+    ref.setAttribute('aria-label', `Reference ${n}: ${source?.label || source?.host || href}`);
 
     const sup = document.createElement('sup');
     sup.className = 'brief-cite';
-    sup.dataset.labelRetained = 'true';
+    // Dated publisher labels are references; undated links may be grammatical
+    // attribution ("Google reports…") and must remain in the sentence.
+    const citationLabel = /(?:\b\d{4}-\d{2}-\d{2}\b|date unavailable|https?:\/\/)/i.test(a.textContent || '');
+    sup.dataset.labelRetained = String(!citationLabel);
     sup.appendChild(ref);
     a.classList.add('brief-cite-label');
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
     a.after(sup);
+    if (citationLabel) a.remove();
   });
 
   // 5. Section heading IDs for the TOC
@@ -526,10 +575,13 @@ export function applySemanticStyling(container, { decisionControls = false } = {
 
     // Current-feed navigation is distinct from the archived citations above.
     const destination = judgmentSignalLink(card.textContent, tier);
+    const topic = judgmentTopic(h3.textContent);
+    if (!/\bCVE-\d{4}-\d+/i.test(card.textContent) && topic) destination.href = `/wire?q=${encodeURIComponent(topic)}`;
     const link = document.createElement('a');
     link.className = 'brief-judgment-link';
     link.href = destination.href;
-    link.textContent = destination.label;
+    link.textContent = 'Related Wire';
+    link.title = destination.label;
     card.appendChild(link);
   });
 
@@ -583,7 +635,8 @@ export function applySemanticStyling(container, { decisionControls = false } = {
       copy.type = 'button';
       copy.className = 'btn-ghost brief-copy-decision';
       copy.dataset.copyDecision = 'true';
-      copy.textContent = 'Copy decision';
+      copy.textContent = 'Copy';
+      copy.setAttribute('aria-label', 'Copy decision');
       tools.appendChild(copy);
     }
     tools.appendChild(link);
@@ -605,6 +658,11 @@ export function applySemanticStyling(container, { decisionControls = false } = {
     if (decisionWindowDuplicatesAction(source, actionValues)) windowEl.remove();
   });
 
+  if (decisionControls) container.querySelectorAll('.brief-judgment-card').forEach(card => {
+    attachAssessmentMetadata(card);
+    presentDecisionFirst(card);
+  });
+
   // 8. Source appendix — append the deduped, numbered citations as an ordered
   // list at the end of the brief, so the memo "shows its work". Runs after the cards
   // so the appendix is never swallowed into the last judgment's collection.
@@ -617,6 +675,8 @@ export function applySemanticStyling(container, { decisionControls = false } = {
     ol.className = 'brief-sources-appendix';
     for (const s of sources) {
       const li = document.createElement('li');
+      const number = numberByHref.get(s.href);
+      li.id = `brief-source-${number}`;
       const a = document.createElement('a');
       a.href = s.href;
       a.target = '_blank';
@@ -624,6 +684,16 @@ export function applySemanticStyling(container, { decisionControls = false } = {
       a.className = 'source-link';
       a.textContent = s.label;
       li.appendChild(a);
+      let occurrence = 0;
+      container.querySelectorAll('.brief-cite-link').forEach(ref => {
+        if (ref.dataset.sourceUrl !== s.href) return;
+        const back = document.createElement('a');
+        back.className = 'brief-cite-back';
+        back.href = `#${ref.id}`;
+        back.textContent = `Back to passage ${++occurrence}`;
+        back.setAttribute('aria-label', `Back to citation ${number}`);
+        li.appendChild(back);
+      });
       // When the citation text is the outlet+date, trail the bare host as a quiet
       // verifier ("CISA KEV Advisory, 25 Jun 2026 — cisa.gov") so the printed
       // edition shows where to confirm it; skip when the label already is the host.
@@ -638,6 +708,63 @@ export function applySemanticStyling(container, { decisionControls = false } = {
     container.appendChild(heading);
     container.appendChild(ol);
   }
+}
+
+/** Preserve the authored assessment and decision together in the scan view. */
+export function presentDecisionFirst(card) {
+  if (card.querySelector('.brief-judgment-support')) return;
+  const heading = card.querySelector(':scope > h3');
+  if (!heading) return;
+  const meta = card.querySelector(':scope > .brief-judgment-meta');
+  const assessmentMeta = card.querySelector(':scope > .assessment-meta');
+  const assessment = [...card.children].find(node => node.dataset?.briefField === 'assessment' || /^Assessment:/i.test(node.textContent?.trim() || ''));
+  const action = card.querySelector(':scope > .c-action');
+  const recommendations = [...card.querySelectorAll(':scope > .brief-recommended-actions')];
+  if (!action && !recommendations.length) return;
+  const tools = card.querySelector(':scope > .brief-judgment-tools');
+  const certainty = card.querySelector(':scope > .brief-certainty');
+  // Applicability, versions, impact and uncertainty remain available in the
+  // decision summary. The complete authored assessment stays ahead of actions;
+  // additional narrative and evidence can use the supporting disclosure.
+  const essential = [...card.children].filter(node => /^(What happened|Defender impact|Impact|Relevance|The line):/i.test(node.textContent?.trim() || '') || /\bthe-line\b/.test(node.className));
+  let confidence = certainty;
+  if (certainty && !certainty.querySelector('a')) {
+    const statements = certainty.textContent.trim().match(/[^.!?]+(?:[.!?](?:\s|$)|$)/g) || [];
+    if (statements.length > 1) {
+      confidence = card.ownerDocument.createElement('details');
+      confidence.className = 'brief-confidence-detail';
+      const summary = card.ownerDocument.createElement('summary');
+      // Keep mixed High/Moderate qualifications together, including semicolons.
+      summary.textContent = statements[0].trim();
+      confidence.appendChild(summary);
+      certainty.replaceWith(confidence);
+      confidence.appendChild(certainty);
+      // Keep the complete qualification together: later sentences can refer
+      // to an earlier rejected capture ("that body"), so do not extract orphans.
+      const remainder = statements.slice(1);
+      const limits = remainder.some(sentence => /\b(?:not|no|unknown|unavailable|unverified|gap|uncertain)\b/i.test(sentence)) ? remainder : [];
+      if (limits.length) {
+        const unknown = card.ownerDocument.createElement('p');
+        unknown.className = 'brief-material-unknown';
+        unknown.textContent = limits.map(sentence => sentence.trim()).join(' ');
+        essential.push(unknown);
+      }
+    }
+  }
+  const primary = [heading, assessment, assessmentMeta, meta, action, ...recommendations, ...essential, confidence, tools].filter(Boolean);
+  // The list itself is now in the action area; an empty label in supporting
+  // evidence would misleadingly imply another set of recommendations.
+  [...card.children].filter(node => /^Recommended actions:\s*$/i.test(node.textContent?.trim() || '')).forEach(node => node.remove());
+  const supporting = [...card.children].filter(node => !primary.includes(node));
+  primary.forEach(node => card.appendChild(node));
+  if (!supporting.length) return;
+  const disclosure = card.ownerDocument.createElement('details');
+  disclosure.className = 'brief-judgment-support';
+  const summary = card.ownerDocument.createElement('summary');
+  summary.textContent = 'Supporting evidence and context';
+  disclosure.appendChild(summary);
+  supporting.forEach(node => disclosure.appendChild(node));
+  card.appendChild(disclosure);
 }
 
 // Hostname (sans leading www.) as a compact, honest citation label for the appendix.
@@ -665,7 +792,7 @@ export function extractSections(container) {
       };
       sections.push(current);
     } else if (current) {
-      current.children.push({ id: el.id, label: el.textContent.trim().replace(/\s+/g, ' ') });
+      current.children.push({ id: el.id, label: judgmentTopic(el.textContent) });
     }
   }
   return sections;

@@ -19,6 +19,7 @@ jest.unstable_mockModule('../lib/db.js', () => ({
   bulkInsertKEV: jest.fn(),
   getKEVAge: jest.fn(() => Infinity),
   getKEVDatesAdded: jest.fn(() => ({})),
+  getKEVRecords: jest.fn(() => ({})),
   getExternalCache: getExternalCacheMock,
   setExternalCache: setExternalCacheMock,
 }));

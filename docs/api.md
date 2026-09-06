@@ -39,7 +39,7 @@ For example, send `{}` as the body of `POST /api/brief` and `POST /api/refresh`.
 | `/api/edition` | `GET` | Active CTI profile identity: id, title, label, and regions |
 | `/api/settings` | `GET`, `POST` | Read/update the unified watch profile and automatic-generation settings; legacy organization/watch-term fields remain supported; inspect masked AI-key and schedule status or set/clear the key |
 | `/api/settings/verify` | `POST` | Make a minimal Anthropic request to verify the configured key |
-| `/embed` | `GET` | Headerless signal strip for an iframe; supports `tier` and `limit` query parameters |
+| `/embed` | `GET` | Headerless signal strip for an iframe; supports `tier`, `limit`, and `theme` query parameters |
 
 ## Generation stream
 
@@ -100,7 +100,7 @@ Older editions return `status: "unavailable"`, `url: null`, and a reason. The en
 
 Manifest reads require the local deployment or an authenticated request and always use `Cache-Control: private, no-store`. Responses include 403 `E_EXPOSED` for an untrusted caller, 400 for an invalid filename, 404 for a missing edition, 404 `E_MANIFEST_UNAVAILABLE` for an edition without saved inputs, and 500 `E_MANIFEST_INVALID` when receipt size, schema, filename, parsing, or Markdown-hash verification fails. Paths and raw filesystem errors are not returned.
 
-`available` reports a sidecar's presence; retrieval verifies its contents against the archive. A receipt is not a cryptographic signature. Exact prompts and discarded drafts are not saved: their SHA-256 hashes support identification, not complete historical replay. New publication writes the receipt before the Markdown completion marker. An unsuccessful publication does not emit `briefComplete` or send a Briefing webhook.
+`available` reports a sidecar's presence; retrieval verifies its contents against the archive. A receipt is not a cryptographic signature. Exact prompts are represented by SHA-256 hashes rather than stored text; those hashes support identification, not complete historical replay. Rejected or interrupted output can be retained as a separate draft artifact with captured inputs and repair revisions; not every intermediate retry draft is retained. New publication writes the receipt before the Markdown completion marker. An unsuccessful publication does not emit `briefComplete` or send a Briefing webhook.
 
 ## Feeds and public URLs
 
@@ -115,6 +115,8 @@ When a reverse proxy supplies the public request details, configure `TRUST_PROXY
 ```html
 <iframe src="http://127.0.0.1:3000/embed?tier=1&limit=10"></iframe>
 ```
+
+Add `theme=light` or `theme=dark` to match the containing page; otherwise the embed follows the browser's color-scheme preference. Update checks run once a minute while visible and offer a new snapshot for manual application. **Refresh signals** checks immediately; **Apply update** replaces the displayed snapshot while retaining the reading position where possible.
 
 It is disabled by default whenever `API_SECRET` is set because an iframe cannot attach the bearer token required by protected `/api/*` routes. Set `ENABLE_EMBED=1` only when the embedding origin and proxy are otherwise secured.
 

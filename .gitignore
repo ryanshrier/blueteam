@@ -15,3 +15,10 @@ coverage/
 .claude/
 .codex/
 .internal/
+.tmp/
+output/
+/reviews/
+docs/audits/
+scripts/build-audited-review.mjs
+scripts/build-live-rehearsal-review.mjs
+scripts/review-wall-presentation.mjs

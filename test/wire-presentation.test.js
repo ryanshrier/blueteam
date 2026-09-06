@@ -1,7 +1,22 @@
 import { describe, expect, test } from '@jest/globals';
-import { highlightWireText, renderWireDescription } from '../public/modules/wire/wire-presentation.js';
+import { highlightWireText, renderWireDescription, reflectReadControl } from '../public/modules/wire/wire-presentation.js';
 
 describe('Wire readable summaries and search matches', () => {
+  test('passive reading keeps menu commands action-labeled while inspector controls report state', () => {
+    const button = dataset => ({ dataset, attrs: {}, setAttribute(key, value) { this.attrs[key] = value; }, innerHTML: '' });
+    const menu = button({ readAction: '' });
+    const state = button({});
+    reflectReadControl(menu, true);
+    reflectReadControl(state, true);
+    expect(menu.innerHTML).toBe('Mark unread');
+    expect(menu.attrs['aria-label']).toBe('Mark unread');
+    expect(state.innerHTML).toContain('>Read</span>');
+    expect(state.attrs['aria-pressed']).toBe('true');
+    reflectReadControl(menu, false);
+    expect(menu.innerHTML).toBe('Mark read');
+    expect(menu.attrs['aria-pressed']).toBe('false');
+  });
+
   test('highlights literal case-insensitive matches without interpreting regex or feed HTML', () => {
     expect(highlightWireText('CVE.42 cve.42 CVEX42', 'cve.42')).toBe('<mark class="wire-match">CVE.42</mark> <mark class="wire-match">cve.42</mark> CVEX42');
     expect(highlightWireText('<img onerror="unsafe">', 'img')).toBe('&lt;<mark class="wire-match">img</mark> onerror=&quot;unsafe&quot;&gt;');

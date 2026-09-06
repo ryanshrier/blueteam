@@ -1,0 +1,486 @@
+{
+  "provenance": {
+    "kind": "public reporting retained by the actual audited app",
+    "edition": "brief-2026-09-05-02",
+    "originalManifestSha256": "a1e7a8ecb5f393aa4b3770d045ca0f75456e72b8d18e0d2eab1863975a20c27b",
+    "note": "Public source fields only; no operator profile, configuration, provider output, or secrets. Not synthetic."
+  },
+  "selectedEvidence": [
+    {
+      "title": "CISA Adds One Known Exploited Vulnerability to Catalog",
+      "source": "CISA Advisories",
+      "url": "https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog",
+      "publishedAt": "Fri, 04 Sep 26 12:00:00 +0000",
+      "passage": {
+        "kind": "article-opening",
+        "text": "Alert CISA Adds One Known Exploited Vulnerability to Catalog Release Date September 04, 2026 CISA has added one new vulnerability to its Known Exploited Vulnerabilities (KEV) Catalog , based on evidence of active exploitation. CVE-2026-85046 Google Chromium V8 Type Confusion Vulnerability This type of vulnerability is a frequent attack vector for malicious cyber actors and poses significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requirements for Federal Civilian Executive Branch (FCEB) agencies. BOD 26-04 reinforces the importance of the KEV Catalog and requires federal agencies to prioritize rapid remediation of high-risk vulnerabilities, specifically those identified by C"
+      },
+      "groupMembers": [
+        {
+          "title": "CISA Adds One Known Exploited Vulnerability to Catalog",
+          "source": "CISA Advisories",
+          "url": "https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog",
+          "publishedAt": "Fri, 04 Sep 26 12:00:00 +0000",
+          "passage": "CISA has added one new vulnerability to its Known Exploited Vulnerabilities (KEV) Catalog, based on evidence of active exploitation. CVE-2026-85046 Google Chromium V8 Type Confusion Vulnerability This type of vulnerability is a frequent attack vector for malicious cyber actors and poses significant risks to the federal enterprise. Binding Operational Directive (BOD) 26-04: Prioritizing Security Updates Based on Risk establishes vulnerability management requirements for Federal Civilian Executive Branch (FCEB) agencies. BOD 26-04 reinforces the importance of the KEV Catalog and requires federal agencies to prioritize rapid remediation of high-risk vulnerabilities, specifically those identified by Common Vulnerabilities and Exposures (CVEs) listed in CISA’s KEV Catalog on publicly exposed assets that grant total control of the asset post-exploitation, while deferring action for lower-risk vulnerabilities. BOD 26-04 further establishes basic expectations for when agencies must check whether threat actors compromised the system before the patch was applied. While BOD 26-04 applies only to FCEB agencies, CISA encourages all organizations to adopt risk-based vulnerability management and prioritize remediation of KEV Catalog vulnerabilities. CISA will continue to add vulnerabilities to the catalog that meet the specified criteria. Aware of an exploited vulnerability not currently listed in the KEV Catalog? Submit it for potential addition through CISA’s KEV Nomination Form. Potential KEV additions must have a CVE ID, evidence of exploitation, and clear mitigation guidance.",
+          "sourceRevisions": [
+            {
+              "sourceId": "src_38f9631027195847f9305f8beb9c28370feac4a2fa5cca0ce29f863155554bed",
+              "revisionId": "rev_7c6ebc0452a76fbdc4ac14e349c114c9fd6bfb10b58cfc38e5b669cac0955c1d",
+              "source": "CISA Advisories",
+              "title": "CISA Adds One Known Exploited Vulnerability to Catalog",
+              "canonicalUrl": "https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog",
+              "passageKind": "feed-excerpt",
+              "changed": true,
+              "publishedAt": "2026-09-04T12:00:00.000Z",
+              "retrievedAt": "2026-09-05T21:07:54.702Z",
+              "firstObservedAt": "2026-09-05T05:28:15.000Z",
+              "lastObservedAt": "2026-09-05T21:55:47.470Z"
+            }
+          ]
+        },
+        {
+          "title": "CISA Adds Google Chromium Flaw to Known Exploited Vulnerabilities Catalog - technobezz.com",
+          "source": "technobezz.com",
+          "url": "",
+          "publishedAt": "Fri, 04 Sep 2026 18:42:57 GMT",
+          "passage": "CISA Adds Google Chromium Flaw to Known Exploited Vulnerabilities Catalog - technobezz.com",
+          "sourceRevisions": [
+            {
+              "sourceId": "src_16bd78b5557744c1170324a5e8148686cefae7f07df16874e4e8b3f9bfab8f02",
+              "revisionId": "rev_14681eeac61f5fa7fb5754cfb6f096e4577c458afe8e69e32bb264217ecb11af",
+              "source": "technobezz.com",
+              "title": "CISA Adds Google Chromium Flaw to Known Exploited Vulnerabilities Catalog - technobezz.com",
+              "canonicalUrl": "",
+              "passageKind": "title-only",
+              "changed": false,
+              "publishedAt": "2026-09-04T18:42:57.000Z",
+              "retrievedAt": "2026-09-05T21:07:55.416Z",
+              "firstObservedAt": "2026-09-05T21:07:55.416Z",
+              "lastObservedAt": "2026-09-05T21:07:55.416Z"
+            }
+          ]
+        }
+      ],
+      "sourceRevisions": [
+        {
+          "sourceId": "src_38f9631027195847f9305f8beb9c28370feac4a2fa5cca0ce29f863155554bed",
+          "revisionId": "rev_7c6ebc0452a76fbdc4ac14e349c114c9fd6bfb10b58cfc38e5b669cac0955c1d",
+          "source": "CISA Advisories",
+          "title": "CISA Adds One Known Exploited Vulnerability to Catalog",
+          "canonicalUrl": "https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds-one-known-exploited-vulnerability-catalog",
+          "passageKind": "feed-excerpt",
+          "changed": true,
+          "publishedAt": "2026-09-04T12:00:00.000Z",
+          "retrievedAt": "2026-09-05T21:07:54.702Z",
+          "firstObservedAt": "2026-09-05T05:28:15.000Z",
+          "lastObservedAt": "2026-09-05T21:55:47.470Z"
+        },
+        {
+          "sourceId": "src_16bd78b5557744c1170324a5e8148686cefae7f07df16874e4e8b3f9bfab8f02",
+          "revisionId": "rev_14681eeac61f5fa7fb5754cfb6f096e4577c458afe8e69e32bb264217ecb11af",
+          "source": "technobezz.com",
+          "title": "CISA Adds Google Chromium Flaw to Known Exploited Vulnerabilities Catalog - technobezz.com",
+          "canonicalUrl": "",
+          "passageKind": "title-only",
+          "changed": false,
+          "publishedAt": "2026-09-04T18:42:57.000Z",
+          "retrievedAt": "2026-09-05T21:07:55.416Z",
+          "firstObservedAt": "2026-09-05T21:07:55.416Z",
+          "lastObservedAt": "2026-09-05T21:07:55.416Z"
+        }
+      ],
+      "enrichment": {
+        "cveData": "CVE-2026-85046: CVSS 8.8 (HIGH) — Affects: Google Chrome",
+        "cvssSeverityText": "CVSS 8.8 (HIGH)",
+        "isKEV": true,
+        "kevCVE": "CVE-2026-85046",
+        "kevDateAdded": "2026-09-04",
+        "epss": 0.00885,
+        "urgency": "critical",
+        "articleStale": false,
+        "mitre": [],
+        "actors": [],
+        "vendors": [
+          "Google"
+        ]
+      },
+      "weight": 1.5
+    },
+    {
+      "title": "Google Releases Chrome Update to Patch Actively Exploited V8 Zero-Day",
+      "source": "The Hacker News",
+      "url": "https://thehackernews.com/2026/09/google-releases-chrome-update-to-patch.html",
+      "publishedAt": "Fri, 04 Sep 2026 12:48:47 +0530",
+      "passage": {
+        "kind": "article-opening",
+        "text": "Prevention Already Failed. What Does Your Monitoring Actually Catch? A 6-day SANS course rebuilds hybrid detection across cloud, endpoint, and network. GMON, Sept 21."
+      },
+      "groupMembers": [
+        {
+          "title": "Google Releases Chrome Update to Patch Actively Exploited V8 Zero-Day",
+          "source": "The Hacker News",
+          "url": "https://thehackernews.com/2026/09/google-releases-chrome-update-to-patch.html",
+          "publishedAt": "Fri, 04 Sep 2026 12:48:47 +0530",
+          "passage": "Google on Thursday released security updates to patch 12 vulnerabilities, including one that has come under active exploitation in the wild. The high-severity vulnerability, tracked as CVE-2026-85046 (CVSS score: 8.8), has been described as a type confusion bug in V8, Chrome's JavaScript and WebAssembly engine. \"Type confusion in V8 in Google Chrome prior to 152.0.7977.82 allowed a remote",
+          "sourceRevisions": [
+            {
+              "sourceId": "src_1987682379c2806d78c8959949ba5a541ddbd90db66e38a898b60bf91b997a49",
+              "revisionId": "rev_cb87f11249c2ab8b2f90cf21c33299112aba89bf77d75b8d3a706a3ba4f602ae",
+              "source": "The Hacker News",
+              "title": "Google Releases Chrome Update to Patch Actively Exploited V8 Zero-Day",
+              "canonicalUrl": "https://thehackernews.com/2026/09/google-releases-chrome-update-to-patch.html",
+              "passageKind": "feed-excerpt",
+              "changed": false,
+              "publishedAt": "2026-09-04T07:18:47.000Z",
+              "retrievedAt": "2026-09-05T21:07:54.890Z",
+              "firstObservedAt": "2026-09-05T21:07:54.890Z",
+              "lastObservedAt": "2026-09-05T21:55:47.649Z"
+            }
+          ]
+        },
+        {
+          "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - Help Net Security",
+          "source": "Help Net Security",
+          "url": "",
+          "publishedAt": "Fri, 04 Sep 2026 12:09:13 GMT",
+          "passage": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - Help Net Security",
+          "sourceRevisions": [
+            {
+              "sourceId": "src_33b4551d02d15b198398d38ea85437e30a278c6e1a20537f1e3fdbfe6c1aa32c",
+              "revisionId": "rev_b91bc4b1aeabcc295c252156caa8a1810bf715ad30acc312db90da53a1e15a59",
+              "source": "Help Net Security",
+              "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - Help Net Security",
+              "canonicalUrl": "",
+              "passageKind": "title-only",
+              "changed": false,
+              "publishedAt": "2026-09-04T12:09:13.000Z",
+              "retrievedAt": "2026-09-05T21:07:59.196Z",
+              "firstObservedAt": "2026-09-05T21:07:59.196Z",
+              "lastObservedAt": "2026-09-05T21:07:59.196Z"
+            }
+          ]
+        }
+      ],
+      "sourceRevisions": [
+        {
+          "sourceId": "src_1987682379c2806d78c8959949ba5a541ddbd90db66e38a898b60bf91b997a49",
+          "revisionId": "rev_cb87f11249c2ab8b2f90cf21c33299112aba89bf77d75b8d3a706a3ba4f602ae",
+          "source": "The Hacker News",
+          "title": "Google Releases Chrome Update to Patch Actively Exploited V8 Zero-Day",
+          "canonicalUrl": "https://thehackernews.com/2026/09/google-releases-chrome-update-to-patch.html",
+          "passageKind": "feed-excerpt",
+          "changed": false,
+          "publishedAt": "2026-09-04T07:18:47.000Z",
+          "retrievedAt": "2026-09-05T21:07:54.890Z",
+          "firstObservedAt": "2026-09-05T21:07:54.890Z",
+          "lastObservedAt": "2026-09-05T21:55:47.649Z"
+        },
+        {
+          "sourceId": "src_33b4551d02d15b198398d38ea85437e30a278c6e1a20537f1e3fdbfe6c1aa32c",
+          "revisionId": "rev_b91bc4b1aeabcc295c252156caa8a1810bf715ad30acc312db90da53a1e15a59",
+          "source": "Help Net Security",
+          "title": "Google patches actively exploited Chrome zero-day (CVE-2026-85046) - Help Net Security",
+          "canonicalUrl": "",
+          "passageKind": "title-only",
+          "changed": false,
+          "publishedAt": "2026-09-04T12:09:13.000Z",
+          "retrievedAt": "2026-09-05T21:07:59.196Z",
+          "firstObservedAt": "2026-09-05T21:07:59.196Z",
+          "lastObservedAt": "2026-09-05T21:07:59.196Z"
+        }
+      ],
+      "enrichment": {
+        "cveData": "CVE-2026-85046: CVSS 8.8 (HIGH) — Affects: Google Chrome",
+        "cvssSeverityText": "CVSS 8.8 (HIGH)",
+        "isKEV": true,
+        "kevCVE": "CVE-2026-85046",
+        "kevDateAdded": "2026-09-04",
+        "epss": 0.00885,
+        "urgency": "critical",
+        "articleStale": false,
+        "mitre": [
+          {
+            "id": "T1190",
+            "name": "Exploit Public-Facing App",
+            "tactic": "Initial Access"
+          }
+        ],
+        "actors": [],
+        "vendors": [
+          "Google"
+        ]
+      },
+      "weight": 1
+    },
+    {
+      "title": "Google security advisory (AV26-883) – Update 1",
+      "source": "CCCS",
+      "url": "https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883",
+      "publishedAt": "2026-09-04T17:21:27Z",
+      "passage": {
+        "kind": "article-opening",
+        "text": "Serial Number: AV26-883 Date: September 4, 2026 As of September 3, 2026, Google is affected by vulnerabilities in the following product: Chrome Prior to 152.0.7977.82 Google is aware that an exploit for CVE-2026-85046 exists in the wild. Update 1 On September 4, 2026, Cybersecurity and Infrastructure Security Agency (CISA) added CVE-2026-85046 to their Known Exploited Vulnerabilities (KEV) Database. The Cyber Centre encourages users and administrators to review the provided web links and apply any necessary updates as they become available. Stable Channel Update for Desktop CISA KEV: CVE-2026-85046"
+      },
+      "groupMembers": [
+        {
+          "title": "Google security advisory (AV26-883) – Update 1",
+          "source": "CCCS",
+          "url": "https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883",
+          "publishedAt": "2026-09-04T17:21:27Z",
+          "passage": "Serial Number: AV26-883 Date: September 4, 2026 As of September 3, 2026, Google is affected by vulnerabilities in the following product: Chrome Prior to 152.0.7977.82 Google is aware that an exploit for CVE-2026-85046 exists in the wild. Update 1 On September 4, 2026, Cybersecurity and Infrastructure Security Agency (CISA) added CVE-2026-85046 to their Known Exploited Vulnerabilities (KEV) Database. The Cyber Centre encourages users and administrators to review the provided web links and apply any necessary updates as they become available. Stable Channel Update for Desktop CISA KEV: CVE-2026-85046",
+          "sourceRevisions": [
+            {
+              "sourceId": "src_231fc2626681f4e5cc9c45d0c2931eab5b9ff7213ea147fbc3969aa90769807c",
+              "revisionId": "rev_54da0258c6281911c5ee5eb3f9bd7feb2bcc29c02ccb7441544d6552ddd3c9d8",
+              "source": "CCCS",
+              "title": "Google security advisory (AV26-883) – Update 1",
+              "canonicalUrl": "https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883",
+              "passageKind": "feed-excerpt",
+              "changed": false,
+              "publishedAt": "2026-09-04T17:21:27.000Z",
+              "retrievedAt": "2026-09-05T21:07:55.298Z",
+              "firstObservedAt": "2026-09-05T05:28:15.000Z",
+              "lastObservedAt": "2026-09-05T21:55:48.056Z"
+            }
+          ]
+        }
+      ],
+      "sourceRevisions": [
+        {
+          "sourceId": "src_231fc2626681f4e5cc9c45d0c2931eab5b9ff7213ea147fbc3969aa90769807c",
+          "revisionId": "rev_54da0258c6281911c5ee5eb3f9bd7feb2bcc29c02ccb7441544d6552ddd3c9d8",
+          "source": "CCCS",
+          "title": "Google security advisory (AV26-883) – Update 1",
+          "canonicalUrl": "https://cyber.gc.ca/en/alerts-advisories/google-security-advisory-av26-883",
+          "passageKind": "feed-excerpt",
+          "changed": false,
+          "publishedAt": "2026-09-04T17:21:27.000Z",
+          "retrievedAt": "2026-09-05T21:07:55.298Z",
+          "firstObservedAt": "2026-09-05T05:28:15.000Z",
+          "lastObservedAt": "2026-09-05T21:55:48.056Z"
+        }
+      ],
+      "enrichment": {
+        "cveData": "CVE-2026-85046: CVSS 8.8 (HIGH) — Affects: Google Chrome",
+        "cvssSeverityText": "CVSS 8.8 (HIGH)",
+        "isKEV": true,
+        "kevCVE": "CVE-2026-85046",
+        "kevDateAdded": "2026-09-04",
+        "epss": 0.00885,
+        "urgency": "routine",
+        "articleStale": false,
+        "mitre": [],
+        "actors": [],
+        "vendors": [
+          "Google"
+        ]
+      },
+      "weight": 1.2
+    },
+    {
+      "title": "2026-009: Critical Vulnerabilities in Microsoft SharePoint",
+      "source": "CERT-EU",
+      "url": "https://cert.europa.eu/publications/security-advisories/2026-009/",
+      "publishedAt": "Thu, 23 Jul 2026 09:13:03 CEST",
+      "passage": {
+        "kind": "article-opening",
+        "text": "Release Date: 23-07-2026 07:13:03 Critical Vulnerabilities in Microsoft SharePoint Download Download PDF MD5 SHA-1 SHA-256 SHA-512 Download MARKDOWN Download JSON History: 22/07/2026 --- v1.0 -- Initial publication 22/07/2026 --- v1.1 -- Updated to include additional actively exploited vulnerabilities (CVE-2026-32201, CVE-2026-45659, CVE-2026-56164, and CVE-2026-58644) Summary [UPDATED] On 14 July 2026, Microsoft released security updates addressing critical remote code execution (RCE) vulnerabilities in Microsoft SharePoint Server [1]. On 20 July 2026, WatchTowr identified a proof-of-concept exploit code and subsequently observed active exploitation of CVE-2026-50522 [2], a vulnerability part of an ongoing series of actively exploited flaws [3] affecting on-premise SharePoint Server insta"
+      },
+      "groupMembers": [
+        {
+          "title": "2026-009: Critical Vulnerabilities in Microsoft SharePoint",
+          "source": "CERT-EU",
+          "url": "https://cert.europa.eu/publications/security-advisories/2026-009/",
+          "publishedAt": "Thu, 23 Jul 2026 09:13:03 CEST",
+          "passage": "[UPDATED] On 14 July 2026, Microsoft released security updates addressing critical remote code execution (RCE) vulnerabilities in Microsoft SharePoint Server. On 20 July 2026, WatchTowr identified a proof-of-concept exploit code and subsequently observed active exploitation of CVE-2026-50522, a vulnerability part of an ongoing series of actively exploited flaws affecting on-premise SharePoint Server instances, including CVE-2026-32201, CVE-2026-45659, CVE-2026-56164, and CVE-2026-58644. CERT-EU strongly recommends updating affected servers immediately, rotating credentials for any assets that may have been exposed to the internet, and conducting a compromise assessment.",
+          "sourceRevisions": [
+            {
+              "sourceId": "src_ad34c2680e6aa537f5101723edf667924ae7517b5e76ef6bc03e0b43b840034b",
+              "revisionId": "rev_8a7f4fb4778c3f042f9e9bd6db9b8ff05338a5f4e62a9b62f69a60d0263db026",
+              "source": "CERT-EU",
+              "title": "2026-009: Critical Vulnerabilities in Microsoft SharePoint",
+              "canonicalUrl": "https://cert.europa.eu/publications/security-advisories/2026-009/",
+              "passageKind": "feed-excerpt",
+              "changed": true,
+              "publishedAt": "",
+              "retrievedAt": "2026-09-05T21:07:55.544Z",
+              "firstObservedAt": "2026-09-05T05:28:16.000Z",
+              "lastObservedAt": "2026-09-05T21:55:48.264Z"
+            }
+          ]
+        }
+      ],
+      "sourceRevisions": [
+        {
+          "sourceId": "src_ad34c2680e6aa537f5101723edf667924ae7517b5e76ef6bc03e0b43b840034b",
+          "revisionId": "rev_8a7f4fb4778c3f042f9e9bd6db9b8ff05338a5f4e62a9b62f69a60d0263db026",
+          "source": "CERT-EU",
+          "title": "2026-009: Critical Vulnerabilities in Microsoft SharePoint",
+          "canonicalUrl": "https://cert.europa.eu/publications/security-advisories/2026-009/",
+          "passageKind": "feed-excerpt",
+          "changed": true,
+          "publishedAt": "",
+          "retrievedAt": "2026-09-05T21:07:55.544Z",
+          "firstObservedAt": "2026-09-05T05:28:16.000Z",
+          "lastObservedAt": "2026-09-05T21:55:48.264Z"
+        }
+      ],
+      "enrichment": {
+        "cveData": "CVE-2026-50522: CVSS 9.8 (CRITICAL) — Affects: Microsoft Sharepoint-Server",
+        "cvssSeverityText": "CVSS 9.8 (CRITICAL)",
+        "isKEV": true,
+        "kevCVE": "CVE-2026-50522",
+        "kevDateAdded": "2026-07-22",
+        "epss": 0.84606,
+        "urgency": "critical",
+        "articleStale": false,
+        "mitre": [
+          {
+            "id": "T1190",
+            "name": "Exploit Public-Facing App",
+            "tactic": "Initial Access"
+          }
+        ],
+        "actors": [],
+        "vendors": [
+          "Microsoft"
+        ]
+      },
+      "weight": 1.2
+    },
+    {
+      "title": "2026-005: High Vulnerability in the Linux Kernel (\"Copy Fail\")",
+      "source": "CERT-EU",
+      "url": "https://cert.europa.eu/publications/security-advisories/2026-005/",
+      "publishedAt": "Thu, 30 Apr 2026 11:25:30 CEST",
+      "passage": {
+        "kind": "feed-excerpt",
+        "text": "On 29 April 2026, a high local privilege escalation vulnerability in the Linux kernel, tracked as CVE-2026-31431 and named \"Copy Fail\", was publicly disclosed. The vulnerability affects every mainstream Linux distributions shipping a kernel built since 2017. A public proof-of-concept exploit has..."
+      },
+      "groupMembers": [
+        {
+          "title": "2026-005: High Vulnerability in the Linux Kernel (\"Copy Fail\")",
+          "source": "CERT-EU",
+          "url": "https://cert.europa.eu/publications/security-advisories/2026-005/",
+          "publishedAt": "Thu, 30 Apr 2026 11:25:30 CEST",
+          "passage": "On 29 April 2026, a high local privilege escalation vulnerability in the Linux kernel, tracked as CVE-2026-31431 and named \"Copy Fail\", was publicly disclosed. The vulnerability affects every mainstream Linux distributions shipping a kernel built since 2017. A public proof-of-concept exploit has been released. As of the date of this advisory, no distribution has shipped a fixed kernel package. The mainline fix was committed on 1 April 2026, but vendor updates are still pending across all major distributions. CERT-EU strongly recommends applying the interim mitigation immediately, prioritising Kubernetes nodes, and CI/CD runners exposed to untrusted workloads.",
+          "sourceRevisions": [
+            {
+              "sourceId": "src_2c40a75077346148ffd897d12eb912e14541766edde93118161342955d2040ff",
+              "revisionId": "rev_ca35a3f275c3090875b27c5404864599fea3f679595f58b569a81ce07af53500",
+              "source": "CERT-EU",
+              "title": "2026-005: High Vulnerability in the Linux Kernel (\"Copy Fail\")",
+              "canonicalUrl": "https://cert.europa.eu/publications/security-advisories/2026-005/",
+              "passageKind": "feed-excerpt",
+              "changed": false,
+              "publishedAt": "",
+              "retrievedAt": "2026-09-05T21:07:55.544Z",
+              "firstObservedAt": "2026-09-05T21:07:55.544Z",
+              "lastObservedAt": "2026-09-05T21:55:48.264Z"
+            }
+          ]
+        }
+      ],
+      "sourceRevisions": [
+        {
+          "sourceId": "src_2c40a75077346148ffd897d12eb912e14541766edde93118161342955d2040ff",
+          "revisionId": "rev_ca35a3f275c3090875b27c5404864599fea3f679595f58b569a81ce07af53500",
+          "source": "CERT-EU",
+          "title": "2026-005: High Vulnerability in the Linux Kernel (\"Copy Fail\")",
+          "canonicalUrl": "https://cert.europa.eu/publications/security-advisories/2026-005/",
+          "passageKind": "feed-excerpt",
+          "changed": false,
+          "publishedAt": "",
+          "retrievedAt": "2026-09-05T21:07:55.544Z",
+          "firstObservedAt": "2026-09-05T21:07:55.544Z",
+          "lastObservedAt": "2026-09-05T21:55:48.264Z"
+        }
+      ],
+      "enrichment": {
+        "cveData": "",
+        "cvssSeverityText": "",
+        "isKEV": true,
+        "kevCVE": "CVE-2026-31431",
+        "kevDateAdded": "2026-05-01",
+        "epss": 0.99907,
+        "urgency": "routine",
+        "articleStale": false,
+        "mitre": [],
+        "actors": [],
+        "vendors": []
+      },
+      "weight": 1.2
+    },
+    {
+      "title": "2026-001: Critical vulnerabilities in Ivanti EPMM",
+      "source": "CERT-EU",
+      "url": "https://cert.europa.eu/publications/security-advisories/2026-001/",
+      "publishedAt": "Fri, 30 Jan 2026 10:09:06 CET",
+      "passage": {
+        "kind": "feed-excerpt",
+        "text": "On 29 January 2026, Ivanti released a security advisory addressing two critical vulnerabilities in their EPMM products. An attacker could exploit those flaws to achieve unauthenticated remote code execution on the vulnerable device. One of these vulnerabilities have been exploited in a limited nu..."
+      },
+      "groupMembers": [
+        {
+          "title": "2026-001: Critical vulnerabilities in Ivanti EPMM",
+          "source": "CERT-EU",
+          "url": "https://cert.europa.eu/publications/security-advisories/2026-001/",
+          "publishedAt": "Fri, 30 Jan 2026 10:09:06 CET",
+          "passage": "On 29 January 2026, Ivanti released a security advisory addressing two critical vulnerabilities in their EPMM products. An attacker could exploit those flaws to achieve unauthenticated remote code execution on the vulnerable device. One of these vulnerabilities have been exploited in a limited number of cases.",
+          "sourceRevisions": [
+            {
+              "sourceId": "src_4bab9fe0ad84c6ddecac1f891dc1bc470f9fbda65168cbdf36ae60342dfbeae3",
+              "revisionId": "rev_3017adbf5aab4f991254766b98f5d5130cb33a9a95b125a1ce50b9334491a4b1",
+              "source": "CERT-EU",
+              "title": "2026-001: Critical vulnerabilities in Ivanti EPMM",
+              "canonicalUrl": "https://cert.europa.eu/publications/security-advisories/2026-001/",
+              "passageKind": "feed-excerpt",
+              "changed": false,
+              "publishedAt": "",
+              "retrievedAt": "2026-09-05T21:07:55.544Z",
+              "firstObservedAt": "2026-09-05T21:07:55.544Z",
+              "lastObservedAt": "2026-09-05T21:55:48.264Z"
+            }
+          ]
+        }
+      ],
+      "sourceRevisions": [
+        {
+          "sourceId": "src_4bab9fe0ad84c6ddecac1f891dc1bc470f9fbda65168cbdf36ae60342dfbeae3",
+          "revisionId": "rev_3017adbf5aab4f991254766b98f5d5130cb33a9a95b125a1ce50b9334491a4b1",
+          "source": "CERT-EU",
+          "title": "2026-001: Critical vulnerabilities in Ivanti EPMM",
+          "canonicalUrl": "https://cert.europa.eu/publications/security-advisories/2026-001/",
+          "passageKind": "feed-excerpt",
+          "changed": false,
+          "publishedAt": "",
+          "retrievedAt": "2026-09-05T21:07:55.544Z",
+          "firstObservedAt": "2026-09-05T21:07:55.544Z",
+          "lastObservedAt": "2026-09-05T21:55:48.264Z"
+        }
+      ],
+      "enrichment": {
+        "cveData": "",
+        "cvssSeverityText": "",
+        "isKEV": null,
+        "kevCVE": "",
+        "kevDateAdded": "",
+        "epss": null,
+        "urgency": "elevated",
+        "articleStale": false,
+        "mitre": [
+          {
+            "id": "T1190",
+            "name": "Exploit Public-Facing App",
+            "tactic": "Initial Access"
+          }
+        ],
+        "actors": [],
+        "vendors": [
+          "Ivanti"
+        ]
+      },
+      "weight": 1.2
+    }
+  ]
+}

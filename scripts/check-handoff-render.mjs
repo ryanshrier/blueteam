@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import { createFixtureApp } from './serve-visual-fixtures.mjs';
 import { CdpConnection, findBrowser, launchBrowser } from './check-landing-render.mjs';
 import { inspectPdfBounds, inspectPdfText, parseCsv } from './handoff-acceptance.mjs';
@@ -15,6 +16,9 @@ import { buildAppFixture } from '../test/visual/app-fixtures.js';
 const run = promisify(execFile);
 const delay = ms => new Promise(done => setTimeout(done, ms));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+// Explicitly configured fallback for hosts whose Poppler bundle omits pdftotext.
+// Rendering and physical PDF metadata still come from Poppler in either mode.
+const extractionPython = process.env.HANDOFF_PYTHON;
 const directory = process.env.HANDOFF_ARTIFACT_DIR
   ? resolve(process.env.HANDOFF_ARTIFACT_DIR) : await mkdtemp(join(tmpdir(), 'blueteam-handoff-'));
 await mkdir(directory, { recursive: true });
@@ -28,10 +32,14 @@ const report = {
 let server, browser, control, page;
 const connections = [];
 try {
-  for (const tool of ['pdfinfo', 'pdftotext', 'pdftoppm']) {
+  for (const tool of ['pdfinfo', 'pdftoppm', ...(extractionPython ? [] : ['pdftotext'])]) {
     const result = await run(tool, ['-v'], { windowsHide: true });
     report[tool] = (result.stdout + result.stderr).split('\n')[0];
   }
+  if (extractionPython) {
+    const { stdout } = await run(extractionPython, ['-c', 'import json, pdfplumber, pdfminer; print(json.dumps({"engine": "pdfplumber/PDFMiner", "version": pdfplumber.__version__, "layoutVersion": pdfminer.__version__}))'], { windowsHide: true });
+    report.pdfTextExtraction = JSON.parse(stdout);
+  } else report.pdfTextExtraction = { engine: 'Poppler pdftotext', version: report.pdftotext };
   const browserPath = findBrowser();
   assert(browserPath, 'Chrome/Chromium/Edge required. Set CHROME_PATH.');
   server = createFixtureApp().listen(0, '127.0.0.1');
@@ -89,15 +97,19 @@ try {
   await page.call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   await navigate(page, '/wire?scenario=handoff&theme=dark&capture&reducedMotion');
   await until(() => evaluate(page, 'document.querySelectorAll(".wire-item").length === 4'), 'four fixture signals');
+  await activate('#wireFilterPanel > summary');
   await activate('[data-horizon="1"]');
   await until(() => evaluate(page, 'document.querySelectorAll(".wire-item").length === 2'), 'Horizon 1 filter');
+  await activate('#wireFilterPanel > summary');
+  await activate('.wire-row-menu > summary');
+  await until(() => evaluate(page, 'document.querySelector("[data-mark-read]").closest(".wire-row-menu").open'), 'signal action menu exposes triage actions');
   await activate('[data-mark-read="https://example.test/synthetic-0"]');
   assert(await evaluate(page, 'document.querySelector("[data-mark-read]").getAttribute("aria-pressed") === "true"'), 'Marked-read state is applied before export');
   await screenshot(page, 'wire-filtered.png');
   const expected = buildAppFixture('handoff').headlines.headlines.filter(item => item.horizon === 1);
   for (const format of ['csv', 'json']) {
     const previous = new Set(receipts.keys());
-    await activate('#wireExport > summary');
+    if (!(await evaluate(page, 'document.querySelector("#wireViewTools").open'))) await activate('#wireViewTools > summary');
     await activate(`[data-export="${format}"]`);
     let receipt;
     await until(() => {
@@ -125,15 +137,17 @@ try {
       assert.equal(rows[index].read, format === 'csv' ? String(index === 0) : index === 0, 'Analyst read state survives download');
       assert.equal(Number(rows[index].horizon), 1);
     }
-    assert(!(await evaluate(page, 'document.querySelector("#wireExport").open')), 'Export menu closes after activation');
+    assert(!(await evaluate(page, 'document.querySelector("#wireViewTools").open')), 'View tools close after export activation');
     report.downloads.push({ ...receipt, artifact: `wire-filtered.${format}`, sha256: hash(bytes), rows: rows.length });
     console.log(`PASS: genuine ${format.toUpperCase()} Blob download (${bytes.length} bytes, two filtered rows, read state and escaped cells).`);
   }
 
   await navigate(page, '/briefing?scenario=handoff&theme=dark&capture&reducedMotion');
   await until(() => evaluate(page, 'document.querySelector("#briefExport") && !document.querySelector("#briefExport").disabled && document.querySelectorAll(".brief-judgment-card").length === 3'), 'complete saved synthetic edition');
+  await activate('#briefEditionTools > summary');
   await activate('#briefExport');
   await until(() => evaluate(page, 'document.querySelector(".np-frame")?.contentDocument?.querySelector(".np-colophon") && !document.querySelector(".np-ov-print").disabled'), 'production Print Edition and fonts');
+  assert(await evaluate(page, 'document.querySelector(".np-overlay-reading-note").textContent.includes("Continuous reading preview") && document.querySelector(".np-frame").title.includes("continuous reading preview")'), 'Preview identifies continuous reading; actual page boundaries are verified by the PDF below');
   await screenshot(page, 'print-preview.png');
   const preview = await evaluate(page, `(() => {
     const frame = document.querySelector('.np-frame');
@@ -142,12 +156,13 @@ try {
     const passages = passageElements.map(e => e.innerText.trim());
     const executiveContextIndices = passageElements.flatMap((e, index) => e.matches('.brief-exec-heading, .np-exec-facts p') ? [index] : []);
     return { source: frame.srcdoc, dom: doc.documentElement.outerHTML, passages, executiveContextIndices,
-      title: doc.title, warnings: [...doc.querySelectorAll('.np-validation li')].map(e => e.textContent.trim()),
+      title: doc.title, supportDisclosures: doc.querySelectorAll('.brief-judgment-support').length, warnings: [...doc.querySelectorAll('.np-validation li')].map(e => e.textContent.trim()),
       headings: [...doc.querySelectorAll('.np-body h2, .np-body h3')].map(e => e.textContent.trim()),
       viewport: { width: innerWidth, height: innerHeight, frameWidth: frame.clientWidth, frameHeight: frame.clientHeight },
       fonts: [...doc.fonts].filter(f => f.status === 'loaded').map(f => ({family:f.family, style:f.style, weight:f.weight})) };
   })()`);
   assert.equal(preview.warnings.length, 2, 'Persisted review notes reach Print Edition');
+  assert.equal(preview.supportDisclosures, 0, 'Supporting evidence is expanded for printing');
   assert(preview.passages.length > 30, 'Complete edition paragraphs are checked');
   assert(preview.fonts.length > 0, 'Print preview uses loaded self-hosted fonts');
   for (const heading of ['Executive summary', 'Developing situations', 'Convergence', 'Watchlist', 'Sources']) {
@@ -177,9 +192,16 @@ try {
   await writeFile(join(directory, 'pdfinfo.txt'), info);
   // Default extraction reconstructs reading order across the executive columns;
   // retain a separate physical-layout extraction for human review.
-  await run('pdftotext', [pdfPath, join(directory, 'print-edition.txt')], { windowsHide: true });
-  await run('pdftotext', ['-layout', pdfPath, join(directory, 'print-edition-layout.txt')], { windowsHide: true });
-  await run('pdftotext', ['-bbox-layout', pdfPath, join(directory, 'print-edition-bounds.html')], { windowsHide: true });
+  if (extractionPython) {
+    const helper = fileURLToPath(new URL('./extract-handoff-pdf.py', import.meta.url));
+    const { stdout } = await run(extractionPython, [helper, pdfPath, directory], { windowsHide: true, timeout: 60_000 });
+    report.pdfTextExtraction = JSON.parse(stdout);
+  } else {
+    await run('pdftotext', [pdfPath, join(directory, 'print-edition.txt')], { windowsHide: true });
+    await run('pdftotext', ['-layout', pdfPath, join(directory, 'print-edition-layout.txt')], { windowsHide: true });
+    await run('pdftotext', ['-bbox-layout', pdfPath, join(directory, 'print-edition-bounds.html')], { windowsHide: true });
+  }
+  console.log(`PDF text and bounds engine: ${report.pdfTextExtraction.engine} ${report.pdfTextExtraction.version}.`);
   // Keep rendered pages even if a text/bounds assertion subsequently fails.
   await run('pdftoppm', ['-r', '110', '-png', pdfPath, join(directory, 'print-page')], { windowsHide: true, timeout: 60_000 });
   const pages = (await readdir(directory)).filter(name => /^print-page-\d+\.png$/.test(name)).sort();

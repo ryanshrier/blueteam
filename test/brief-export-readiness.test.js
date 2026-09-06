@@ -5,6 +5,7 @@ import {
   bindTocScroll,
   bindTocBreakpoint,
   findTocFragmentLink,
+  findBriefFragmentHeading,
   generationFailureModel,
   isBriefReadyForExport,
 } from '../public/modules/briefing/briefing-view.js';
@@ -81,13 +82,13 @@ describe('Edition export readiness', () => {
     )).toBe(false);
   });
 
-  test('rejects the prior completed render as soon as a new generation starts', () => {
+  test('allows an immutable saved edition during generation elsewhere while rejecting drafts', () => {
     const prior = '# Prior validated brief';
     expect(isBriefReadyForExport(
       renderedBrief({ renderedText: prior }),
       { filename: 'brief-2026-07-12-01.md', content: prior },
       true,
-    )).toBe(false);
+    )).toBe(true);
   });
 
   test('rejects stale state, missing completed identity, and non-brief surfaces', () => {
@@ -114,6 +115,7 @@ describe('Briefing generation failure state', () => {
       message: 'Draft was not published.',
       aiDisabled: false,
       code: 'E_PARTIAL_GENERATION',
+      draftArtifact: null,
       streamLost: false,
       accumulatedText: 'attempt oneattempt two',
       recoverableDraft: '# Attempt two only',
@@ -130,6 +132,15 @@ describe('Briefing generation failure state', () => {
 });
 
 describe('Briefing TOC breakpoint behavior', () => {
+  test('cold fragments resolve judgments that are intentionally absent from the compact TOC', () => {
+    const section = { id: 'section-judgments', tagName: 'H2' };
+    const judgment = { id: 'judgment-2', tagName: 'H3' };
+    const content = { querySelectorAll: () => [section, judgment] };
+    expect(findBriefFragmentHeading(content, '#judgment-2')).toBe(judgment);
+    expect(findBriefFragmentHeading(content, '#section-judgments')).toBe(section);
+    expect(findBriefFragmentHeading(content, '#settings')).toBeNull();
+    expect(findBriefFragmentHeading(content, '#%E0%A4%A')).toBeNull();
+  });
   test('restores only hashes owned by the rendered Briefing', () => {
     const first = { dataset: { target: 'section-key-judgments' } };
     const second = { dataset: { target: 'section-sources' } };

@@ -24,16 +24,16 @@ describe('complete document decision presentation', () => {
   });
   test('renders every model row into the document, with an accurate decision count', () => {
     const generated = [];
-    const make = tag => ({ tagName: tag.toUpperCase(), children: [], className: '', textContent: '', appendChild(el) { this.children.push(el); }, append(...els) { this.children.push(...els); } });
+    const make = tag => ({ tagName: tag.toUpperCase(), children: [], className: '', textContent: '', prepend(el) { this.children.unshift(el); }, appendChild(el) { this.children.push(el); }, append(...els) { this.children.push(...els); } });
     const list = { tagName: 'UL', querySelector: () => null, replaceWith: panel => generated.push(panel), children: items.map(item => ({
       tagName: 'LI', querySelector: () => ({ textContent: item.lead }),
       cloneNode: () => ({ textContent: item.tail, querySelector: () => ({ remove() {} }) }),
     })) };
     structureExecutiveSummary({ querySelector: () => null, querySelectorAll: () => [{ textContent: 'EXECUTIVE SUMMARY', nextElementSibling: list }], ownerDocument: { createElement: make } });
     const panel = generated[0];
-    expect(panel.children[0].children).toHaveLength(4);
-    expect(panel.children[1].children[0].children[0].textContent).toBe('7 decisions');
-    expect(panel.children[1].children[1].children).toHaveLength(7);
+    expect(panel.children[1].children).toHaveLength(4);
+    expect(panel.children[0].children[0].children[0].textContent).toBe('7 action previews · complete responses below');
+    expect(panel.children[0].children[1].children).toHaveLength(7);
   });
   test('leaves rich executive summaries intact rather than flattening their evidence links', () => {
     let replaced = false;
@@ -44,11 +44,11 @@ describe('complete document decision presentation', () => {
   test('inline CVE and version code does not suppress the executive card or alter its values', () => {
     const generated = [];
     const make = tag => ({ tagName: tag.toUpperCase(), children: [], className: '', textContent: '',
-      appendChild(el) { this.children.push(el); }, append(...els) { this.children.push(...els); } });
+      prepend(el) { this.children.unshift(el); }, appendChild(el) { this.children.push(el); }, append(...els) { this.children.push(...els); } });
     const rows = [
       { lead: 'Threat:', tail: 'Active exploitation of CVE-2026-1234.' },
       { lead: 'Exposure:', tail: 'Unknown until verified.' },
-      { lead: 'Required decisions:', tail: 'Endpoint — update to 152.0.7977.82/.83 — September 8, 2026.' },
+      { lead: 'Required decisions:', tail: 'Endpoint — update to 152.0.7977.82/.83 — recommended target September 8, 2026.' },
     ];
     const list = { tagName: 'UL', querySelector: selector => /\bcode\b/.test(selector) ? { tagName: 'CODE' } : null,
       replaceWith: panel => generated.push(panel), children: rows.map(item => ({
@@ -62,7 +62,9 @@ describe('complete document decision presentation', () => {
     const text = node => [node.textContent, ...node.children.map(text)].join(' ');
     expect(text(generated[0])).toContain('CVE-2026-1234');
     expect(text(generated[0])).toContain('152.0.7977.82/.83');
-    expect(text(generated[0])).toContain('1 decision');
+    expect(text(generated[0])).toContain('1 action preview');
+    expect(text(generated[0])).toContain('Recommended target · September 8, 2026');
+    expect(text(generated[0])).not.toContain('Due recommended');
   });
 });
 

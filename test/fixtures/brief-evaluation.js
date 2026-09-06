@@ -46,7 +46,7 @@ export function referenceBrief(item) {
     const h = item.headlines[index];
     return `### Signal ${i + 1} — [Horizon ${h.horizon}] ${h.title}
 **Assessment:** The supplied reporting warrants an applicability review. It does not establish local compromise or justify assuming the reported conditions exist in this organization.
-**Confidence:** Likely (55-80%) — the stated facts come from the cited source; this is a limited assessment, not independent verification.
+**Confidence:** Moderate — the stated facts come from the cited source; this is a limited assessment, not independent verification.
 **What happened:** ${h.description || h.title} [${h.source}, September 4, 2026](${h.link})${item.id === 'conflicting-multi-cve' && index === 0 ? ` The independent observer disputes the vendor's Gateway fix claim and reports version 1.3 remains affected by CVE-2026-12345; this contradiction is unresolved, and the observer does not establish the Manager issue. [Synthetic Observer, September 4, 2026](${h.sourceMembers[1].link})` : ''}
 **Defender impact:** The relevant team should compare this reporting with local inventory, permissions, and operating procedures before deciding whether a change is needed. Missing local evidence is an unresolved question.
 **Recommended actions:**

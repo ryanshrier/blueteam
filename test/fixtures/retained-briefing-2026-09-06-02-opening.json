@@ -1,0 +1,10 @@
+{
+  "provenance": {
+    "originalFile": "briefs/brief-2026-09-06-02.md",
+    "originalSha256": "0dc907cce6972666d28df51ba702a6007a623995a3b49699c9ae1cb5abe5592c",
+    "generatedAt": "2026-09-06T16:01:05.531Z",
+    "originalLine": 5,
+    "scope": "Exact final BLUF only; excludes operator profile, configuration and credentials. This retained model output is a parser regression input, not an endorsed threat assessment."
+  },
+  "opening": "Seven actively exploited CVEs now sit on CISA KEV this week — SonicWall SMA1000 (CVE-2026-83548, CVE-2026-83549), JFrog Artifactory (CVE-2026-82329), PaperCut (CVE-2026-81578, CVE-2026-82078), Sangoma Switchvox (CVE-2026-9586), and Chrome V8 (CVE-2026-85046) — verify exposure on every edge appliance and browser fleet before Monday."
+}

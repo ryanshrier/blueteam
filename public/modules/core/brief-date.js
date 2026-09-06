@@ -20,6 +20,18 @@ export function formatBriefPublishedAt(value) {
   return `${day}, ${time} UTC`;
 }
 
+// One explicit time zone for event timestamps across reader, diagnostics and evidence.
+export function formatEventTime(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? formatBriefPublishedAt(date.toISOString()) : '';
+}
+
+export function formatEditionIdentity(filename) {
+  const match = String(filename || '').match(/^brief-(\d{4}-\d{2}-\d{2})(?:-(\d+))?\.md$/);
+  return match ? `${formatBriefLabel(match[1])} · edition ${Number(match[2] || 1)}` : formatBriefLabel(filename);
+}
+
 // Archive responses also expose generatedAt with a legacy file-mtime fallback.
 // A copied or edited file's modification time does not prove publication time.
 export function archivePublishedAt(brief) {

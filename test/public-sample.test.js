@@ -34,9 +34,12 @@ describe('complete public synthetic sample', () => {
     expect(elements.filter(node => ['script', 'iframe', 'img', 'link'].includes(node.name))).toEqual([]);
     expect(elements.filter(node => node.name === 'main')).toHaveLength(1);
     const links = elements.filter(node => node.name === 'a').map(node => node.attribs.href);
+    const contents = elements.find(node => node.name === 'nav' && node.attribs['aria-label'] === 'Sample sections');
+    expect(contents).toBeDefined();
+    const destinations = new Set(elements.map(node => node.attribs?.id).filter(Boolean));
     expect(links).toEqual(expect.arrayContaining(['sample-briefing.md', 'sample-briefing.manifest.json', 'sample-briefing.pdf']));
     for (const link of links) {
-      if (link.startsWith('#')) continue;
+      if (link.startsWith('#')) { expect(destinations.has(link.slice(1))).toBe(true); continue; }
       expect(link).toMatch(/^[a-z0-9.-]+$/);
       expect(existsSync(fileURLToPath(new URL(`../docs/${link}`, import.meta.url)))).toBe(true);
     }

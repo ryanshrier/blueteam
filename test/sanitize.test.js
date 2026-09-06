@@ -21,6 +21,12 @@ describe('sanitizer policy', () => {
       .toBe('BLUF Active <mark>gateway</mark> exploitation. Review vendor guidance.');
     expect(cleanSearchExcerpt('# <mark>BlueTeam.News</mark>\n## Key Judgments')).toBe('<mark>BlueTeam.News</mark> Key Judgments');
   });
+  test('a token-truncated citation retains its label and an omission marker without a raw destination', () => {
+    expect(cleanSearchExcerpt('<mark>Chrome</mark> exploitation, per [CISA Advisories, Sep 4, 2026](https://www.cisa.gov/news-events/alerts/2026/09/04/cisa-adds'))
+      .toBe('<mark>Chrome</mark> exploitation, per CISA Advisories, Sep 4, 2026…');
+    expect(cleanSearchExcerpt('Review [complete guidance](https://example.test) and retain the caveat.'))
+      .toBe('Review complete guidance and retain the caveat.');
+  });
   test('untrusted HTML cannot supply app identities, presentation hooks, data hooks, or ARIA overrides', () => {
     expect(SANITIZE_CONFIG.ALLOWED_ATTR).not.toEqual(expect.arrayContaining(['id', 'class']));
     expect(SANITIZE_CONFIG.ALLOW_DATA_ATTR).toBe(false);

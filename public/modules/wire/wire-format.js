@@ -16,11 +16,11 @@ export function briefingLinkModel(brief) {
   };
 }
 
-// Match Wall and pipeline policy: warn after two refresh windows, retaining a
-// twenty-minute floor for fast schedules and legacy responses without cadence.
+// Keep routine snapshot age quiet for two hours. Slow schedules still receive
+// two refresh windows; connection failures are reported separately.
 export function isFeedStale(ageSeconds, refreshMinutes) {
   const cadence = Number(refreshMinutes);
-  const thresholdMinutes = Number.isFinite(cadence) && cadence > 0 ? Math.max(20, cadence * 2) : 20;
+  const thresholdMinutes = Number.isFinite(cadence) && cadence > 0 ? Math.max(120, cadence * 2) : 120;
   return !Number.isFinite(ageSeconds) || ageSeconds > thresholdMinutes * 60;
 }
 
@@ -38,6 +38,26 @@ export function dateMs(dateStr) {
 // fallback. Exported so the view's read/dismiss persistence (keyed by this same
 // identity) and filterSignals' unread/dismissed filtering agree on one definition.
 export function sigKey(h) { return (h && (h.link || h.title)) || ''; }
+
+export function signalUrl(headline, origin = '', evidence = null) {
+  const url = `${origin}/wire?signal=${encodeURIComponent(sigKey(headline))}`;
+  return evidence?.sourceId ? `${url}&source=${encodeURIComponent(evidence.sourceId)}${evidence.revisionId ? `&revision=${encodeURIComponent(evidence.revisionId)}` : ''}` : url;
+}
+
+function names(values) {
+  return (Array.isArray(values) ? values : []).map(value => typeof value === 'string' ? value : value?.name || value?.label || '').filter(Boolean);
+}
+
+export function matchesCluster(headline, cluster) {
+  const separator = cluster.indexOf(':');
+  const type = cluster.slice(0, separator);
+  const value = cluster.slice(separator + 1).toLowerCase();
+  if (separator < 0 || !value) return false;
+  if (type === 'actor') return names(headline.actors).some(name => name.toLowerCase() === value);
+  if (type === 'vendor') return names(headline.vendors).some(name => name.toLowerCase() === value);
+  if (type === 'cve') return `${headline.title || ''} ${headline.description || ''} ${headline.cveData || ''} ${headline.kevCVE || ''}`.toLowerCase().includes(value);
+  return false;
+}
 
 // ── The freeform `cveData` string → structured fields. The pipeline emits one human
 // string ("CVE-2026-1234 · CVSS 9.8 (Critical) · exploit references exist · Affects: …");
@@ -61,9 +81,15 @@ export function parseCveData(cveData) {
 // Both identity sets default to empty when omitted.
 export function filterSignals(headlines, filters = {}, sortMode = 'relevance') {
   let items = (Array.isArray(headlines) ? headlines : []).slice();
+  // A copied investigation link must resolve even when this browser hid the item.
+  if (filters.signal) return items.filter(h => sigKey(h) === filters.signal);
+  if (filters.cluster) items = items.filter(h => matchesCluster(h, filters.cluster));
   if (filters.horizon && filters.horizon !== 'all') items = items.filter(h => String(h.horizon) === String(filters.horizon));
   if (filters.critical) items = items.filter(h => h.urgency === 'critical');
   if (filters.kev) items = items.filter(h => h.isKEV);
+  if (filters.watch) items = items.filter(h => h.applicability?.state === 'declared-match' || h.applicability?.questionMatches?.length);
+  if (filters.changed) items = items.filter(h => h.evidence?.some(source => source.changed));
+  if (filters.alert) items = items.filter(h => h.alertMatched);
   const dismissedKeys = filters.dismissedKeys instanceof Set ? filters.dismissedKeys : null;
   if (filters.hidden) items = items.filter(h => dismissedKeys?.has(sigKey(h)));
   else if (dismissedKeys && dismissedKeys.size) items = items.filter(h => !dismissedKeys.has(sigKey(h)));
@@ -77,7 +103,9 @@ export function filterSignals(headlines, filters = {}, sortMode = 'relevance') {
   const q = typeof filters.q === 'string' ? filters.q.trim().toLowerCase() : '';
   if (q) {
     items = items.filter(h => {
-      const hay = [h && h.title, h && h.description, h && h.cveData]
+      const hay = [h?.title, h?.description, h?.editorialContext?.title, h?.editorialContext?.product, h?.cveData, h?.kevCVE, h?.source,
+        ...(h?.kevRecords || []).flatMap(record => [record.cve, record.vendor, record.product]),
+        ...names(h?.vendors), ...names(h?.actors), ...names(h?.sources)]
         .filter(v => typeof v === 'string')
         .join(' ')
         .toLowerCase();
@@ -108,6 +136,15 @@ export function parseWireQuery(search) {
   // Free-text query, trimmed and capped at 100 chars (a deep-link, not a payload).
   const q = params.get('q');
   if (q != null) out.q = String(q).trim().slice(0, 100);
+  for (const key of ['watch', 'changed', 'alert']) if (params.get(key) === '1') out[key] = true;
+  const signal = params.get('signal');
+  if (signal) out.signal = signal.slice(0, 4096);
+  for (const key of ['source', 'revision']) {
+    const value = params.get(key);
+    if (value && /^[A-Za-z0-9_-]{1,120}$/.test(value)) out[key] = value;
+  }
+  const cluster = params.get('cluster');
+  if (cluster && /^(actor|vendor|cve):.+/.test(cluster)) out.cluster = cluster.slice(0, 200);
   return out;
 }
 
@@ -118,6 +155,10 @@ export function serializeWireUrl(filters = {}, sortMode = 'relevance') {
   if (filters.kev) params.set('kev', '1');
   if (filters.unread) params.set('unread', '1');
   if (filters.hidden) params.set('hidden', '1');
+  for (const key of ['watch', 'changed', 'alert']) if (filters[key]) params.set(key, '1');
+  if (filters.signal) params.set('signal', filters.signal);
+  if (filters.signal) for (const key of ['source', 'revision']) if (filters[key]) params.set(key, filters[key]);
+  if (filters.cluster) params.set('cluster', filters.cluster);
   if (sortMode && sortMode !== 'relevance') params.set('sort', sortMode);
   const q = typeof filters.q === 'string' ? filters.q.trim() : '';
   if (q) params.set('q', q);   // write the free-text filter so a searched view deep-links

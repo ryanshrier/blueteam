@@ -1,0 +1,105 @@
+{
+  "provenance": {
+    "edition": "brief-2026-09-06-02.md",
+    "capturedAt": "2026-09-06T15:59:11.924Z",
+    "fields": "Public retained headline, feed, article and exact source-revision identifiers only."
+  },
+  "records": [
+    {
+      "originalEvidenceId": "S10.1",
+      "title": "Attackers Hijack MikroTik Routers Through Internet-Exposed SSH Without Authentication",
+      "source": "The Hacker News",
+      "link": "https://thehackernews.com/2026/09/attackers-hijack-mikrotik-routers.html",
+      "date": "2026-09-06T09:32:38.000Z",
+      "description": "Attackers are exploiting MikroTik routers with their Secure Shell (SSH) remote-access service, which is reachable from the internet, to gain full administrative control without authentication, according to CERT Polska's attack warning, published on September 5. Successful attacks date to at least September 2. The Hacker News’s September 6 review of the warning found no victim count or",
+      "articleBody": "Prevention Already Failed. What Does Your Monitoring Actually Catch? A 6-day SANS course rebuilds hybrid detection across cloud, endpoint, and network. GMON, Sept 21.",
+      "evidence": [
+        {
+          "sourceId": "src_f32b6453be4cfe26474f36c8f7c422173e113895ecb00c0f85c2a0c34a138eb2",
+          "revisionId": "rev_03aeee03cfbe6bb221537185264dae8d5fde0a09c91ff01c27c39ba56b08e98e",
+          "source": "The Hacker News",
+          "title": "Attackers Hijack MikroTik Routers Through Internet-Exposed SSH Without Authentication",
+          "canonicalUrl": "https://thehackernews.com/2026/09/attackers-hijack-mikrotik-routers.html",
+          "passageKind": "feed-excerpt",
+          "changed": false,
+          "publishedAt": "2026-09-06T09:32:38.000Z",
+          "retrievedAt": "2026-09-06T13:52:56.960Z",
+          "firstObservedAt": "2026-09-06T13:52:56.960Z",
+          "lastObservedAt": "2026-09-06T15:57:26.284Z"
+        }
+      ],
+      "sourceMembers": [
+        {
+          "title": "Attackers Hijack MikroTik Routers Through Internet-Exposed SSH Without Authentication",
+          "source": "The Hacker News",
+          "link": "https://thehackernews.com/2026/09/attackers-hijack-mikrotik-routers.html",
+          "date": "2026-09-06T09:32:38.000Z",
+          "passage": "Attackers are exploiting MikroTik routers with their Secure Shell (SSH) remote-access service, which is reachable from the internet, to gain full administrative control without authentication, according to CERT Polska's attack warning, published on September 5. Successful attacks date to at least September 2. The Hacker News’s September 6 review of the warning found no victim count or",
+          "evidence": [
+            {
+              "sourceId": "src_f32b6453be4cfe26474f36c8f7c422173e113895ecb00c0f85c2a0c34a138eb2",
+              "revisionId": "rev_03aeee03cfbe6bb221537185264dae8d5fde0a09c91ff01c27c39ba56b08e98e",
+              "source": "The Hacker News",
+              "title": "Attackers Hijack MikroTik Routers Through Internet-Exposed SSH Without Authentication",
+              "canonicalUrl": "https://thehackernews.com/2026/09/attackers-hijack-mikrotik-routers.html",
+              "passageKind": "feed-excerpt",
+              "changed": false,
+              "publishedAt": "2026-09-06T09:32:38.000Z",
+              "retrievedAt": "2026-09-06T13:52:56.960Z",
+              "firstObservedAt": "2026-09-06T13:52:56.960Z",
+              "lastObservedAt": "2026-09-06T15:57:26.284Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "originalEvidenceId": "S11.1",
+      "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+      "source": "The Hacker News",
+      "link": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+      "date": "2026-09-05T20:14:47.000Z",
+      "description": "Attackers are exploiting a new unpatched vulnerability in Magento Open Source and Adobe Commerce that lets them run malicious code on an online store's server without logging in, Dutch e-commerce security company Sansec said in an advisory published on September 5. Sansec, which discovered the flaw and named it StyleSmuggler, said attacks started on September 4. \"Sansec is",
+      "articleBody": "Prevention Already Failed. What Does Your Monitoring Actually Catch? A 6-day SANS course rebuilds hybrid detection across cloud, endpoint, and network. GMON, Sept 21.",
+      "evidence": [
+        {
+          "sourceId": "src_928c911a38e1b699ed8b397db8c9a532304583b653436a0c5480c8789f125824",
+          "revisionId": "rev_c8ba174b6c01459c8fe398d0718c811ef3e218926af48683e1f687df610599f9",
+          "source": "The Hacker News",
+          "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+          "canonicalUrl": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+          "passageKind": "feed-excerpt",
+          "changed": true,
+          "publishedAt": "2026-09-05T20:14:47.000Z",
+          "retrievedAt": "2026-09-05T22:43:34.636Z",
+          "firstObservedAt": "2026-09-05T21:07:54.890Z",
+          "lastObservedAt": "2026-09-06T15:57:26.284Z"
+        }
+      ],
+      "sourceMembers": [
+        {
+          "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+          "source": "The Hacker News",
+          "link": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+          "date": "2026-09-05T20:14:47.000Z",
+          "passage": "Attackers are exploiting a new unpatched vulnerability in Magento Open Source and Adobe Commerce that lets them run malicious code on an online store's server without logging in, Dutch e-commerce security company Sansec said in an advisory published on September 5. Sansec, which discovered the flaw and named it StyleSmuggler, said attacks started on September 4. \"Sansec is",
+          "evidence": [
+            {
+              "sourceId": "src_928c911a38e1b699ed8b397db8c9a532304583b653436a0c5480c8789f125824",
+              "revisionId": "rev_c8ba174b6c01459c8fe398d0718c811ef3e218926af48683e1f687df610599f9",
+              "source": "The Hacker News",
+              "title": "Unpatched Magento and Adobe Commerce Zero-Day Exploited to Backdoor Online Stores",
+              "canonicalUrl": "https://thehackernews.com/2026/09/unpatched-magento-and-adobe-commerce.html",
+              "passageKind": "feed-excerpt",
+              "changed": true,
+              "publishedAt": "2026-09-05T20:14:47.000Z",
+              "retrievedAt": "2026-09-05T22:43:34.636Z",
+              "firstObservedAt": "2026-09-05T21:07:54.890Z",
+              "lastObservedAt": "2026-09-06T15:57:26.284Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

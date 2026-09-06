@@ -21,7 +21,7 @@ describe('Scheduled Briefing form availability', () => {
     const form = controls();
 
     syncScheduleControlState({ ...form, available: true, saving: true });
-    expect(form.fields.every(field => !field.disabled)).toBe(true);
+    expect(form.fields.every(field => field.disabled)).toBe(true);
     expect(form.saveButton.disabled).toBe(true);
 
     syncScheduleControlState({ ...form, available: true, saving: false });
@@ -30,5 +30,12 @@ describe('Scheduled Briefing form availability', () => {
     syncScheduleControlState({ ...form, available: false, saving: false });
     expect(form.saveButton.disabled).toBe(true);
   });
+  test('does not offer a save when the form matches its saved schedule', () => {
+    const form = controls();
+    syncScheduleControlState({ ...form, available: true, dirty: false });
+    expect(form.saveButton.disabled).toBe(true);
+    expect(form.fields.every(field => !field.disabled)).toBe(true);
+    syncScheduleControlState({ ...form, available: true, dirty: true });
+    expect(form.saveButton.disabled).toBe(false);
+  });
 });
-

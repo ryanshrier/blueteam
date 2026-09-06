@@ -34,3 +34,15 @@ const paths = {
 export function wireIcon(name) {
   return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ''}</svg>`;
 }
+
+// Menu commands name the next action; the inspector button reflects state.
+// Passive reading updates must preserve that distinction.
+export function reflectReadControl(button, read) {
+  const action = read ? 'Mark unread' : 'Mark read';
+  button.setAttribute('aria-pressed', String(read));
+  button.setAttribute('aria-label', action);
+  button.setAttribute('title', action);
+  button.innerHTML = button.dataset.readAction !== undefined
+    ? action
+    : `${wireIcon(read ? 'read' : 'unread')}<span class="wire-read-label">${read ? 'Read' : 'Unread'}</span>`;
+}

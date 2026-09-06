@@ -41,6 +41,7 @@ jest.unstable_mockModule('../lib/refresher.js', () => ({
 }));
 jest.unstable_mockModule('../lib/db.js', () => ({
   getKEVDueDates: getKEVDueDatesMock,
+  getKEVRecords: jest.fn(() => ({})),
   getBriefMeta: getBriefMetaMock,
 }));
 jest.unstable_mockModule('../lib/config.js', () => ({
@@ -367,5 +368,32 @@ describe('routes/landscape.js — memo invalidation', () => {
     getConfigVersionMock.mockReturnValue(2);
     expect((await fetch(`${ctx.base}/api/landscape`)).status).toBe(200);
     expect(buildLandscapeMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('ages retained observations out of the evidence window without rebuilding a slow-cadence landscape', async () => {
+    const startedAt = Date.parse('2026-09-06T12:00:00Z');
+    const observedAt = new Date(startedAt).toISOString();
+    const now = jest.spyOn(Date, 'now').mockReturnValue(startedAt);
+    getLatestRunMock.mockReturnValue({ generatedAtMs: startedAt, generatedAt: observedAt,
+      headlines: Array.from({ length: 5 }, (_, index) => ({ title: `Retained observation ${index}`, retrievedAt: observedAt })) });
+    getRunAgeMsMock.mockReturnValue(0);
+    buildLandscapeMock.mockReturnValueOnce({ generatedAt: observedAt,
+      evidence: { freshHeadlines: 5, retainedHeadlines: 0, observedAt },
+      collection: { configuredSources: 10, freshSources: 10 }, pipeline: { refreshMinutes: 60 } });
+    try {
+      ctx = await makeServer({ historyDir: dir });
+      const initial = await (await fetch(`${ctx.base}/api/landscape`)).json();
+      expect(initial.stale).toBe(false);
+      expect(initial.evidence.freshHeadlines).toBe(5);
+      now.mockReturnValue(startedAt + 35 * 60_000);
+      getRunAgeMsMock.mockReturnValue(35 * 60_000);
+      const later = await (await fetch(`${ctx.base}/api/landscape`)).json();
+      expect(later).toMatchObject({ stale: true, generatedAt: observedAt,
+        evidence: { freshHeadlines: 0, retainedHeadlines: 5, observedAt }, pipeline: { ageMinutes: 35 } });
+      expect(buildLandscapeMock).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+      getRunAgeMsMock.mockReturnValue(60_000);
+    }
   });
 });

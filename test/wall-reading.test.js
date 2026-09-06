@@ -52,4 +52,10 @@ describe('Wall continuations', () => {
       querySelectorAll: () => [{ getBoundingClientRect: () => ({ top: 100, bottom: 1400 }) }] };
     expect(readingStops(body)).toEqual([0, 436, 872, 1200]);
   });
+  test('keeps semantic continuation positions unchanged under native 4K CSS zoom', () => {
+    const measured = scale => ({ clientHeight: 500, scrollHeight: 1600, scrollTop: 250,
+      getBoundingClientRect: () => ({ top: 100, height: 500 * scale }),
+      querySelectorAll: () => [{ getBoundingClientRect: () => ({ top: 100 + (300 - 250) * scale, bottom: 100 + (750 - 250) * scale }) }] });
+    expect(readingStops(measured(2))).toEqual(readingStops(measured(1)));
+  });
 });

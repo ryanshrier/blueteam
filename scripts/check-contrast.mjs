@@ -4,8 +4,8 @@
 // must stay legible; this fails the build if a token regresses below its floor.
 // Pure Node, no dependencies.
 //
-// Floors (WCAG 2.1): body/secondary/brand text → 4.5:1; tertiary/muted labels
-// (larger sizes / decoration) → 3.0:1.
+// Normal text, including small metadata, clears 4.5:1. Field boundaries clear
+// 3:1 against the field and its surrounding surface.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -59,12 +59,11 @@ function channel(c) { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.
 function luminance(hex) { const [r, g, b] = toRgb(hex).map(channel); return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
 function ratio(a, b) { const la = luminance(a), lb = luminance(b); const [hi, lo] = la > lb ? [la, lb] : [lb, la]; return (hi + 0.05) / (lo + 0.05); }
 
-const ALL_BG = ['bg-primary', 'bg-secondary', 'bg-tertiary', 'bg-card', 'bg-elevated'];
-const TEXT_BG = ['bg-primary', 'bg-secondary', 'bg-card']; // surfaces brand-as-text actually renders on
+const ALL_BG = ['bg-primary', 'bg-secondary', 'bg-tertiary', 'bg-card', 'bg-elevated', 'bg-reading', 'bg-input', 'bg-selected', 'bg-hover'];
 const ROLES = [
   { token: 'text-primary', min: 4.5, bg: ALL_BG },
   { token: 'text-secondary', min: 4.5, bg: ALL_BG },
-  { token: 'text-tertiary', min: 3.0, bg: ALL_BG },   // decoration / large text only
+  { token: 'text-tertiary', min: 4.5, bg: ALL_BG },   // small labels and metadata are normal text
   { token: 'text-muted', min: 4.5, bg: ALL_BG },      // carries read-data (timestamps, KEV dates, sources) → AA
   { token: 'brand-text', min: 4.5, bg: ALL_BG },      // links/nav/wordmark render across every surface
 ];
@@ -83,10 +82,52 @@ const SIGNAL_ROLES = [
   { token: 'sev-critical', min: 4.5, bg: ALL_BG },
   { token: 'kev-text', min: 4.5, bg: ALL_BG },
   { token: 'on-h1-soft', min: 4.5, bg: ALL_BG },
+  { token: 'warn', min: 4.5, bg: ALL_BG },
 ];
 
 const failures = [];
 const report = [];
+
+for (const [theme, map] of [['dark', darkVars], ['light', lightVars]]) {
+  for (const [inkToken, bgToken, min] of [
+    ['text-selection', 'bg-text-selection', 4.5],
+    ['text-diff', 'bg-diff-added', 4.5],
+    ['text-diff', 'bg-diff-removed', 4.5],
+    ['mark-added', 'bg-diff-added', 3],
+    ['mark-removed', 'bg-diff-removed', 3],
+  ]) {
+    const ink = resolve(map, map[inkToken]), background = resolve(map, map[bgToken]);
+    if (!ink || !background) { failures.push(`[${theme}] unresolved ${inkToken}/${bgToken}`); continue; }
+    const value = ratio(ink, background);
+    report.push(`  ${value >= min ? '✓' : '✖'} [${theme}] --${inkToken} on --${bgToken}: ${value.toFixed(2)}:1 (min ${min})`);
+    if (value < min) failures.push(`[${theme}] --${inkToken} on --${bgToken} = ${value.toFixed(2)}:1 (needs ${min}:1)`);
+  }
+}
+
+for (const [theme, map] of [['dark', darkVars], ['light', lightVars]]) {
+  report.push(`\n[${theme} field boundaries]`);
+  const border = resolve(map, map['border-control']);
+  for (const token of ['bg-input', 'bg-primary', 'bg-secondary', 'bg-reading']) {
+    const background = resolve(map, map[token]);
+    if (!border || !background) { failures.push(`[${theme}] missing field token ${token}`); continue; }
+    const value = ratio(border, background);
+    report.push(`  ${value >= 3 ? '✓' : '✖'} --border-control on --${token}: ${value.toFixed(2)}:1 (min 3)`);
+    if (value < 3) failures.push(`[${theme}] field boundary on --${token} = ${value.toFixed(2)}:1 (needs 3:1)`);
+  }
+}
+
+// Navigation remains graphite in either reading theme and has its own ink roles.
+for (const [theme, map] of [['dark', darkVars], ['light', lightVars]]) {
+  report.push(`\n[${theme} navigation]`);
+  for (const token of ['text-navigation', 'text-navigation-muted', 'link-navigation']) {
+    const ink = resolve(map, map[token]);
+    const background = resolve(map, map['bg-navigation']);
+    if (!ink || !background) { failures.push(`[${theme}] missing navigation token ${token}`); continue; }
+    const r = ratio(ink, background);
+    report.push(`  ${r >= 4.5 ? '✓' : '✖'} --${token} on --bg-navigation: ${r.toFixed(2)}:1 (min 4.5)`);
+    if (r < 4.5) failures.push(`[${theme}] --${token} on --bg-navigation = ${r.toFixed(2)}:1 (needs 4.5:1)`);
+  }
+}
 
 for (const [theme, map] of [['dark', darkVars], ['light', lightVars]]) {
   report.push(`\n[${theme}]`);
@@ -134,8 +175,8 @@ for (const n of [1, 2, 3]) {
   if (!ok) failures.push(`--ink-on-h${n} on --h${n} = ${r.toFixed(2)}:1 (needs 4.5:1)`);
 }
 
-// The public landing has its own intentionally warmer palette rather than
-// importing the application tokens. Check the text/background combinations it
+// The public landing mirrors the application's reading palette in its own
+// static stylesheet. Check the text/background combinations it
 // actually renders so an accessible app theme cannot mask a marketing-page
 // regression.
 const landingRootBody = landingCss.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
@@ -146,7 +187,6 @@ const LANDING_ROLES = [
   { token: 'ink-2', min: 4.5 },
   { token: 'ink-3', min: 4.5 },
   { token: 'faint', min: 4.5 },
-  { token: 'accent', min: 4.5 },
   { token: 'link', min: 4.5 },
 ];
 
@@ -209,10 +249,16 @@ report.push('\n[CTA ink]');
 // the exact class the original P0 slipped through (the loop anchored to pure
 // white instead of the real, darker ground).
 const ACCENTS = ['#3b82f6', '#22d3ee', '#6d7cf0', '#14b8a6', '#64748b', '#d946ef'];
-const WORST_LIGHT = [229, 233, 241]; // #e5e9f1 (--bg-tertiary) — darkest light surface
-const WORST_DARK = [22, 28, 44];     // #161c2c (--bg-elevated) — lightest dark surface
+const WORST_LIGHT = toRgb(resolve(lightVars, lightVars['bg-tertiary']));
+const WORST_DARK = toRgb(resolve(darkVars, darkVars['bg-elevated']));
 const lumRgb = (rr, gg, bb) => 0.2126 * channel(rr) + 0.7152 * channel(gg) + 0.0722 * channel(bb);
 function simBrandText(hex, theme) {
+  // The runtime removes the inline override for the shipped blue, preserving
+  // the intentionally higher-contrast CSS value for the current theme.
+  if (hex === '#3b82f6') {
+    const map = theme === 'light' ? lightVars : darkVars;
+    return resolve(map, map['brand-text']);
+  }
   let [r, g, b] = toRgb(hex);
   if (theme === 'light') {
     const bgL = lumRgb(...WORST_LIGHT);

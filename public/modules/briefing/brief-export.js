@@ -1,13 +1,8 @@
-// BlueTeam.News — printable "newspaper" export of a briefing.
-//
-// The on-screen brief is a dark-mode digital memo (cards, tier rules, a
-// confidence gauge). A printout of that wastes ink and reads like a web page,
-// not a paper. This module instead opens an isolated, SAME-ORIGIN
-// edition: it CLONES the already-rendered, already-DOMPurify-sanitized
-// #briefContent and reskins its stable semantic classes (.bluf,
-// .brief-judgment-card.h{1,2,3}, .the-line, .c-action, .brief-judgment-meta,
-// .brief-sources-appendix) for a clean white page — a centred nameplate, a folio rule,
-// a readable single-column body, tier tags, pull quotes, and a source appendix.
+// BlueTeam.News — editorial Print Edition of the saved briefing.
+// Clone the already-rendered, DOMPurify-sanitized #briefContent into a separate
+// same-origin reading document. The white publication uses the product wordmark,
+// serif assessments, sans-serif navigation and metadata, complete action rows,
+// and a readable source appendix. The historical export names remain compatible.
 //
 // Why a separate document and not an `@media print` rule on the app:
 //   • full control over the layout without fighting the dark theme, the sticky
@@ -20,6 +15,7 @@
 // dynamic strings we compose (date, filename, model) are escaped, defensively.
 
 import { escapeHtml } from '../core/sanitize.js';
+import { formatEditionIdentity, formatEventTime } from '../core/brief-date.js';
 import { structureExecutiveSummary } from './brief-executive.js';
 import {
   normalizePackedBriefFields,
@@ -50,7 +46,7 @@ export const PRINT_DOCUMENT_CSP = [
 // .brief-judgment-link is in-app Wire navigation — a dead anchor on paper, so strip it.
 // .brief-validation-warning is rebuilt below as a static Edition notes block,
 // including the complete warning text rather than a count-only live-app reference.
-const STRIP_SELECTOR = '.streaming-cursor, .brief-validation-warning, .gen-progress, .error-message, .briefing-status, .brief-judgment-tools, .brief-copy-decision, .brief-judgment-link, .bjm-revises';
+const STRIP_SELECTOR = '.streaming-cursor, .brief-validation-warning, .gen-progress, .error-message, .briefing-status, .brief-judgment-tools, .brief-copy-decision, .brief-judgment-link, .bjm-revises, [data-reader-metadata]';
 
 // Field labels eligible for short-block pagination after shared normalization.
 const PAGINATION_FIELD_LABELS = new Set([
@@ -123,6 +119,20 @@ export function collectEditionWarnings(contentEl, persisted = []) {
   return warnings;
 }
 
+// Operate only on the export clone. The reader groups corrections in its top
+// review disclosure; print keeps that complete audit trail after the
+// intelligence and source appendix. Legacy per-section notes work as well.
+export function extractPrintReviewNotes(root) {
+  return [...root.querySelectorAll('.brief-review-note')].map(note => {
+    // The live summary is only a repeated disclosure/count label. Every
+    // correction ID, explanation and source link remains in the full content.
+    note.querySelector('summary')?.remove();
+    const html = note.innerHTML;
+    note.remove();
+    return `<div class="np-review-correction-group">${html}</div>`;
+  }).join('\n');
+}
+
 // Keep the former public helper name for compatibility; screen and export now
 // use the same section-agnostic normalizer from brief-renderer.js.
 export const splitPackedJudgmentFieldHtml = splitPackedBriefFieldHtml;
@@ -131,6 +141,18 @@ export const splitPackedJudgmentFieldHtml = splitPackedBriefFieldHtml;
 // Give each non-lead story a small, genuinely atomic opening (headline,
 // metadata, and Assessment) while leaving the rest of the card pageable.
 function preparePrintPagination(root) {
+  // The reader puts actions first. On paper the executive heading and its
+  // parallel context form one opening, followed by the pageable action queue.
+  // A wrapper lets the print engine keep that opening together reliably.
+  root.querySelectorAll('.np-exec-panel').forEach(panel => {
+    const heading = panel.previousElementSibling;
+    const facts = panel.querySelector('.np-exec-facts');
+    if (heading?.tagName !== 'H2' || !facts) return;
+    const opening = root.ownerDocument.createElement('div');
+    opening.className = 'np-exec-opening';
+    opening.append(heading, facts);
+    panel.prepend(opening);
+  });
   root.querySelectorAll('.brief-judgment-card:not(.np-lead)').forEach(card => {
     const children = [...card.children];
     const heading = children.find(el => el.tagName === 'H3');
@@ -221,6 +243,7 @@ function protectUnbreakableTokens(root) {
  * @param {number|string|null} readMins app-computed reading time; preferred over recounting the clone
  * @param {string[]}    warnings   persisted validation warnings, if any
  * @param {HTMLElement} opener     control that opened the edition, if known
+ * @returns {Function} idempotent disposer; pass { restoreFocus: false } when navigating away
  */
 export function exportBriefNewspaper({
   contentEl,
@@ -231,10 +254,17 @@ export function exportBriefNewspaper({
   readMins = null,
   warnings = [],
   opener = null,
+  review = null,
 }) {
   const editionWarnings = collectEditionWarnings(contentEl, warnings);
   const clone = contentEl.cloneNode(true);
+  // Extract nested correction groups before removing their reader disclosure.
+  const reviewNotesHtml = extractPrintReviewNotes(clone);
   clone.querySelectorAll(STRIP_SELECTOR).forEach(el => el.remove());
+  clone.querySelectorAll('[data-review-original], .brief-review-summary, .brief-priority-index').forEach(el => el.remove());
+  // Reader disclosures simplify scanning. The print artifact always includes
+  // every authored supporting paragraph, independent of disclosure state.
+  expandReaderDisclosures(clone);
 
   // Re-run the shared normalization defensively before promoting the lead.
   // Completed screen briefs already crossed this pass, while legacy/direct
@@ -274,6 +304,8 @@ export function exportBriefNewspaper({
   const resolvedModel = model || (metaText.match(/claude-[\w.-]+/i) || [])[0] || '';
 
   protectUnbreakableTokens(clone);
+  clone.querySelectorAll('.brief-cite').forEach(cite => cite.removeAttribute('data-label-retained'));
+  clone.querySelectorAll('.brief-cite-back, .brief-material-unknown').forEach(node => node.remove());
   // Long authored units must be able to cross a page. Short callouts retain the
   // existing keep-together treatment; no text is shortened to fit the paper.
   clone.querySelectorAll('.bluf, .np-lead-head, .c-action, .the-line, .np-exec-actions > li').forEach(el => {
@@ -297,6 +329,10 @@ export function exportBriefNewspaper({
     freshness,
     model: resolvedModel,
     warnings: editionWarnings,
+    filename,
+    editionUrl: filename ? `${location.origin}/briefing/${encodeURIComponent(filename)}` : '',
+    review,
+    reviewNotesHtml,
   });
 
   // Render the edition in an in-app preview (an isolated, same-origin iframe).
@@ -318,14 +354,15 @@ export function exportBriefNewspaper({
   overlay.setAttribute('aria-labelledby', 'npOvTitle');
   overlay.innerHTML = `
     <div class="np-overlay-bar">
-      <span class="np-overlay-title" id="npOvTitle">${escapeHtml(plateTitle)} print edition — ${escapeHtml(longDate)}</span>
+       <span class="np-overlay-title" id="npOvTitle">${escapeHtml(plateTitle)} print edition — ${escapeHtml(longDate)}</span>
       <div class="np-overlay-actions">
         <button type="button" class="np-ov-btn np-ov-print primary" aria-label="Print this edition or save it as a PDF" aria-busy="true" disabled>Preparing edition…</button>
         <button type="button" class="np-ov-btn np-ov-close" aria-label="Close print edition">Close</button>
       </div>
-      <p class="np-overlay-status" role="status" hidden></p>
+       <p class="np-overlay-status" role="status" hidden></p>
+       <p class="np-overlay-reading-note">Continuous reading preview. Print / Save PDF shows page breaks and paper options.</p>
     </div>
-    <iframe class="np-frame" sandbox="${PRINT_IFRAME_SANDBOX}" title="${escapeHtml(plateTitle)} print edition preview"></iframe>`;
+     <iframe class="np-frame" sandbox="${PRINT_IFRAME_SANDBOX}" title="${escapeHtml(plateTitle)} continuous reading preview"></iframe>`;
   document.body.appendChild(overlay);
   // Native modal semantics make the app behind the preview inert and allow
   // keyboard focus to enter the iframe; the former hand-rolled button-only trap
@@ -335,21 +372,25 @@ export function exportBriefNewspaper({
 
   const frame = overlay.querySelector('.np-frame');
   const printBtn = overlay.querySelector('.np-ov-print');
+  const readiness = new AbortController();
+  let active = true;
 
   // Printing before srcdoc and its self-hosted fonts are ready produces a
   // partially styled first page in some browsers. Keep the action unavailable
   // until both the iframe load event and document.fonts.ready have settled.
-  const printReady = gatePrintUntilReady(frame, printBtn);
+  const printReady = gatePrintUntilReady(frame, printBtn, 8_000, readiness.signal);
   const doPrint = async () => {
+    if (!active) return;
     // Open the top-level print document synchronously from the click gesture,
     // then wait for its own fonts. This avoids browsers printing a blank iframe
     // or the parent app when frame printing fails.
     const opened = await printTopLevelDocument(html);
-    if (opened) return;
+    if (opened || !active) return;
 
     // Popup policies can still refuse a new top-level document. The already
     // loaded preview remains a bounded fallback; never print the parent shell.
     await printReady;
+    if (!active) return;
     try {
       frame.contentWindow.focus();
       frame.contentWindow.print();
@@ -366,12 +407,17 @@ export function exportBriefNewspaper({
   frame.srcdoc = html;   // same-origin; /fonts.css and the paper CSS resolve inside it
 
   let unbindPrintShortcut = () => {};
-  const close = () => {
+  const close = ({ restoreFocus = true } = {}) => {
+    if (!active) return;
+    active = false;
+    readiness.abort();
     unbindPrintShortcut();
     unbindPrintShortcut = () => {};
     if (overlay.open && typeof overlay.close === 'function') overlay.close();
     overlay.remove();
-    if (returnFocusTo && typeof returnFocusTo.focus === 'function') returnFocusTo.focus();
+    if (restoreFocus && returnFocusTo?.isConnected !== false && typeof returnFocusTo?.focus === 'function') {
+      returnFocusTo.focus({ preventScroll: true });
+    }
   };
 
   // Ctrl/Cmd+P from the parent dialog must not print the fixed-height iframe
@@ -384,10 +430,19 @@ export function exportBriefNewspaper({
     event.preventDefault();
     close();
   });
+  overlay.addEventListener('close', () => close());
   printBtn.addEventListener('click', doPrint);
   // Print is disabled until the iframe/fonts settle, so focus the usable Close
   // control now; the primary action joins the tab order as soon as it is ready.
   overlay.querySelector('.np-ov-close').focus();
+  return close;
+}
+
+export function expandReaderDisclosures(root) {
+  root.querySelectorAll('.brief-judgment-support, .brief-confidence-detail').forEach(details => {
+    details.querySelector(':scope > summary')?.remove();
+    details.replaceWith(...details.childNodes);
+  });
 }
 
 // ── helpers ──
@@ -447,34 +502,42 @@ export async function waitForPrintableFrame(frame) {
   }
 }
 
-export function gatePrintUntilReady(frame, button, maxWaitMs = 8_000) {
+export function gatePrintUntilReady(frame, button, maxWaitMs = 8_000, signal = null) {
   button.disabled = true;
   button.textContent = 'Preparing edition…';
   button.setAttribute?.('aria-busy', 'true');
   return new Promise(resolve => {
     let settled = false;
     let timeoutId;
-    const finish = () => {
+    const finish = (cancelled = false) => {
       if (settled) return;
       settled = true;
       if (timeoutId) clearTimeout(timeoutId);
-      button.disabled = false;
-      button.textContent = 'Print / Save PDF';
-      button.removeAttribute?.('aria-busy');
+      frame.removeEventListener?.('load', onLoad);
+      signal?.removeEventListener('abort', onAbort);
+      if (!cancelled) {
+        button.disabled = false;
+        button.textContent = 'Print / Save PDF';
+        button.removeAttribute?.('aria-busy');
+      }
       resolve();
     };
-
-    // A stalled iframe or font request must not strand the primary export
-    // action forever. Prefer the finished fonts, then fall back to the browser's
-    // available faces after a bounded wait.
-    timeoutId = setTimeout(finish, Math.max(0, Number(maxWaitMs) || 0));
-    frame.addEventListener('load', async () => {
+    const onAbort = () => finish(true);
+    const onLoad = async () => {
       try {
         await waitForPrintableFrame(frame);
       } finally {
         finish();
       }
-    }, { once: true });
+    };
+    if (signal?.aborted) { finish(true); return; }
+
+    // A stalled iframe or font request must not strand the primary export
+    // action forever. Prefer the finished fonts, then fall back to the browser's
+    // available faces after a bounded wait.
+    timeoutId = setTimeout(finish, Math.max(0, Number(maxWaitMs) || 0));
+    frame.addEventListener('load', onLoad, { once: true });
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -627,20 +690,38 @@ export function buildDocument({
   model,
   warnings = [],
   warningCount = 0,
+  filename = null,
+  editionUrl = '',
+  review = null,
+  reviewNotesHtml = '',
 }) {
+  const identity = formatEditionIdentity(filename) || longDate;
+  let safeEditionUrl = '';
+  try { const url = new URL(editionUrl); if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) safeEditionUrl = url.href; } catch { /* unsaved edition */ }
   const modelNote = model ? ` Model: ${escapeHtml(formatModelLabel(model))}.` : '';
   const safeWarnings = Array.isArray(warnings)
     ? warnings.map(value => String(value || '').trim()).filter(Boolean)
     : [];
   const resolvedWarningCount = safeWarnings.length || Math.max(0, Number(warningCount) || 0);
+  const corrected = review?.status === 'editorially-corrected';
   const validationBlock = safeWarnings.length
-    ? `<aside class="np-validation" aria-labelledby="npValidationTitle">
-        <strong id="npValidationTitle">Edition notes — review before distribution</strong>
+    ? `<aside class="np-validation" id="npPublicationNotes" aria-labelledby="npValidationTitle">
+        <strong id="npValidationTitle">Original publication notes${corrected ? ' (before later correction)' : ' — review before distribution'}</strong>
+        <p>These records describe the original publication. Notes prefixed QA review are later editorial annotations; their original author/time were not recorded.${corrected ? ' They precede the correction shown in this reading copy and are preserved as history.' : ''}</p>
         <ul>${safeWarnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>
       </aside>`
     : '';
   const validationNote = resolvedWarningCount > 0
-    ? `<span class="np-validation-note"> Generation notes: ${resolvedWarningCount} automated ${resolvedWarningCount === 1 ? 'check requires' : 'checks require'} review${safeWarnings.length ? ' above' : ' in the live briefing'}.</span>`
+    ? `<span class="np-validation-note"> Original publication notes: ${resolvedWarningCount} ${resolvedWarningCount === 1 ? 'note' : 'notes'} retained${safeWarnings.length ? ' in the appendix' : ' in the live briefing'}.</span>`
+    : '';
+  const provenance = corrected || resolvedWarningCount > 0
+    ? `<p class="np-reading-provenance">${corrected ? `Editorially corrected · Reviewed ${escapeHtml(formatEventTime(review.reviewedAt))} · <a href="#npEditorialReview">Review provenance</a>` : 'Publication notes require review before distribution'}${resolvedWarningCount > 0 ? ` · ${resolvedWarningCount} original publication ${resolvedWarningCount === 1 ? 'note' : 'notes'}${safeWarnings.length ? ' · <a href="#npPublicationNotes">Notes at end</a>' : ' in live briefing'}` : ''}</p>`
+    : '';
+  const reviewBlock = corrected
+    ? `<aside class="np-validation" id="npEditorialReview"><strong>Editorial review provenance</strong><p>${escapeHtml(review.reviewer)} · ${escapeHtml(formatEventTime(review.reviewedAt))}. ${escapeHtml(review.scope)}</p>${review.originalSha256 ? `<p>Original edition SHA-256: <code>${escapeHtml(review.originalSha256)}</code></p>` : ''}</aside>`
+    : '';
+  const correctionBlock = reviewNotesHtml
+    ? `<aside class="np-validation np-editorial-corrections" id="npEditorialCorrections" aria-labelledby="npEditorialCorrectionsTitle" style="break-inside:auto;page-break-inside:auto"><strong id="npEditorialCorrectionsTitle">Editorial corrections appendix</strong><p>Complete correction notes for this reading copy. The original generated edition and its captured inputs are preserved; these annotations are separate from its original source checks.</p>${reviewNotesHtml}</aside>`
     : '';
   return `<!DOCTYPE html>
 <html lang="en">
@@ -648,7 +729,7 @@ export function buildDocument({
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="${PRINT_DOCUMENT_CSP}">
-<title>${escapeHtml(plateTitle)} print edition — ${escapeHtml(longDate)}</title>
+<title>${escapeHtml(plateTitle)} print edition — ${escapeHtml(identity)}</title>
 <link rel="stylesheet" href="/fonts.css">
 <style>
 ${NEWSPAPER_CSS}
@@ -664,21 +745,26 @@ ${NEWSPAPER_CSS}
         <div class="np-ear np-ear-right">${readMins} min read</div>
       </div>
       <div class="np-folio">
-        <span class="np-folio-date">${escapeHtml(longDate)}</span>
+        <span class="np-folio-date">${escapeHtml(identity)}</span>
         <span class="np-folio-end">${escapeHtml(freshness)} · AI-generated</span>
       </div>
     </header>
 
-    ${validationBlock}
+    ${provenance}
 
     <div class="np-body brief-content">
       ${bodyHtml}
     </div>
 
+    ${validationBlock}
+    ${reviewBlock}
+    ${correctionBlock}
+
     <footer class="np-colophon">
       ${escapeHtml(plateTitle)} · AI-generated synthesis from sourced signals.${modelNote}
       Verify every CVE ID, vendor name, date, and link before acting.
       ${validationNote}
+      ${safeEditionUrl ? `<p>Permanent edition: <a href="${escapeHtml(safeEditionUrl)}">${escapeHtml(identity)}</a><br>${escapeHtml(safeEditionUrl)} · ${escapeHtml(freshness)}</p>` : ''}
     </footer>
     <div class="np-handling np-handling-foot">Internal · For situational awareness · Verify before acting</div>
   </div>
@@ -690,405 +776,208 @@ ${NEWSPAPER_CSS}
 // loaded here), reskinning the brief's semantic classes for a white edition.
 export const NEWSPAPER_CSS = `
 :root{
-  --paper:#fff; --paper-edge:#d8dce3; --desk:#e5e7eb;
-  --ink:#1a1714; --ink-2:#3a352e; --ink-3:#5e574c; --ink-faint:#6f675a;   /* faint ink darkened to ~5:1 on paper — clears WCAG AA for the 9-10px colophon/byline */
-  --rule:#1a1714; --hair:rgba(26,23,20,.18); --hair-2:rgba(26,23,20,.34);
-  --accent:#1d4ed8;
-  --t1:#b3261e; --t2:#9a5b09; --t3:#553c9a;   /* Tactical · Operational · Strategic — t3 muted from a digital purple toward a printer's indigo */
+  --paper:#fff; --paper-edge:#d4d6d8; --desk:#e7e8e8;
+  --ink:#222428; --ink-2:#353940; --ink-3:#555b63; --ink-faint:#60666e;
+  --rule:#222428; --hair:#d4d6d8; --hair-2:#969ba2;
+  --accent:#1d4ed8; --t1:#555b63; --t2:#555b63; --t3:#555b63;
+  --sans:Inter,Arial,sans-serif;
+  --serif:Newsreader,Georgia,'Times New Roman',serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;}
 body{
-  background:var(--desk);
-  color:var(--ink);
-  font-family:'Newsreader',Georgia,'Times New Roman',serif;
-  font-optical-sizing:auto;
-  -webkit-print-color-adjust:economy; print-color-adjust:economy;
-  padding:30px 16px 64px;
+  background:var(--desk); color:var(--ink); font-family:var(--serif);
+  font-optical-sizing:auto; -webkit-print-color-adjust:economy; print-color-adjust:economy;
+  padding:32px 20px 64px;
 }
-
-/* The sheet */
 .paper{
-  max-width:1060px; margin:0 auto; background:var(--paper);
-  border:1px solid var(--paper-edge);
-  box-shadow:0 10px 44px rgba(0,0,0,.28);
-  padding:46px 56px 52px;
+  max-width:960px; margin:0 auto; background:var(--paper);
+  border:1px solid var(--paper-edge); box-shadow:0 4px 24px rgba(20,24,28,.1);
+  padding:36px 52px 44px;
 }
-
-/* Handling caveat at the document boundaries keeps the AI-generated
-   "verify before acting" posture on the artifact itself, not only the app. */
-.np-handling{
-  margin:0 0 14px; padding:0 0 7px; text-align:center;
-  border-bottom:1px solid var(--rule);
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:9px; font-weight:700; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-2);
-}
-.np-handling-foot{ margin:18px 0 0; padding:7px 0 0; border-bottom:none; border-top:1px solid var(--rule); }
-
-/* ── Masthead ── */
-.np-masthead{ margin-bottom:22px; }
-.np-plate{
-  display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:20px;
-  border-top:3px solid var(--rule); border-bottom:1px solid var(--rule);
-  padding:12px 0 8px;
-}
-.np-ear{
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:11px; line-height:1.55; letter-spacing:.1em; text-transform:uppercase;
-  color:var(--ink-3);
-}
-.np-ear-left{ text-align:left; } .np-ear-right{ text-align:right; }
-.np-wordmark{
-  margin:0; font-weight:800; letter-spacing:-.015em; line-height:.92;
-  font-size:clamp(38px,7vw,80px); white-space:nowrap; text-align:center;
-}
-.np-dot{ color:var(--accent); }
-.np-folio{
-  display:flex; justify-content:space-between; align-items:baseline; gap:14px; flex-wrap:wrap;
-  border-top:1px solid var(--rule); border-bottom:3px double var(--rule);
-  padding:6px 1px; margin-top:5px;
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3);
-}
-.np-folio-date{ color:var(--ink); font-weight:600; letter-spacing:.1em; }
+/* A quiet handling line, followed by the product identity and publication title. */
+.np-handling{ margin:0 0 20px; font:10px/1.5 var(--sans); color:var(--ink-3); }
+.np-handling-foot{ margin:16px 0 0; }
+.np-masthead{ margin-bottom:24px; }
+.np-plate{ display:grid; grid-template-columns:1fr auto; align-items:baseline; gap:14px 24px; padding:0 0 16px; }
+.np-wordmark{ grid-row:1; grid-column:1; margin:0; font:750 17px/1.2 var(--sans); letter-spacing:.055em; text-transform:uppercase; overflow-wrap:anywhere; }
+.np-dot{ color:var(--ink); }
+.np-ear-left{ grid-row:2; grid-column:1 / -1; font:550 32px/1.15 var(--serif); letter-spacing:-.02em; color:var(--ink); }
+.np-ear-right{ grid-row:1; grid-column:2; font:12px/1.5 var(--sans); color:var(--ink-3); text-align:right; white-space:nowrap; }
+.np-folio{ display:flex; justify-content:space-between; align-items:baseline; gap:6px 24px; flex-wrap:wrap; border-top:2px solid var(--rule); padding-top:9px; font:12px/1.5 var(--sans); color:var(--ink-3); }
+.np-folio-date{ color:var(--ink); font-weight:600; }
 .np-folio-end{ text-align:right; }
-.np-validation{
-  max-width:74ch; margin:0 auto 20px; padding:10px 12px;
-  border:1px solid var(--hair-2); break-inside:avoid-page;
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:11px; line-height:1.5; color:var(--ink-2);
-}
-.np-validation strong{
-  display:block; margin-bottom:5px; text-transform:uppercase;
-  font-size:10px; letter-spacing:.1em; color:var(--t2);
-}
-.np-validation ul{ margin:0; padding-left:1.35em; }
-.np-validation li{ margin:2px 0; }
-
-/* ── Body ──
-   One readable column at a comfortable measure in both preview and print. This
-   is the canonical edition layout, so Save as PDF cannot silently recompose it. */
-.np-body{
-  max-width:74ch; margin:0 auto;
-  font-size:16px; line-height:1.65; text-align:left; hyphens:none;
-  -webkit-hyphens:none;
-  orphans:2; widows:2;   /* never strand a single line at a column foot/head */
-}
-.np-body > *{ break-inside:avoid-column; }   /* default; relaxed for tall blocks below */
-.np-body p{ margin:0 0 10px; }
-.np-body strong{ font-weight:700; color:var(--ink); }
+.np-reading-provenance{ font:12px/1.55 var(--sans); color:var(--ink-3); margin:0 0 20px; padding-left:12px; border-left:2px solid var(--hair-2); }
+.np-reading-provenance a{ color:var(--accent); text-underline-offset:3px; }
+/* Appendix is ordinary reading, with technical identifiers in monospace. */
+.np-validation{ margin:24px 0; padding:14px 0 0; border-top:1px solid var(--hair-2); break-inside:avoid-page; font:13px/1.6 var(--sans); color:var(--ink-2); }
+.np-validation > strong{ display:block; margin-bottom:8px; font-size:14px; font-weight:650; color:var(--ink); }
+.np-validation ul{ margin:8px 0; padding-left:1.35em; }
+.np-validation li{ margin:5px 0; }
+.np-validation, .np-validation code{ min-width:0; overflow-wrap:anywhere; word-break:normal; white-space:normal; }
+.np-validation code{ font:11px/1.65 var(--mono); }
+.np-review-correction-group{ padding-top:8px; }
+.np-body{ max-width:72ch; margin:0 auto; font-size:17px; line-height:1.55; text-align:left; hyphens:none; -webkit-hyphens:none; orphans:2; widows:2; }
+.np-body p{ margin:0 0 11px; }
+.np-body strong{ font-weight:650; color:var(--ink); }
 .np-body em{ font-style:italic; }
-.np-body a{ color:var(--ink); text-decoration:none; border-bottom:1px solid var(--hair-2); }
-.np-body code{
-  font-family:'JetBrains Mono',ui-monospace,monospace; font-size:.86em;
-  background:rgba(26,23,20,.06); padding:1px 4px; border-radius:3px;
-  white-space:normal; word-break:normal; overflow-wrap:anywhere; hyphens:none;
-}
+.np-body a{ color:var(--ink); text-decoration:underline; text-decoration-color:var(--hair-2); text-underline-offset:3px; }
+.np-body code{ font-family:var(--mono); font-size:.86em; white-space:normal; word-break:normal; overflow-wrap:anywhere; hyphens:none; }
 .np-body .np-nowrap{ display:inline-block; max-width:100%; vertical-align:baseline; white-space:normal; word-break:normal; overflow-wrap:anywhere; hyphens:none; }
-.np-body hr{ display:none; }   /* sections are delimited by banners / story rules */
-.np-body ul, .np-body ol{ margin:0 0 11px; padding-left:1.3em; }
-.np-body li{ margin:0 0 6px; break-inside:avoid; }
-
-/* Lead (BLUF) — a full-width centred standfirst under the nameplate */
-.np-body .bluf{
-  column-span:all; margin:2px 0 20px; padding:0 0 18px;
-  border-bottom:2px solid var(--rule); text-align:center;
-}
-.np-body .bluf::before{
-  content:'Bottom Line Up Front'; display:block;
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:10.5px; font-weight:700; letter-spacing:.26em; text-transform:uppercase;
-  color:var(--accent); margin-bottom:11px;
-}
-.np-body .bluf p{
-  margin:0 auto; max-width:46ch; text-align:center; hyphens:none;
-  font-size:clamp(19px,2.1vw,25px); line-height:1.36; font-weight:500; color:var(--ink);
-}
-.np-body .bluf.np-flow-long p{ max-width:60ch; text-align:left; font-size:21px; line-height:1.45; }
-
-/* Section banners — centred label between rules (h2 carries an id + sometimes
-   .brief-exec-heading / .brief-sources-heading; styled uniformly here) */
-.np-body h2{
-  column-span:all; margin:24px 0 14px; padding:6px 0; text-align:center;
-  border-top:1px solid var(--rule); border-bottom:1px solid var(--rule);
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:12px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:var(--ink);
-  break-after:avoid-page; page-break-after:avoid;   /* a banner never lands alone at the foot of a page */
-}
-/* Executive Summary restates the BLUF — keep it a quiet sub-banner on paper too, so
-   the read flows BLUF → Key Judgments without a redundant equal-weight stop. */
-.np-body h2.brief-exec-heading{
-  border-top:none; border-bottom:1px solid var(--hair);
-  font-size:12px; color:var(--ink); padding:5px 0; margin-top:16px;
-}
-
-/* Executive decision brief — facts establish the situation once, then a clean
-   owner queue answers who moves next. Shared deadlines print at queue level. */
-.np-exec-panel{ column-span:all; margin:0 0 24px; break-inside:auto; }
-.np-exec-facts{ display:grid; grid-template-columns:1fr 1fr; border-bottom:1px solid var(--rule); }
-.np-exec-fact{ padding:12px 14px 13px 0; }
-.np-exec-fact:nth-child(even){ border-left:1px solid var(--hair); padding-left:14px; }
-.np-exec-fact:nth-child(n+3){ border-top:1px solid var(--hair); }
+.np-body hr{ display:none; }
+.np-body ul, .np-body ol{ margin:0 0 12px; padding-left:1.3em; }
+.np-body li{ margin:0 0 6px; }
+/* An opening assessment has presence without filling the whole first page. */
+.np-body .bluf{ margin:0 0 24px; padding:0 0 20px; border-bottom:1px solid var(--hair); text-align:left; }
+.np-body .bluf::before{ content:'Bottom line up front'; display:block; font:650 12px/1.4 var(--sans); color:var(--ink-3); margin-bottom:10px; }
+.np-body .bluf p{ margin:0; max-width:none; text-align:left; font-size:23px; line-height:1.4; font-weight:450; color:var(--ink); }
+.np-body .bluf.np-flow-long p{ font-size:19px; line-height:1.5; }
+.np-body h2{ margin:28px 0 15px; padding:10px 0 0; text-align:left; border-top:1px solid var(--hair-2); font:650 13px/1.45 var(--sans); letter-spacing:.04em; color:var(--ink); break-after:avoid-page; page-break-after:avoid; }
+.np-body h2.brief-exec-heading{ margin-top:20px; border-top:0; padding-top:0; }
+/* Complete context and an owner/action queue; only compact units stay atomic. */
+.np-exec-panel{ margin:0 0 24px; break-inside:auto; }
+.np-exec-facts{ display:grid; grid-template-columns:1fr 1fr; gap:20px; padding-bottom:16px; border-bottom:1px solid var(--hair); }
+.np-exec-fact{ min-width:0; }
 .np-exec-fact:last-child:nth-child(odd){ grid-column:1 / -1; }
-.np-exec-fact-label,
-.np-exec-queue-head,
-.np-exec-common-due,
-.np-exec-action-index,
-.np-exec-action-due{
-  font-family:'JetBrains Mono',ui-monospace,monospace; text-transform:uppercase;
-  font-size:10.5px; font-weight:700; letter-spacing:.08em; color:var(--ink-3);
-}
-.np-exec-fact-label{ display:block; margin-bottom:5px; color:var(--accent); }
-.np-exec-fact p{ margin:0; font-size:14px; line-height:1.46; color:var(--ink-2); }
-.np-exec-queue{ padding-top:11px; }
-.np-exec-queue-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:2px; color:var(--ink); }
-.np-exec-common-due{ color:var(--accent); letter-spacing:.1em; }
+.np-exec-fact-label{ display:block; margin-bottom:5px; font:650 12px/1.45 var(--sans); color:var(--ink-3); }
+.np-exec-fact p{ margin:0; font-size:15px; line-height:1.5; color:var(--ink-2); }
+.np-exec-queue{ padding-top:12px; }
+.np-exec-queue-head{ display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px 20px; margin-bottom:4px; font:650 12px/1.5 var(--sans); color:var(--ink); }
+.np-exec-common-due{ color:var(--ink-3); font-weight:400; }
 .np-exec-actions{ list-style:none; margin:0 !important; padding:0 !important; }
-.np-exec-actions > li{
-  display:grid; grid-template-columns:28px minmax(0,1fr) minmax(120px,20%); gap:12px; align-items:start;
-  margin:0 !important; padding:11px 0; border-top:1px solid var(--hair);
-}
-.np-exec-action-index{ padding-top:2px; color:var(--accent); }
+.np-exec-actions > li{ display:grid; grid-template-columns:24px minmax(0,1fr) minmax(112px,22%); gap:12px; align-items:start; margin:0 !important; padding:12px 0; border-top:1px solid var(--hair); }
+.np-exec-action-index{ font:12px/1.5 var(--mono); color:var(--ink-3); padding-top:2px; }
 .np-exec-action-task{ min-width:0; }
-.np-exec-action-task strong{ display:block; margin-bottom:3px; font-size:15px; }
-.np-exec-action-task p{ margin:0; font-size:15px; line-height:1.5; color:var(--ink-2); }
-.np-exec-action-due{ padding-top:2px; text-align:left; color:var(--ink-2); letter-spacing:.02em; line-height:1.5; }
-.np-exec-due-label{ display:block; color:var(--ink-3); font-size:9px; margin-bottom:3px; }
+.np-exec-action-task strong{ display:block; margin-bottom:4px; font:650 15px/1.4 var(--sans); }
+.np-exec-action-task p{ margin:0; font-size:16px; line-height:1.45; color:var(--ink-2); }
+.np-exec-owner{ display:block; margin-top:6px; font:12px/1.5 var(--sans); color:var(--ink-3); }
+.np-exec-action-due{ font:12px/1.5 var(--sans); color:var(--ink-2); }
+.np-exec-due-label{ display:block; color:var(--ink-3); font-size:11px; margin-bottom:3px; }
 .np-exec-action-task:last-child{ grid-column:2 / -1; }
-
-/* Story (Key Judgment / Convergence card) — a clean editorial block separated
-   by a horizontal hairline. The tier chip already carries the classification;
-   a second solid/dashed/dotted rail was noisy and looked unfinished. */
-.np-body .brief-judgment-card{
-  break-inside:avoid; margin:0 0 18px; padding:0 0 16px;
-  border-top:none; border-bottom:1px solid var(--hair);
-}
-.np-body .np-judgment-opening{ border-top:1px solid var(--hair); padding:14px 0 0; }
-.np-body .brief-judgment-card > h3:first-child,
-.np-body .np-judgment-opening > h3:first-child{ margin-top:0; }
-.np-body h3{
-  font-weight:760; font-size:18.5px; line-height:1.2; margin:18px 0 7px;
-  text-align:left; hyphens:none; break-after:avoid;
-}
-
-/* ── Lead story ── the page's dominant judgment. Its head is a prominent
-   centred block while every field after Assessment returns to left-aligned prose. */
-.np-body .brief-judgment-card.np-lead{
-  column-span:all; break-inside:auto;
-  border-top:none; border-bottom:2px solid var(--rule);
-  margin:0 0 24px; padding:0 0 20px;
-}
-.np-lead-head{ text-align:center; margin:0 0 14px; }
+.np-body .brief-judgment-card{ margin:0 0 20px; padding:0 0 16px; border-bottom:1px solid var(--hair); }
+.np-body .np-judgment-opening{ border-top:0; padding:4px 0 0; }
+.np-body .brief-judgment-card > h3:first-child, .np-body .np-judgment-opening > h3:first-child{ margin-top:0; }
+.np-body h3{ font:650 21px/1.25 var(--sans); margin:20px 0 9px; text-align:left; hyphens:none; break-after:avoid; }
+.np-body .brief-judgment-card.np-lead{ break-inside:auto; margin:0 0 24px; padding:0 0 20px; }
+.np-lead-head{ text-align:left; margin:0 0 16px; }
 .np-lead-body{ text-align:left; }
-.np-lead-head::before{
-  content:'Lead Judgment'; display:block;
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:10px; font-weight:700; letter-spacing:.24em; text-transform:uppercase;
-  color:var(--accent); margin-bottom:9px;
-}
-.np-lead-head > h3{
-  font-size:clamp(27px,3.4vw,40px); line-height:1.07; margin:0 0 8px;
-  text-align:center; hyphens:none; break-after:avoid;
-}
-.np-lead-head .brief-judgment-meta{ text-align:center; margin:0 0 10px; }
-/* Match the body paragraph rule's scope so its margin cannot pin this narrower
-   standfirst to the left edge while only the text inside appears centred. */
-.np-body .np-lead-deck{
-  max-width:56ch; margin:0 auto;
-  font-size:18px; line-height:1.45; color:var(--ink-2); text-align:center;
-}
-.np-lead-deck strong{ color:var(--ink); }
-/* Quiet verifier host trailing a rich citation in the appendix. */
-.np-body .brief-cite-host{ color:var(--ink-faint); }
-
-/* Tier tag (was the inline .c-chip) */
-.np-body .c-chip{
-  display:inline-block; vertical-align:2px; margin-right:7px;
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:9px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
-  padding:1px 5px; border:1px solid currentColor; border-radius:2px;
-}
-.np-body .c-chip.h1{ color:var(--t1); }
-.np-body .c-chip.h2{ color:var(--t2); }
-.np-body .c-chip.h3{ color:var(--t3); }
-
-/* Judgment meta — confidence + decision window as a quiet byline line.
-   Drop the on-screen gradient gauge; paper carries it as text. */
-.np-body .brief-judgment-meta{
-  display:block; break-inside:avoid; margin:0 0 9px;
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:11px; line-height:1.5; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-3);
-}
+.np-lead-head > h3{ font:550 30px/1.15 var(--serif); letter-spacing:-.015em; margin:0 0 12px; text-align:left; break-after:avoid; }
+.np-lead-head .brief-judgment-meta{ margin:0 0 12px; }
+.np-body .np-lead-deck{ max-width:66ch; margin:0; font-size:19px; line-height:1.5; color:var(--ink-2); text-align:left; }
+/* Tiers are classifications, so the label carries their identity. */
+.np-body .c-chip{ display:inline-block; margin-right:10px; font:650 11px/1.5 var(--sans); color:var(--ink-3); text-transform:uppercase; letter-spacing:.03em; }
+.np-body .brief-judgment-meta{ display:block; break-inside:avoid; margin:0 0 12px; font:12px/1.55 var(--sans); color:var(--ink-3); }
 .np-body .bjm-confidence::before{ content:none; }
 .np-body .bjm-confidence{ margin-right:12px; }
 .np-body .bjm-window::before{ content:'· '; }
-.np-body .bjm-window-label{ font-weight:700; }
+.np-body .bjm-window-label{ font-weight:600; }
 .np-body .bjm-window-label::after{ content:' · '; }
-.np-body .bjm-window[data-edition-date]::after{
-  content:' · as of ' attr(data-edition-date); color:var(--ink-faint);
-}
-/* "The line" — serif pull-quote carried by type, not another left rail. */
-.np-body .the-line{
-  break-inside:avoid; position:relative; margin:15px 0; padding:6px 0;
-  font-style:italic; font-weight:600; font-size:16px; line-height:1.42;
-  color:var(--ink); text-align:left; hyphens:none;
-}
-.np-body .the-line::before{
-  content:none;
-}
-
-/* Action directive ("Act now") — the closing climax, set as a compact top-ruled
-   note rather than a third left-highlight treatment. */
-.np-body .c-action{
-  display:block;
-  break-inside:avoid; margin:14px 0 4px; padding:9px 0 0;
-  border-top:2px solid var(--accent); background:none;
-}
-.np-body .c-action-label{
-  display:block; width:100%; margin-bottom:4px;
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:9.5px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--accent);
-}
-.np-body .c-action-text{ display:block; width:100%; font-weight:600; color:var(--ink); }
-.np-body .brief-action-target{ display:block; margin-top:5px; font-size:13px; font-weight:500; color:var(--ink-2); }
-.np-body .c-action-text .brief-action-owner{ display:block; margin-bottom:4px; }
-
-/* Numbered inline citations + the sources column */
-.np-body .brief-cite{
-  font-family:'JetBrains Mono',ui-monospace,monospace; font-size:.72em;
-  vertical-align:super; color:var(--accent); margin-left:1px;
-}
-.np-body .brief-cite a.brief-cite-link{
-  color:var(--accent); border-bottom:none; text-decoration:none; padding:0 1px;
-}
-.np-body .brief-sources-appendix{
-  font-family:'JetBrains Mono',ui-monospace,monospace; font-size:12px; line-height:1.6;
-  padding-left:2.2em;
-}
-.np-body .brief-sources-appendix li{ color:var(--ink-2); }
+.np-body .bjm-window[data-edition-date]::after{ content:' · as of ' attr(data-edition-date); color:var(--ink-faint); }
+.np-body .the-line{ break-inside:avoid; margin:16px 0; padding:0; font-style:italic; font-weight:500; font-size:17px; line-height:1.5; color:var(--ink); text-align:left; }
+.np-body .the-line::before{ content:none; }
+.np-body .c-action{ display:block; break-inside:avoid; margin:18px 0 14px; padding:0 0 0 14px; border-left:2px solid var(--rule); background:none; }
+.np-body .c-action-label{ display:block; margin-bottom:6px; font:650 12px/1.5 var(--sans); color:var(--ink); }
+.np-body .c-action-text{ display:block; width:100%; font-weight:500; color:var(--ink); }
+.np-body .brief-action-target{ display:block; margin-top:6px; font:12px/1.5 var(--sans); color:var(--ink-3); }
+.np-body .c-action-text .brief-action-owner{ display:block; margin-bottom:4px; font:650 13px/1.5 var(--sans); }
+.np-body .brief-cite{ font-family:var(--mono); font-size:.72em; vertical-align:super; color:var(--accent); margin-left:1px; }
+.np-body .brief-cite a.brief-cite-link{ color:var(--accent); border-bottom:none; text-decoration:none; padding:0 1px; }
+.np-body .brief-cite-host{ color:var(--ink-faint); }
+.np-body .brief-cite[data-label-retained="true"]{ display:none; }
+.np-body .brief-source-detail{ display:block; font:12px/1.5 var(--sans); color:var(--ink-3); margin:4px 0 10px; }
+.np-body .brief-sources-appendix{ font:13px/1.6 var(--sans); padding-left:2em; }
+.np-body .brief-sources-appendix li{ color:var(--ink-2); padding:5px 0; }
 .np-body .brief-sources-heading + .brief-sources-appendix{ break-before:avoid-page; page-break-before:avoid; }
 .np-body .brief-sources-appendix a{ border-bottom:none; overflow-wrap:anywhere; word-break:normal; }
-.np-source-url{ display:block; overflow-wrap:anywhere; color:var(--ink-3); font-size:11px; line-height:1.5; margin:3px 0 8px; }
-
-/* Closing-thought blockquote */
-.np-body blockquote{
-  break-inside:avoid; margin:8px 0; padding:6px 0 6px 16px;
-  border-left:2px solid var(--hair-2);
-  font-style:italic; font-size:15px; line-height:1.42; color:var(--ink-2);
-}
-
-/* Tables (rare, but the contract allows them) */
-.np-body table{ width:100%; table-layout:fixed; border-collapse:collapse; margin:10px 0; font-size:12px; }
-.np-body th, .np-body td{ text-align:left; padding:5px 8px; border-bottom:1px solid var(--hair); overflow-wrap:anywhere; }
-.np-body th{
-  font-family:'JetBrains Mono',ui-monospace,monospace; font-size:9.5px;
-  letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3);
-}
-
-/* Colophon */
-.np-colophon{
-  margin-top:26px; padding-top:13px; border-top:3px double var(--rule);
-  font-family:'JetBrains Mono',ui-monospace,monospace;
-  font-size:11px; letter-spacing:.01em; line-height:1.65;
-  color:var(--ink-3); text-align:left;
-}
-.np-validation-note{ color:var(--t2); font-weight:700; text-transform:none; letter-spacing:.02em; }
-/* ── Print ── */
-/* Modern Chromium prints these restrained running folios in the page margin.
-   Engines without margin-box support ignore the nested rules; the document's
-   masthead, colophon, and handling footer remain a complete fallback. */
+.np-source-url{ display:block; overflow-wrap:anywhere; color:var(--ink-3); font:11px/1.55 var(--mono); margin:4px 0 8px; }
+.np-body blockquote{ break-inside:avoid; margin:12px 0; padding:0 0 0 14px; border-left:2px solid var(--hair-2); font-style:italic; font-size:16px; line-height:1.5; color:var(--ink-2); }
+.np-body table{ width:100%; table-layout:fixed; border-collapse:collapse; margin:12px 0; font:13px/1.5 var(--sans); }
+.np-body th, .np-body td{ text-align:left; padding:7px 8px; border-bottom:1px solid var(--hair); overflow-wrap:anywhere; }
+.np-body th{ font-size:11px; font-weight:600; color:var(--ink-3); }
+.np-colophon{ margin-top:28px; padding-top:14px; border-top:1px solid var(--hair-2); font:12px/1.65 var(--sans); color:var(--ink-3); overflow-wrap:anywhere; text-align:left; }
+.np-colophon p{ margin:8px 0; }
+.np-colophon a{ color:var(--ink); text-underline-offset:3px; }
+.np-validation-note{ font-weight:600; }
+/* The page margin carries small running folios. Content provides a fallback
+   for engines that do not support CSS margin boxes. */
 @page{
   size:auto;
   margin:14mm;
-  @bottom-left{
-    content:'BlueTeam.News · Print edition';
-    font-family:'JetBrains Mono',ui-monospace,monospace;
-    font-size:7pt; letter-spacing:.08em; text-transform:uppercase; color:#5e574c;
-  }
-  @bottom-right{
-    content:'Page ' counter(page) ' of ' counter(pages);
-    font-family:'JetBrains Mono',ui-monospace,monospace;
-    font-size:7pt; letter-spacing:.08em; text-transform:uppercase; color:#5e574c;
-  }
+  @bottom-left{ content:'BlueTeam.News · Print edition'; font-family:Inter,Arial,sans-serif; font-size:8pt; color:#555b63; }
+  @bottom-right{ content:'Page ' counter(page) ' of ' counter(pages); font-family:Inter,Arial,sans-serif; font-size:8pt; color:#555b63; }
 }
 @media print{
   html,body{ background:#fff; }
   body{ padding:0; }
-  /* Print is a white, ink-efficient version of the single-column preview.
-     Only the simulated desk/sheet chrome is removed; @page supplies margins. */
   .paper{ max-width:none; margin:0; padding:0; border:none; box-shadow:none; background:#fff; }
   .np-body{ max-width:none; font-size:11pt; line-height:1.5; orphans:2; widows:2; }
-  .np-handling{ font-size:8pt; }
-  .np-ear, .np-folio{ font-size:8pt; }
-  .np-body .brief-sources-appendix{ font-size:8.5pt; }
-  .np-colophon{ font-size:8pt; line-height:1.55; }
-  .np-validation{ font-size:8.5pt; }
-  .np-validation strong{ font-size:8pt; }
-  .np-body code{ background:none; }
+  .np-wordmark{ font-size:12pt; }
+  .np-ear-left{ font-size:24pt; }
+  .np-ear-right, .np-folio{ font-size:9pt; }
+  .np-handling{ font-size:8pt; margin-bottom:14px; }
+  .np-masthead{ margin-bottom:18px; }
+  .np-body .bluf p{ font-size:15pt; line-height:1.4; }
+  .np-body .bluf.np-flow-long p{ font-size:12pt; line-height:1.5; }
+  .np-body h2{ font-size:10pt; }
+  .np-body h3{ font-size:14pt; }
+  .np-lead-head > h3{ font-size:21pt; }
+  .np-body .np-lead-deck{ font-size:12pt; }
+  .np-body .brief-sources-appendix{ font-size:9.5pt; }
+  .np-colophon, .np-reading-provenance{ font-size:9pt; }
+  .np-validation{ font-size:9.5pt; }
+  .np-validation > strong{ font-size:10pt; }
+  .np-exec-queue-head{ break-after:avoid-page; page-break-after:avoid; }
+  .np-exec-actions{ break-before:avoid-page; page-break-before:avoid; }
+  /* Block flow keeps a complete action and its owner together reliably when
+     Chromium paginates a list; the screen grid remains unchanged. */
+  .np-exec-actions > li{ display:block; position:relative; padding-left:32px; padding-right:152px; }
+  .np-exec-action-index{ position:absolute; left:0; top:12px; }
+  .np-exec-action-due{ position:absolute; right:0; top:12px; width:132px; }
+  .np-exec-owner{ break-before:avoid-page; page-break-before:avoid; }
   .no-print{ display:none !important; }
-  /* Long stories and the Sources list may cross pages instead of leaving a
-     mostly empty predecessor. Keep only local reading units together. */
-  .np-body .brief-judgment-card, .np-body .brief-sources-appendix{ break-inside:auto; page-break-inside:auto; }
-  .np-body li{ break-inside:auto; page-break-inside:auto; }
-  .np-body h2, .np-body h3, .np-body .brief-judgment-meta{
-    break-after:avoid-page; page-break-after:avoid;
-  }
+  .np-body .brief-judgment-card, .np-body .brief-sources-appendix, .np-body li{ break-inside:auto; page-break-inside:auto; }
+  .np-body .brief-sources-appendix li{ break-inside:avoid-page; page-break-inside:avoid; }
+  .np-body .the-line, .np-colophon, .np-handling-foot{ break-before:avoid-page; page-break-before:avoid; }
+  .np-colophon{ break-inside:avoid-page; page-break-inside:avoid; }
+  .np-body h2, .np-body h3, .np-body .brief-judgment-meta{ break-after:avoid-page; page-break-after:avoid; }
   .np-body h3, .np-body .np-judgment-opening, .np-body p.np-field-unit{
     break-inside:avoid-page; page-break-inside:avoid;
   }
-  .np-body p.np-list-intro{
-    break-after:avoid-page; page-break-after:avoid;
-  }
-  .np-body p.np-list-intro + ul,
-  .np-body p.np-list-intro + ol{
-    break-before:avoid-page; page-break-before:avoid;
-  }
-  .np-body .np-short-list-group{
-    break-inside:avoid-page; page-break-inside:avoid;
-  }
-  .np-body h2 + *, .np-body .brief-sources-heading + .brief-sources-appendix{
-    break-before:avoid-page; page-break-before:avoid;
-  }
-  .np-lead-head, .np-body .bluf, .np-exec-facts,
-  .np-body .brief-judgment-meta, .np-body .c-action, .np-body .the-line,
-  .np-body blockquote, .np-body tr, .np-exec-actions > li{
-    break-inside:avoid-page; page-break-inside:avoid;
-  }
+  .np-body p.np-list-intro{ break-after:avoid-page; page-break-after:avoid; }
+  .np-body p.np-list-intro + ul, .np-body p.np-list-intro + ol{ break-before:avoid-page; page-break-before:avoid; }
+  .np-body .np-short-list-group{ break-inside:avoid-page; page-break-inside:avoid; }
+  .np-body h2 + *, .np-body .brief-sources-heading + .brief-sources-appendix{ break-before:avoid-page; page-break-before:avoid; }
+  .np-lead-head, .np-body .bluf, .np-exec-facts, .np-body .brief-judgment-meta,
+  .np-body .c-action, .np-body .the-line, .np-body blockquote, .np-body tr, .np-exec-actions > li{ break-inside:avoid-page; page-break-inside:avoid; }
   .np-body p{ orphans:2; widows:2; }
   .np-body .np-flow-long{ break-inside:auto; page-break-inside:auto; }
-  /* Parallel context columns must start together on a page. A text-length
-     threshold cannot predict their height; the print engine can honor avoid
-     when the row fits and relax it only for a row taller than the paper. */
-  .np-body .np-exec-facts{ break-inside:avoid-page; page-break-inside:avoid; }
+  .np-body .np-exec-opening, .np-body .np-exec-facts{ break-inside:avoid-page; page-break-inside:avoid; }
   .np-body .brief-exec-heading{ break-after:avoid-page; page-break-after:avoid; }
   a[href]{ color:var(--ink) !important; border-bottom:none !important; }
 }
-
-/* Narrow screens — this artifact is read on screen before it's printed; drop
-   the masthead ears (they crowd a phone), stack the plate, and tighten the sheet. */
+/* Preview keeps the publication title and metadata available on phones. */
 @media screen and (max-width:760px){
-  body{ padding:8px 6px 28px; }
-  .paper{ padding:18px 16px 24px; }
-  .np-handling{ margin-bottom:9px; padding-bottom:4px; font-size:8px; letter-spacing:.16em; }
-  .np-masthead{ margin-bottom:15px; }
-  .np-ear{ display:none; }
-  .np-plate{ grid-template-columns:1fr; gap:3px; padding:8px 0 5px; }
-  .np-folio{ margin-top:3px; padding:4px 1px; font-size:9px; letter-spacing:.08em; }
-  .np-wordmark{ font-size:clamp(29px,10vw,47px); }
-  .np-body .bluf{ margin-bottom:14px; padding-bottom:12px; }
-  .np-body .bluf::before{ margin-bottom:7px; }
-  .np-body .bluf p{ font-size:clamp(18px,5.5vw,22px); }
-  .np-body h2{ margin:18px 0 11px; }
-  .np-exec-facts{ grid-template-columns:1fr; }
-  .np-exec-fact:nth-child(even){ border-left:0; padding-left:0; }
-  .np-exec-fact:nth-child(n+2){ border-top:1px solid var(--hair); }
-  .np-exec-actions > li{ grid-template-columns:24px minmax(0,1fr); }
-  .np-exec-action-due{ grid-column:2; max-width:none; padding-top:0; text-align:left; }
-  .np-body .brief-judgment-card.np-lead{ margin-bottom:18px; padding-bottom:15px; }
-  .np-lead-head{ margin-bottom:10px; }
-  .np-lead-head > h3{ font-size:clamp(22px,6.6vw,31px); }
-  .np-body .np-lead-deck{ font-size:16.5px; }
+  body{ padding:8px 6px 24px; }
+  .paper{ padding:20px 18px 28px; }
+  .np-handling{ font-size:10px; margin-bottom:16px; }
+  .np-masthead{ margin-bottom:20px; }
+  .np-plate{ gap:12px; }
+  .np-wordmark{ font-size:14px; }
+  .np-ear-right{ font-size:11px; }
+  .np-ear-left{ font-size:26px; }
+  .np-folio{ font-size:11px; }
+  .np-folio-end{ text-align:left; }
+  .np-body{ font-size:17px; }
+  .np-body .bluf p{ font-size:21px; }
+  .np-body .bluf.np-flow-long p{ font-size:18px; }
+  .np-exec-facts{ grid-template-columns:1fr; gap:14px; }
+  .np-exec-actions > li{ grid-template-columns:22px minmax(0,1fr); }
+  .np-exec-action-due{ grid-column:2; padding-top:0; }
+  .np-body h2{ margin-top:22px; }
+  .np-body h3{ font-size:20px; }
+  .np-lead-head > h3{ font-size:27px; }
+  .np-body .np-lead-deck{ font-size:18px; }
 }
-
 @media (prefers-reduced-motion: reduce){ *{ animation:none !important; } }
 `;

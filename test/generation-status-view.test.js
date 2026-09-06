@@ -5,8 +5,12 @@ const failed = () => ({ persistence: 'ok', active: false, latest: {
   status: 'failed', code: 'E006', editionDate: '2026-09-05',
   completedAt: '2026-09-05T16:30:00Z', costUsd: 0.377646, billing: 'provider-usage-recorded',
 } });
-const host = () => ({ hidden: true, dataset: {}, innerHTML: '',
-  addEventListener: jest.fn(), removeEventListener: jest.fn() });
+const host = () => {
+  const button = { disabled: false, textContent: 'Retry status check' };
+  return { hidden: true, dataset: {}, innerHTML: '', setAttribute: jest.fn(),
+    querySelector(selector) { return selector === '[data-refresh-generation]' && this.innerHTML.includes('data-refresh-generation') ? button : null; },
+    addEventListener: jest.fn(), removeEventListener: jest.fn() };
+};
 afterEach(() => jest.useRealTimers());
 
 test('saved failed publication accounting presents the cost without publishing a draft', () => {
@@ -57,6 +61,8 @@ test('active status polls to completion and stopping prevents detached asynchron
   await ui.refresh();
   await jest.advanceTimersByTimeAsync(10_000);
   expect(el.innerHTML).toContain('/briefing/brief-2026-09-05.md');
+  expect(el.innerHTML).toContain('<details class="brief-attempt-complete">');
+  expect(el.innerHTML).not.toContain('<details class="brief-attempt-complete" open');
   await jest.advanceTimersByTimeAsync(30_000);
   expect(load).toHaveBeenCalledTimes(2);
   let finish;
@@ -83,6 +89,66 @@ test('newer refresh wins and failures replace old success with an honest retry a
   await ui.refresh();
   expect(el.innerHTML).toContain('Retry status check');
   expect(el.innerHTML).not.toContain('$0.3776');
+  ui.stop();
+});
+
+test('a transient status failure recovers the completed outcome without another generation', async () => {
+  jest.useFakeTimers();
+  const load = jest.fn().mockRejectedValueOnce(new Error('connection reset'))
+    .mockResolvedValueOnce(failed());
+  const el = host();
+  const ui = mountGenerationStatus(el, { load });
+  await ui.refresh();
+  expect(el.innerHTML).toContain('Checking again shortly');
+  await jest.advanceTimersByTimeAsync(5_000);
+  expect(el.innerHTML).toContain('No edition was published');
+  expect(el.innerHTML).toContain('$0.3776');
+  await jest.advanceTimersByTimeAsync(60_000);
+  expect(load).toHaveBeenCalledTimes(2);
+  ui.stop();
+});
+
+test('active accounting polling resumes after a transient fetch failure', async () => {
+  jest.useFakeTimers();
+  const running = { persistence: 'ok', active: true, latest: { status: 'running' } };
+  const load = jest.fn().mockResolvedValueOnce(running).mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce(running).mockResolvedValueOnce(failed());
+  const el = host();
+  const ui = mountGenerationStatus(el, { load });
+  await ui.refresh();
+  await jest.advanceTimersByTimeAsync(10_000);
+  expect(el.dataset.state).toBe('unavailable');
+  await jest.advanceTimersByTimeAsync(5_000);
+  expect(el.dataset.state).toBe('running');
+  await jest.advanceTimersByTimeAsync(10_000);
+  expect(el.dataset.state).toBe('failed');
+  await jest.advanceTimersByTimeAsync(30_000);
+  expect(load).toHaveBeenCalledTimes(4);
+  ui.stop();
+});
+
+test('status failure retries are bounded and manual retry shows checking until the request settles', async () => {
+  jest.useFakeTimers();
+  const load = jest.fn().mockRejectedValue(new Error('offline'));
+  const el = host();
+  const ui = mountGenerationStatus(el, { load });
+  await ui.refresh();
+  await jest.advanceTimersByTimeAsync(65_000);
+  expect(load).toHaveBeenCalledTimes(3);
+  expect(el.innerHTML).toContain('Retry the status check before starting another attempt');
+  let resolve;
+  load.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  const button = el.querySelector('[data-refresh-generation]');
+  const click = el.addEventListener.mock.calls.find(([type]) => type === 'click')[1];
+  click({ target: { closest: () => button } });
+  expect(button).toMatchObject({ disabled: true, textContent: 'Checking status…' });
+  expect(el.setAttribute).toHaveBeenLastCalledWith('aria-busy', 'true');
+  click({ target: { closest: () => button } });
+  expect(load).toHaveBeenCalledTimes(4);
+  resolve(failed());
+  for (let i = 0; i < 4; i++) await Promise.resolve();
+  expect(el.setAttribute).toHaveBeenLastCalledWith('aria-busy', 'false');
+  expect(el.innerHTML).toContain('$0.3776');
   ui.stop();
 });
 

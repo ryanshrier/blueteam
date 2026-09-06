@@ -390,10 +390,10 @@ function validateProductTruth(file, document) {
     .filter(Boolean)
     .join(' ');
   const requiredClaims = [
-    [/Turn threat reporting into a daily defensive picture\./i, 'must lead with the operational outcome'],
-    [/Wall \+ Wire\s*No API key/i, 'must scope the no-key claim to Wall + Wire'],
+    [/From threat reporting to a clear next move\./i, 'must lead with the operational outcome'],
+    [/Requirements\s*Node\.js \+ npm/i, 'must disclose the local runtime requirements in the product proof'],
     [/Briefing generation\s*Anthropic API key/i, 'must disclose the Briefing key requirement in the product proof'],
-    [/Add your Anthropic API key for an AI-generated Briefing/i, 'must state the Anthropic requirement in visible prose'],
+    [/Anthropic API key for Briefing generation/i, 'must scope the quick-start key requirement to Briefing generation'],
     [/One Briefing\. Two formats\./i, 'must explain that the reader and Print Edition share one Briefing'],
     [/Built for the floor\. Grounded in evidence\./i, 'must retain the concise evidence-led product promise'],
     [/\bAI-generated\b/i, 'must label Briefings AI-generated'],
@@ -419,7 +419,7 @@ function validateProductTruth(file, document) {
   if (/\bfor (?:small )?blue teams\b/i.test(publicMetadata)) {
     fail(file, 'public metadata must not narrow the product to a single team size');
   }
-  if (!/Turn threat reporting into a daily defensive picture\./i.test(publicMetadata)) {
+  if (!/From threat reporting to a clear next move\./i.test(publicMetadata)) {
     fail(file, 'social metadata must carry the outcome-led product promise');
   }
   pass('key, audience, format, source-run, and platform-support claims remain explicitly scoped');
@@ -589,9 +589,12 @@ function validateMetadata(file, document, manifest, releaseVersion, releaseDate)
           fail(file, `JSON-LD must include ${field}`);
         }
       }
-      const sourceArchive = `https://github.com/ryanshrier/blueteam/archive/refs/tags/v${releaseVersion}.tar.gz`;
+      const isCandidate = /v[\d.]+ candidate/i.test(textContent(document));
+      const sourceArchive = isCandidate
+        ? `https://github.com/ryanshrier/blueteam/archive/refs/heads/codex/v${releaseVersion}-release-candidate.zip`
+        : `https://github.com/ryanshrier/blueteam/archive/refs/tags/v${releaseVersion}.tar.gz`;
       if (application.downloadUrl !== sourceArchive) {
-        fail(file, `JSON-LD downloadUrl must identify the tagged source archive ${sourceArchive}`);
+        fail(file, `JSON-LD downloadUrl must match the displayed candidate/release status: ${sourceArchive}`);
       }
       for (const field of ['image', 'screenshot']) {
         if (application[field]) validateVersionedAsset(file, application[field], releaseVersion);

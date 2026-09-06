@@ -69,6 +69,23 @@ jobs:
       - name: Verify production evidence and Settings fixtures in Chromium
         run: npm run check:evidence:render
 
+      - name: Verify reader, Wall, and theme layouts
+        run: |
+          npm run check:design:render
+          npm run check:theme:render
+        env:
+          DESIGN_SCREENSHOT_DIR: ${{ runner.temp }}/design-acceptance
+          THEME_SCREENSHOT_DIR: ${{ runner.temp }}/theme-acceptance
+
+      - name: Retain design and theme evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: design-acceptance-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/design-acceptance
+            ${{ runner.temp }}/theme-acceptance
+
       - name: Install PDF inspection tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
 

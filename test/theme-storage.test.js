@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, jest, test } from '@jest/globals';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 
 let theme;
 beforeEach(async () => {
@@ -40,4 +42,27 @@ test('quota failures do not let an old saved choice override a newly painted pre
   theme.applyAccent('#14b8a6');
   expect(theme.getThemePreference()).toBe('light');
   expect(theme.getAccent()).toBe('#14b8a6');
+});
+
+test.each([true, false])('first paint follows the OS even when storage is blocked (light=%s)', light => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const boot = html.match(/<script id="theme-init">([\s\S]*?)<\/script>/)[1];
+  const media = () => ({ matches: light });
+  const context = { document, window: { matchMedia: media }, matchMedia: media };
+  Object.defineProperty(context, 'localStorage', { get() { throw Error('Storage denied'); } });
+  runInNewContext(boot, context);
+  expect(document.documentElement.dataset.theme).toBe(light ? 'light' : 'dark');
+});
+
+test('system changes repaint while an explicit override removes the listener', () => {
+  const media = { matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() };
+  global.matchMedia = () => media;
+  theme.applyTheme('system');
+  expect(document.documentElement.dataset.theme).toBe('light');
+  const listener = media.addEventListener.mock.calls[0][1];
+  listener({ matches: false });
+  expect(document.documentElement.dataset.theme).toBe('dark');
+  theme.applyTheme('light');
+  expect(media.removeEventListener).toHaveBeenCalledWith('change', listener);
+  expect(document.documentElement.dataset.theme).toBe('light');
 });

@@ -2,15 +2,15 @@
 
 [Back to the README](../README.md)
 
-BlueTeam.News connects a declared watch profile to retained source passages and the inputs of a saved Briefing. Wire and evidence inspection work without an AI key. This is the evidence foundation for a daily handoff; it does not yet store an analyst's disposition, owner, applicability decision, or handoff acknowledgment.
+BlueTeam.News connects a declared watch profile to retained source passages and the inputs of a saved Briefing. Wire and evidence inspection work without an AI key. Wire can save your assessment, owner, next review date, basis, and evidence reference in this browser and include them in exports. These local decision records are separate from source reporting; they do not provide a shared case workflow, verified exposure, or handoff acknowledgment.
 
 ## Try the workflow
 
 1. Open **Settings → Watch profile**. Add technologies, sectors, regions, intelligence questions, lower-interest topics, and preferred horizons. List interests, not claims that an asset is deployed or exposed.
-2. Save, then open **Wire**. A matching item shows **Watch profile match**. Open **Inspect evidence** to see which literal term matched and the supporting source text. Saved preferences affect ranking on the next collection refresh.
+2. Save, then open **Wire**. The **Watch match** filter includes declared technology, sector, or region matches and separately labeled intelligence-question overlap. Open **Inspect evidence** to see the matching terms and supporting source text. Saved preferences affect ranking on the next collection refresh.
 3. Choose a source from the group. The inspector opens the revision attached to the displayed feed snapshot, with its publication, source-update, retrieval, and observation times. Missing dates remain unknown.
-4. When a later collection changes that source's retained title or excerpt, **Source text changed** draws attention to it. Expand the changed passage and previous excerpt to assess the difference. A text change alone does not establish increased threat or local exposure.
-5. If AI generation is configured, create a Briefing from the latest collected signals. Its **Inspect saved generation inputs (JSON)** link opens the saved evidence and configuration receipt. Opening it makes no provider request.
+4. When a later collection changes that source's retained title, passage, or capture metadata, **Retained source changed** draws attention to it. **More source context retained** identifies an expanded capture. Compare the retained passages before interpreting a difference as a publisher correction; a capture change alone does not establish increased threat or local exposure.
+5. If AI generation is configured, create a Briefing from the latest collected signals. **Sources and saved inputs**, inside **Edition tools**, opens its readable evidence and configuration receipt, with JSON available in the advanced disclosure. Opening it makes no provider request.
 
 Briefing generation uses the latest collection selection. Wire search, filters,
 and hidden items change your view; they do not select the next Briefing's inputs.
@@ -24,9 +24,9 @@ The inspector supports keyboard navigation, source selection, expandable revisio
 
 The profile unifies technologies, sectors, regions, intelligence questions, exclusions, preferred horizons, and team context. Existing watch terms and organization overrides remain compatible. Explicit empty lists clear an interest; omitted fields preserve the applicable saved/default value.
 
-Matches are case-insensitive literal substrings in original retained feed titles, descriptions, or passages. They do not use an unretained article body or join text across different sources to manufacture a match. Technology, sector, and region matches can contribute a bounded relevance signal. Preferred horizons influence relevance; intelligence questions guide the Briefing. Exclusions describe lower interest and do not suppress urgent reporting.
+Technology, sector, and region matches are case-insensitive literal substrings within an original retained feed title, description, or passage. They do not use an unretained article body or join fragments from different sources to manufacture a term. These matches can contribute a bounded relevance signal, and preferred horizons influence relevance. Intelligence questions guide the Briefing and can also match retained text through literal matching or bounded term overlap across group members. Wire labels question relevance separately; overlap does not establish that the reporting answers the question. Exclusions describe lower interest and do not suppress urgent reporting.
 
-The current applicability states are `declared-match` and `unknown`; exposure remains `unknown` in both. The application has no inventory check, affected-version confirmation, or mitigation verification. A new profile is reflected when Wire reloads its explanations, while the stored score remains from its collection. Generation receipts distinguish the collection profile from the profile used to write the Briefing.
+The automatic applicability states are `declared-match` and `unknown`; exposure remains `unknown` in both. An operator's separate Decision record can state Investigating, Affected, Not affected, or Mitigated, but the application has no inventory check, affected-version confirmation, or mitigation verification. A new profile is reflected when Wire reloads its explanations, while the stored score remains from its collection. Generation receipts distinguish the collection profile from the profile used to write the Briefing.
 
 Profile details and manifest reads use the local-or-authenticated Settings boundary. On a deployment with `API_SECRET`, supply the bearer token through a direct API client or the trusted reverse proxy. The browser does not store the shared secret. These are deployment-level protections for a single operator, not individual user identities or shared accountability.
 
@@ -57,13 +57,19 @@ The receipt is bounded to 4 MiB. Configuration and evidence fields are allowlist
 
 The manifest is written and flushed before the Markdown completion marker. A receipt publication failure cannot announce a completed edition, index it, or dispatch its webhook. A later Markdown publication failure removes the receipt where possible; a crash can leave an orphan receipt that a retry replaces. Existing scheduled archive markers still prevent repurchasing an already completed daily edition.
 
-The API checks the manifest version, filename, size, and Markdown hash. Editing the saved Markdown directly makes that receipt fail verification; preserve the original pair. Old editions return an explicit unavailable status. Hashes identify the inputs but do not retain exact prompts or discarded drafts, provide tamper-proof signatures, or guarantee reproducible model output. Full historical replay and analyst-reviewed versions remain later work.
+The API checks the manifest version, filename, size, and Markdown hash. Editing the saved Markdown directly makes that receipt fail verification; preserve the original pair. Old editions return an explicit unavailable status. Exact prompts are represented by hashes rather than stored text; these hashes are not tamper-proof signatures and do not guarantee reproducible model output.
+
+Rejected or interrupted output is retained separately when a draft is available to save. **Drafts** lets an operator inspect findings, save repair revisions, and recheck against the captured inputs without another model call or publication. Not every intermediate retry draft is retained. Source-check results and editorial review are separate: passing the supported checks is not approval of every narrative claim or action.
+
+Editorially corrected copies and publication dispositions are stored separately and bound to the original edition's SHA-256. The interface preserves access to the original and its input receipt. Editions marked review-required or superseded are excluded from default Latest and Wall selection. These review records do not supply individual user authentication, shared acknowledgment, or action-completion tracking.
 
 ## Retention, backups, and sharing
 
 The evidence database prunes sources not observed within 30 days, keeps at most 5,000 sources, and retains at most eight revisions per source across all its feed representations. Pruning runs during collection. A source observed continuously can retain an older revision until the revision cap removes it. These bounds are code defaults, not operator-configurable retention policy controls.
 
 Saved Briefings and their manifests do not expire automatically. Their copied excerpts survive pruning of the rolling evidence database. Back up `data/`, `briefs/`, configuration, and the corresponding application version together using the stopped-process procedure in [Operations](operations.md#state-and-backups). Backups can outlive live retention; manage their access and expiration separately.
+
+Unpublished draft artifacts have separate bounds: 30 days, at most 20 drafts, and up to eight saved revisions per draft. Wire decision records live in browser storage rather than the server backup; export them before clearing that storage or moving to another browser.
 
 The project's software license does not label the reuse rights of collected reporting. Source licensing and handling markings are not yet modeled or enforced per passage. Retain attribution and source links, review the source's sharing conditions before redistributing extracts, and avoid treating a local manifest as a preapproved public evidence bundle. No external sharing or product telemetry is added by this workflow.
 
@@ -77,4 +83,4 @@ Preserve these distinctions in changes: source reporting versus deterministic en
 npm test -- --runInBand test/watch-profile.test.js test/evidence.test.js test/evidence-inspector.test.js test/generation-manifest.test.js test/history-manifest-publication.test.js test/brief.test.js
 ```
 
-For an advisory updated the next day, BlueTeam.News can retain yesterday's excerpt, show today's affected-version passage change, explain a watched-technology match, keep exposure unknown, and preserve a generated Briefing's inputs. It cannot yet retain yesterday's analyst decision, carry an unresolved applicability task, create a focused shortlist-based handoff, record review approval, or distinguish acknowledgment from completion. See the [roadmap](decision-desk-roadmap.md) for these proposed improvements.
+For an advisory updated the next day, BlueTeam.News can retain yesterday's excerpt, show today's passage change, explain a watched-technology match, keep automatic exposure unknown, and preserve a generated Briefing's inputs. It can also save a browser-local decision and present a separately reviewed edition. Persistent situation tracking across collections, explicit shortlist-based generation, shared handoff acknowledgment, and action-completion tracking remain proposed improvements. See the [roadmap](decision-desk-roadmap.md).

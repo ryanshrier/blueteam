@@ -7,7 +7,7 @@ const showToast = jest.fn();
 jest.unstable_mockModule('../public/modules/core/api.js', () => ({
   fetchSettings, fetchBriefs: jest.fn().mockResolvedValue([]), fetchBrief: jest.fn(), searchBriefs,
 }));
-jest.unstable_mockModule('../public/modules/core/router.js', () => ({ navigate, resolveLocation: () => ({ data: {} }) }));
+jest.unstable_mockModule('../public/modules/core/router.js', () => ({ navigate, setPageTitle: jest.fn(), resolveLocation: () => ({ data: {} }) }));
 jest.unstable_mockModule('../public/modules/core/toast.js', () => ({ showToast }));
 const { render, unmount, handleCopyDecision, runSearch } = await import('../public/modules/briefing/briefing-view.js');
 const { setState, on, off, emit } = await import('../public/modules/core/store.js');
@@ -15,7 +15,7 @@ const { setState, on, off, emit } = await import('../public/modules/core/store.j
 const flush = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
 let elements, restoreGlobals;
 function element(textContent = '') {
-  return { textContent, disabled: false, handlers: {}, addEventListener(name, fn) { this.handlers[name] = fn; } };
+  return { textContent, value: '', dataset: {}, disabled: false, handlers: {}, addEventListener(name, fn) { this.handlers[name] = fn; } };
 }
 beforeEach(() => {
   jest.clearAllMocks();
@@ -36,7 +36,12 @@ beforeEach(() => {
 
 describe('archive search presentation', () => {
   function searchFixture() {
-    const content = { innerHTML: '', _validatedBriefContent: 'previous edition', setAttribute: jest.fn(), removeAttribute: jest.fn(), querySelectorAll: () => [] };
+    let html = '';
+    const region = { innerHTML: '' };
+    const form = element(), input = element(), order = element();
+    const nodes = { '#archiveResults': region, '#archiveSearchForm': form, '#archiveQuery': input, '#archiveSort': order };
+    const content = { get innerHTML() { return html + region.innerHTML; }, set innerHTML(value) { html = value; region.innerHTML = ''; }, querySelector: selector => html ? nodes[selector] || null : null, _validatedBriefContent: 'previous edition', setAttribute: jest.fn(), removeAttribute: jest.fn(), querySelectorAll: () => [] };
+    elements.set('archiveSearchForm', form); elements.set('archiveQuery', input); elements.set('archiveSort', order);
     elements.set('briefContent', content);
     elements.set('briefToc', { innerHTML: 'Previous edition sections' });
     elements.set('briefMeta', element('Previous edition date'));
@@ -75,6 +80,20 @@ describe('archive search presentation', () => {
     expect(content.innerHTML).toContain('Retry search');
     expect(content.innerHTML).toContain('retry me');
     expect(content.innerHTML).toContain('Back to briefing');
+  });
+  test('keeps the focused query control and edits intact while only results settle', async () => {
+    const content = searchFixture();
+    let finish;
+    searchBriefs.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const pending = runSearch('original query');
+    const input = content.querySelector('#archiveQuery');
+    document.activeElement = input;
+    input.value = 'refined query while loading';
+    finish([]);
+    await pending;
+    expect(content.querySelector('#archiveQuery')).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe('refined query while loading');
   });
 });
 afterEach(() => {
@@ -142,7 +161,7 @@ function copyFixture({ saved = true, generating = false, matched = true } = {}) 
       '.brief-certainty': textNode('Likelihood: Likely (55–80%) — first-party confirmation pending.'),
     })[selector] || null,
     querySelectorAll: selector => selector === '.brief-cite-link'
-      ? [{ getAttribute: () => 'https://example.test/basis', dataset: { sourceLabel: 'Authored basis' } }]
+      ? [{ getAttribute: () => '#brief-source-1', dataset: { sourceUrl: 'https://example.test/basis', sourceLabel: 'Authored basis' } }]
       : [],
   };
   const content = {
@@ -169,10 +188,15 @@ describe('saved decision clipboard', () => {
     expect(button.disabled).toBe(false);
   });
 
-  test.each([{ saved: false }, { generating: true }, { matched: false }])('rejects an unsaved, generating or replaced document (%j)', async scenario => {
+  test.each([{ saved: false }, { matched: false }])('rejects an unsaved or replaced document (%j)', async scenario => {
     await handleCopyDecision(copyFixture(scenario).event);
     expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith('Open a saved briefing before copying a decision', 'error');
+  });
+
+  test('allows a saved decision while another edition generates', async () => {
+    await handleCopyDecision(copyFixture({ generating: true }).event);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
   });
 
   test('reports a denied clipboard honestly and restores the copy control', async () => {

@@ -311,17 +311,22 @@ describe('dateMs', () => {
 });
 
 describe('Wire feed freshness', () => {
-  test('a healthy slow cadence agrees with Wall rather than becoming stale after twenty minutes', () => {
-    expect(isFeedStale(45 * 60, 10)).toBe(true);
+  test('routine snapshot age stays quiet for two hours while slow schedules retain two windows', () => {
+    expect(isFeedStale(45 * 60, 10)).toBe(false);
     expect(isFeedStale(45 * 60, 30)).toBe(false);
-    expect(isFeedStale(61 * 60, 30)).toBe(true);
+    expect(isFeedStale(61 * 60, 30)).toBe(false);
     expect(isFeedStale(90 * 60, 60)).toBe(false);
+    expect(isFeedStale(120 * 60, 10)).toBe(false);
+    expect(isFeedStale(120 * 60 + 1, 10)).toBe(true);
+    expect(isFeedStale(150 * 60, 90)).toBe(false);
+    expect(isFeedStale(181 * 60, 90)).toBe(true);
   });
 
   test('fast schedules and missing cadence retain the same warning floor', () => {
     for (const cadence of [2, undefined, null, 'invalid']) {
       expect(isFeedStale(19 * 60, cadence)).toBe(false);
-      expect(isFeedStale(21 * 60, cadence)).toBe(true);
+      expect(isFeedStale(120 * 60, cadence)).toBe(false);
+      expect(isFeedStale(120 * 60 + 1, cadence)).toBe(true);
     }
     expect(isFeedStale(NaN, 30)).toBe(true);
   });

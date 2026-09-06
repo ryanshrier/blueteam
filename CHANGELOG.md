@@ -1,8 +1,15 @@
 # Changelog
 
-## 1.1.0 — 2026-09-05
+## 1.1.0 — 2026-09-06
 
 ### Evidence and assessment review
+
+- Separate original generation findings from supported checks on the corrected
+  reading copy, preserving the original receipt and correction history.
+- Simplify Briefing to Overview and Full report, expose every assessment, and
+  preserve paired response actions in generated executive previews.
+- Make the header and automatic Wall follow the selected light/dark theme.
+  Recompose the Wall opening and refine the shared Print Edition typography.
 
 - Add a watch profile, retained source excerpts and revision comparisons, and
   explanations of literal relevance matches while keeping local exposure unknown.
@@ -53,8 +60,18 @@
   print dialogs remain a manual acceptance check.
 - Keep parallel Print Edition summary columns together when they fit on a page.
 - Keep public evidence guidance and a concise roadmap separate from working
-  audit records. Wire filters do not curate Briefing inputs; persistent analyst
-  decisions and reviewed handoffs remain future work.
+  audit records. Wire filters do not curate Briefing inputs. Analyst decision
+  records persist in this browser; exported handoffs include their context. They
+  do not synchronize between users or devices.
+
+### Known generation limitations
+
+Generated Briefings require analyst review. The final live rehearsal still
+needed corrections to aggregate counts, action conditions, and event-timeline
+inferences. Automated checks cover bounded claim forms, not every narrative
+claim. Rejected drafts and their captured inputs can be inspected, repaired,
+and revalidated without another provider call; revalidation does not publish
+the draft. The marketing screenshots use an earlier editorially reviewed edition.
 
 ### Upgrade
 

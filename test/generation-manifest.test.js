@@ -24,12 +24,12 @@ function receipt(overrides = {}) {
 }
 
 describe('generation input receipt', () => {
-  test('keeps exact selected opening and every grouped passage with revision references', () => {
+  test('keeps the selected bounded article passage and every grouped source with revision references', () => {
     const manifest = receipt();
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.generationId).toMatch(/^[a-f0-9-]{36}$/);
     expect(manifest.generationSettings).toMatchObject({ thinkingEffort: 'low', maxTokens: 16000 });
-    expect(manifest.selectedEvidence[0].passage).toEqual({ kind: 'article-opening', text: 'The vendor confirmed affected versions. '.repeat(60).slice(0, 800), quality: { status: 'substantive', substantive: true, reasons: ['retained-body-detail'] } });
+    expect(manifest.selectedEvidence[0].passage).toEqual({ kind: 'article-excerpts', text: 'The vendor confirmed affected versions. '.repeat(60).trim(), quality: { status: 'substantive', substantive: true, reasons: ['retained-body-detail'] } });
     expect(manifest.selectedEvidence[0].sourceRevisions[0]).toMatchObject({ sourceId: 'src_original', revisionId: 'rev_2', changed: true });
     expect(manifest.selectedEvidence[0].groupMembers[0]).toMatchObject({ passage: 'Original vendor excerpt.', sourceRevisions: [expect.objectContaining({ revisionId: 'rev_2' })] });
     expect(manifest.selectedEvidence[0].enrichment).toMatchObject({ cveData: 'CVE-2026-12345 CVSS 9.8', isKEV: true, epss: 0.6 });
@@ -64,7 +64,7 @@ describe('generation input receipt', () => {
     expect(manifest.providerAttempts[0].messagesSha256).not.toBe(manifest.providerAttempts[1].messagesSha256);
     expect(JSON.stringify(manifest)).not.toContain('sk-ant-very-private');
     recordValidation(manifest, 'draft', { valid: false, warnings: ['Missing source'] });
-    expect(manifest.validation).toEqual([{ draftSha256: sha256('draft'), valid: false, warnings: ['Missing source'], issues: [] }]);
+    expect(manifest.validation).toEqual([{ draftSha256: sha256('draft'), valid: false, warnings: ['Missing source'], issues: [], coverage: null, editorialReviewStatus: 'not-reviewed' }]);
   });
 
   test('bounds inputs before generation instead of silently discarding selected evidence', () => {

@@ -1,8 +1,9 @@
 import { describe, test, expect } from '@jest/globals';
+import { readFileSync } from 'node:fs';
 import {
   buildPages, JUDG_MAX, CONV_MAX, splitBluf, capitalizeFirst, cvssFrom, cleanSummary,
   relAge, relDayAge, isFresh, formatBriefDateStamp, isBriefStale, staleAfterSec,
-  executiveSummaryModel, actionDisplayModel, judgmentOverflowNote,
+  executiveSummaryModel, executiveTargetModel, actionDisplayModel, judgmentOverflowNote,
 } from '../public/modules/wall/wall-format.js';
 
 describe('buildPages', () => {
@@ -86,6 +87,22 @@ describe('buildPages', () => {
 });
 
 describe('executiveSummaryModel', () => {
+  test('labels recommended targets separately while preserving legacy due dates', () => {
+    expect(executiveTargetModel('recommended target September 8, 2026')).toEqual({ label: 'Recommended target', value: 'September 8, 2026' });
+    expect(executiveTargetModel('July 13, 19:00 CT')).toEqual({ label: 'Due', value: 'July 13, 19:00 CT' });
+    expect(executiveTargetModel('Due Friday')).toEqual({ label: 'Due', value: 'Friday' });
+  });
+  test('preserves internal semicolons in the actual reviewed September 5 owner actions', () => {
+    const review = JSON.parse(readFileSync(new URL('./fixtures/reviews/brief-2026-09-05-02.review.json', import.meta.url), 'utf8'));
+    const replacement = review.corrections.find(item => item.label === 'Use the canonical action records in the executive summary').replacement;
+    const tail = replacement.replace(/^- \*\*Required decisions:\*\*\s*/, '');
+    const model = executiveSummaryModel([{ lead: 'Required decisions', tail }]);
+    expect(model.decisions.map(item => item.owner)).toEqual(['Infrastructure', 'Detection engineering', 'Infrastructure']);
+    expect(model.decisions[0].action).toContain('exposure; if affected, apply the vendor hotfix');
+    expect(model.decisions[1].action).toContain('versions; update affected endpoints');
+    expect(model.decisions[2].action).toContain('deployment; if affected, confirm Emergency Patch Release 2');
+    expect(model.commonDeadline).toBe('recommended target September 8, 2026');
+  });
   test('separates situation from owner decisions and prints a shared deadline once', () => {
     const model = executiveSummaryModel([
       { lead: 'Threat:', tail: 'Two exploited surfaces require action.' },

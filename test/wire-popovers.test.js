@@ -1,5 +1,5 @@
 import { expect, jest, test } from '@jest/globals';
-import { bindScoreDismissal } from '../public/modules/wire/wire-popovers.js';
+import { bindScoreDismissal, bindDisclosureDismissal } from '../public/modules/wire/wire-popovers.js';
 
 function setup() {
   const listeners = new Map();
@@ -54,4 +54,24 @@ test('Escape is reserved for a foreground modal and cleanup removes document lis
   ui.cleanup();
   ui.dispatch('click', { target: {} });
   expect(ui.panel.open).toBe(true);
+});
+
+test('toolbar export and filters dismiss on outside focus and Escape while preserving trigger focus', () => {
+  const handlers = new Map();
+  const summary = { focus: jest.fn() };
+  const inside = {};
+  const panel = { open: true, contains: node => node === inside || node === summary, querySelector: () => summary };
+  const doc = { activeElement: inside, querySelector: () => null,
+    addEventListener: (name, fn) => handlers.set(name, fn), removeEventListener: name => handlers.delete(name) };
+  const cleanup = bindDisclosureDismissal([panel], doc);
+  handlers.get('click')({ target: inside });
+  expect(panel.open).toBe(true);
+  handlers.get('keydown')({ key: 'Escape', preventDefault: jest.fn(), stopPropagation: jest.fn() });
+  expect(panel.open).toBe(false);
+  expect(summary.focus).toHaveBeenCalledWith({ preventScroll: true });
+  panel.open = true;
+  handlers.get('focusin')({ target: {} });
+  expect(panel.open).toBe(false);
+  cleanup();
+  expect(handlers.size).toBe(0);
 });
