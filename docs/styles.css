@@ -9,7 +9,7 @@
   font-style: normal;
   font-weight: 200 800;
   font-display: swap;
-  src: url("assets/fonts/newsreader-latin-wght-normal.woff2?v=1.1.0") format("woff2");
+  src: url("assets/fonts/newsreader-latin-wght-normal.woff2?v=1.1.1") format("woff2");
 }
 
 @font-face {
@@ -17,7 +17,7 @@
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("assets/fonts/inter-latin-wght-normal.woff2?v=1.1.0") format("woff2");
+  src: url("assets/fonts/inter-latin-wght-normal.woff2?v=1.1.1") format("woff2");
 }
 
 @font-face {
@@ -25,7 +25,7 @@
   font-style: normal;
   font-weight: 100 800;
   font-display: swap;
-  src: url("assets/fonts/jetbrains-mono-latin-wght-normal.woff2?v=1.1.0") format("woff2");
+  src: url("assets/fonts/jetbrains-mono-latin-wght-normal.woff2?v=1.1.1") format("woff2");
 }
 
 :root {
@@ -2087,18 +2087,6 @@ body:has(.product-viewer[open]) { overflow: hidden; }
 .workflow-copy p { font-size: 16px; line-height: 1.6; }
 #product > .surface-proof-evidence, #wall > .surface-proof,
 .briefing-format-grid { max-width: none; }
-.briefing-output {
-  --bg: #f2f1ed;
-  --bg-elev: #f7f6f2;
-  --ink: #20252b;
-  --ink-2: #414850;
-  --ink-3: #565e67;
-  --rule: #d2d2cd;
-  --rule-2: #a4a8a8;
-  --link: #2456a3;
-  background: var(--bg);
-  color: var(--ink-2);
-}
 .briefing-output-header .surface-kicker { margin-bottom: 12px; }
 .briefing-format-copy { display: grid; grid-template-columns: minmax(140px, .55fr) minmax(0, 1.45fr); gap: 16px; padding: 18px 20px; }
 .briefing-format-copy h3 { color: var(--ink); }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 — 2026-09-06
+
+- Align the GitHub Pages Briefing showcase with the shared graphite palette,
+  keeping captions, links, and the transition to Wall consistent across the page.
+- Refresh release metadata and asset versions so the corrected styling loads
+  for returning visitors.
+
 ## 1.1.0 — 2026-09-06
 
 ### Evidence and assessment review

@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/Node-22.19%2B%20%7C%2024%20%7C%2026-brightgreen)
 
-**Version 1.1.0.** See [release notes and upgrade guidance](https://github.com/ryanshrier/blueteam/releases/tag/v1.1.0).
+**Version 1.1.1.** See [release notes and upgrade guidance](https://github.com/ryanshrier/blueteam/releases/tag/v1.1.1).
 
 BlueTeam.News is a self-hosted threat-intelligence desk for cyber defense teams. It collects public threat reporting, enriches and scores each signal, and presents it in three views:
 
