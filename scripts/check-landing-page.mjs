@@ -400,6 +400,9 @@ function validateProductTruth(file, document) {
     [/\bPrint Edition\b/i, 'must name the Print Edition'],
     [/\bRun locally\b/i, 'must use source-run language for the primary call to action'],
   ];
+  if (/\u00c2\u00b7|\u00e2\u20ac|\u00e2\u2020/.test(bodyText + publicMetadata)) {
+    fail(file, 'text contains misdecoded UTF-8 punctuation');
+  }
   for (const [pattern, message] of requiredClaims) {
     if (!pattern.test(bodyText)) fail(file, message);
   }

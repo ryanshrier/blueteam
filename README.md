@@ -12,7 +12,7 @@ BlueTeam.News is a self-hosted threat-intelligence desk for cyber defense teams.
 - **The Wire** - a filterable analyst feed with score evidence, KEV, CVSS, EPSS, and attribution tags
 - **The Briefing** - an AI-generated, on-demand or scheduled assessment that requires an operator-provided Anthropic API key; each saved Briefing can be opened as a locally rendered Print Edition for paper or PDF
 
-The Wall and Wire work without API keys. The complete Watchâ€“Investigateâ€“Brief workflow requires an Anthropic API key for Briefing generation.
+The Wall and Wire work without API keys. The complete Watch–Investigate–Brief workflow requires an Anthropic API key for Briefing generation.
 
 ## Quick start
 
@@ -28,7 +28,7 @@ npm start
 
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The first feed refresh begins
 after startup; Wire fills as sources respond, without an API key. Check
-**Settings â†’ System health** if collection remains unavailable. A Briefing may
+**Settings → System health** if collection remains unavailable. A Briefing may
 wait for enough fresh source evidence even when an Anthropic key is configured.
 
 SQLite uses a native dependency. Run `npm install` on the machine and Node major
@@ -46,7 +46,7 @@ In Windows PowerShell, use `npm.cmd install` and `npm.cmd start` if execution po
 
 Select **WALL** in the app, press `G` then `L`, or open `/wall` to start the automatic TV loop across the full viewport. It has no visible navigation controls or setup step. Press `Esc` to return to the prior app view.
 
-Configure text size, margins, playback, fullscreen, and supported screen-awake behavior in **Settings â†’ Wall display**. When enabled, clicking **WALL** or using its keyboard shortcut attempts browser fullscreen without delaying navigation. Opening or reloading a Wall URL does not request fullscreen; the display still fills the viewport when fullscreen is unavailable or declined.
+Configure text size, margins, playback, fullscreen, and supported screen-awake behavior in **Settings → Wall display**. When enabled, clicking **WALL** or using its keyboard shortcut attempts browser fullscreen without delaying navigation. Opening or reloading a Wall URL does not request fullscreen; the display still fills the viewport when fullscreen is unavailable or declined.
 
 The Wall rotates through current signals and CISA KEV changes and includes the latest eligible saved Briefing when available. Long sections continue across readable parts before advancing. The hidden pointer, overnight dimming, and burn-in shifting support unattended use. Editions marked review-required or superseded are excluded from default selection. Feed freshness and Briefing publication time remain separate; an older Briefing does not become current when its page rotates back into view. Publication times use UTC; archives without a known time show their edition date.
 
@@ -88,7 +88,7 @@ Open `/briefing` to generate a BLUF, key judgments, defensive actions, developin
 
 Saved editions open in **Overview**, with a lead assessment, supporting briefs, and a separately timed stream of recent reporting. **Decision summary** collects the authored actions, owners, and timing. **Full report** retains the complete assessment and source trail. The selected reading mode is remembered. Sources, assessment update time, severity, and confidence use consistent labels; fields absent from the saved edition remain explicitly unavailable or unassessed. Legacy likelihood labels remain likelihood.
 
-**Edition tools** groups history, copy, Print Edition, saved inputs, and generation. **Generate briefing** and `Ctrl+Enter` (`âŒ˜+Enter` on macOS) use the latest collection selection. Wire searches, filters, and hidden items do not select or exclude its inputs. Judgment reasoning remains visible alongside its qualitative confidence label. Links into Wire say whether they search a CVE or browse a broader tier; they are not a historical evidence manifest.
+**Edition tools** groups history, copy, Print Edition, saved inputs, and generation. **Generate briefing** and `Ctrl+Enter` (`⌘+Enter` on macOS) use the latest collection selection. Wire searches, filters, and hidden items do not select or exclude its inputs. Judgment reasoning remains visible alongside its qualitative confidence label. Links into Wire say whether they search a CVE or browse a broader tier; they are not a historical evidence manifest.
 
 On a saved judgment with authored actions, **Copy decision** copies the action text, supplied ownership and timing, cited source links, and an edition link for a handoff. This reuses saved content without another model call. Check the cited reporting and the edition date before acting.
 
@@ -135,7 +135,7 @@ fictional sample remains a separate, reproducible demonstration.
 
 ### Settings and diagnostics
 
-**Settings â†’ System health** shows the latest readiness check, collection status, source failures, and available storage diagnostics. **Refresh diagnostics** checks again without starting collection or generation. A failed check retains a clearly dated previous result. **Copy diagnostics** copies a limited report without source names, URLs, secrets, organization settings, or raw error messages; it does not send anything to support.
+**Settings → System health** shows the latest readiness check, collection status, source failures, and available storage diagnostics. **Refresh diagnostics** checks again without starting collection or generation. A failed check retains a clearly dated previous result. **Copy diagnostics** copies a limited report without source names, URLs, secrets, organization settings, or raw error messages; it does not send anything to support.
 
 ## How it works
 
