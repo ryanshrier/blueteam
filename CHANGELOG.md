@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0 — 2026-09-06
+
+- Add OpenAI Codex Briefing generation through the Responses API. Settings supports both provider keys, provider selection, OpenAI model selection, and live verification. Manual and scheduled generation use the selected provider.
+- Update setup, API, security, and GitHub Pages documentation for both providers. Shorten the README and replace repeated marketing copy and stale recovery/support claims.
+
+- Remove unused screenshot variants and an obsolete local audit command; retain future CI design artifacts for 14 days.
+
 ## 1.1.1 — 2026-09-06
 
 - Align the GitHub Pages Briefing showcase with the shared graphite palette,

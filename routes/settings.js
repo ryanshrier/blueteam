@@ -1,11 +1,7 @@
-// BlueTeam.News — runtime settings route: the operator's Anthropic API key.
-// GET reports key presence (masked, never raw). POST sets or clears it,
-// persists to data/settings.local.json, and rebuilds the live Anthropic client
-// so the Briefing turns on without a server restart.
-
 import { Router } from 'express';
 import {
   saveUserSettings, stripControl, MAX_WATCH_TERMS, MAX_TERM_LEN,
+  apiKeyError, validOpenaiModel, MAX_API_KEY_BYTES,
   MAX_ORG_SECTOR_LEN, MAX_ORG_PROFILE_LEN, MAX_ORG_REGIONS, MAX_ORG_REGION_LEN,
   getBriefScheduleSettings, isValidTimeZone,
   MIN_BRIEF_RETRY_MINUTES, MAX_BRIEF_RETRY_MINUTES,
@@ -15,23 +11,15 @@ import {
 import { validateWatchProfile } from '../lib/watch-profile.js';
 import { log } from '../lib/logger.js';
 
-// Anthropic keys are currently far smaller than this. Keep enough headroom for
-// future formats while bounding request-driven allocation, persistence, and
-// provider-client construction if a trusted browser/API client malfunctions.
-export const MAX_ANTHROPIC_KEY_BYTES = 512;
+export const MAX_ANTHROPIC_KEY_BYTES = MAX_API_KEY_BYTES;
 
-function anthropicKeyTooLarge(value) {
-  return value.length > MAX_ANTHROPIC_KEY_BYTES
-    || Buffer.byteLength(value, 'utf8') > MAX_ANTHROPIC_KEY_BYTES;
-}
-
-function keySizeError(res, verification = false) {
-  const payload = {
-    error: `anthropicKey must be ${MAX_ANTHROPIC_KEY_BYTES} bytes or fewer.`,
-    code: 'E_KEYFMT',
-  };
-  if (verification) payload.valid = false;
-  return res.status(400).json(payload);
+function publicAiStatus(status, trusted) {
+  const keyStatus = value => ({ enabled: value.enabled, keySource: value.source, keyMasked: value.masked, model: value.model });
+  const payload = { ...keyStatus(status), provider: status.provider };
+  if (trusted && status.providers) payload.providers = Object.fromEntries(
+    Object.entries(status.providers).map(([provider, value]) => [provider, keyStatus(value)]),
+  );
+  return payload;
 }
 
 // Watch-term validation (mirrors the persistence-layer sanitize in
@@ -168,7 +156,7 @@ export function createSettingsRouter({
   router.get('/settings', (req, res) => {
     res.vary('Authorization');
     const s = getAiStatus();
-    const payload = { ai: { enabled: s.enabled, keySource: s.source, keyMasked: s.masked } };
+    const payload = { ai: publicAiStatus(s, trusted(res)) };
     // Alert rules + saved watch-terms are surfaced ONLY to a trusted caller
     // (loopback or API_SECRET-authed) — an untrusted network client sees just the
     // read-only note, never the operator's configured rules or keywords.
@@ -188,7 +176,7 @@ export function createSettingsRouter({
     res.json(payload);
   });
 
-  // ── POST /settings/verify — one cheap Anthropic call to confirm a key actually
+  // POST /settings/verify makes a minimal provider request to confirm a key
   // works (not just that it's well-formed). Same write-gate as POST /settings since
   // it accepts a key in the body. Returns { valid: true|false|null, error?, note? }.
   router.post('/settings/verify', async (req, res) => {
@@ -198,15 +186,20 @@ export function createSettingsRouter({
     if (typeof verifyKey !== 'function') {
       return res.status(501).json({ valid: null, error: 'Verification is not available on this server.' });
     }
-    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'anthropicKey') && typeof req.body.anthropicKey !== 'string') {
-      return res.status(400).json({ valid: false, error: 'anthropicKey must be a string.', code: 'E_KEYFMT' });
-    }
-    if (typeof req.body?.anthropicKey === 'string' && anthropicKeyTooLarge(req.body.anthropicKey)) {
-      return keySizeError(res, true);
+    const body = req.body || {};
+    const provider = body.provider ?? (Object.hasOwn(body, 'openaiKey') ? 'openai' : 'anthropic');
+    if (!['anthropic', 'openai'].includes(provider)) return res.status(400).json({ valid: false, error: 'provider must be anthropic or openai.', code: 'E_PROVIDER' });
+    const field = provider === 'openai' ? 'openaiKey' : 'anthropicKey';
+    const otherField = provider === 'openai' ? 'anthropicKey' : 'openaiKey';
+    if (Object.hasOwn(body, otherField)) return res.status(400).json({ valid: false, error: 'Send only the selected provider’s key.', code: 'E_KEYFMT' });
+    const candidate = Object.hasOwn(body, field) ? body[field] : '';
+    const error = apiKeyError(field, candidate);
+    if (error) return res.status(400).json({ valid: false, error, code: 'E_KEYFMT' });
+    if (body.openaiModel !== undefined && (provider !== 'openai' || !validOpenaiModel(body.openaiModel))) {
+      return res.status(400).json({ valid: false, error: 'openaiModel must be a model ID of 1–128 characters.', code: 'E_MODEL' });
     }
     try {
-      const candidate = typeof req.body?.anthropicKey === 'string' ? req.body.anthropicKey : '';
-      res.json(await verifyKey(candidate));
+      res.json(await verifyKey(candidate.trim(), provider, body.openaiModel));
     } catch {
       res.json({ valid: null, error: 'Verification failed unexpectedly.' });
     }
@@ -221,7 +214,7 @@ export function createSettingsRouter({
     // after an earlier field had already changed. Build one sanitized patch and
     // persist it once so a rejected request has no side effects.
     const patch = {};
-    let keyAction = null;
+    let aiChanged = false;
     let watchTermCount = null;
     let organizationChanged = false;
     let scheduleChanged = false;
@@ -237,37 +230,21 @@ export function createSettingsRouter({
       watchProfileChanged = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, 'anthropicKey')) {
-      // Never let an unauthenticated network client write or clear the key —
-      // only loopback, or an API_SECRET-authed request, may change it.
-      if (!trusted(res)) {
-        return res.status(403).json({
-          error: 'Setting the API key over the network requires API_SECRET (or run on loopback).',
-          code: 'E_EXPOSED',
-        });
-      }
-      if (typeof body.anthropicKey !== 'string') {
-        return res.status(400).json({
-          error: 'anthropicKey must be a string.',
-          code: 'E_KEYFMT',
-        });
-      }
-      if (anthropicKeyTooLarge(body.anthropicKey)) {
-        return keySizeError(res);
-      }
-      const raw = body.anthropicKey.trim();
-      if (raw === '') {
-        patch.anthropicKey = undefined;
-        keyAction = 'cleared';
-      } else if (!raw.startsWith('sk-ant-')) {
-        return res.status(400).json({
-          error: 'That doesn’t look like an Anthropic key (expected sk-ant-…).',
-          code: 'E_KEYFMT',
-        });
+    for (const field of ['anthropicKey', 'openaiKey', 'aiProvider', 'openaiModel']) {
+      if (!Object.hasOwn(body, field)) continue;
+      if (!trusted(res)) return res.status(403).json({ error: 'Changing AI settings over the network requires API_SECRET (or run on loopback).', code: 'E_EXPOSED' });
+      if (field.endsWith('Key')) {
+        const error = apiKeyError(field, body[field]);
+        if (error) return res.status(400).json({ error, code: 'E_KEYFMT' });
+        patch[field] = body[field].trim() || undefined;
+      } else if (field === 'aiProvider') {
+        if (!['anthropic', 'openai'].includes(body[field])) return res.status(400).json({ error: 'aiProvider must be anthropic or openai.', code: 'E_PROVIDER' });
+        patch[field] = body[field];
       } else {
-        patch.anthropicKey = raw;
-        keyAction = 'updated';
+        if (typeof body[field] !== 'string' || (body[field].trim() && !validOpenaiModel(body[field].trim()))) return res.status(400).json({ error: 'openaiModel must be a model ID of 1–128 characters, or empty to reset.', code: 'E_MODEL' });
+        patch[field] = body[field].trim() || undefined;
       }
+      aiChanged = true;
     }
 
     if (Object.prototype.hasOwnProperty.call(body, 'watchTerms')) {
@@ -327,15 +304,15 @@ export function createSettingsRouter({
         }
         throw err;
       }
-      if (keyAction) refreshAi();
-      if (keyAction) log.info('settings', `Operator Anthropic key ${keyAction}`); // never logs key material
+      if (aiChanged) refreshAi();
+      if (aiChanged) log.info('settings', 'Operator AI settings updated');
       if (watchTermCount !== null) log.info('settings', `Operator watch-terms updated (${watchTermCount})`);
       if (organizationChanged) log.info('settings', 'Operator organization profile updated');
       if (watchProfileChanged) log.info('settings', 'Operator watch profile updated');
       if (scheduleChanged) log.info('settings', `Daily briefing schedule ${patch.briefSchedule.enabled ? 'enabled' : 'disabled'} (${patch.briefSchedule.time}, ${patch.briefSchedule.timezone})`);
       // A key change may unblock an already-enabled schedule, but it never
       // enables one: the persisted briefSchedule.enabled flag remains the gate.
-      if ((scheduleChanged || keyAction) && typeof onBriefScheduleChanged === 'function') {
+      if ((scheduleChanged || aiChanged) && typeof onBriefScheduleChanged === 'function') {
         try { onBriefScheduleChanged(); } catch (err) {
           log.error('settings', `Rearming daily briefing schedule failed: ${err.message}`);
         }
@@ -343,7 +320,7 @@ export function createSettingsRouter({
     }
 
     const s = getAiStatus();
-    const out = { ok: true, ai: { enabled: s.enabled, keySource: s.source, keyMasked: s.masked } };
+    const out = { ok: true, ai: publicAiStatus(s, trusted(res)) };
     // Echo the saved watch-terms/organization back to a trusted caller so the
     // client reflects the server-normalized values without a second GET.
     if (trusted(res)) {

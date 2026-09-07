@@ -264,3 +264,37 @@ test('key removal has durable explicit confirmation and cancel never writes', as
   fire('clearKey'); fire('confirmRemoveKey'); await flush();
   expect(saveSettings).toHaveBeenCalledWith({ anthropicKey: '' });
 });
+
+
+test('switching providers keeps drafts separate and saves the selected key and model', async () => {
+  render(main); await flush();
+  fill('apiKey', 'sk-ant-fixture');
+  nodes.get('#aiProvider').value = 'openai'; fire('aiProvider', 'change');
+  expect(nodes.get('#apiKey').value).toBe('');
+  expect(nodes.get('#openaiModelRow').hidden).toBe(false);
+  fill('apiKey', 'sk-proj-fixture');
+  fill('openaiModel', 'gpt-5.3-codex');
+  nodes.get('#aiProvider').value = 'anthropic'; fire('aiProvider', 'change');
+  expect(nodes.get('#apiKey').value).toBe('sk-ant-fixture');
+  nodes.get('#aiProvider').value = 'openai'; fire('aiProvider', 'change');
+  expect(nodes.get('#apiKey').value).toBe('sk-proj-fixture');
+  fire('saveKey'); await flush();
+  expect(saveSettings).toHaveBeenCalledWith({ aiProvider: 'openai', openaiKey: 'sk-proj-fixture', openaiModel: 'gpt-5.3-codex' });
+  fire('discardKey');
+});
+
+test('an Anthropic environment key does not lock OpenAI settings or verification', async () => {
+  fetchSettings.mockResolvedValue({ ai: { provider: 'anthropic', enabled: true, keySource: 'env', providers: {
+    anthropic: { enabled: true, keySource: 'env' }, openai: { enabled: true, keySource: 'local', model: 'gpt-5.3-codex' },
+  } }, watchProfile: {}, briefSchedule: {} });
+  render(main); await flush();
+  expect(nodes.get('#apiKey').disabled).toBe(true);
+  nodes.get('#aiProvider').value = 'openai'; fire('aiProvider', 'change');
+  expect(nodes.get('#apiKey').disabled).toBe(false);
+  expect(nodes.get('#saveKey').disabled).toBe(false);
+  verifyKey.mockResolvedValue({ valid: true });
+  fire('verifyKey'); await flush();
+  expect(verifyKey).toHaveBeenCalledWith('', 'openai', 'gpt-5.3-codex');
+  expect(saveSettings).not.toHaveBeenCalled();
+  fire('discardKey');
+});

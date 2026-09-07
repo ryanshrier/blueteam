@@ -27,6 +27,7 @@ import { listBriefEditions as realListBriefEditions, saveBrief as realSaveBrief,
 import { createBriefGenerationTracker } from '../lib/brief-lifecycle.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
 import { generationManifestFilename, sha256 } from '../lib/generation-manifest.js';
+import { createOpenAiClient } from '../lib/ai-provider.js';
 
 const getConfigMock = jest.fn();
 const getFreshRunMock = jest.fn();
@@ -218,6 +219,7 @@ function refusalStream(text = 'I cannot assist with this request. '.repeat(10)) 
 
 function makeServer({
   getAnthropic,
+  getAiClient,
   rotateKey,
   cooldownCheck = () => true,
   historyDir = '/fake/history',
@@ -235,6 +237,7 @@ function makeServer({
   app.use('/api', createBriefRouter({
     reviewDir: new URL('./fixtures/reviews/', import.meta.url).pathname.replace(/^\/(?=[A-Za-z]:)/, ''),
     getAnthropic,
+    getAiClient,
     rotateKey,
     historyDir,
     cooldown,
@@ -1396,6 +1399,84 @@ describe('streamWithRecovery — pure unit', () => {
       {},
       expect.objectContaining({ signal: expect.any(AbortSignal), maxRetries: 0 }),
     );
+  });
+});
+
+describe('OpenAI briefing generation', () => {
+  let ctx;
+  afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+  const key = ['sk', 'proj', 'fixture-openai'].join('-');
+  function openaiResponse(text, { terminal = 'response.completed', reason, usage = { input_tokens: 100, output_tokens: 200, input_tokens_details: { cached_tokens: 20 }, output_tokens_details: { reasoning_tokens: 30 } } } = {}) {
+    const events = [{ type: 'response.output_text.delta', delta: text }];
+    if (terminal) events.push({ type: terminal, response: { model: 'gpt-5.3-codex', usage, ...(reason ? { incomplete_details: { reason } } : {}) } });
+    return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'Content-Type': 'text/event-stream' } });
+  }
+
+  test('publishes a validated Responses draft with the selected model, usage and cached-input cost', async () => {
+    const fetchImpl = jest.fn(async () => openaiResponse(GOOD_BRIEF));
+    ctx = await makeServer({ getAiClient: () => createOpenAiClient(key, 'gpt-5.3-codex', fetchImpl) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(complete).toMatchObject({ model: 'gpt-5.3-codex', tokens: 300, text: GOOD_BRIEF });
+    expect(complete.costUsd).toBeCloseTo((80 * 1.75 + 20 * 0.175 + 200 * 14) / 1e6, 9);
+    const request = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(request).toMatchObject({ model: 'gpt-5.3-codex', stream: true, store: false, max_output_tokens: 16000, reasoning: { effort: 'low' } });
+    expect(request.instructions.length).toBeGreaterThan(100);
+    expect(request.input[0]).toMatchObject({ role: 'user', content: expect.any(String) });
+    expect(request).not.toHaveProperty('max_tokens');
+    expect(request).not.toHaveProperty('thinking');
+    const manifest = saveBriefMock.mock.calls[0][2].manifest;
+    expect(manifest.generationSettings).toMatchObject({ provider: 'openai', preferredModel: 'gpt-5.3-codex', fallbackModel: 'gpt-5.3-codex' });
+    expect(manifest.providerAttempts[0]).toMatchObject({ provider: 'openai', thinkingEffort: 'low', stopReason: 'end_turn', usage: { inputTokens: 100, outputTokens: 200, cachedInputTokens: 20, reasoningTokens: 30 } });
+  });
+
+  test('a Codex output limit gets one concise retry and still cannot publish an incomplete response', async () => {
+    const fetchImpl = jest.fn(async () => openaiResponse(GOOD_BRIEF, { terminal: 'response.incomplete', reason: 'max_output_tokens' }));
+    ctx = await makeServer({ getAiClient: () => createOpenAiClient(key, 'gpt-5.3-codex', fetchImpl) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls.map(([, options]) => JSON.parse(options.body).model)).toEqual(['gpt-5.3-codex', 'gpt-5.3-codex']);
+    const retry = JSON.parse(fetchImpl.mock.calls[1][1].body);
+    expect(retry.input[0].content).toContain('RECOVERY INSTRUCTION');
+    expect(retry.reasoning).toEqual({ effort: 'low' });
+    expect(events.some(event => event.progress?.includes('requesting a shorter draft'))).toBe(true);
+    expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(true);
+    expect(events.some(event => event.briefComplete)).toBe(false);
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+  });
+
+  test('a complete-looking draft without a terminal provider event remains unpublished', async () => {
+    const fetchImpl = jest.fn(async () => openaiResponse(GOOD_BRIEF, { terminal: null }));
+    ctx = await makeServer({ getAiClient: () => createOpenAiClient(key, 'gpt-5.3-codex', fetchImpl) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(true);
+    expect(saveBriefMock).not.toHaveBeenCalled();
+    expect(events.some(event => event.briefComplete)).toBe(false);
+  });
+
+  test('an OpenAI authentication failure never falls back to Claude or rotates an Anthropic key', async () => {
+    const fetchImpl = jest.fn(async () => new Response(JSON.stringify({ error: { message: `API key ${key} rejected` } }), { status: 401 }));
+    const rotateKey = jest.fn();
+    ctx = await makeServer({ getAiClient: () => createOpenAiClient(key, 'gpt-5.3-codex', fetchImpl), rotateKey });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(rotateKey).not.toHaveBeenCalled();
+    expect(JSON.stringify(events)).not.toContain(key);
+    expect(events.find(event => event.error).error).toContain('401');
+    expect(saveBriefMock).not.toHaveBeenCalled();
+  });
+
+  test('the shared deadline aborts OpenAI connection setup', async () => {
+    let requestSignal;
+    const fetchImpl = jest.fn((url, { signal }) => {
+      requestSignal = signal;
+      return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const result = await streamWithRecovery(createOpenAiClient(key, 'gpt-5.3-codex', fetchImpl), {}, { timeoutMs: 20 });
+    expect(result).toMatchObject({ timedOut: true, text: '' });
+    expect(requestSignal.aborted).toBe(true);
   });
 });
 

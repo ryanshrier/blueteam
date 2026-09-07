@@ -126,6 +126,21 @@ try {
     await navigate(`/settings?scenario=normal&theme=${theme}&capture`);
     await until('document.body.textContent.includes("Watch profile")');
     assert(await evaluate('document.documentElement.scrollWidth <= innerWidth + 1'), 'Settings fits viewport');
+    await until('document.querySelector("#aiProvider") && !document.querySelector("#aiProvider").disabled');
+    await evaluate(`(() => { const select = document.querySelector('#aiProvider'); select.value = 'openai'; select.dispatchEvent(new Event('change')); document.querySelector('#set-ai').scrollIntoView({block:'start'}); })()`);
+    assert(await evaluate('!document.querySelector("#openaiModelRow").hidden && document.querySelector("#apiKeyLabel").textContent === "OpenAI API key"'), 'OpenAI selection exposes its key and model');
+    assert(await evaluate('!document.querySelector("#saveKey").disabled && document.documentElement.scrollWidth <= innerWidth + 1'), 'Provider can be saved and fits viewport');
+    await evaluate(`(() => { const input = document.querySelector('#apiKey'); input.value = 'sk-proj-fixture'; input.dispatchEvent(new Event('input')); const select = document.querySelector('#aiProvider'); select.value = 'anthropic'; select.dispatchEvent(new Event('change')); })()`);
+    assert(await evaluate('document.querySelector("#apiKey").value === ""'), 'Provider key drafts remain separate');
+    await evaluate(`(() => { const select = document.querySelector('#aiProvider'); select.value = 'openai'; select.dispatchEvent(new Event('change')); })()`);
+    assert(await evaluate('document.querySelector("#apiKey").value === "sk-proj-fixture"'), 'Switching back restores only that provider’s draft');
+    if (process.env.EVIDENCE_SCREENSHOT_DIR) {
+      const directory = resolve(process.env.EVIDENCE_SCREENSHOT_DIR);
+      await mkdir(directory, { recursive: true });
+      const shot = await connection.call('Page.captureScreenshot', { format: 'png' });
+      await writeFile(resolve(directory, `settings-openai-${width}-${theme}.png`), Buffer.from(shot.data, 'base64'));
+    }
+    await activate('#discardKey');
     await navigate(`/briefing?scenario=source-revision&theme=${theme}&capture`);
     await until('document.querySelector("[data-open-inputs]")');
     await openDisclosure('#briefEditionTools');

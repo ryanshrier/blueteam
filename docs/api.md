@@ -37,8 +37,8 @@ For example, send `{}` as the body of `POST /api/brief` and `POST /api/refresh`.
 | `/api/ready` | `GET` | Readiness status and the same trusted diagnostics as `/api/health` |
 | `/api/health` | `GET` | Compatibility alias for readiness |
 | `/api/edition` | `GET` | Active CTI profile identity: id, title, label, and regions |
-| `/api/settings` | `GET`, `POST` | Read/update the unified watch profile and automatic-generation settings; legacy organization/watch-term fields remain supported; inspect masked AI-key and schedule status or set/clear the key |
-| `/api/settings/verify` | `POST` | Make a minimal Anthropic request to verify the configured key |
+| `/api/settings` | `GET`, `POST` | Read/update the watch profile, generation schedule, provider/model selection, and separate masked Anthropic/OpenAI keys |
+| `/api/settings/verify` | `POST` | Make a small billable request to verify a provider key and, for OpenAI, selected model access |
 | `/embed` | `GET` | Headerless signal strip for an iframe; supports `tier`, `limit`, and `theme` query parameters |
 
 ## Generation stream
@@ -50,6 +50,34 @@ The route permits only one in-process generation at a time and applies a short c
 `GET /api/brief/status` returns `persistence`, `active`, `latest`, and a bounded `jobs` list. Each paid attempt is recorded before its provider call, with model, prompt hashes, usage checkpoints, estimated cost, and final outcome. No prompts, source excerpts, provider credentials, or raw provider errors are retained in this ledger. Trusted health diagnostics also include a compact `generation` summary. The stream announces its `generationId` and status URL before starting paid work.
 
 After a process restart, a job without a verified matching publication is `interrupted`, with `billing: "unknown-final-usage"` and `automaticRetry: false`. Token counts and costs are only the last recorded provider usage, not a final billing statement. A verified saved manifest can reconcile a publication even if the final ledger write failed. The scheduler cannot automatically repeat an ambiguous paid attempt for the same edition; review its status and provider usage before explicitly requesting another manual generation. Initial ledger failure stops generation before a provider call; later checkpoint failures stop further attempts and surface a storage error. This endpoint reports status; it does not replay the stream or resume a discarded draft.
+
+## AI provider settings
+
+Trusted clients can configure both provider keys and choose which one generates Briefings:
+
+```json
+{
+  "aiProvider": "openai",
+  "openaiModel": "gpt-5.3-codex",
+  "openaiKey": "<your OpenAI API key>"
+}
+```
+
+Send this body to `POST /api/settings`. Use `aiProvider: "anthropic"` and `anthropicKey` for Anthropic. Omitted keys remain unchanged; an empty key string removes that saved key. Both keys can be stored at once. Environment keys override saved keys for the same provider and cannot be removed through this endpoint. Saved provider/model choices override `AI_PROVIDER` and `OPENAI_MODEL` defaults. See [Configuration](configuration.md#environment-variables).
+
+`GET /api/settings` returns the effective `ai.provider`, `ai.model`, `ai.enabled`, `ai.keySource`, and masked `ai.keyMasked`. Trusted responses also include `ai.providers.anthropic` and `ai.providers.openai`, each with `enabled`, `keySource`, `keyMasked`, and `model`. Raw keys are never returned.
+
+To verify OpenAI before saving:
+
+```json
+{
+  "provider": "openai",
+  "openaiKey": "<your OpenAI API key>",
+  "openaiModel": "gpt-5.3-codex"
+}
+```
+
+Send this body to `POST /api/settings/verify`. Omit the key to use the effective environment or saved key. Anthropic accepts `provider: "anthropic"` with optional `anthropicKey`. For compatibility, omitting `provider` selects Anthropic unless `openaiKey` is supplied. Verification does not save settings. OpenAI verification and generation call the Responses API; Codex CLI and ChatGPT subscription logins are not accepted.
 
 ## Watch profile and applicability
 

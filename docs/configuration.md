@@ -36,8 +36,11 @@ Copy `.env.example` to `.env` for local use. Do not commit populated secret file
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | For Briefing | Required for Briefing generation; the Wall and Wire do not require it. `ANTHROPIC_API_KEY_PRIMARY` is accepted as an alias. |
-| `ANTHROPIC_API_KEY_SECONDARY` | No | Fallback key used after an authentication failure. |
+| `AI_PROVIDER` | No | Default Briefing provider: `anthropic` or `openai`. A saved Settings selection takes precedence. Without an explicit selection, OpenAI is used only when an OpenAI key exists and no Anthropic key exists; otherwise Anthropic is the default. |
+| `ANTHROPIC_API_KEY` | For Anthropic | Anthropic Briefing and verification key. `ANTHROPIC_API_KEY_PRIMARY` is accepted as an alias. |
+| `ANTHROPIC_API_KEY_SECONDARY` | No | Anthropic fallback key used after an authentication failure. |
+| `OPENAI_API_KEY` | For OpenAI | OpenAI Briefing and verification key, including Codex models through the Responses API. |
+| `OPENAI_MODEL` | No | Default OpenAI model, `gpt-5.3-codex` when unset. A saved Settings model takes precedence. The API account must have access to this model. |
 | `NVD_API_KEY` | No | Raises the NVD CVE lookup limit from 5 to 50 requests per 30 seconds. [Request a free key.](https://nvd.nist.gov/developers/request-an-api-key) |
 | `BLUETEAM_USER_AGENT` | No | Overrides the default outbound identity, `BlueTeam.News/<version> (+https://blueteam.news)`, for example to add an operator contact URL. |
 | `PORT` | No | HTTP port. Default: `3000`. |
@@ -53,7 +56,9 @@ Copy `.env.example` to `.env` for local use. Do not commit populated secret file
 
 `TRUST_PROXY` controls whether Express honors `X-Forwarded-*` headers for client IPs, rate limiting, and request-derived feed URLs. Without it, direct clients cannot use those headers to spoof proxy information. `PUBLIC_BASE_URL` takes precedence for emitted feed URLs.
 
-An environment Anthropic key takes precedence over one saved in Settings. Verifying a key sends a minimal request to Anthropic and may consume billable tokens. Briefing generation sends the configured organization context and selected public-source evidence described in [Network behavior](operations.md#network-behavior).
+For each provider, an environment key takes precedence over a saved key. Removing a saved key does not remove an environment key. Provider and OpenAI model choices saved in Settings override their environment defaults. Verifying a key makes a small billable request; OpenAI verification checks access to the selected model. Briefing generation sends the configured organization context and selected public-source evidence described in [Network behavior](operations.md#network-behavior).
+
+OpenAI uses the Responses API directly. It requires an OpenAI API key, not a Codex CLI login or ChatGPT subscription. Both provider keys can be configured at once, but a generation uses only the selected provider. OpenAI corrective retries retain the selected model and do not fall back to Anthropic. Anthropic model and fallback settings remain in `analysisSettings`.
 
 Generate an `API_SECRET` with Node so the command works on every supported operating system:
 
@@ -65,11 +70,12 @@ Host validation protects the default local server from DNS-rebinding requests. P
 
 ## Runtime Settings
 
-The Settings page stores server-side operator values in the gitignored `data/settings.local.json`. The API never returns the raw Anthropic key, but the file itself is plaintext and must be protected. Appearance preferences stay in that browser's local storage.
+The Settings page stores server-side operator values in the gitignored `data/settings.local.json`. The API never returns raw provider keys, but the file itself is plaintext and must be protected. Appearance preferences stay in that browser's local storage.
 
 Settings controls:
 
-- the Anthropic key, including verification and removal;
+- the active Briefing provider and OpenAI model;
+- separate Anthropic and OpenAI keys, including verification and removal;
 - organization profile overrides and literal watch terms;
 - browser-local appearance preferences; and
 - automatic Briefing generation.

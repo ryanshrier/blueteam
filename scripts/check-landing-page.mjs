@@ -390,12 +390,10 @@ function validateProductTruth(file, document) {
     .filter(Boolean)
     .join(' ');
   const requiredClaims = [
-    [/From threat reporting to a clear next move\./i, 'must lead with the operational outcome'],
     [/Requirements\s*Node\.js \+ npm/i, 'must disclose the local runtime requirements in the product proof'],
-    [/Briefing generation\s*Anthropic API key/i, 'must disclose the Briefing key requirement in the product proof'],
-    [/Anthropic API key for Briefing generation/i, 'must scope the quick-start key requirement to Briefing generation'],
+    [/Briefing generation\s*Anthropic or OpenAI (?:\(Codex\) )?API key/i, 'must disclose the Briefing key requirement in the product proof'],
+    [/Anthropic or OpenAI (?:\(Codex\) )?API key for Briefing generation/i, 'must scope the quick-start key requirement to Briefing generation'],
     [/One Briefing\. Two formats\./i, 'must explain that the reader and Print Edition share one Briefing'],
-    [/Built for the floor\. Grounded in evidence\./i, 'must retain the concise evidence-led product promise'],
     [/\bAI-generated\b/i, 'must label Briefings AI-generated'],
     [/\bPrint Edition\b/i, 'must name the Print Edition'],
     [/\bRun locally\b/i, 'must use source-run language for the primary call to action'],
@@ -421,9 +419,6 @@ function validateProductTruth(file, document) {
   }
   if (/\bfor (?:small )?blue teams\b/i.test(publicMetadata)) {
     fail(file, 'public metadata must not narrow the product to a single team size');
-  }
-  if (!/From threat reporting to a clear next move\./i.test(publicMetadata)) {
-    fail(file, 'social metadata must carry the outcome-led product promise');
   }
   pass('key, audience, format, source-run, and platform-support claims remain explicitly scoped');
 }
