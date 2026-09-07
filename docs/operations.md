@@ -2,7 +2,7 @@
 
 [Back to the README](../README.md)
 
-BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and the Wire require no API key. AI-generated Briefings require the operator's Anthropic API key. The default listener is loopback-only.
+BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and the Wire require no API key. AI-generated Briefings require an Anthropic or OpenAI API key for the selected provider. Configure both keys and switch providers in Settings; OpenAI supports Codex models through the Responses API. The default listener is loopback-only.
 
 ## Start, stop, and restart
 
@@ -25,7 +25,7 @@ Open `http://127.0.0.1:3000/wall` on the display. The Wall hides the pointer, ro
 
 The app's **WALL** button and `G`, then `L` shortcut also open `/wall` directly as an automatic TV loop with no visible navigation or setup step. Configure text size, margins, playback, fullscreen, and supported screen-awake behavior in **Settings → Wall display**. If fullscreen is enabled, the navigation gesture requests it without blocking entry; a direct URL or reload does not. The Wall fills the viewport even if the browser declines fullscreen. Feed freshness remains separate from the saved Briefing's publication time (UTC, or its edition date if no time is known).
 
-Without an Anthropic key, the Wall still shows KEV changes and prioritized signals. It adopts the latest eligible saved Briefing when one is available; review-required and superseded editions remain outside that default selection.
+Without an AI provider key, the Wall still shows KEV changes and prioritized signals. It adopts the latest eligible saved Briefing when one is available; review-required and superseded editions remain outside that default selection.
 
 ## Runtime support
 
@@ -39,7 +39,7 @@ The CI policy job separately pins npm 11.18 to enforce the exact lifecycle scrip
 
 ## Briefing schedule and cost
 
-Manual Briefing generation is available whenever a valid Anthropic key is configured. Automatic generation is a separate, explicit opt-in under **Settings** and is disabled by default. Its controls are:
+Manual Briefing generation requires a valid key for the selected provider and enough current source evidence. Automatic generation is a separate, explicit opt-in under **Settings** and is disabled by default. Its controls are:
 
 | Setting | Default | Meaning |
 |---|---:|---|
@@ -50,19 +50,19 @@ Manual Briefing generation is available whenever a valid Anthropic key is config
 | Retry interval | 15 minutes | Delay after a failed attempt |
 | Maximum attempts | 3 | Daily automatic-attempt limit |
 
-Schedule state and outcomes persist in SQLite, so a restart does not erase the attempt count or duplicate a successful daily run. Catch-up applies only to today's missed scheduled time and does not replay multiple missed days. An attempt chain that already began can resume after restart within the saved daily attempt limit, even when the initial missed-run policy is **Skip**. If no Anthropic key is available, an enabled schedule waits and reports that state instead of enabling itself or issuing a provider call.
+Schedule state and outcomes persist in SQLite, so a restart does not erase the attempt count or duplicate a successful daily run. Catch-up applies only to today's missed scheduled time and does not replay multiple missed days. An attempt chain that already began can resume after restart within the saved daily attempt limit, even when the initial missed-run policy is **Skip**. If no key is available for the selected provider, an enabled schedule waits and reports that state instead of enabling itself or issuing a provider call.
 
-Manual and automatic requests share the same generation route, cooldown, rate limits, validation, storage, and webhook path. Route-level request limits use process-local fixed windows and reset when the server restarts; the separate automatic-schedule attempt count persists in SQLite. Key verification sends a minimal provider request, and every provider request may consume billable tokens on the configured Anthropic account. Corrective retries, timeout recovery, and model or key fallback can make additional provider calls, so these limits are guardrails rather than spending caps. Review Anthropic account limits and billing separately.
+Manual and automatic requests share the same generation route, cooldown, rate limits, validation, storage, and webhook path. Route-level request limits use process-local fixed windows and reset when the server restarts; the separate automatic-schedule attempt count persists in SQLite. Key verification sends a minimal provider request, and every provider request may consume billable tokens on the selected provider account. Corrective retries, timeout recovery, and model or key fallback can make additional provider calls, so these limits are guardrails rather than spending caps. Review provider account limits and billing separately. OpenAI retries use the selected model; they never switch providers. Anthropic retains its configured model and key fallback behavior.
 
 The default generation settings use `thinkingEffort: "low"`, a 16,000-token output cap, and a 300-second generation deadline. Explicit operator configuration remains authoritative.
 
-If the provider stops at the configured output-token limit, BlueTeam.News uses the existing one-retry allowance at lower thinking effort without raising the configured cap. With the default low setting, that recovery disables thinking for the retry. If that retry also exhausts the limit, the app returns the recoverable draft but does not archive, index, dispatch, or announce it as complete. Raise `analysisSettings.maxTokens` in `config.json` or reduce the Briefing scope before trying again.
+If the provider stops at the configured output-token limit, BlueTeam.News uses its one-retry allowance without raising the cap. Anthropic recovery lowers thinking effort, disabling it when the original setting was low. Codex uses its lowest supported effort, `low`. If the retry also exhausts the limit, the app returns the recoverable draft without publishing it. Raise `analysisSettings.maxTokens` in `config.json` or reduce the Briefing scope before trying again.
 
-Completed Briefings report the model, token counts, and an estimated cost. Estimates can differ from the provider invoice.
+Completed Briefings report the model, token counts, and an estimated cost when pricing is known. A custom model without a known rate shows cost as unavailable. Estimates can differ from the provider invoice; OpenAI reasoning tokens are included in output usage rather than charged twice.
 
-New completed editions also save a bounded JSON input manifest beside the Markdown. The manifest is flushed before the archive becomes the completion marker. A manifest or archive publication error prevents a completion event and webhook; check filesystem space, permissions, and logs before retrying. A crash before the Markdown rename can leave an orphan manifest, which a later publication of that edition replaces. This protects completed-edition integrity; it does not persist a recoverable generation job or guarantee that a failed paid attempt will never need another provider call.
+New editions save a JSON input manifest before publishing their Markdown. A publication error prevents completion and webhook delivery. The generation ledger records paid attempts, usage checkpoints, and outcomes; after a restart it reconciles verified publications and marks unfinished jobs interrupted. Ambiguous paid attempts are not automatically repeated. Inspect **Settings → System health**, `/api/brief/status`, and provider usage before requesting another generation. Usage checkpoints can be incomplete and discarded output cannot be resumed. See [Generation stream](api.md#generation-stream).
 
-Opening a completed Briefing's **Print Edition** reuses that saved assessment. The Print Edition is rendered locally in the browser, and printing or saving it as a PDF uses the browser's print pipeline. Viewing or exporting the Print Edition does not make another Anthropic request.
+Opening a completed Briefing's **Print Edition** reuses that saved assessment. The Print Edition is rendered locally in the browser, and printing or saving it as a PDF uses the browser's print pipeline. Viewing or exporting the Print Edition does not make another model request.
 
 ## State and backups
 
@@ -75,7 +75,7 @@ Back up these paths:
 | `config.json` | Feeds, scoring, organization/watch-profile defaults, models, and webhooks |
 | `.env` or service environment | Optional secrets and server configuration |
 
-`data/settings.local.json` can contain the Anthropic key in plaintext. Store backups with the same care as the live host. Do not back up `node_modules`; reinstall it on the restore target.
+`data/settings.local.json` can contain both provider keys in plaintext. Store backups with the same care as the live host. Do not back up `node_modules`; reinstall it on the restore target.
 
 For a consistent backup:
 
@@ -91,7 +91,7 @@ To restore:
 2. Check out the recorded application version.
 3. Replace the target `data/`, `briefs/`, and `config.json` with the backup and restore secrets through the chosen secret mechanism.
 4. Run `npm install` with a supported Node version.
-5. Start the server and inspect `/api/health`, the Wire, and Briefing history. Open a retained source revision and a new edition's **Inspect saved generation inputs (JSON)** link to verify that evidence and its matching manifest were restored.
+5. Start the server and inspect `/api/health`, the Wire, and Briefing history. Open a retained source revision and an edition's **Edition tools → Sources and saved inputs** to verify that evidence and its matching manifest were restored.
 
 Never replace a live SQLite database. Copying only `watchfloor.db` while the process is running can omit committed data still represented by its WAL file.
 
@@ -103,7 +103,7 @@ Collection prunes source records not observed for 30 days, caps retained sources
 
 Saved Briefings and manifests are retained until the operator removes them. Their copied passages survive rolling database pruning. Removing database evidence does not delete copied excerpts from manifests or backups; include these artifacts in the local retention policy and storage monitoring. Backups require their own access and expiration controls.
 
-Source licensing and handling restrictions are not yet tracked or enforced per passage. Keeping a local excerpt does not make it a preapproved public export. Preserve attribution and source links and check the source's sharing conditions before redistributing a manifest or excerpt. See [Evidence and relevance](evidence-and-relevance.md) for the boundaries of this milestone.
+Source licensing and handling restrictions are not tracked or enforced per passage. Preserve attribution and source links and check the source's sharing conditions before redistributing a manifest or excerpt. See [Evidence and relevance](evidence-and-relevance.md).
 
 ## Upgrade and rollback
 
@@ -186,13 +186,13 @@ The same readiness information is available in **Settings → System health**. T
 | Symptom | What to check |
 |---|---|
 | `POST /api/brief` returns 429 | Another generation may be active, a request may have started within the last 15 seconds (including an early failure), or the short-window/daily limit may be reached. Honor `Retry-After`, do not repeatedly click Generate, and inspect the JSON error and logs. |
-| Briefing reports stale or unavailable evidence (`E_EVIDENCE`) despite a saved key | Generation stops before calling Anthropic when current source evidence is insufficient. Check **Settings → System health**, restore the server's outbound connectivity to its configured sources, and allow collection to finish before retrying. Replacing the API key does not repair feed connectivity. |
+| Briefing reports stale or unavailable evidence (`E_EVIDENCE`) despite a saved key | Generation stops before calling the provider when current source evidence is insufficient. Check **Settings → System health**, restore the server's outbound connectivity to its configured sources, and allow collection to finish before retrying. Replacing the API key does not repair feed connectivity. |
 | Automatic Briefing did not run | Confirm the schedule is enabled in Settings, a valid key is available, the configured timezone is correct, and the displayed schedule status has not reached its daily attempt limit. |
 | `NODE_MODULE_VERSION`, ABI, or native-binding error | Stop the server, confirm Node is a supported release, delete only this clone's `node_modules`, then run `npm install` again. Never reuse another machine's dependency directory. |
 | `EADDRINUSE` at startup | Another process already uses `PORT`; stop that process or choose another port. Do not start a second copy against the same `data/`. |
 | Health stays degraded after first start | Inspect feed statuses and `configReloadError` in authenticated health details, then review logs for proxy, DNS, certificate, rate-limit, or config validation failures. |
 | Feeds fail behind a corporate proxy | Confirm the host can reach the configured HTTPS origins and that TLS inspection trusts the organization's CA. BlueTeam.News does not include a proxy-bypass mode. |
-| Briefing is disabled | Add or verify an Anthropic key in Settings or through `ANTHROPIC_API_KEY`; an environment key takes precedence over the Settings key. |
+| Briefing is disabled | Choose a provider and verify its key in Settings, or set `AI_PROVIDER` with `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. Environment keys override saved keys for that provider. Check the selected OpenAI model if verification reports an access error. |
 | Database or Briefing history is missing after a move | Restore `data/` and `briefs/` together, confirm filesystem ownership, and use the application version recorded with the backup. |
 | Source evidence is missing or an attached revision is no longer retained | Evidence starts with collection after the upgrade and has rolling count/age limits. Newer observations do not reconstruct an older missing passage. Inspect the source link and collection/storage diagnostics; do not treat missing evidence as a negative finding. |
 | A Briefing has no saved inputs or its manifest fails verification | Old editions have no reconstructed manifest. For newer editions, restore the matching Markdown/manifest pair; check for an external edit, partial restore, corrupt file, or storage failure. A manifest hash does not authorize replacing the original assessment. |
@@ -252,10 +252,10 @@ write keeps the affected area degraded until that operation succeeds again.
 The self-hosted application sends no product telemetry. Expected outbound requests are:
 
 - configured RSS/Atom feeds, news search, selected article pages, and enrichment sources such as CISA KEV, NVD, and EPSS;
-- Anthropic when Briefing generation or key verification is requested; and
+- the selected AI provider, Anthropic or OpenAI, when Briefing generation or key verification is requested; and
 - an alert webhook configured by the operator.
 
-Briefing generation sends Anthropic the configured team profile, audience, and effective watch profile, including technologies, sectors, regions, intelligence questions, lower-interest topics, and preferred horizons; selected public-source titles, descriptions or short excerpts, source labels, publication dates, URLs, and enrichment facts; and compact topic labels from recent Briefings for continuity. Key verification sends a minimal provider request. Opening retained evidence or a saved generation manifest makes no publisher or model request.
+Briefing generation sends the selected provider the configured team profile, audience, and effective watch profile, including technologies, sectors, regions, intelligence questions, lower-interest topics, and preferred horizons; selected public-source titles, descriptions or short excerpts, source labels, publication dates, URLs, and enrichment facts; and compact topic labels from recent Briefings for continuity. Key verification sends a minimal provider request. Opening retained evidence or a saved generation manifest makes no publisher or model request.
 
 Feed, article, and enrichment requests use the default User-Agent `BlueTeam.News/<version> (+https://blueteam.news)`. This identifies the application to source operators but does not report usage back to BlueTeam.News. Set `BLUETEAM_USER_AGENT` to use an operator-controlled identity, such as one containing a contact URL.
 

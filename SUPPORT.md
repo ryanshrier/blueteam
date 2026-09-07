@@ -1,6 +1,6 @@
 # Support
 
-BlueTeam.News is a maintainer-led open-source project provided as-is, without a service-level agreement, response-time guarantee, maintenance schedule, or public roadmap.
+BlueTeam.News is a maintainer-led open-source project provided as-is, without a support or maintenance commitment. The [roadmap](docs/decision-desk-roadmap.md) describes proposed work with no promised delivery dates.
 
 Before opening a bug report:
 

@@ -38,7 +38,7 @@ The supported deployment models are:
 
 The shared API secret authenticates requests; it is not a multi-user authorization system. BlueTeam.News should not be exposed directly to the public internet.
 
-The self-hosted application has no product telemetry. It intentionally makes outbound requests to configured threat sources and enrichment services, to Anthropic when key verification or Briefing generation is requested, and to a configured webhook. See [Network behavior](docs/operations.md#network-behavior) for the data boundary.
+The application sends no product telemetry. Outbound requests go to configured threat sources and enrichment services, the selected AI provider (Anthropic or OpenAI) during verification or Briefing generation, and an optional webhook. See [Network behavior](docs/operations.md#network-behavior) for the data boundary.
 
 ## Scope
 
@@ -47,7 +47,7 @@ Examples of issues that are in scope:
 - SSRF guard bypasses in feed, article, enrichment, or webhook fetching;
 - cross-site scripting or unsafe Markdown/HTML rendering through any untrusted field;
 - path traversal, local-file disclosure, or arbitrary file modification;
-- leakage of Anthropic keys, `API_SECRET`, or other credentials through storage, logs, responses, or generated output;
+- leakage of provider keys, `API_SECRET`, or other credentials through storage, logs, responses, or generated output;
 - Host, Origin, CSP, rate-limit, or bearer-authentication bypasses in a supported deployment;
 - failure of the non-loopback bind guard or trusted-proxy boundary;
 - unauthorized Settings changes or billable generation through the documented local or managed-network configurations; and
@@ -71,10 +71,10 @@ If the correct classification is unclear, report privately.
 - Restrict the listener with the host firewall. Do not use wildcard CORS for a network deployment.
 - Run the process as a dedicated, unprivileged account and keep dependencies and the host patched.
 - Protect `.env`, `data/`, `briefs/`, logs, and backups. Test restoration regularly.
-- Treat configured webhooks and Anthropic as data recipients.
+- Treat configured webhooks and the selected AI provider as data recipients.
 - Monitor process logs and authenticated `/api/ready` details for persistent failures.
 
-An Anthropic key saved through Settings is stored in plaintext at `data/settings.local.json`. It is masked in API responses and common credentials are redacted from logs, but those controls do not protect against local file access. Prefer environment or service-manager secret injection when disk access is in the threat model.
+Provider keys saved through Settings are stored in plaintext at `data/settings.local.json`. They are masked in API responses and common credentials are redacted from logs, but those controls do not protect against local file access. Prefer environment or service-manager secret injection when disk access is in the threat model.
 
 On POSIX systems the application requests mode `0700` for state directories and `0600` for sensitive state files. Windows uses the service account's filesystem ACLs. These are defense-in-depth defaults, not encryption.
 

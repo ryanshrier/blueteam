@@ -117,7 +117,7 @@ configured search-engine webmaster tools.
 |---|---|
 | `G`, then `B` | Open Briefing |
 | `G`, then `W` | Open Wire |
-| `G`, then `L` | Open Wall with reading/playback controls |
+| `G`, then `L` | Open the automatic Wall display |
 | `←` / `→` | Wall: previous / next page and pause for reading |
 | `Space` | Wall: pause / resume rotation |
 | `G`, then `S` | Open Settings |

@@ -15,7 +15,9 @@ and accounts for both attempts.
 
 ## Optional live evaluation
 
-Live evaluation sends these synthetic collections to Anthropic. It does not read
+The optional live evaluation currently supports Anthropic only, even when the
+application is configured for OpenAI Codex. It sends synthetic collections to
+Anthropic. It does not read
 the operator collection, publish to the application archive, update settings, or
 send webhooks. It requires an explicit cost reservation and output directory:
 

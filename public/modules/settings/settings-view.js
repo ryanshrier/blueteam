@@ -1,4 +1,4 @@
-// BlueTeam.News — Settings: the Anthropic key (server-persisted) plus appearance
+// BlueTeam.News — Settings: provider credentials (server-persisted) plus appearance
 // (theme + accent, stored locally). The only view that writes to the server.
 
 import { fetchSettings, saveSettings, verifyKey } from '../core/api.js';
@@ -91,9 +91,13 @@ export function render(main) {
       </section>
       <section class="settings-card" aria-labelledby="set-ai">
         <div class="settings-section-heading"><h2 id="set-ai">AI Briefing</h2><span class="settings-scope">Shared server</span></div>
-        <p class="settings-note">Enable generation with an Anthropic API key. Generation and key verification contact Anthropic and may incur charges. Wall and Wire work without a key.</p>
+        <p class="settings-note">Choose Anthropic or OpenAI (Codex) for generation. Generation and key verification contact that provider and may incur charges. Wall and Wire work without a key.</p>
         <div class="settings-status" id="aiStatus" data-state="loading" role="status" aria-live="polite">Checking…</div>
-        <label class="settings-label" for="apiKey">Anthropic API key</label>
+        <div class="profile-grid ai-provider-fields">
+          <div><label class="settings-label" for="aiProvider">Provider</label><select id="aiProvider" class="settings-input" disabled><option value="anthropic">Anthropic</option><option value="openai">OpenAI (Codex)</option></select></div>
+          <div id="openaiModelRow" hidden><label class="settings-label" for="openaiModel">OpenAI model</label><input id="openaiModel" class="settings-input" maxlength="128" spellcheck="false" placeholder="gpt-5.3-codex" disabled><p class="settings-help">A Responses API model available to your OpenAI account. Uses API billing.</p></div>
+        </div>
+        <label class="settings-label" id="apiKeyLabel" for="apiKey">Anthropic API key</label>
         <div class="key-row">
           <div class="key-input-wrap">
             <input id="apiKey" class="settings-input" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" aria-describedby="keyHelp" disabled>
@@ -104,17 +108,17 @@ export function render(main) {
             </button>
           </div>
           <button class="btn-ghost-sm" id="verifyKey" type="button" title="Make one tiny test call to confirm the key works" disabled>Verify</button>
-          <button class="btn-primary" id="saveKey" type="button" disabled>Save</button>
         </div>
         <p class="settings-help" id="keyHelp">The saved key enables generation for everyone on this server. <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Get an Anthropic key</a>. Unsaved keys stay in this tab's memory.</p>
         <div class="settings-row-actions">
+          <button class="btn-primary" id="saveKey" type="button" disabled>Save AI settings</button>
           <button class="btn-ghost-sm destructive" id="clearKey" type="button" disabled>Remove key</button>
           <button class="btn-ghost-sm" id="discardKey" type="button" hidden>Discard typed key</button>
           <span class="profile-save-state" id="keySaveState" role="status"></span>
           <span class="settings-feedback" id="keyFeedback" role="status" aria-live="polite"></span>
         </div>
         <div class="key-remove-confirm" id="keyRemoveConfirm" hidden role="group" aria-labelledby="keyRemoveMessage"><p id="keyRemoveMessage">Remove the saved key? New Briefings will be unavailable until a key is added. Saved Briefings remain readable.</p><button class="btn-ghost-sm destructive armed" id="confirmRemoveKey" type="button">Remove saved key</button><button class="btn-ghost-sm" id="cancelRemoveKey" type="button">Cancel</button></div>
-        <details class="profile-details"><summary>Storage and network details</summary><p class="settings-help">The key is saved in <code>data/settings.local.json</code> (gitignored). Generation sends prompts to Anthropic and reports model, tokens, and estimated cost. Source collection and optional webhooks have separate <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md#network-behavior" target="_blank" rel="noopener noreferrer">documented outbound paths</a>.</p></details>
+        <details class="profile-details"><summary>Storage and network details</summary><p class="settings-help">The key is saved in <code>data/settings.local.json</code> (gitignored). Generation sends prompts to the selected provider and reports model, tokens, and estimated cost. Source collection and optional webhooks have separate <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md#network-behavior" target="_blank" rel="noopener noreferrer">documented outbound paths</a>.</p></details>
       </section>
 
       <section class="settings-card" aria-labelledby="set-schedule">
@@ -124,7 +128,7 @@ export function render(main) {
           <input id="scheduleEnabled" type="checkbox" disabled>
           <span>
             <strong>Generate automatically</strong>
-            <small>Uses this server's Anthropic API key and may incur charges. Save to apply.</small>
+            <small>Uses this server's selected provider and API key and may incur charges. Save to apply.</small>
           </span>
         </label>
         <p class="schedule-preview" id="schedulePreview">Loading schedule…</p>
@@ -221,8 +225,10 @@ export function render(main) {
     field.focus(); field.scrollIntoView({ block: 'center' });
   });
 
-  // ── AI key ──
+  // Provider drafts stay in memory and remain separate when switching providers.
   const input = main.querySelector('#apiKey');
+  const providerEl = main.querySelector('#aiProvider');
+  const modelEl = main.querySelector('#openaiModel');
   const statusEl = main.querySelector('#aiStatus');
   const feedback = main.querySelector('#keyFeedback');
   const saveBtn = main.querySelector('#saveKey');
@@ -237,111 +243,138 @@ export function render(main) {
   let keyBusy = false;
   let activeAi = null;
   let verifiedCandidate = null;
-  input.value = drafts.get('key') || '';
+  providerEl.value = drafts.get('aiProvider') || 'anthropic';
+  modelEl.value = drafts.get('openaiModel') || 'gpt-5.3-codex';
+  const provider = () => providerEl.value;
+  const keyDraft = () => provider() === 'openai' ? 'openaiKey' : 'key';
+  const providerStatus = () => activeAi?.providers?.[provider()]
+    || (provider() === (activeAi?.provider || 'anthropic') ? activeAi : null);
+  const plausibleKey = value => provider() === 'openai' ? /^sk-(?!ant-)[A-Za-z0-9_-]+$/.test(value) : /^sk-ant-[A-Za-z0-9_-]+$/.test(value);
+  const modelValid = () => provider() !== 'openai' || /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(modelEl.value.trim());
+  input.value = drafts.get(keyDraft()) || '';
+
   function syncKeyControls() {
-    const envManaged = activeAi?.keySource === 'env';
+    const envManaged = providerStatus()?.keySource === 'env';
+    const changed = provider() !== (activeAi?.provider || 'anthropic')
+      || (provider() === 'openai' && modelEl.value.trim() !== (activeAi?.providers?.openai?.model || 'gpt-5.3-codex'));
+    providerEl.disabled = modelEl.disabled = !canEdit || keyBusy;
     input.disabled = !canEdit || envManaged || keyBusy;
-    saveBtn.disabled = input.disabled || !input.value.trim().startsWith('sk-ant-');
-    verifyBtn.disabled = !canEdit || !activeAi || keyBusy;
-    if (!keyBusy) verifyBtn.textContent = input.value.trim() ? 'Verify entered key' : 'Verify saved key';
-    clearBtn.disabled = !canEdit || envManaged || !activeAi?.enabled || keyBusy;
+    saveBtn.disabled = !canEdit || keyBusy || !modelValid()
+      || (!envManaged && Boolean(input.value.trim()) && !plausibleKey(input.value.trim()))
+      || !(changed || (!envManaged && input.value.trim()));
+    verifyBtn.disabled = !canEdit || !activeAi || keyBusy || !modelValid()
+      || (!input.value.trim() && !providerStatus()?.enabled);
+    if (!keyBusy) verifyBtn.textContent = input.value.trim() && !envManaged ? 'Verify entered key' : 'Verify saved key';
+    clearBtn.disabled = !canEdit || envManaged || !providerStatus()?.enabled || keyBusy;
     confirmRemove.disabled = clearBtn.disabled;
-    discardKey.hidden = !input.value;
+    discardKey.hidden = !input.value && !changed;
+    discardKey.textContent = 'Discard changes';
     discardKey.disabled = keyBusy;
-    main.querySelector('#keySaveState').textContent = input.value ? verifiedCandidate === input.value.trim() ? 'Verified · not saved' : 'Unsaved key' : '';
-    setChangedFields('set-ai', input.value ? [{ id: 'apiKey', label: 'Entered API key' }] : []);
+    main.querySelector('#keySaveState').textContent = input.value ? verifiedCandidate === input.value.trim() ? 'Verified · not saved' : 'Unsaved key' : changed ? 'Unsaved changes' : '';
+    const fields = [];
+    if (changed) fields.push({ id: 'aiProvider', label: 'Provider or model' });
+    for (const [name, label] of [['key', 'Anthropic key'], ['openaiKey', 'OpenAI key']]) {
+      if (drafts.get(name)) fields.push({ id: 'apiKey', label });
+    }
+    setChangedFields('set-ai', fields);
   }
 
-  // Transient feedback auto-dismisses so it never lingers as a second stale truth
-  // beside the repainted status; sticky messages (the env notice, the format hint) hold.
   function setFeedback(msg, { sticky = false } = {}) {
     clearTimeout(feedbackTimer);
     feedback.textContent = msg || '';
     if (msg && !sticky) feedbackTimer = setTimeout(() => { feedback.textContent = ''; }, 4000);
   }
 
+  function paintProvider() {
+    const openai = provider() === 'openai';
+    const selected = providerStatus();
+    main.querySelector('#openaiModelRow').hidden = !openai;
+    main.querySelector('#apiKeyLabel').textContent = openai ? 'OpenAI API key' : 'Anthropic API key';
+    input.placeholder = openai ? 'sk-…' : 'sk-ant-…';
+    main.querySelector('#keyHelp').innerHTML = openai
+      ? 'Use an <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI API key</a>. A ChatGPT or Codex subscription login is separate. Both providers’ saved keys are retained when switching.'
+      : 'Use an <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic API key</a>. Both providers’ saved keys are retained when switching.';
+    main.querySelector('#keyRemoveMessage').textContent = `Remove the saved ${openai ? 'OpenAI' : 'Anthropic'} key? Generation using this provider will be unavailable. Saved Briefings remain readable.`;
+    statusEl.dataset.state = activeAi?.enabled ? 'on' : 'off';
+    const activeLabel = activeAi?.provider === 'openai' ? 'OpenAI' : 'Anthropic';
+    statusEl.textContent = !activeAi ? 'Status unavailable.'
+      : `Briefing ${activeAi.enabled ? 'enabled' : 'disabled'} · ${activeLabel}${activeAi.model ? ` · ${activeAi.model}` : ''}. `
+        + (selected?.enabled ? `Selected provider key ${selected.keyMasked || ''} ${selected.keySource === 'env' ? 'from .env' : 'saved'}.` : 'No key for the selected provider.');
+    setFeedback(selected?.keySource === 'env' ? 'This provider’s environment key takes precedence. Edit .env and restart to change it.' : '', { sticky: true });
+    disarmClear();
+    syncKeyControls();
+  }
+
   function paintStatus(ai) {
     activeAi = ai;
-    const envManaged = ai?.keySource === 'env';
-    if (!ai) {
-      statusEl.dataset.state = 'off';
-      statusEl.textContent = 'Status unavailable.';
-    } else if (ai.enabled) {
-      statusEl.dataset.state = 'on';
-      const src = envManaged ? 'from the environment (.env)' : 'set in-app';
-      statusEl.textContent = `Briefing enabled — key ${ai.keyMasked || ''} ${src}.`;
-    } else {
-      statusEl.dataset.state = 'off';
-      statusEl.textContent = 'Briefing disabled — no API key set.';
-    }
-    // An env-managed key wins regardless of what the in-app controls do, so Save and
-    // Remove would both be no-ops (Remove especially is a misleading lie). Disable the
-    // input AND both buttons, and say why. Verify stays live — testing the active env
-    // key is useful.
-    syncKeyControls();
-    disarmClear(); // a repaint (post-save or env notice) resets the arm state
-    if (envManaged) {
-      setFeedback('A key from the environment (.env) is in use and takes precedence. To change it, edit .env and restart the server.', { sticky: true });
-    }
-    // Tell the header (and any other listener) the AI-enabled state may have changed —
-    // paintStatus runs both on initial load AND after save/clear, so this covers the
-    // "add a key" happy path without the header needing its own re-fetch. Without this,
-    // the header CTA stayed "Enable AI →" (routing back to Settings) even after a key
-    // was saved, until a full page reload.
+    providerEl.value = drafts.get('aiProvider') || ai?.provider || 'anthropic';
+    modelEl.value = drafts.get('openaiModel') || ai?.providers?.openai?.model || 'gpt-5.3-codex';
+    input.value = drafts.get(keyDraft()) || '';
+    paintProvider();
     emit('ai-status-changed', ai);
   }
 
-  async function save(value) {
-    if (!canEdit || keyBusy || activeAi?.keySource === 'env') return;
+  providerEl.addEventListener('change', () => {
+    drafts.set('aiProvider', provider());
+    input.value = drafts.get(keyDraft()) || '';
+    verifiedCandidate = null;
+    syncReveal(false);
+    input.removeAttribute('aria-invalid');
+    paintProvider();
+  });
+  modelEl.addEventListener('input', () => {
+    drafts.set('openaiModel', modelEl.value);
+    modelEl.setAttribute('aria-invalid', String(!modelValid()));
+    syncKeyControls();
+  });
+
+  async function save(remove = false) {
+    if (!canEdit || keyBusy || (remove && clearBtn.disabled)) return;
+    const selected = provider();
+    const field = selected === 'openai' ? 'openaiKey' : 'anthropicKey';
+    const draftName = keyDraft();
+    const value = input.value.trim();
+    const model = modelEl.value.trim();
+    const patch = remove ? { [field]: '' } : {
+      aiProvider: selected,
+      ...(selected === 'openai' ? { openaiModel: model } : {}),
+      ...(value && providerStatus()?.keySource !== 'env' ? { [field]: value } : {}),
+    };
     keyBusy = true;
     syncKeyControls();
     setFeedback('Saving…', { sticky: true });
     try {
-      const d = await saveSettings({ anthropicKey: value });
-      drafts.clearIf('key', value);
+      const d = await saveSettings(patch);
+      if (remove || Object.hasOwn(patch, field)) drafts.clearIf(draftName, value);
+      if (!remove) {
+        drafts.clearIf('aiProvider', selected);
+        if (selected === 'openai') drafts.clearIf('openaiModel', model);
+      }
       if (!ownsView()) return;
       paintStatus(d.ai);
-      if (!(d.ai?.keySource === 'env')) setFeedback(value ? 'Saved' : 'Removed');   // env path keeps its sticky notice
-      input.setAttribute('aria-describedby', 'keyHelp');
-      if (value) input.value = '';
-      saveBtn.disabled = true;
+      setFeedback(remove ? 'Removed' : 'Saved');
       syncReveal(false);
     } catch (err) {
-      if (!ownsView()) return;
-      setFeedback(err.message || 'Save failed.', { sticky: true });
-      input.setAttribute('aria-describedby', 'keyHelp keyFeedback');
+      if (ownsView()) setFeedback(err.message || 'Save failed.', { sticky: true });
     } finally {
       keyBusy = false;
       if (ownsView()) syncKeyControls();
     }
   }
 
-  // Plausible-key gate: block an obvious mis-paste before the round-trip and
-  // wire the error to the field for screen readers; revert when it looks ok.
   function validateKeyInput() {
-    const v = input.value.trim();
-    drafts.set('key', v || null);
+    const value = input.value.trim();
+    drafts.set(keyDraft(), value || null);
+    verifiedCandidate = null;
+    const invalid = value && !plausibleKey(value);
+    input.setAttribute('aria-invalid', String(Boolean(invalid)));
+    input.setAttribute('aria-describedby', invalid ? 'keyHelp keyFeedback' : 'keyHelp');
+    setFeedback(invalid ? `Expected ${provider() === 'openai' ? 'an OpenAI key starting with sk-' : 'an Anthropic key starting with sk-ant-'}. Check the paste.` : '', { sticky: true });
     syncKeyControls();
-    if (v && !v.startsWith('sk-ant-')) {
-      saveBtn.disabled = true;
-      setFeedback('Anthropic keys start with "sk-ant-" — check the paste.', { sticky: true });
-      input.setAttribute('aria-describedby', 'keyHelp keyFeedback');
-      input.setAttribute('aria-invalid', 'true');
-    } else {
-      input.removeAttribute('aria-invalid');
-      input.setAttribute('aria-describedby', 'keyHelp');
-      if ((feedback.textContent || '').startsWith('Anthropic keys start')) setFeedback('');
-    }
   }
   input.addEventListener('input', validateKeyInput);
-
-  saveBtn.addEventListener('click', () => {
-    const v = input.value.trim();
-    if (!v) { setFeedback('Paste a key first.'); return; }
-    if (!v.startsWith('sk-ant-')) { validateKeyInput(); return; }
-    save(v);
-  });
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveBtn.click(); });
+  saveBtn.addEventListener('click', () => { if (!saveBtn.disabled) void save(); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') saveBtn.click(); });
 
   function disarmClear() {
     keyConfirmation.hidden = true;
@@ -356,45 +389,35 @@ export function render(main) {
     cancelRemove.focus();
   });
   cancelRemove.addEventListener('click', () => { disarmClear(); clearBtn.focus(); });
-  confirmRemove.addEventListener('click', () => {
-    if (clearBtn.disabled) return;
-    disarmClear();
-    clearBtn.focus();
-    void save('');
+  confirmRemove.addEventListener('click', () => { if (!clearBtn.disabled) { disarmClear(); void save(true); } });
+  discardKey.addEventListener('click', () => {
+    for (const name of ['key', 'openaiKey', 'aiProvider', 'openaiModel']) drafts.set(name, null);
+    syncReveal(false); paintStatus(activeAi); input.focus();
   });
-  discardKey.addEventListener('click', () => { input.value = ''; drafts.set('key', null); syncReveal(false); validateKeyInput(); input.focus(); });
 
-  // Verify — one cheap server-side call confirms the key actually works, catching
-  // a well-formed-but-dead key before a full brief 503s. Verifies the typed key, or the
-  // active key when the field is empty (e.g. the env key).
   verifyBtn.addEventListener('click', async () => {
     if (!canEdit || keyBusy || verifyBtn.disabled) return;
-    const candidate = input.value.trim();
-    if (candidate && !candidate.startsWith('sk-ant-')) { validateKeyInput(); return; }
+    const candidate = providerStatus()?.keySource === 'env' ? '' : input.value.trim();
+    if (candidate && !plausibleKey(candidate)) { validateKeyInput(); return; }
     keyBusy = true;
     syncKeyControls();
-    const prevLabel = verifyBtn.textContent;
     verifyBtn.textContent = 'Verifying…';
-    setFeedback('Verifying key…', { sticky: true });
+    setFeedback('Verifying key and model…', { sticky: true });
     try {
-      const r = await verifyKey(candidate);
+      const r = await verifyKey(candidate, provider(), provider() === 'openai' ? modelEl.value.trim() : undefined);
       if (!ownsView()) return;
       if (r.valid === true) {
         verifiedCandidate = candidate || null;
         setFeedback(`${candidate ? 'Entered key verified; save to activate it.' : 'Saved key verified.'}${r.note ? ` — ${r.note}` : ''}`, { sticky: Boolean(candidate) });
-      }
-      else if (r.valid === false) setFeedback(r.error || 'Key rejected.', { sticky: true });
-      else setFeedback(r.error || 'Could not verify the key.', { sticky: true });
+      } else setFeedback(r.error || 'Could not verify the key.', { sticky: true });
     } catch (err) {
-      if (!ownsView()) return;
-      setFeedback(err.message || 'Verification failed.', { sticky: true });
+      if (ownsView()) setFeedback(err.message || 'Verification failed.', { sticky: true });
     } finally {
       keyBusy = false;
-      if (ownsView()) { verifyBtn.textContent = prevLabel; syncKeyControls(); }
+      if (ownsView()) syncKeyControls();
     }
   });
 
-  // Reveal toggle — eyeball a 100-char paste before committing it.
   function syncReveal(show) {
     input.type = show ? 'text' : 'password';
     revealBtn.setAttribute('aria-pressed', String(show));

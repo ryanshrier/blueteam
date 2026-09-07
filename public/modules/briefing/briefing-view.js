@@ -766,7 +766,7 @@ function renderAiOffState(content) {
     <div class="empty-state">
       <p class="empty-kicker">Daily Threat Landscape</p>
       <h2>AI Briefing is off</h2>
-      <p>Add an Anthropic API key in Settings to generate briefings. The Wire and the Wall keep running without one.</p>
+      <p>Choose Anthropic or OpenAI (Codex) and add its API key in Settings to generate briefings. The Wire and the Wall keep running without one.</p>
       <button class="btn-primary" id="aiOffSettings">Add a key in Settings →</button>
     </div>
   `;

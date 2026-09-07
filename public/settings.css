@@ -74,6 +74,7 @@
 
 .watch-profile > .settings-input { display: block; width: 100%; box-sizing: border-box; }
 .profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.ai-provider-fields { margin-bottom: 18px; }
 .profile-grid .settings-input, .profile-details .settings-input { width: 100%; box-sizing: border-box; }
 .profile-details { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 8px; }
 .profile-details summary { min-height: 44px; align-content: center; cursor: pointer; font-size: var(--type-sm); color: var(--text-primary); }

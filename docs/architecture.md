@@ -15,7 +15,7 @@ Express server and route modules
                  |
 Collection | scoring | enrichment | landscape | history | SQLite
                  |
-RSS/Atom | Google News | CISA KEV | NVD | EPSS | Anthropic
+RSS/Atom | Google News | CISA KEV | NVD | EPSS | Anthropic / OpenAI
 ```
 
 ## Main components
@@ -53,8 +53,8 @@ Each score component remains available to the interface. Source diversity is inf
 
 Rolling signal history is stored in SQLite for trends such as actor frequency and headline velocity.
 
-Before grouping, collection now retains the original source members and stores
-source observations in additive SQLite tables (migration v7 → v8). URL identity
+Before grouping, collection retains the original source members and stores
+source observations in SQLite. URL identity
 and scoped publisher identifiers keep title changes associated; conservative
 fingerprints cover sources lacking both. Each feed representation compares its
 own title/excerpt against its predecessor, so RSS/search copies of one article
@@ -74,14 +74,14 @@ distinction. Profile details remain behind the existing trusted-operator gate.
 `routes/brief.js`:
 
 1. grounds the request in the current scored signals and a deterministic KEV facts block;
-2. streams Anthropic output to the browser over server-sent events;
+2. streams output from the selected Anthropic or OpenAI provider to the browser over server-sent events;
 3. checks required sections, citation allowlists and dates, KEV claims, and other source constraints;
 4. performs one corrective retry after a blocking validation failure;
 5. blocks publication while structural or trust failures remain, or when the provider reports an incomplete response such as an output-token stop, while preserving non-blocking warnings for operator review;
 6. saves the completed Briefing as Markdown under `briefs/`; and
 7. indexes it in SQLite FTS5 for search.
 
-These checks reduce structural and grounding failures; they do not independently establish that generated prose is factually correct. Timeout recovery and model fallback are handled by the route.
+These checks reduce structural and grounding failures; they do not establish that every generated claim follows from its source. OpenAI uses the Responses API with the selected model, including Codex models. Corrective retries stay with that provider and model. Anthropic retains its configured model and key fallbacks.
 
 New publication writes a bounded versioned JSON input receipt before the Markdown
 archive completion marker. The receipt embeds source member passages, selected
@@ -90,9 +90,12 @@ implementation/prompt hashes, model identities, attempt/validation records and
 the saved Markdown hash. Failed receipt writes cannot emit successful
 publication. Trust-gated reads validate the receipt and archive hash; legacy or
 externally edited archives explicitly lack matching historical evidence.
-Hash identities support traceability, not exact prompt/model replay. A process
-crash may leave an orphan receipt; durable job/outbox and filesystem recovery
-remain milestone 3. See [Evidence and relevance](evidence-and-relevance.md).
+Hash identities support identification, not exact prompt/model replay. The
+generation ledger records attempts before provider calls and checkpoints usage.
+Startup reconciles verified publications and marks unfinished jobs interrupted;
+it does not automatically repeat ambiguous paid attempts or resume discarded
+output. See [Generation stream](api.md#generation-stream) and
+[Evidence and relevance](evidence-and-relevance.md).
 
 Each key judgment carries two separate time concepts. Its Tactical,
 Operational, or Strategic tier is the analytic horizon; its Decision window

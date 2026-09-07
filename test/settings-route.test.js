@@ -31,6 +31,8 @@ function makeServer({
   verifyKey = null,
   briefScheduleStatus = null,
   onBriefScheduleChanged = null,
+  getAiStatus = () => AI_STATUS,
+  refreshAi = () => {},
 }) {
   const app = express();
   app.use(express.json());
@@ -40,8 +42,8 @@ function makeServer({
   });
   app.use('/api', createSettingsRouter({
     dataDir,
-    getAiStatus: () => AI_STATUS,
-    refreshAi: () => {},
+    getAiStatus,
+    refreshAi,
     verifyKey,
     getAlertRules: () => alertRules,
     getOrganization: () => getEffectiveOrganization(orgConfig),
@@ -560,5 +562,74 @@ describe('user-settings — organization profile sanitize + effective merge', ()
   test('getEffectiveOrganization is just config.json when no override was ever saved', () => {
     const config = { organization: { sector: 'Default sector', profile: 'Default profile', regions: [] } };
     expect(getEffectiveOrganization(config)).toEqual(config.organization);
+  });
+});
+
+
+describe('provider settings', () => {
+  let dir, ctx;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'wf-provider-settings-')); loadUserSettings(dir); });
+  afterEach(async () => {
+    if (ctx) await new Promise(resolve => ctx.server.close(resolve));
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const post = body => fetch(`${ctx.base}/api/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  test('both keys persist through a reload; selection refreshes and rearms without enabling a schedule', async () => {
+    const refreshAi = jest.fn(), onBriefScheduleChanged = jest.fn();
+    ctx = await makeServer({ dataDir: dir, loopback: true, refreshAi, onBriefScheduleChanged });
+    const response = await post({ anthropicKey: 'sk-ant-fixture', openaiKey: 'sk-proj-fixture', aiProvider: 'openai', openaiModel: 'gpt-5.3-codex' });
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await response.json())).not.toContain('sk-proj-fixture');
+    loadUserSettings(dir);
+    expect(getUserSettings()).toMatchObject({ anthropicKey: 'sk-ant-fixture', openaiKey: 'sk-proj-fixture', aiProvider: 'openai', openaiModel: 'gpt-5.3-codex' });
+    expect(getUserSettings().briefSchedule).toBeUndefined();
+    expect(refreshAi).toHaveBeenCalledTimes(1);
+    expect(onBriefScheduleChanged).toHaveBeenCalledTimes(1);
+    await post({ openaiKey: '' });
+    expect(getUserSettings().openaiKey).toBeUndefined();
+    expect(getUserSettings().anthropicKey).toBe('sk-ant-fixture');
+  });
+
+  test.each([
+    { openaiKey: 'sk-ant-fixture' }, { openaiKey: 'sk-proj-bad\nheader' },
+    { openaiKey: 'sk-' + 'x'.repeat(512) }, { openaiKey: null },
+    { aiProvider: 'unknown' }, { openaiModel: '../model' }, { openaiModel: 1 },
+  ])('invalid multi-field updates are atomic: %j', async patch => {
+    const refreshAi = jest.fn();
+    ctx = await makeServer({ dataDir: dir, loopback: true, refreshAi });
+    const response = await post({ anthropicKey: 'sk-ant-fixture', ...patch });
+    expect(response.status).toBe(400);
+    expect(getUserSettings()).toEqual({});
+    expect(refreshAi).not.toHaveBeenCalled();
+  });
+
+  test.each(['openaiKey', 'aiProvider', 'openaiModel'])('remote untrusted callers cannot change %s', async field => {
+    ctx = await makeServer({ dataDir: dir, loopback: false, authed: false });
+    expect((await post({ [field]: 'value' })).status).toBe(403);
+    expect(getUserSettings()).toEqual({});
+  });
+
+  test('OpenAI verification uses candidate provider and model without saving them', async () => {
+    const verifyKey = jest.fn(async () => ({ valid: true }));
+    ctx = await makeServer({ dataDir: dir, loopback: true, verifyKey });
+    const response = await fetch(`${ctx.base}/api/settings/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'openai', openaiKey: 'sk-proj-fixture', openaiModel: 'gpt-5.3-codex' }) });
+    expect(response.status).toBe(200);
+    expect(verifyKey).toHaveBeenCalledWith('sk-proj-fixture', 'openai', 'gpt-5.3-codex');
+    expect(getUserSettings()).toEqual({});
+  });
+
+  test('only trusted callers receive the other provider’s masked status', async () => {
+    const getAiStatus = () => ({ enabled: true, source: 'local', masked: 'sk-…ture', provider: 'openai', model: 'gpt-5.3-codex',
+      providers: { openai: { enabled: true, source: 'local', masked: 'sk-…ture', model: 'gpt-5.3-codex', key: 'never-expose' } } });
+    ctx = await makeServer({ dataDir: dir, loopback: true, getAiStatus });
+    const trusted = await (await fetch(`${ctx.base}/api/settings`)).json();
+    expect(trusted.ai.providers.openai.keyMasked).toBe('sk-…ture');
+    expect(JSON.stringify(trusted)).not.toContain('never-expose');
+    await new Promise(resolve => ctx.server.close(resolve));
+    ctx = await makeServer({ dataDir: dir, loopback: false, getAiStatus });
+    const publicStatus = await (await fetch(`${ctx.base}/api/settings`)).json();
+    expect(publicStatus.ai.providers).toBeUndefined();
   });
 });

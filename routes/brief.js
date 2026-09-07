@@ -59,11 +59,10 @@ export function supportsAdaptiveThinking(model) {
   return /opus-4-[678]|sonnet-5|fable-5/.test(model || '');
 }
 
-// First-party Claude API list pricing per million tokens. Sonnet 5's announced
-// September increase was cancelled; $2/$10 remains the standard price.
-// Unknown IDs return null rather than pretending the work was free.
+// First-party API list prices per million tokens. Unknown models have no estimate.
 function modelPrice(model) {
   const id = String(model || '').toLowerCase();
+  if (/^gpt-5\.3-codex(?:$|-)/.test(id)) return { input: 1.75, cachedInput: 0.175, output: 14 };
   if (/claude-sonnet-5(?:$|-)/.test(id)) return { input: 2, output: 10 };
   if (/claude-haiku-4-5/.test(id)) return { input: 1, output: 5 };
   if (/claude-opus-4-[5678]/.test(id)) return { input: 5, output: 25 };
@@ -71,10 +70,11 @@ function modelPrice(model) {
   return null;
 }
 
-export function estimateCostUsd(model, inputTokens, outputTokens, at = new Date()) {
+export function estimateCostUsd(model, inputTokens, outputTokens, at = new Date(), cachedInputTokens = 0) {
   const price = modelPrice(model, at);
   if (!price) return null;
-  return (inputTokens || 0) / 1e6 * price.input + (outputTokens || 0) / 1e6 * price.output;
+  const cached = price.cachedInput == null ? 0 : Math.min(Math.max(0, cachedInputTokens || 0), inputTokens || 0);
+  return ((inputTokens || 0) - cached) / 1e6 * price.input + cached / 1e6 * (price.cachedInput || 0) + (outputTokens || 0) / 1e6 * price.output;
 }
 
 /** Preserve the rates for each paid attempt; fallback models have different prices. */
@@ -82,6 +82,7 @@ export function estimateAttemptCosts(attempts) {
   if (!Array.isArray(attempts) || !attempts.length) return null;
   const costs = attempts.map(attempt => attempt.costUsd ?? estimateCostUsd(
     attempt.responseModel || attempt.model, attempt.usage?.inputTokens, attempt.usage?.outputTokens,
+    undefined, attempt.usage?.cachedInputTokens,
   ));
   return costs.some(cost => cost == null) ? null : costs.reduce((sum, cost) => sum + cost, 0);
 }
@@ -114,7 +115,15 @@ function archiveBluf(value) {
 // Apply (or remove) adaptive thinking on a model param set, honoring the
 // configured effort. Low is the default; higher effort on a large brief can
 // consume the shared output budget before completing the cited document.
-export function applyThinking(params, model, effort) {
+export function applyThinking(params, model, effort, provider = 'anthropic') {
+  if (provider === 'openai') {
+    delete params.thinking;
+    delete params.output_config;
+    // Codex requires reasoning; its lowest supported setting is low.
+    if (/^gpt-5(?:\.|-)/.test(model || '')) params.reasoning = { effort: effort === 'off' ? 'low' : (effort || 'low') };
+    else delete params.reasoning;
+    return;
+  }
   if (effort && effort !== 'off' && supportsAdaptiveThinking(model)) {
     params.thinking = { type: 'adaptive' };
     params.output_config = { ...(params.output_config || {}), effort };
@@ -240,7 +249,7 @@ export function buildGroundTruth(run) {
  * buffers chunks (partial briefing always recoverable), applies a hard
  * timeout, and propagates mid-stream errors instead of swallowing them.
  */
-export async function streamWithRecovery(anthropic, params, { timeoutMs = 180_000, onChunk, onUsage } = {}) {
+export async function streamWithRecovery(client, params, { timeoutMs = 180_000, onChunk, onUsage } = {}) {
   let fullText = '';
   let stream;
   let timedOut = false;
@@ -255,7 +264,7 @@ export async function streamWithRecovery(anthropic, params, { timeoutMs = 180_00
 
   try {
     const streamResult = await Promise.race([
-      Promise.resolve().then(() => anthropic.messages.stream(params, {
+      Promise.resolve().then(() => (client.provider === 'openai' ? client.stream : client.messages.stream.bind(client.messages))(params, {
         signal: abortController.signal,
         timeout: boundedTimeoutMs,
         maxRetries: 0,
@@ -288,6 +297,8 @@ export async function streamWithRecovery(anthropic, params, { timeoutMs = 180_00
       if (event.type === 'message_start' && event.message?.usage) {
         usage.input_tokens = event.message.usage.input_tokens || 0;
         usage.output_tokens = event.message.usage.output_tokens || 0;
+        if (event.message.usage.input_tokens_details) usage.cached_input_tokens = event.message.usage.input_tokens_details.cached_tokens || 0;
+        if (event.message.usage.output_tokens_details) usage.reasoning_tokens = event.message.usage.output_tokens_details.reasoning_tokens || 0;
       }
       if (event.type === 'message_start' && typeof event.message?.model === 'string') {
         responseModel = event.message.model.slice(0, 128);
@@ -322,7 +333,7 @@ export function safeErrorMsg(err) {
   // Provider/client errors should never echo credential-shaped material to an
   // SSE client, even if an upstream library includes it in a diagnostic.
   const msg = (err?.message || '').trim()
-    .replace(/sk-ant-[A-Za-z0-9_-]+/g, '[REDACTED]');
+    .replace(/\bsk-[A-Za-z0-9_-]+/g, '[REDACTED]');
   if (!msg) return 'Internal server error';
   if (err?.code === 'E_EVIDENCE') return msg.slice(0, 300);
   if (/API key|not configured|rate limit|overloaded|529|timeout|timed out|model|refus|not found|404|400|401|403|429|5\d\d/i.test(msg)) {
@@ -427,6 +438,7 @@ function recoverScheduledPublication(historyDir, scheduledJob) {
 export function createBriefRouter({
   reviewDir,
   getAnthropic,
+  getAiClient = getAnthropic,
   rotateKey,
   historyDir,
   cooldown,
@@ -541,10 +553,11 @@ export function createBriefRouter({
       }
     }
 
-    let anthropic = getAnthropic();
-    if (!anthropic) {
+    let client = getAiClient();
+    const provider = client?.provider || 'anthropic';
+    if (!client) {
       return res.status(503).json({
-        error: 'AI briefing disabled — set ANTHROPIC_API_KEY to enable generation',
+        error: 'AI briefing disabled — configure an API key for the selected provider in Settings',
         code: 'E002',
       });
     }
@@ -705,8 +718,9 @@ export function createBriefRouter({
       generationJobId = generationManifest.generationId;
       send({ generationId: generationJobId, statusUrl: '/api/brief/status' });
 
-      const preferredModel = s.preferredModel || 'claude-sonnet-5';
-      const fallbackModel = s.model || 'claude-haiku-4-5';
+      const preferredModel = provider === 'openai' ? client.model : s.preferredModel || 'claude-sonnet-5';
+      const fallbackModel = provider === 'openai' ? preferredModel : s.model || 'claude-haiku-4-5';
+      Object.assign(generationManifest.generationSettings, { provider, preferredModel, fallbackModel });
       let modelUsed = preferredModel;
       // One wall-clock budget covers stream setup, key rotation, model
       // fallback, and corrective validation retries. Each SDK call also gets
@@ -721,7 +735,8 @@ export function createBriefRouter({
         messages: [{ role: 'user', content: userPrompt }],
       };
       const thinkingEffort = s.thinkingEffort || 'low';
-      applyThinking(modelParams, preferredModel, thinkingEffort);
+      applyThinking(modelParams, preferredModel, thinkingEffort, provider);
+      generationManifest.generationSettings.thinkingEffort = modelParams.reasoning?.effort || thinkingEffort;
 
       const onChunk = (chunk) => { recoveryContent += chunk; send({ text: chunk, seq: chunkSeq++ }); };
       let providerAttemptCount = 0;
@@ -730,6 +745,7 @@ export function createBriefRouter({
         recoveryContent = '';
         providerAttemptCount++;
         const attempt = recordProviderAttempt(generationManifest, modelParams);
+        attempt.provider = provider;
         attempt.pricing = { asOf: '2026-09-05', perMillionTokens: modelPrice(attempt.model) };
         jobs.startAttempt(generationJobId, attempt);
         res.locals.briefGenerationAttempted = true;
@@ -738,7 +754,7 @@ export function createBriefRouter({
           onChunk,
           onUsage: (usage, responseModel) => jobs.usage(generationJobId, attempt.attempt, {
             inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, responseModel,
-            costUsd: estimateCostUsd(responseModel || attempt.model, usage.input_tokens, usage.output_tokens),
+            costUsd: estimateCostUsd(responseModel || attempt.model, usage.input_tokens, usage.output_tokens, undefined, usage.cached_input_tokens),
           }),
         });
         attempt.stopReason = outcome.stopReason || null;
@@ -746,8 +762,9 @@ export function createBriefRouter({
         attempt.timedOut = outcome.timedOut;
         attempt.failed = Boolean(outcome.error);
         attempt.usage = { inputTokens: outcome.usage?.input_tokens || 0, outputTokens: outcome.usage?.output_tokens || 0 };
-        attempt.pricing = { asOf: '2026-09-05', currency: 'USD', perMillionTokens: modelPrice(attempt.responseModel || attempt.model), basis: 'Standard first-party API list rates; excludes cache, batch, service-tier discounts and taxes', sourceUrl: 'https://platform.claude.com/docs/en/about-claude/pricing' };
-        attempt.costUsd = estimateCostUsd(attempt.responseModel || attempt.model, attempt.usage.inputTokens, attempt.usage.outputTokens);
+        if (provider === 'openai') Object.assign(attempt.usage, { cachedInputTokens: outcome.usage?.cached_input_tokens || 0, reasoningTokens: outcome.usage?.reasoning_tokens || 0 });
+        attempt.pricing = { asOf: '2026-09-05', currency: 'USD', perMillionTokens: modelPrice(attempt.responseModel || attempt.model), basis: provider === 'openai' ? 'Standard API list rates, including reported cached input; reasoning is included in output tokens. Excludes service-tier discounts and taxes.' : 'Standard first-party API list rates; excludes cache, batch, service-tier discounts and taxes', sourceUrl: provider === 'openai' ? 'https://developers.openai.com/api/docs/models/gpt-5.3-codex' : 'https://platform.claude.com/docs/en/about-claude/pricing' };
+        attempt.costUsd = estimateCostUsd(attempt.responseModel || attempt.model, attempt.usage.inputTokens, attempt.usage.outputTokens, undefined, attempt.usage.cachedInputTokens);
         jobs.usage(generationJobId, attempt.attempt, { ...attempt.usage, responseModel: attempt.responseModel, costUsd: attempt.costUsd });
         jobs.finishAttempt(generationJobId, attempt.attempt, { stopReason: attempt.stopReason, failed: attempt.failed, timedOut: attempt.timedOut });
         return outcome;
@@ -756,9 +773,9 @@ export function createBriefRouter({
       // From here on the request may incur provider cost. Rate limiters inspect
       // this marker when the route finalizes so aborting the SSE connection
       // cannot refund a generation that continues in the background and saves.
-      let result = await runProviderAttempt(anthropic);
+      let result = await runProviderAttempt(client);
       if (result.stopReason === 'refusal') {
-        throw new Error('Claude refused this briefing request. Review the source mix and retry.');
+        throw new Error('The model refused this briefing request. Review the source mix and retry.');
       }
       // Usage from the first attempt, preserved across a fallback retry (below) so
       // tokens spent on a discarded attempt aren't silently dropped from the
@@ -778,15 +795,15 @@ export function createBriefRouter({
       // fallback: if the primary key is dead, a different model on the same dead
       // key won't help. rotateKey() returns the secondary-key client, or null
       // when none is configured / it was already rotated (so this never loops).
-      if (result.error && (result.error.status === 401 || result.error.status === 403) && typeof rotateKey === 'function') {
-        const rotated = rotateKey();
+      if (provider === 'anthropic' && result.error && (result.error.status === 401 || result.error.status === 403) && typeof rotateKey === 'function') {
+        const rotated = rotateKey(provider);
         if (rotated) {
           log.warn('brief', `${modelUsed} auth rejected — retrying with secondary API key`);
-          anthropic = rotated;
+          client = rotated;
           send({ reset: true, progress: 'Retrying with the secondary API key...', stage: 'generating' });
-          result = await runProviderAttempt(anthropic);
+          result = await runProviderAttempt(client);
           if (result.stopReason === 'refusal') {
-            throw new Error('Claude refused this briefing request. Review the source mix and retry.');
+            throw new Error('The model refused this briefing request. Review the source mix and retry.');
           }
           result.usage = {
             input_tokens: firstAttemptUsage.input_tokens + result.usage.input_tokens,
@@ -806,11 +823,11 @@ export function createBriefRouter({
           log.warn('brief', `${preferredModel} unavailable (${result.error.message}) — falling back to ${fallbackModel}`);
           modelUsed = fallbackModel;
           modelParams.model = fallbackModel;
-          applyThinking(modelParams, fallbackModel, thinkingEffort);
+          applyThinking(modelParams, fallbackModel, thinkingEffort, provider);
           send({ reset: true, text: `*[Generated with ${fallbackModel} — preferred model unavailable]*\n\n` });
-          result = await runProviderAttempt(anthropic);
+          result = await runProviderAttempt(client);
           if (result.stopReason === 'refusal') {
-            throw new Error('Claude refused this briefing request. Review the source mix and retry.');
+            throw new Error('The model refused this briefing request. Review the source mix and retry.');
           }
           result.usage = {
             input_tokens: firstAttemptUsage.input_tokens + result.usage.input_tokens,
@@ -887,10 +904,10 @@ export function createBriefRouter({
           hasHardFail([issue]) || hasTrustCriticalFailure([issue]) || issue.severity === 'review'
         )).map(issue => issue.message);
         if (stoppedAtOutputLimit) {
-          const recoveryEffort = reducedRecoveryThinkingEffort(thinkingEffort);
-          applyThinking(modelParams, modelUsed, recoveryEffort);
+          const recoveryEffort = provider === 'openai' ? 'low' : reducedRecoveryThinkingEffort(thinkingEffort);
+          applyThinking(modelParams, modelUsed, recoveryEffort, provider);
           log.warn('brief', `Output-token recovery retry (${thinkingEffort} → ${recoveryEffort} thinking)`);
-          send({ reset: true, progress: 'Retrying — reducing thinking effort to complete every section...', stage: 'generating' });
+          send({ reset: true, progress: provider === 'openai' ? 'Retrying — requesting a shorter draft to complete every section...' : 'Retrying — reducing thinking effort to complete every section...', stage: 'generating' });
           const failedChecks = correctiveWarnings.length
             ? ` It also failed these checks: ${correctiveWarnings.join('; ')}.`
             : '';
@@ -910,7 +927,7 @@ export function createBriefRouter({
             { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}.\nLocated findings (including editorial findings): ${JSON.stringify(repairFindingContext(validation.issues))}\n${correctiveGuidance(validation.issues)}\n${buildBriefFactLedger(groundingManifest, capturedKevTiming, capturedKevSet.size > 0)}\nRepair the identified claims while preserving supported content, complete paired actions, citations and qualifications. Do not introduce new metrics or deadlines elsewhere while repairing a citation. Return the complete brief in the same format. Use only CVEs and URLs in the current-source input; a source marked URL unavailable must have a plain [Source Name, Date] citation with no link. Never contradict verified KEV status.` },
           ];
         }
-        const retryResult = await runProviderAttempt(anthropic);
+        const retryResult = await runProviderAttempt(client);
         retryResult.usage = {
           input_tokens: result.usage.input_tokens + retryResult.usage.input_tokens,
           output_tokens: result.usage.output_tokens + retryResult.usage.output_tokens,

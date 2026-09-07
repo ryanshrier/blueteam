@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 dotenv.config({ quiet: true }); // suppress dotenv's stdout banner/tip line
 
 import express from 'express';
-import Anthropic from '@anthropic-ai/sdk';
+import { createAiProvider } from './lib/ai-provider.js';
 import { randomBytes } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -170,98 +170,12 @@ setEnrichers(cyberEnrichers);
 // successful insert and the cache fallback; startup still never waits on it.
 const bootKevWarmup = refreshKEV().catch(err => log.warn('kev', `Boot KEV warm-up failed: ${err.message}`));
 
-// ── Environment validation ──
-const API_KEY_PRIMARY = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY_PRIMARY;
-const API_KEY_SECONDARY = process.env.ANTHROPIC_API_KEY_SECONDARY;
-
-if (API_KEY_PRIMARY && !API_KEY_PRIMARY.startsWith('sk-ant-')) {
-  log.warn('env', 'ANTHROPIC_API_KEY does not match expected format (sk-ant-...)');
-}
-
-// ── Anthropic client (mutable) ──
-// Env key wins; otherwise the operator can set a key at runtime in the in-app
-// Settings panel (persisted to data/settings.local.json). `ai.client` is rebuilt
-// in place via refreshAi() so the Briefing turns on without a restart.
+// Provider selection and credentials can change without restarting the server.
 loadUserSettings(DATA_DIR);
-
-const ai = { client: null, source: null, masked: null };
-
-function maskKey(key) {
-  if (!key) return null;
-  return key.length > 14 ? `${key.slice(0, 7)}…${key.slice(-4)}` : 'sk-ant-…';
-}
-
-function buildAnthropic(key) {
-  if (!key) return null;
-  return new Anthropic({ apiKey: key });
-}
-
-// Recompute the live client from current key sources (env wins over operator-set).
-function refreshAi() {
-  const settingsKey = getUserSettings().anthropicKey || null;
-  const effective = API_KEY_PRIMARY || settingsKey;
-  ai.client = buildAnthropic(effective);
-  ai.source = API_KEY_PRIMARY ? 'env' : (settingsKey ? 'settings' : null);
-  ai.masked = effective ? maskKey(effective) : null;
-  ai.rotated = false; // a fresh build resets any prior secondary-key rotation
-}
-refreshAi();
-if (!ai.client) {
-  log.warn('env', 'No Anthropic API key configured — AI briefing disabled (wall and wire still work)');
-} else if (ai.source === 'settings') {
-  log.info('settings', 'Anthropic API key loaded from local Settings');
-}
-
-// Rotate the live client to the secondary key (env ANTHROPIC_API_KEY_SECONDARY)
-// after the primary is rejected mid-generation. The brief route calls this on a
-// 401/403 and retries the stream with the returned client — the real failover
-// path, since generation streams (messages.stream) rather than going through
-// messages.create. Idempotent: once rotated, returns null so a caller can tell
-// "rotated" from "nothing to rotate to" and never loops on two dead keys.
-function rotateToSecondaryKey() {
-  if (!API_KEY_SECONDARY || ai.source === 'env:secondary') return null;
-  ai.client = buildAnthropic(API_KEY_SECONDARY);
-  ai.source = 'env:secondary';
-  ai.masked = maskKey(API_KEY_SECONDARY);
-  ai.rotated = true;
-  log.warn('auth', 'Primary API key rejected — rotated to secondary');
-  return ai.client;
-}
-
-function getAiStatus() {
-  return { enabled: Boolean(ai.client), source: ai.source, masked: ai.masked, rotated: Boolean(ai.rotated) };
-}
-
-// Verify a candidate (or the active) key with ONE minimal, cheap Anthropic call, so the
-// operator learns a mistyped-but-well-formed key is dead HERE — not when a full brief
-// 503s and burns cents. A 401/403 is a genuine auth rejection; a 429/404/400 means the
-// key authenticated and the issue is rate/model/params; a 5xx or network error is
-// inconclusive (don't claim the key is bad when we couldn't reach Anthropic).
-async function verifyAnthropicKey(candidate) {
-  const key = (typeof candidate === 'string' && candidate.trim())
-    || API_KEY_PRIMARY || getUserSettings().anthropicKey || null;
-  if (!key) return { valid: false, error: 'No key to verify — paste one first.' };
-  if (!key.startsWith('sk-ant-')) return { valid: false, error: 'That doesn’t look like an Anthropic key (expected sk-ant-…).' };
-  const controller = new AbortController();
-  const timeoutMs = 15_000;
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const probe = new Anthropic({ apiKey: key });
-    await probe.messages.create(
-      { model: 'claude-haiku-4-5', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] },
-      { signal: controller.signal, timeout: timeoutMs, maxRetries: 0 },
-    );
-    return { valid: true };
-  } catch (err) {
-    const status = err?.status;
-    if (status === 401 || status === 403) return { valid: false, error: 'Key rejected by Anthropic — invalid or revoked.' };
-    if (status === 429) return { valid: true, note: 'Key is valid (currently rate-limited).' };
-    if (status === 404 || status === 400) return { valid: true, note: 'Key authenticated.' };
-    return { valid: null, error: 'Could not reach Anthropic to verify — try again shortly.' };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+const ai = createAiProvider({ getSettings: getUserSettings, getAnalysisSettings: () => getConfig().analysisSettings || {} });
+const refreshAi = () => ai.refresh();
+const getAiStatus = () => ai.getStatus();
+if (!ai.getClient()) log.warn('env', 'No API key configured for the selected provider — AI briefing disabled');
 
 // ── Cooldown gate (per-process duplicate-generation guard) ──
 const cooldown = {
@@ -486,8 +400,8 @@ app.use('/api', (req, res, next) => {
 });
 
 app.use('/api', createBriefRouter({
-  getAnthropic: () => ai.client,
-  rotateKey: rotateToSecondaryKey,
+  getAiClient: () => ai.getClient(),
+  rotateKey: provider => ai.rotateKey(provider),
   historyDir: HISTORY_DIR,
   cooldown,
   publicBaseUrl: PUBLIC_BASE_URL,
@@ -501,7 +415,7 @@ app.use('/api', createSettingsRouter({
   dataDir: DATA_DIR,
   getAiStatus,
   refreshAi,
-  verifyKey: verifyAnthropicKey,
+  verifyKey: ai.verifyKey,
   getAlertRules: () => getConfig().alertRules,
   getOrganization: () => getEffectiveOrganization(getConfig()),
   getWatchProfile: () => getEffectiveWatchProfile(getConfig()),
@@ -546,7 +460,7 @@ const server = app.listen(PORT, HOST, () => {
     port: PORT,
     version: APP_VERSION,
     feedCount: getConfig().trustedFeeds?.length || 0,
-    aiEnabled: Boolean(ai.client),
+    aiEnabled: Boolean(ai.getClient()),
   });
   armDailyBriefSchedule();
   if (process.env.BLUETEAM_STARTUP_SMOKE === '1') {
@@ -559,7 +473,7 @@ function armDailyBriefSchedule() {
   return startDailyBriefSchedule({
     generateBrief: generateScheduledBrief,
     getScheduleConfig: () => getBriefScheduleSettings(),
-    isReady: scheduledJob => Boolean(ai.client) || Boolean(
+    isReady: scheduledJob => Boolean(ai.getClient()) || Boolean(
       scheduledJob?.editionDate
       && existsSync(join(HISTORY_DIR, scheduledBriefFilename(scheduledJob.editionDate))),
     ),
@@ -575,8 +489,8 @@ async function generateScheduledBrief(scheduledJob) {
     scheduledJob?.editionDate
     && existsSync(join(HISTORY_DIR, scheduledBriefFilename(scheduledJob.editionDate))),
   );
-  if (!ai.client && !hasPublishedArchive) {
-    throw new Error('AI briefing is disabled — configure an Anthropic API key');
+  if (!ai.getClient() && !hasPublishedArchive) {
+    throw new Error('AI briefing is disabled — configure an API key for the selected provider in Settings');
   }
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Server address unavailable');
