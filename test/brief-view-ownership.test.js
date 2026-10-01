@@ -101,6 +101,64 @@ test('bare Briefing route restores persisted review notes with the selected save
   expect(elements.get('briefContent')._validatedBriefContent).toBe(oldBrief().content);
 });
 
+test('a late pre-publication history response cannot replace a newer completion refresh', async () => {
+  let finishOld, finishFresh;
+  fetchBriefs.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }))
+    .mockReturnValueOnce(new Promise(resolve => { finishFresh = resolve; }));
+  render(element());
+  await flush();
+  complete();
+  finishFresh([completed(), oldBrief()]);
+  await flush();
+  expect(elements.get('briefHistory').innerHTML).toContain(completed().filename);
+  finishOld([oldBrief()]);
+  await flush();
+  expect(elements.get('briefHistory').innerHTML).toContain(completed().filename);
+});
+
+test('stream recovery keeps polling beyond thirty seconds and opens only its own durable attempt', async () => {
+  const other = { id: 'other', status: 'complete', filename: 'brief-2026-09-01.md' };
+  let target = { id: 'target', status: 'running' };
+  fetchStatus.mockImplementation(async () => ({ ok: true, json: async () => ({ persistence: 'ok', active: target.status === 'running', latest: other, jobs: [other, target] }) }));
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true, currentBrief: null });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  emit('generation-error', { streamLost: true, generationId: 'target', message: 'Connection lost' });
+  await flush();
+  await jest.advanceTimersByTimeAsync(40_000);
+  expect(navigate).not.toHaveBeenCalled();
+  target = { ...target, status: 'complete', filename: 'brief-2026-09-05.md' };
+  await jest.advanceTimersByTimeAsync(10_000);
+  expect(navigate).toHaveBeenCalledWith('/briefing/brief-2026-09-05.md');
+  expect(navigate).not.toHaveBeenCalledWith('/briefing/brief-2026-09-01.md');
+});
+
+test('a connection lost before attempt identity never claims an old saved edition as its result', async () => {
+  fetchStatus.mockResolvedValue({ ok: true, json: async () => ({ persistence: 'ok', latest: { id: 'old', status: 'complete', filename: 'brief-2026-09-01.md' } }) });
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true, currentBrief: null });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  emit('generation-error', { streamLost: true, message: 'Connection lost' });
+  await flush();
+  await jest.advanceTimersByTimeAsync(60_000);
+  expect(navigate).not.toHaveBeenCalled();
+  expect(elements.get('briefContent').innerHTML).toContain('before the server confirmed this request');
+  expect(elements.get('briefContent').innerHTML).not.toContain('Checking History in about 30 seconds');
+  expect(elements.get('briefContent').innerHTML).not.toContain('not yet saved');
+  const button = document.getElementById('checkInterruptedGeneration');
+  const click = button.addEventListener.mock.calls.find(([name]) => name === 'click')[1];
+  fetchStatus.mockClear();
+  await click({ currentTarget: button });
+  expect(fetchStatus).toHaveBeenCalledTimes(1);
+  expect(fetchStatus).toHaveBeenCalledWith('/api/brief/status', expect.objectContaining({ cache: 'no-store' }));
+  expect(button.disabled).toBe(false);
+  expect(navigate).not.toHaveBeenCalled();
+});
+
 function readingUi() {
   for (const id of ['briefOverview', 'briefOverviewMode', 'briefReadingMode', 'briefSummaryMode']) elements.set(id, element());
   const layout = element();

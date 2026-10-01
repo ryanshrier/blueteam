@@ -117,6 +117,24 @@ describe('Wire Hidden recovery', () => {
     expect(get('wireHidden').focus).toHaveBeenCalledTimes(1);
   });
 
+  test('returning from another view reloads other tabs’ decisions and exports expired records too', async () => {
+    await start();
+    wire.unmount();
+    const expired = 'https://example.test/no-longer-in-feed';
+    storage.set('wire.decisions.v1', JSON.stringify({
+      [signals[0].link]: { note: 'Saved while this tab was in Settings', state: 'investigate', recordedAt: '2026-09-04T12:01:00Z' },
+      [expired]: { note: 'Retain this investigation', state: 'affected', recordedAt: '2026-09-04T12:02:00Z' },
+    }));
+    await start();
+    expect(get('wireList').innerHTML).toContain('Saved while this tab was in Settings');
+    const createObjectURL = jest.spyOn(URL, 'createObjectURL').mockReturnValue('blob:decisions');
+    jest.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    get('wireExportDecisions').dispatch('click');
+    const records = JSON.parse(await createObjectURL.mock.calls[0][0].text());
+    expect(records).toHaveLength(2);
+    expect(records.find(record => record.signal === expired).decision.note).toBe('Retain this investigation');
+  });
+
   test('restores all available hidden records across filters without changing read state', async () => {
     storage.set('wire.dismissedKeys', JSON.stringify([signals[0].link, signals[1].link, 'archived-unavailable']));
     storage.set('wire.readKeys', JSON.stringify([signals[0].link]));

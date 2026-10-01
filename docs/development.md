@@ -30,6 +30,8 @@ npm run check:assets           # Referenced assets and package paths
 npm run check:landing          # Landing HTML, links, semantics, metadata, and CSP
 npm run check:landing:render   # Desktop and phone browser smoke test
 npm run check:evidence:render  # Production evidence/Settings fixtures: phone, desktop, light/dark, keyboard
+npm run check:design:render    # Production reader, Wire, and Wall layout and interaction checks
+npm run check:theme:render     # Light/dark theme layouts and contrast across product views
 npm run check:handoff:render   # Production Blob downloads and Chromium PDF; requires Poppler
 npm run check:safari:render    # Actual Safari on macOS through Apple's installed SafariDriver
 npm run check:scoring          # Score invariants and gold-band ordering

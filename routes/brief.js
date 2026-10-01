@@ -21,8 +21,8 @@ import {
 } from '../lib/history.js';
 import { validateBrief, countHorizons, hasHardFail, hasTrustCriticalFailure, captureKevTiming } from '../lib/validation.js';
 import { canonicalizeExecutiveActions, compareEditionInputs } from '../lib/brief-editorial.js';
-import { savedBriefReview, briefDisposition, saveBriefDisposition } from '../lib/brief-review.js';
-import { readingCopyChecks, readingDisposition } from '../lib/brief-reading-checks.js';
+import { saveBriefDisposition } from '../lib/brief-review.js';
+import { briefReadingState, loadBriefReadingState } from '../lib/brief-reading-checks.js';
 import { listBriefDrafts, readBriefDraft, saveRejectedBrief, revalidateBriefDraft, summarizeBriefDraft, validationSourceFromManifest, validDraftId } from '../lib/brief-drafts.js';
 import { normalizeConvergenceOpening } from '../lib/brief-schema.js';
 import { buildGroundingManifest, delinkUnallowlistedMarkdownUrls, visibleHeadlineEvidence } from '../lib/grounding.js';
@@ -31,7 +31,7 @@ import {
 } from '../lib/brief-schema.js';
 import { getEffectiveOrganization, getEffectiveWatchProfile } from '../lib/user-settings.js';
 import {
-  buildGenerationManifest, generationManifestAvailability, readGenerationManifest,
+  buildGenerationManifest, readGenerationManifest,
   recordProviderAttempt, recordValidation, sha256, validBriefFilename,
 } from '../lib/generation-manifest.js';
 import {
@@ -85,20 +85,6 @@ export function estimateAttemptCosts(attempts) {
     undefined, attempt.usage?.cachedInputTokens,
   ));
   return costs.some(cost => cost == null) ? null : costs.reduce((sum, cost) => sum + cost, 0);
-}
-
-function savedReceipt(historyDir, filename) {
-  const availability = generationManifestAvailability(historyDir, filename);
-  try {
-    const manifest = readGenerationManifest(historyDir, filename);
-    return { ...availability,
-      ...(manifest?.verification ? { verification: manifest.verification } : {}),
-      ...(manifest?.costEstimate ? { costEstimate: manifest.costEstimate } : {}),
-      ...(manifest?.publicationValidation ? { validation: manifest.publicationValidation } : {}),
-    };
-  } catch {
-    return { status: 'unavailable', url: null, reason: 'Saved input manifest could not be verified.' };
-  }
 }
 
 // Archive cards show a readable excerpt, with omission made explicit. Strip
@@ -255,6 +241,7 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
   let timedOut = false;
   let streamError = null;
   let stopReason = null;
+  let terminalReceived = false;
   let responseModel = null;
   const usage = { input_tokens: 0, output_tokens: 0 };
   const abortController = new AbortController();
@@ -309,8 +296,12 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
       if (event.type === 'message_delta' && event.delta?.stop_reason) {
         stopReason = event.delta.stop_reason;
       }
+      if (event.type === 'message_stop') terminalReceived = true;
       if (onUsage && ((event.type === 'message_start' && event.message?.usage)
         || (event.type === 'message_delta' && event.usage))) onUsage({ ...usage }, responseModel);
+    }
+    if (!timedOut && (!terminalReceived || !stopReason)) {
+      throw Object.assign(new Error('Provider stream ended before verified completion.'), { code: 'E_PROVIDER_INCOMPLETE' });
     }
   } catch (err) {
     if (!timedOut) {
@@ -326,7 +317,7 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
     }
   }
 
-  return { text: fullText, error: streamError, timedOut, usage, stopReason, responseModel };
+  return { text: fullText, error: streamError, timedOut, usage, stopReason, responseModel, terminalReceived };
 }
 
 export function safeErrorMsg(err) {
@@ -335,7 +326,7 @@ export function safeErrorMsg(err) {
   const msg = (err?.message || '').trim()
     .replace(/\bsk-[A-Za-z0-9_-]+/g, '[REDACTED]');
   if (!msg) return 'Internal server error';
-  if (err?.code === 'E_EVIDENCE') return msg.slice(0, 300);
+  if (['E_EVIDENCE', 'E_PROVIDER_INCOMPLETE'].includes(err?.code)) return msg.slice(0, 300);
   if (/API key|not configured|rate limit|overloaded|529|timeout|timed out|model|refus|not found|404|400|401|403|429|5\d\d/i.test(msg)) {
     return msg.slice(0, 300);
   }
@@ -396,7 +387,7 @@ function sendCompletedBrief(res, payload) {
   res.end();
 }
 
-function recoverScheduledPublication(historyDir, scheduledJob) {
+function recoverScheduledPublication(historyDir, scheduledJob, reviewDirectory) {
   const filename = scheduledBriefFilename(scheduledJob.editionDate);
   let recorded = null;
   try {
@@ -419,7 +410,15 @@ function recoverScheduledPublication(historyDir, scheduledJob) {
 
   const target = join(historyDir, filename);
   if (!existsSync(target)) return null;
-  const text = readFileSync(target, 'utf-8');
+  const reading = loadBriefReadingState(historyDir, filename, { reviewDirectory });
+  const publication = reading.manifest?.publicationValidation;
+  if (reading.receipt.integrity !== 'verified' || publication?.partial !== false
+    || publication?.hardFail !== false || publication?.trustFail !== false
+    || reading.manifest.edition?.date !== scheduledJob.editionDate
+    || reading.manifest.edition?.timezone !== scheduledJob.timezone || reading.manifest.edition?.scheduled !== true) {
+    throw Object.assign(new Error('The reserved scheduled edition needs publication recovery. Its original has been preserved.'), { code: 'E_SCHEDULE_INTEGRITY' });
+  }
+  const text = reading.content;
   const completedAt = recorded?.completed_at || statSync(target).mtime.toISOString();
   try {
     completeScheduledBriefJob({
@@ -432,7 +431,7 @@ function recoverScheduledPublication(historyDir, scheduledJob) {
   } catch (err) {
     log.warn('brief', `Scheduled job completion reconciliation failed: ${err.message}`);
   }
-  return { filename, text, completedAt };
+  return { filename, text, completedAt, reading };
 }
 
 export function createBriefRouter({
@@ -530,7 +529,7 @@ export function createBriefRouter({
 
     if (scheduledJob) {
       try {
-        const recovered = recoverScheduledPublication(historyDir, scheduledJob);
+        const recovered = recoverScheduledPublication(historyDir, scheduledJob, reviewDir);
         if (recovered) {
           log.info('brief', `Scheduled briefing ${scheduledJob.jobKey} already published - returning ${recovered.filename} without provider spend`);
           sendCompletedBrief(res, {
@@ -540,14 +539,16 @@ export function createBriefRouter({
             partial: false,
             replayed: true,
             jobKey: scheduledJob.jobKey,
-            inputManifest: savedReceipt(historyDir, recovered.filename),
+            inputManifest: recovered.reading.receipt,
+            disposition: recovered.reading.disposition,
+            readingChecks: recovered.reading.readingChecks,
           });
           return;
         }
       } catch (err) {
         log.error('brief', `Scheduled briefing recovery failed: ${err.message}`);
-        return res.status(500).json({
-          error: 'Scheduled briefing recovery failed.',
+        return res.status(err.code === 'E_SCHEDULE_INTEGRITY' ? 409 : 500).json({
+          error: err.code === 'E_SCHEDULE_INTEGRITY' ? 'The saved scheduled edition could not be verified. Inspect its original and input receipt before retrying; no generation was started.' : 'Scheduled briefing recovery failed.',
           code: err.code || 'E_SCHEDULE_STATE',
         });
       }
@@ -675,7 +676,7 @@ export function createBriefRouter({
       send({ progress: `${headlines.length} scored headlines (${run.stats?.enriched || 0} enriched)`, stage: 'scoring' });
 
       // Stage 2 — continuity context
-      const prev = loadRecentBriefs(historyDir, s.continuityDepth ?? 5, { getMeta: getBriefMeta });
+      const prev = loadRecentBriefs(historyDir, s.continuityDepth ?? 5, { getMeta: getBriefMeta, reviewDirectory: reviewDir });
       const continuityContext = extractContinuityContext(prev);
 
       // Stage 3 — generate
@@ -1105,13 +1106,14 @@ export function createBriefRouter({
       // never awaited, never throws, never delays the client's completion event.
       // The link must be absolute — safeSlackLink() rejects anything new URL()
       // can't parse, which silently drops a bare relative path.
-      const judgments = parseJudgments(fullBrief).map(j => ({
+      const publishedReading = briefReadingState(filename, fullBrief, { ...generationManifest, filename, outputSha256: sha256(fullBrief) }, { reviewDirectory: reviewDir });
+      const judgments = parseJudgments(publishedReading.content).map(j => ({
         title: j.title, tier: getHorizonName(config, j.horizon), confidence: j.confidence,
       }));
-      if (!validation.coverage?.materialReviewRequired) dispatchBriefWebhook(
+      if (publishedReading.disposition.eligibleForLatest) dispatchBriefWebhook(
         {
           date: genDate,
-          bluf: extractBluf(fullBrief),
+          bluf: extractBluf(publishedReading.content),
           judgments,
           link: `${outwardBaseUrl}/briefing/${encodeURIComponent(filename)}`,
           warnings: [...warnings],
@@ -1137,7 +1139,7 @@ export function createBriefRouter({
         costUsd,
         validation: warnings.length ? { warnings, hardFail } : null,
         inputManifest: { status: 'available', url: `/api/brief/${encodeURIComponent(filename)}/manifest`, verification: generationManifest.verification, costEstimate: generationManifest.costEstimate },
-        disposition: briefDisposition(filename, fullBrief, undefined, generationManifest.publicationValidation), sourceCheckStatus: 'passed-supported-checks', editorialReviewStatus: 'not-reviewed',
+        disposition: publishedReading.disposition, sourceCheckStatus: 'passed-supported-checks', editorialReviewStatus: publishedReading.disposition.editorialReviewStatus,
       });
       if (clientConnected) {
         try { res.write('data: [DONE]\n\n'); res.end(); } catch { /* client gone */ }
@@ -1189,23 +1191,16 @@ export function createBriefRouter({
         || !Number.isSafeInteger(requestedSize) || requestedSize < 1 || requestedSize > 50)) {
         return res.status(400).json({ error: 'Invalid archive page.' });
       }
-      const all = listBriefEditions(historyDir, { getMeta: getBriefMeta, limit: paginated ? Infinity : 30 });
+      const all = listBriefEditions(historyDir, { getMeta: getBriefMeta, limit: paginated ? Infinity : 30, reviewDirectory: reviewDir });
       const total = all.length;
       const page = Math.min(requestedPage, Math.max(1, Math.ceil(total / requestedSize)));
       const briefs = paginated ? all.slice((page - 1) * requestedSize, page * requestedSize) : all;
-      const results = briefs.map(({ filename: f, date, generatedAt, meta, disposition }) => {
+      const results = briefs.map(({ filename: f, date, generatedAt, meta, disposition, reading }) => {
         // Preserve captured per-attempt costs; legacy receipts use the model-rate estimate.
-        const receipt = savedReceipt(historyDir, f);
+        const { receipt, reviewed, content: readingCopy } = reading;
         const pricingDate = date ? new Date(`${date}T12:00:00Z`) : new Date();
         // Archive descriptions must match the verified reading copy. Original
         // metadata and the full-text search index remain immutable provenance.
-        const content = readFileSync(join(historyDir, f), 'utf-8');
-        const reviewed = savedBriefReview(f, content, reviewDir);
-        let checkedManifest = null;
-        if (reviewed.reviewedContent) try { checkedManifest = readGenerationManifest(historyDir, f); } catch { /* unavailable checks remain explicit */ }
-        const readingChecks = readingCopyChecks(content, reviewed, checkedManifest);
-        disposition = readingDisposition(disposition, readingChecks, reviewed.review);
-        const readingCopy = reviewed.reviewedContent || content;
         const reviewStatus = reviewed.review?.status || null;
         if (meta && meta.bluf != null && meta.word_count != null) {
           return {
@@ -1263,17 +1258,11 @@ export function createBriefRouter({
       return res.status(404).json({ error: 'Briefing not found' });
     }
     try {
-      const content = readFileSync(filepath, 'utf-8');
+      const { original: content, reviewed, receipt, readingChecks, disposition } = loadBriefReadingState(historyDir, filename, { reviewDirectory: reviewDir });
       const meta = getBriefMeta(filename);
       const generatedAt = meta?.generated_at || statSync(filepath).mtime.toISOString();
       const editionDate = briefDateFromFilename(filename);
       const pricingDate = editionDate ? new Date(`${editionDate}T12:00:00Z`) : new Date();
-      const receipt = savedReceipt(historyDir, filename);
-      const reviewed = savedBriefReview(filename, content, reviewDir);
-      let manifest = null;
-      try { manifest = readGenerationManifest(historyDir, filename); } catch { /* recorded as unavailable below */ }
-      const readingChecks = readingCopyChecks(content, reviewed, manifest);
-      const disposition = readingDisposition(briefDisposition(filename, content, reviewDir, receipt.validation), readingChecks, reviewed.review);
       res.json({
         filename,
         content,
@@ -1300,7 +1289,11 @@ export function createBriefRouter({
     if (!validBriefFilename(filename)) return res.status(400).json({ error: 'Invalid filename' });
     if (!existsSync(join(historyDir, filename))) return res.status(404).json({ error: 'Briefing not found' });
     if (req.body?.status === 'superseded' && (!validBriefFilename(req.body.replacementFilename) || !existsSync(join(historyDir, req.body.replacementFilename)))) return res.status(400).json({ error: 'Replacement briefing not found' });
-    try { return res.json({ disposition: saveBriefDisposition(filename, readFileSync(join(historyDir, filename), 'utf8'), req.body || {}) }); }
+    try {
+      const reading = loadBriefReadingState(historyDir, filename, { reviewDirectory: reviewDir });
+      saveBriefDisposition(filename, reading.original, req.body || {}, reviewDir, { readingContent: reading.content });
+      return res.json({ disposition: loadBriefReadingState(historyDir, filename, { reviewDirectory: reviewDir }).disposition });
+    }
     catch { return res.status(400).json({ error: 'A valid disposition, reviewer and reason are required.' }); }
   });
 
@@ -1326,9 +1319,8 @@ export function createBriefRouter({
       const matches = searchBriefs(terms.join(' '), 20, { sort: req.query.sort === 'newest' ? 'newest' : 'relevance' });
       res.json(matches.map(item => {
         if (!validBriefFilename(item.filename) || !existsSync(join(historyDir, item.filename))) return item;
-        const original = readFileSync(join(historyDir, item.filename), 'utf8');
-        const reviewed = savedBriefReview(item.filename, original, reviewDir);
-        return { ...item, disposition: briefDisposition(item.filename, original, undefined, savedReceipt(historyDir, item.filename).validation), ...(reviewed.review ? { reviewStatus: reviewed.review.status, snippetVersion: 'original-generated-edition' } : {}) };
+        const { reviewed, disposition } = loadBriefReadingState(historyDir, item.filename, { reviewDirectory: reviewDir });
+        return { ...item, disposition, ...(reviewed.review ? { reviewStatus: reviewed.review.status, snippetVersion: 'original-generated-edition' } : {}) };
       }));
     } catch (err) {
       log.warn('search', `FTS5 error: ${err.message}`);

@@ -4,7 +4,7 @@ import { getState, setState, emit } from '../core/store.js';
 import { generateBrief } from '../core/api.js';
 
 /** Read an SSE response, dispatching text/progress/completion events. */
-export async function readSSEStream(response, { onText, onProgress, onComplete, onReset }) {
+export async function readSSEStream(response, { onText, onProgress, onComplete, onReset, onIdentity }) {
   const decoder = new TextDecoder();
   let buffer = '';
   let accumulated = '';
@@ -76,6 +76,7 @@ export async function readSSEStream(response, { onText, onProgress, onComplete, 
           if (typeof data.draft === 'string') failure.recoverableDraft = data.draft;
           throw failure;
         }
+        if (typeof data.generationId === 'string' && data.generationId && onIdentity) onIdentity(data.generationId);
         if (data.reset === true) {
           accumulated = '';
           if (onReset) onReset();
@@ -127,12 +128,14 @@ export async function startGeneration() {
   setState({ isGenerating: true });
 
   let completed = false;
+  let generationId = null;
 
   try {
     const res = await generateBrief();
     emit('generation-started');
 
     const fullText = await readSSEStream(res, {
+      onIdentity: id => { generationId = id; emit('generation-identified', { generationId }); },
       onText: (accumulated, chunk) => emit('brief-streaming', { accumulated, chunk }),
       onReset: () => emit('brief-stream-reset'),
       onProgress: (progressMsg, stage) => emit('generation-progress', { progressMsg, stage }),
@@ -188,6 +191,7 @@ export async function startGeneration() {
       recoverableDraft: err.recoverableDraft || '',
       validation: err.validation || null,
       draftArtifact: err.draftArtifact || null,
+      generationId,
     });
   }
 }

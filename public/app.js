@@ -13,7 +13,7 @@ const viewCache = {};
 let renderGeneration = 0;
 let landscapeTimer = null;
 let activeView = null;
-let wallOperatorMode = null;
+let wallReadingMode = null;
 
 // Tear down the currently-mounted view (its timers, listeners, GPU context)
 // before mounting the next. Every view module may expose an unmount().
@@ -54,7 +54,7 @@ async function renderView(mode) {
   const thisRender = ++renderGeneration;
   // Wall presentation mode belongs to the query, which can change without a
   // surface transition (G then L from a kiosk, or browser Back).
-  wallOperatorMode = mode === 'wall' ? new URLSearchParams(window.location.search).has('operator') : null;
+  wallReadingMode = mode === 'wall' ? new URLSearchParams(window.location.search).get('read') === '1' : null;
 
   // Tear down whatever view is currently active before mounting the next.
   teardownActiveView();
@@ -152,7 +152,7 @@ async function boot() {
 
   on('mode-changed', renderView);
   on('route-changed', ({ mode }) => {
-    if (mode === 'wall' && wallOperatorMode !== new URLSearchParams(window.location.search).has('operator')) {
+    if (mode === 'wall' && wallReadingMode !== (new URLSearchParams(window.location.search).get('read') === '1')) {
       renderView('wall');
     }
   });

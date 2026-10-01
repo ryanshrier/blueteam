@@ -15,19 +15,21 @@ export async function fetchGenerationStatus({ signal } = {}) {
   return data;
 }
 
-export function generationStatusModel(data) {
+export function generationStatusModel(data, generationId = '') {
   if (!data || data.persistence !== 'ok') return {
     kind: 'unavailable', message: 'Generation accounting is unavailable. Check System health before starting another attempt.',
   };
-  const job = data.latest;
+  const job = generationId ? (data.jobs || [data.latest]).find(item => item?.id === generationId) : data.latest;
+  if (generationId && !job) return { kind: 'unavailable', message: 'The interrupted attempt is not available in generation accounting. Check History before starting another attempt.' };
   if (!job) return null;
+  const attempt = generationId ? 'This attempt' : 'Latest attempt';
   const messages = {
     running: 'Generation is running. The archive updates after publication.',
-    complete: 'Latest attempt published an edition.',
+    complete: `${attempt} published an edition.`,
     failed: job.code === 'E006'
-      ? 'Latest attempt failed publication checks. No edition was published.'
-      : 'Latest attempt did not publish an edition.',
-    interrupted: 'Latest attempt was interrupted. Check History before retrying; final usage is unknown.',
+      ? `${attempt} failed publication checks. No edition was published.`
+      : `${attempt} did not publish an edition.`,
+    interrupted: `${attempt} was interrupted. Check History before retrying; final usage is unknown.`,
   };
   if (!messages[job.status]) return { kind: 'unavailable', message: 'Latest generation status could not be confirmed.' };
   const cost = Number.isFinite(job.costUsd) && job.costUsd >= 0 ? `$${job.costUsd.toFixed(4)}` : null;
@@ -40,18 +42,18 @@ export function generationStatusModel(data) {
   const stamp = job.completedAt || job.startedAt;
   const date = formatEventTime(stamp);
   return {
-    kind: job.status, message: messages[job.status], billing, date,
+    kind: job.status, jobId: job.id || '', targeted: Boolean(generationId), message: messages[job.status], billing, date,
     edition: /^\d{4}-\d{2}-\d{2}$/.test(job.editionDate || '') ? job.editionDate : '',
     code: typeof job.code === 'string' ? job.code.slice(0, 128) : '',
     filename: job.status === 'complete' && typeof job.filename === 'string' ? job.filename : '',
-    poll: data.active === true || job.status === 'running',
+    poll: job.status === 'running' || (!generationId && data.active === true),
   };
 }
 
 function statusHtml(model) {
   if (!model) return '';
   const details = [model.edition ? `Requested edition ${model.edition}` : '', model.date, model.code ? `Status ${model.code}` : ''].filter(Boolean);
-  const body = `<div class="brief-attempt-summary"><strong>Latest generation attempt</strong><p>${escapeHtml(model.message)}</p>
+  const body = `<div class="brief-attempt-summary"><strong>${model.targeted ? 'Interrupted generation attempt' : 'Latest generation attempt'}</strong><p>${escapeHtml(model.message)}</p>
     ${model.billing ? `<p class="brief-attempt-billing">${escapeHtml(model.billing)}</p>` : ''}</div>
     <div class="brief-attempt-actions">
       ${model.filename ? `<a href="/briefing/${encodeURIComponent(model.filename)}">Open saved edition →</a>` : ''}
@@ -63,7 +65,7 @@ function statusHtml(model) {
     : body;
 }
 
-export function mountGenerationStatus(host, { load = fetchGenerationStatus, isGenerating = () => false, onState = () => {} } = {}) {
+export function mountGenerationStatus(host, { load = fetchGenerationStatus, isGenerating = () => false, getGenerationId = () => '', onState = () => {} } = {}) {
   if (!host) return { refresh() {}, stop() {} };
   let stopped = false;
   let request = 0;
@@ -100,7 +102,7 @@ export function mountGenerationStatus(host, { load = fetchGenerationStatus, isGe
       const data = await load({ signal: controller.signal });
       if (stopped || token !== request) return;
       consecutiveFailures = 0;
-      const model = generationStatusModel(data);
+      const model = generationStatusModel(data, getGenerationId());
       paint(model);
       if (model?.poll || isGenerating()) timer = setTimeout(() => refresh({ automatic: true }), 10_000);
     } catch {

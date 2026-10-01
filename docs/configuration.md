@@ -97,7 +97,7 @@ Settings files from older releases that lack this block resolve to the disabled 
 
 ## Alert webhook
 
-`analysisSettings.webhook` can send alert-matched signals, completed Briefings, or both:
+`analysisSettings.webhook` can send alert-matched signals, eligible completed Briefings, or both:
 
 ```json
 {
@@ -118,6 +118,8 @@ An empty `url` disables delivery. Set:
 - `PUBLIC_BASE_URL` if recipients need links to a public deployment.
 
 Alert delivery includes only signals matching an `alertRule`, and each story is sent at most once. Briefing delivery includes the edition date, BLUF, key judgments, a deep link, and—when present—the total review-warning count plus bounded warning text.
+
+Briefing notifications use the current reading copy and are sent only when the edition is eligible at generation completion. An edition retained for material review does not trigger delivery. Later corrections or approval do not resend its notification.
 
 Outbound webhook requests use the same SSRF protections as other fetches. Delivery is best-effort: failure is logged but never blocks a pipeline refresh or Briefing save.
 

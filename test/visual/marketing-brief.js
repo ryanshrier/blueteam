@@ -32,9 +32,9 @@ A synthetic identity-gateway incident shows how one sourced assessment becomes b
 
 ### Signal 1 — [Horizon 1] Example identity gateways require same-shift verification
 
-**Assessment:** In this synthetic scenario, a confirmed authentication bypass makes unpatched internet-facing gateways the immediate operational priority.
+**Assessment:** In this synthetic scenario, confirmed exploitation of exposed management interfaces makes unverified internet-facing gateways the immediate operational priority.
 
-**Confidence:** Almost certain (95–99%) — based on the fictional vendor advisory and synthetic incident report.
+**Confidence:** High — the fictional vendor advisory reports exploitation and a corrected build; the synthetic incident report identifies two test gateways. Their installed builds and public reachability still require verification within the exercise.
 
 **What happened:** The example vendor published a corrected build after its test telemetry showed exploitation of exposed management interfaces. [Synthetic vendor advisory, July 24, 2026] [Synthetic incident report, July 23, 2026]
 
@@ -55,7 +55,7 @@ A synthetic identity-gateway incident shows how one sourced assessment becomes b
 
 **Assessment:** The fictional incident shows how fragmented ownership can delay a complete answer even when the technical fix is straightforward.
 
-**Confidence:** Likely (55–80%) — based on the synthetic incident timeline and the example environment map.
+**Confidence:** Moderate — the synthetic incident report describes ownership and evidence split across three systems. A resulting response delay is an analytical inference that the next exercise must test.
 
 **What happened:** The demo response team found gateway inventory in one system, identity events in another, and escalation ownership in a third. [Synthetic incident report, July 23, 2026]
 
@@ -76,7 +76,7 @@ A synthetic identity-gateway incident shows how one sourced assessment becomes b
 
 **Assessment:** The fictional annual assurance proposal could turn a one-time response lesson into a sustained review of ownership and retained decision evidence.
 
-**Confidence:** Likely (55–80%) — the synthetic plan names the proposed annual review, while approval and funding remain unresolved.
+**Confidence:** Low — the synthetic planning note records a proposal for an annual review, but its owner and retention period remain unapproved. There is no completed exercise series showing that this proposal improves assurance.
 
 **What happened:** The fictional leadership team proposed an annual gateway exercise with an evidence owner and review date for each decision. The next planning review must choose an owner and retention period; neither is approved. [Synthetic exercise planning note, July 24, 2026]
 
@@ -108,11 +108,15 @@ A synthetic identity-gateway incident shows how one sourced assessment becomes b
 
 ### External exposure and fragmented evidence become one response problem
 
-**The intersection:** The fictional gateway scenario couples a technical vulnerability with the practical challenge of assembling a defensible operating picture across teams.
+**The intersection:** The fictional vendor reports exploitation of exposed management interfaces and a corrected build. [Synthetic vendor advisory, July 24, 2026] The synthetic incident report places gateway inventory, identity events, and escalation ownership in separate systems. [Synthetic incident report, July 23, 2026] Together, these developments create a decision dependency: the response team must connect each gateway's exposure and build status to its activity and accountable owner before deciding whether containment is complete.
 
-**The cascade:** Unverified exposure slows containment, incomplete identity telemetry weakens scoping, and unclear ownership delays the final risk decision.
+**The cascade:** Analytical hypothesis: separated records could leave the fictional response team unable to distinguish a corrected, contained gateway from an exposed gateway with unexplained identity activity. Repeated requests between owners could then delay the containment decision. The retained exercise records do not establish that this delay has occurred.
 
-**The move:** Use the Print Edition as the shared handoff artifact while the analyst Briefing retains the linked working context.
+**Confirmation:** In the next fictional drill, retain timestamps for the containment decision request and the delivery of each gateway's exposure, build, and identity-event records. Confirm this failure mode only if the decision remains unresolved because a required record or accountable owner cannot be identified; a complete record available at the decision point would argue against it.
+
+**Action rationale:** One accountable evidence owner and a gateway-level decision record connect the separated inputs that the containment decision depends on. This control addresses missing ownership and evidence joins; it does not replace the corrected build or prove that no compromise occurred.
+
+**The move:** Security operations — assign one evidence owner and assemble the gateway-level decision record — recommended target July 25, 2026. Use the Print Edition for the shared handoff and retain the supporting exercise records with the analyst Briefing.
 
 ---
 

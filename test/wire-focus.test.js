@@ -49,3 +49,19 @@ test('a removed/disabled action falls back to its still-present row', () => {
   restoreWireFocus(list([after]), saved);
   expect(after.focus).toHaveBeenCalledWith({ preventScroll: true });
 });
+
+test('polling restores the exact decision field, selection, scroll, and open disclosure', () => {
+  const before = row('a', 'textarea[name="note"]');
+  const field = Object.assign(before.action, { name: 'note', selectionStart: 7, selectionEnd: 12, selectionDirection: 'backward', scrollTop: 80,
+    closest: selector => selector === '[data-decision-form]' ? {} : null });
+  const saved = captureWireFocus(list([before]), field);
+  const after = row('a');
+  const disclosure = { open: false };
+  const editor = { focus: jest.fn(), setSelectionRange: jest.fn(), scrollTop: 0 };
+  after.querySelector = () => ({ elements: { namedItem: name => name === 'note' ? editor : null }, closest: () => disclosure });
+  restoreWireFocus(list([after]), saved);
+  expect(editor.focus).toHaveBeenCalledWith({ preventScroll: true });
+  expect(editor.setSelectionRange).toHaveBeenCalledWith(7, 12, 'backward');
+  expect(editor.scrollTop).toBe(80);
+  expect(disclosure.open).toBe(true);
+});

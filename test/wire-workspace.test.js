@@ -1,6 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
-import { filterChips, scanIdentity, scanFacts, signalSeverity, signalAssessmentMeta, normalizeDecision, readDecisions, decisionForm, reflectDecisionDraft, exportContext, captureScrollAnchor } from '../public/modules/wire/wire-workspace.js';
-import { parseWireQuery, serializeWireUrl, signalUrl, filterSignals } from '../public/modules/wire/wire-format.js';
+import { filterChips, scanIdentity, scanFacts, signalSeverity, signalAssessmentMeta, normalizeDecision, readDecisions, mergeDecisions, saveDecisionRecord, exportDecisionRecords, decisionForm, reflectDecisionDraft, exportContext, captureScrollAnchor } from '../public/modules/wire/wire-workspace.js';
+import { parseWireQuery, serializeWireUrl, signalUrl, signalReadKey, isSignalRead, migrateLegacyReadKeys, filterSignals } from '../public/modules/wire/wire-format.js';
 
 // Retained record identities from the live audit; values here exercise presentation,
 // not any assertion about the underlying vulnerability's current threat status.
@@ -11,6 +11,43 @@ const chrome = { title: 'CISA Adds One Known Exploited Vulnerability to Catalog'
   applicability: { matches: [{ term: 'Chrome', field: 'technologies' }] } };
 
 describe('Wire workspace review state', () => {
+  test('legacy read migration cannot silently re-read an update after its changed flag expires', () => {
+    const legacy = new Set([chrome.link]);
+    const migrated = migrateLegacyReadKeys([chrome], legacy);
+    expect(migrated.has(chrome.link)).toBe(false);
+    const sameRevision = { ...chrome, evidence: chrome.evidence.map(source => ({ ...source, changed: false })) };
+    expect(isSignalRead(sameRevision, migrated)).toBe(false);
+    expect(isSignalRead(sameRevision, migrateLegacyReadKeys([sameRevision], legacy))).toBe(true);
+  });
+  test('a new retained revision is unread, while the revision actually inspected stays read', () => {
+    const old = { ...chrome, evidence: [{ sourceId: 'source-a', revisionId: 'rev-old' }] };
+    const revised = { ...chrome, evidence: [{ sourceId: 'source-a', revisionId: 'rev-new', changed: true }] };
+    const readKeys = new Set([signalReadKey(old), chrome.link]); // includes a legacy marker
+    expect(isSignalRead(old, readKeys)).toBe(true);
+    expect(filterSignals([revised], { changed: true, unread: true, readKeys })).toEqual([revised]);
+    readKeys.add(signalReadKey(revised));
+    expect(filterSignals([revised], { changed: true, unread: true, readKeys })).toEqual([]);
+    expect(isSignalRead({ ...revised, evidence: [...revised.evidence].reverse() }, readKeys)).toBe(true);
+  });
+  test('saving from a stale tab preserves another tab’s unrelated and newer records', () => {
+    let raw = '{}';
+    const storage = { getItem: () => raw, setItem: (_key, value) => { raw = value; } };
+    const stale = new Map([['shared', normalizeDecision({ note: 'old', recordedAt: '2026-09-01T00:00:00Z' })]]);
+    saveDecisionRecord(storage, new Map(), 'shared', { note: 'updated elsewhere', recordedAt: '2026-09-02T00:00:00Z' });
+    saveDecisionRecord(storage, readDecisions(storage), 'off-feed', { note: 'retained older signal', recordedAt: '2026-09-02T01:00:00Z' });
+    const result = saveDecisionRecord(storage, stale, 'new', { note: 'this tab', recordedAt: '2026-09-03T00:00:00Z' });
+    expect(result.persisted).toBe(true);
+    expect(readDecisions(storage).get('shared').note).toBe('updated elsewhere');
+    expect(readDecisions(storage).get('off-feed').note).toBe('retained older signal');
+    expect(mergeDecisions(stale, storage).get('new').note).toBe('this tab');
+    expect(exportDecisionRecords(result.decisions).map(record => record.signal)).toEqual(expect.arrayContaining(['shared', 'off-feed', 'new']));
+  });
+  test('failed storage keeps the newer session decision recoverable in a complete export', () => {
+    const storage = { getItem: () => '{}', setItem: () => { throw new Error('quota'); } };
+    const result = saveDecisionRecord(storage, new Map(), 'https://example.test/expired', { note: 'cannot lose this', recordedAt: '2026-09-03T00:00:00Z' });
+    expect(result.persisted).toBe(false);
+    expect(exportDecisionRecords(mergeDecisions(result.decisions, storage))[0].decision.note).toBe('cannot lose this');
+  });
   test('compact facts retain the scored CVE once, including enrichment-only and later identifiers', () => {
     const facts = scanFacts({ title: 'CVE-2026-1000 and CVE-2026-1001 advisory', cveDetails: ['CVE-2026-1002 · CVSS 9.8 (Critical)'] });
     expect(facts.cves).toEqual(['CVE-2026-1002', 'CVE-2026-1000']);

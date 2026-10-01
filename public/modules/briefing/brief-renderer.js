@@ -33,10 +33,23 @@ export function judgmentTopic(text) {
 
 /** Plain-text handoff from a saved judgment. Keep the authored action intact:
  * its owner and target may be embedded in prose and must not be guessed. */
-export function decisionCopyText({ title = '', action = '', recommendations = [], decisionWindow = '', certainty = '', sources = [], editionUrl = '', editionLabel = '' } = {}) {
+export function decisionCopyText({ title = '', action = '', recommendations = [], decisionWindow = '', certainty = '', sources = [], editionUrl = '', editionLabel = '', disposition, review, warnings = [], sourceCheckStatus = '', editorialReviewStatus = '' } = {}) {
   const actions = recommendations.filter(value => typeof value === 'string' && value.trim());
   if ((!String(action).trim() && !actions.length) || !/^https?:\/\//i.test(editionUrl)) return '';
   const lines = [title ? `Decision — ${title}` : 'Decision', ''];
+  if (disposition && ['review-required', 'superseded'].includes(disposition.status)) {
+    lines.push(disposition.status === 'superseded' ? 'WARNING: Superseded edition.' : 'WARNING: Editorial review required.');
+    if (disposition.reason) lines.push(disposition.reason);
+    if (disposition.replacementFilename) lines.push(`Replacement edition: ${disposition.replacementFilename}`);
+  }
+  if (review?.status === 'editorially-corrected') {
+    lines.push(`Editorially corrected reading copy${review.reviewer ? ` · ${review.reviewer}` : ''}${review.reviewedAt ? ` · ${review.reviewedAt}` : ''}.`);
+    if (review.scope) lines.push(review.scope);
+  } else if (review) lines.push(`WARNING: ${review.message || 'Editorial review unavailable; original text displayed.'}`);
+  if (sourceCheckStatus) lines.push(`Source checks: ${sourceCheckStatus}.`);
+  if (editorialReviewStatus) lines.push(`Editorial review: ${editorialReviewStatus}.`);
+  if (Array.isArray(warnings) && warnings.length) lines.push('Source-check notes:', ...warnings.map(warning => `- ${typeof warning === 'string' ? warning : warning.message || 'Review required.'}`));
+  if (lines.length > 2) lines.push('');
   if (action) lines.push(`Act now: ${action}`);
   if (actions.length) lines.push('Recommended actions:', ...actions.map(value => `- ${value}`));
   if (decisionWindow) lines.push(`Decision window: ${decisionWindow}`);

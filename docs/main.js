@@ -48,7 +48,7 @@ document.addEventListener('click', (event) => {
   const dialog = document.createElement('dialog');
   if (typeof dialog.showModal !== 'function') return;
   event.preventDefault();
-  const caption = (link.querySelector('img') || link.closest('figure')?.querySelector('img'))?.alt || 'BlueTeam.News product preview';
+  const caption = link.dataset.viewerCaption || (link.querySelector('img') || link.closest('figure')?.querySelector('img'))?.alt || 'BlueTeam.News product preview';
   const title = link.dataset.viewerTitle || link.closest('figure')?.querySelector('figcaption strong, figcaption h3, figcaption h4')?.textContent || 'Product preview';
   dialog.className = 'product-viewer';
   dialog.setAttribute('aria-labelledby', 'productViewerTitle');

@@ -60,7 +60,11 @@ If the provider stops at the configured output-token limit, BlueTeam.News uses i
 
 Completed Briefings report the model, token counts, and an estimated cost when pricing is known. A custom model without a known rate shows cost as unavailable. Estimates can differ from the provider invoice; OpenAI reasoning tokens are included in output usage rather than charged twice.
 
-New editions save a JSON input manifest before publishing their Markdown. A publication error prevents completion and webhook delivery. The generation ledger records paid attempts, usage checkpoints, and outcomes; after a restart it reconciles verified publications and marks unfinished jobs interrupted. Ambiguous paid attempts are not automatically repeated. Inspect **Settings → System health**, `/api/brief/status`, and provider usage before requesting another generation. Usage checkpoints can be incomplete and discarded output cannot be resumed. See [Generation stream](api.md#generation-stream).
+New editions require the provider's terminal event and a completed stop reason, then save a JSON input manifest before publishing their Markdown. A publication error prevents completion and webhook delivery. The generation ledger records paid attempts, usage checkpoints, and outcomes; after a restart it reconciles verified publications and marks unfinished jobs interrupted. Ambiguous paid attempts are not automatically repeated. Inspect **Settings → System health**, `/api/brief/status`, and provider usage before requesting another generation. Usage checkpoints can be incomplete and discarded output cannot be resumed. See [Generation stream](api.md#generation-stream).
+
+After a browser connection fails, use **Check generation status** before starting another attempt. Recovery follows the generation ID announced for that request; an unrelated recent edition is not proof it completed. If the connection failed before an ID arrived, inspect generation status and History. Status checks make no provider call.
+
+An existing reserved scheduled edition is recovered only when its receipt, completion flags, date, and timezone verify. Missing, corrupt, or mismatched artifacts return `E_SCHEDULE_INTEGRITY`; no new provider call starts and the original is preserved. Restore a known-good matching Markdown/receipt pair before retrying.
 
 Opening a completed Briefing's **Print Edition** reuses that saved assessment. The Print Edition is rendered locally in the browser, and printing or saving it as a PDF uses the browser's print pipeline. Viewing or exporting the Print Edition does not make another model request.
 
@@ -72,6 +76,7 @@ Back up these paths:
 |---|---|
 | `data/` | SQLite database, WAL/SHM sidecars, source observations/revisions, schedule and alert state, feed caches, and local Settings/watch profile |
 | `briefs/` | Saved Briefing Markdown and matching `*.manifest.json` generation inputs |
+| `reviews/` | Editorial corrections, publication dispositions, and approvals bound to saved editions |
 | `config.json` | Feeds, scoring, organization/watch-profile defaults, models, and webhooks |
 | `.env` or service environment | Optional secrets and server configuration |
 
@@ -80,7 +85,7 @@ Back up these paths:
 For a consistent backup:
 
 1. Stop the server and wait for it to exit.
-2. Copy the entire `data/` and `briefs/` directories, plus `config.json`.
+2. Copy the entire `data/`, `briefs/`, and `reviews/` directories, plus `config.json`.
 3. Back up `.env` or the service-manager secret configuration separately in protected storage.
 4. Record the application tag/commit and Node major used by the backup.
 5. Test restoration in a separate clone before relying on the backup.
@@ -89,13 +94,15 @@ To restore:
 
 1. Stop the target server.
 2. Check out the recorded application version.
-3. Replace the target `data/`, `briefs/`, and `config.json` with the backup and restore secrets through the chosen secret mechanism.
+3. Replace the target `data/`, `briefs/`, `reviews/`, and `config.json` with the backup and restore secrets through the chosen secret mechanism.
 4. Run `npm install` with a supported Node version.
-5. Start the server and inspect `/api/health`, the Wire, and Briefing history. Open a retained source revision and an edition's **Edition tools → Sources and saved inputs** to verify that evidence and its matching manifest were restored.
+5. Start the server and inspect `/api/health`, the Wire, and Briefing history. Open a retained source revision and an edition's **Edition tools → Sources and saved inputs** to verify that evidence and its matching manifest were restored. Check a corrected or excluded edition to confirm its review records were restored too.
 
 Never replace a live SQLite database. Copying only `watchfloor.db` while the process is running can omit committed data still represented by its WAL file.
 
 Keep each Briefing and its manifest together. Manifest reads verify the exact Markdown hash; changing the Markdown outside the application causes a verification failure. Old editions legitimately have no manifest, and restoration does not reconstruct inputs that were never saved. Protect manifests like local Settings because they include organizational interests and selected source excerpts, even though provider credentials and raw configuration are excluded.
+
+Keep `reviews/` with those editions. Losing it loses corrections, approvals, and supersession or review-required decisions. An approval is tied to the exact current reading copy and does not transfer to later corrections. Wire decisions live in browser storage; use **Export all saved decisions (JSON)** separately because a server backup does not include them.
 
 ### Evidence retention and redistribution
 
@@ -139,7 +146,7 @@ and a saved Briefing. Allow a new collection to finish and inspect a retained
 source passage. Review **Settings → System health** for persistent storage or
 feed failures before requesting a billable Briefing.
 
-Database migrations run forward at startup. The safest rollback is therefore code **and** the matching pre-upgrade `data/` and `briefs/` backup:
+Database migrations run forward at startup. The safest rollback is therefore code **and** the matching pre-upgrade `data/`, `briefs/`, and `reviews/` backup:
 
 1. Stop the server.
 2. Check out the prior tag.
@@ -147,9 +154,10 @@ Database migrations run forward at startup. The safest rollback is therefore cod
 4. Run `npm install`.
 5. Start and verify the service.
 
-Do not assume a database opened by a newer release remains compatible with older
-code. In particular, a rollback from v1.1.0 to v1.0.3 must restore the matching
-schema-7 `data/`, `briefs/`, and configuration backup; do not lower the SQLite
+Startup rejects a database schema newer than this version supports. Older
+releases may lack this guard, so always restore the matching backup when rolling
+back. In particular, a rollback from v1.1.0 to v1.0.3 must restore the matching
+schema-7 `data/`, `briefs/`, `reviews/`, and configuration backup; do not lower the SQLite
 schema marker manually or merge newer database files into that backup. Restore
 the corresponding protected secret configuration as needed.
 
@@ -158,7 +166,7 @@ the corresponding protected secret configuration as needed.
 A service manager can start BlueTeam.News after boot. Configure it to:
 
 - run `npm start` with the repository as its working directory;
-- run as a dedicated, unprivileged account that owns `data/` and `briefs/`;
+- run as a dedicated, unprivileged account that owns `data/`, `briefs/`, and `reviews/`;
 - inject secrets through the environment or a protected `.env`;
 - restart on failure with a backoff, but not restart continuously on configuration errors;
 - forward `SIGTERM`; allow at least 35 seconds normally, or 14 minutes when an active Briefing must drain safely;
@@ -188,14 +196,18 @@ The same readiness information is available in **Settings → System health**. T
 | `POST /api/brief` returns 429 | Another generation may be active, a request may have started within the last 15 seconds (including an early failure), or the short-window/daily limit may be reached. Honor `Retry-After`, do not repeatedly click Generate, and inspect the JSON error and logs. |
 | Briefing reports stale or unavailable evidence (`E_EVIDENCE`) despite a saved key | Generation stops before calling the provider when current source evidence is insufficient. Check **Settings → System health**, restore the server's outbound connectivity to its configured sources, and allow collection to finish before retrying. Replacing the API key does not repair feed connectivity. |
 | Automatic Briefing did not run | Confirm the schedule is enabled in Settings, a valid key is available, the configured timezone is correct, and the displayed schedule status has not reached its daily attempt limit. |
+| The generation connection failed or stopped without completion | Use **Check generation status** and History before retrying. Recovery must match the request's generation ID. An incomplete provider stream is not a completed edition; retained output may be available in Drafts, and final usage can be unknown. Status checks do not start another generation. |
+| Scheduled recovery returns `E_SCHEDULE_INTEGRITY` | The reserved edition's receipt or completion metadata did not verify. No provider call was started and the original was preserved. Inspect storage and restore a known-good matching Markdown/receipt pair; repeated retries do not repair it. |
 | `NODE_MODULE_VERSION`, ABI, or native-binding error | Stop the server, confirm Node is a supported release, delete only this clone's `node_modules`, then run `npm install` again. Never reuse another machine's dependency directory. |
 | `EADDRINUSE` at startup | Another process already uses `PORT`; stop that process or choose another port. Do not start a second copy against the same `data/`. |
+| Startup reports a database schema newer than supported | Use an application version that supports the database, or restore the matching pre-upgrade backup with its code. Do not lower the SQLite schema marker manually. |
 | Health stays degraded after first start | Inspect feed statuses and `configReloadError` in authenticated health details, then review logs for proxy, DNS, certificate, rate-limit, or config validation failures. |
 | Feeds fail behind a corporate proxy | Confirm the host can reach the configured HTTPS origins and that TLS inspection trusts the organization's CA. BlueTeam.News does not include a proxy-bypass mode. |
 | Briefing is disabled | Choose a provider and verify its key in Settings, or set `AI_PROVIDER` with `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. Environment keys override saved keys for that provider. Check the selected OpenAI model if verification reports an access error. |
-| Database or Briefing history is missing after a move | Restore `data/` and `briefs/` together, confirm filesystem ownership, and use the application version recorded with the backup. |
+| Database, Briefing history, or editorial decisions are missing after a move | Restore `data/`, `briefs/`, and `reviews/` together, confirm filesystem ownership, and use the application version recorded with the backup. |
 | Source evidence is missing or an attached revision is no longer retained | Evidence starts with collection after the upgrade and has rolling count/age limits. Newer observations do not reconstruct an older missing passage. Inspect the source link and collection/storage diagnostics; do not treat missing evidence as a negative finding. |
 | A Briefing has no saved inputs or its manifest fails verification | Old editions have no reconstructed manifest. For newer editions, restore the matching Markdown/manifest pair; check for an external edit, partial restore, corrupt file, or storage failure. A manifest hash does not authorize replacing the original assessment. |
+| A saved edition is absent from Latest, Wall, or RSS | Open it in History and inspect its disposition and current reading-copy checks. Material review findings, supersession, failed corrected-copy checks, or an invalid receipt exclude it. Approval cannot override structural or source-trust failures or invalid receipts; later edits can require new approval. |
 
 ## Network deployment
 
@@ -259,7 +271,7 @@ Briefing generation sends the selected provider the configured team profile, aud
 
 Feed, article, and enrichment requests use the default User-Agent `BlueTeam.News/<version> (+https://blueteam.news)`. This identifies the application to source operators but does not report usage back to BlueTeam.News. Set `BLUETEAM_USER_AGENT` to use an operator-controlled identity, such as one containing a contact URL.
 
-Webhook payloads contain the configured event's fields. Signal alerts include matched titles, links, sources, tier and score metadata, and KEV status. Briefing notifications include the edition date, BLUF, judgment titles and confidence, an optional link, and—when present—the total review-warning count plus bounded warning text. Webhook failure is logged and does not block refreshes or Briefing storage.
+Webhook payloads contain the configured event's fields. Signal alerts include matched titles, links, sources, tier and score metadata, and KEV status. Briefing notifications include the edition date, BLUF, judgment titles and confidence, an optional link, and—when present—the total review-warning count plus bounded warning text. They use the current reading copy and require eligibility when generation completes; an edition retained for material review sends no notification, and later corrections or approval do not resend it. Webhook failure is logged and does not block refreshes or Briefing storage.
 
 On POSIX systems, startup requests mode `0700` for `data/` and `briefs/` and mode `0600` for sensitive settings, Briefing, SQLite, WAL, and SHM files. New generation manifests are written with mode `0600`. Windows retains the account's ACL behavior. Local state is not encrypted; protect the operating-system account, filesystem, and backups.
 

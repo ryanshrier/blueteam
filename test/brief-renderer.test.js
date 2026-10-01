@@ -9,6 +9,19 @@ import {
 import { documentExecutiveModel, structureExecutiveSummary } from '../public/modules/briefing/brief-executive.js';
 
 describe('complete document decision presentation', () => {
+  test('decision handoff retains disposition, review identity, and source-check warnings before the actions', () => {
+    const text = decisionCopyText({ action: 'Verify exposure.', editionUrl: 'https://desk.test/briefing/brief-2026-09-01.md',
+      disposition: { status: 'superseded', reason: 'Incorrect affected versions.', replacementFilename: 'brief-2026-09-02.md' },
+      review: { status: 'editorially-corrected', reviewer: 'Duty analyst', reviewedAt: '2026-09-02T12:00:00Z', scope: 'Corrected version scope.' },
+      warnings: ['Affected versions require review.'], sourceCheckStatus: 'findings', editorialReviewStatus: 'reviewed' });
+    expect(text).toContain('WARNING: Superseded edition.');
+    expect(text).toContain('Incorrect affected versions.');
+    expect(text).toContain('brief-2026-09-02.md');
+    expect(text).toContain('Duty analyst');
+    expect(text).toContain('Corrected version scope.');
+    expect(text).toContain('Affected versions require review.');
+    expect(text.indexOf('WARNING:')).toBeLessThan(text.indexOf('Act now:'));
+  });
   const items = [
     { lead: 'Threat:', tail: 'Active exploitation.' },
     { lead: 'Exposure:', tail: 'Public gateways.' },

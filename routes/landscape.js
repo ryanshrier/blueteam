@@ -2,8 +2,6 @@
 
 import { Router } from 'express';
 import { createHash } from 'crypto';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import { buildLandscape, pipelineStaleAfterMs } from '../lib/landscape.js';
 import { getKEVDueDates, getKEVRecords, getBriefMeta } from '../lib/db.js';
 import { getLatestRun, refreshNow, getRunAgeMs } from '../lib/refresher.js';
@@ -18,7 +16,6 @@ import { getSourceEvidence } from '../lib/evidence.js';
 import { getEffectiveWatchProfile } from '../lib/user-settings.js';
 import { evaluateApplicability } from '../lib/watch-profile.js';
 import { editorialContext, enrichmentStatus, headlineCves, normalizeFeedTimestamp, readableExcerpt } from '../lib/intelligence-context.js';
-import { savedBriefReview } from '../lib/brief-review.js';
 import { summarizeEvidence } from '../lib/evidence-freshness.js';
 
 // How many top-scored signals each feed publishes by default, and the hard cap
@@ -93,17 +90,15 @@ export function normalizeScoreComponents(sc) {
   return Object.keys(out).length ? out : null;
 }
 
-function loadLatestBriefSummary(historyDir) {
+function loadLatestBriefSummary(historyDir, reviewDirectory) {
   try {
-    const edition = listBriefEditions(historyDir, { getMeta: getBriefMeta, limit: 1, eligibleOnly: true })[0];
+    const edition = listBriefEditions(historyDir, { getMeta: getBriefMeta, limit: 1, eligibleOnly: true, reviewDirectory })[0];
     if (!edition) return null;
     const { filename } = edition;
-    const original = readFileSync(join(historyDir, filename), 'utf-8');
-    const reviewed = savedBriefReview(filename, original);
-    const content = reviewed.reviewedContent || original;
+    const { content, reviewed } = edition.reading;
     return {
       filename,
-      revision: createHash('sha256').update(content).digest('hex'),
+      revision: createHash('sha256').update(content).update(JSON.stringify({ review: reviewed.review, disposition: edition.disposition })).digest('hex'),
       date: briefDateFromFilename(filename),
       generatedAt: edition.generatedAt,
       bluf: parseBluf(content),
@@ -132,7 +127,7 @@ function loadLatestBriefSummary(historyDir) {
 const LANDSCAPE_MEMO_TTL_MS = 30_000;
 let landscapeMemo = null; // { generatedAtMs, configVersion, briefRevision, builtAtMs, payload }
 
-function buildLandscapeMemoized(historyDir) {
+function buildLandscapeMemoized(historyDir, reviewDirectory) {
   const run = getLatestRun();
   const runAgeMs = getRunAgeMs();
   const now = Date.now();
@@ -143,7 +138,7 @@ function buildLandscapeMemoized(historyDir) {
   const ttlExpired = !landscapeMemo || (now - landscapeMemo.builtAtMs) > LANDSCAPE_MEMO_TTL_MS;
 
   if (runChanged || configChanged || ttlExpired) {
-    const brief = loadLatestBriefSummary(historyDir);
+    const brief = loadLatestBriefSummary(historyDir, reviewDirectory);
     let archivedCount = 0;
     if (!brief) { try { archivedCount = listBriefEditions(historyDir).length; } catch { /* unavailable archive has no usable default */ } }
     const briefAvailability = brief ? { status: 'available', eligibleForLatest: true }
@@ -192,7 +187,7 @@ export function _resetLandscapeMemoForTests() {
   landscapeMemo = null;
 }
 
-export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = null, loopback = false }) {
+export function createLandscapeRouter({ historyDir, reviewDir, cooldown, publicBaseUrl = null, loopback = false }) {
   const router = Router();
   const canonicalPublicBaseUrl = normalizePublicBaseUrl(publicBaseUrl);
 
@@ -218,7 +213,7 @@ export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = nu
   // ── GET /landscape — full wall payload ──
   router.get('/landscape', (req, res) => {
     try {
-      res.json(buildLandscapeMemoized(historyDir));
+      res.json(buildLandscapeMemoized(historyDir, reviewDir));
     } catch (err) {
       log.error('landscape', `Payload build failed: ${err.message}`);
       res.status(500).json({ error: 'Failed to build landscape' });
@@ -422,14 +417,10 @@ export function createLandscapeRouter({ historyDir, cooldown, publicBaseUrl = nu
   router.get('/briefs.xml', (req, res) => {
     try {
       const base = baseUrl(req, canonicalPublicBaseUrl);
-      const editions = listBriefEditions(historyDir, { getMeta: getBriefMeta, limit: 30, eligibleOnly: true });
+      const editions = listBriefEditions(historyDir, { getMeta: getBriefMeta, limit: 30, eligibleOnly: true, reviewDirectory: reviewDir });
 
-      const entries = editions.map(({ filename, date, meta, generatedAt }) => {
-        let bluf = meta?.bluf || '';
-        if (!bluf) {
-          // Legacy brief that predates the meta table — same fallback /briefs uses.
-          try { bluf = parseBluf(readFileSync(join(historyDir, filename), 'utf-8')) || ''; } catch { /* skip */ }
-        }
+      const entries = editions.map(({ filename, date, generatedAt, reading }) => {
+        const bluf = parseBluf(reading.content) || '';
         const link = `${base}/briefing/${encodeURIComponent(filename)}`;
         const pubDate = new Date(generatedAt).toUTCString();
         return [

@@ -3,6 +3,15 @@ import { buildPresentationPages, splitDisplayText, displayDwellMs, normalizeDisp
 import { briefSectionAnchors } from '../lib/brief-schema.js';
 
 describe('Wall display composition', () => {
+  test('later publication or a changed retained capture can re-enter at an already-cited URL', () => {
+    const link = 'https://vendor.test/advisory';
+    const doc = { generatedAt: '2026-09-06T12:00:00Z', stories: [{ title: 'Prior assessment', line: 'Review exposure.', citations: [{ url: link }] }] };
+    const signal = { title: 'Updated advisory', link, date: '2026-09-05T12:00:00Z' };
+    expect(buildPresentationPages(doc, { signals: [signal] }).some(page => page.kind === 'wire')).toBe(false);
+    expect(buildPresentationPages(doc, { signals: [{ ...signal, date: '2026-09-07T12:00:00Z' }] }).some(page => page.kind === 'wire')).toBe(true);
+    expect(buildPresentationPages(doc, { signals: [{ ...signal, evidence: [{ changed: true, retrievedAt: '2026-09-07T12:00:00Z' }] }] }).some(page => page.kind === 'wire')).toBe(true);
+    expect(buildPresentationPages(doc, { signals: [{ ...signal, evidence: [{ changed: true, retrievedAt: '2026-09-05T12:00:00Z' }] }] }).some(page => page.kind === 'wire')).toBe(false);
+  });
   test('measured response parts retain every action field and include recovery in reading time', () => {
     const actions = [{ id:'patch', owner:'Infrastructure', imperative:'Apply the fix.' }, { id:'recover', owner:'Incident response', imperative:'Assess compromise.', completionCriterion:'Record findings.', recoverySteps:'Recovery '.repeat(150) }];
     const page = buildPresentationPages({ stories:[{ title:'Appliance', line:'Patch and investigate together.', actions }] }, {})[0];

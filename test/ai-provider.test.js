@@ -103,18 +103,19 @@ describe('OpenAI Responses streaming', () => {
     const result = await Array.fromAsync(client.stream(params, {}));
     expect(result.filter(event => event.delta?.text).map(event => event.delta.text).join('')).toBe('Threat — résumé');
     expect(result.find(event => event.message?.usage).message.usage).toMatchObject({ input_tokens: 100, output_tokens: 50, input_tokens_details: { cached_tokens: 20 } });
-    expect(result.at(-1).delta.stop_reason).toBe('end_turn');
+    expect(result.at(-2).delta.stop_reason).toBe('end_turn');
+    expect(result.at(-1)).toEqual({ type: 'message_stop' });
     expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({ model: DEFAULT_OPENAI_MODEL, instructions: params.system, input: params.messages, max_output_tokens: 16000, reasoning: { effort: 'low' }, store: false, stream: true });
   });
 
   test.each([['max_output_tokens', 'max_tokens'], ['content_filter', 'refusal']])('maps incomplete %s to the publication gate', async (reason, expected) => {
     const client = createOpenAiClient(openaiKey, DEFAULT_OPENAI_MODEL, async () => streamResponse([terminal('response.incomplete', reason)]));
-    expect((await Array.fromAsync(client.stream(params, {}))).at(-1).delta.stop_reason).toBe(expected);
+    expect((await Array.fromAsync(client.stream(params, {}))).at(-2).delta.stop_reason).toBe(expected);
   });
 
   test('captures refusals in a completed response', async () => {
     const client = createOpenAiClient(openaiKey, DEFAULT_OPENAI_MODEL, async () => streamResponse([{ type: 'response.refusal.delta', delta: 'Cannot assist.' }, terminal()]));
-    expect((await Array.fromAsync(client.stream(params, {}))).at(-1).delta.stop_reason).toBe('refusal');
+    expect((await Array.fromAsync(client.stream(params, {}))).at(-2).delta.stop_reason).toBe('refusal');
   });
 
   test.each([

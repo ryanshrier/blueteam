@@ -4,6 +4,9 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, DomUtils } from 'htmlparser2';
 import { MARKETING_BRIEF, MARKETING_SOURCES } from './visual/marketing-brief.js';
+import { buildMarketingSampleReceipt } from './visual/marketing-brief-receipt.js';
+import { validationSourceFromManifest } from '../lib/brief-drafts.js';
+import { validateBrief, hasHardFail, hasTrustCriticalFailure } from '../lib/validation.js';
 import { NEWSPAPER_CSS } from '../public/modules/briefing/brief-export.js';
 
 const read = name => readFileSync(new URL(`../docs/${name}`, import.meta.url), 'utf8');
@@ -16,6 +19,49 @@ describe('complete public synthetic sample', () => {
     expect(receipt).toEqual(JSON.parse(readFileSync(new URL('./visual/marketing-brief.manifest.json', import.meta.url), 'utf8')));
     expect(receipt.outputSha256).toBe(createHash('sha256').update(markdown).digest('hex'));
     expect(receipt).toMatchObject({ synthetic: true, providerAttempts: [], modelUsed: 'synthetic-fixture' });
+  });
+
+  test('replays current publication checks against the saved receipt and records their actual result', () => {
+    const markdown = read('sample-briefing.md');
+    const receipt = JSON.parse(read('sample-briefing.manifest.json'));
+    const result = validateBrief(markdown, receipt.edition.date, validationSourceFromManifest(receipt));
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toEqual([]);
+    expect(result.issues).toEqual([]);
+    expect(hasHardFail(result.issues)).toBe(false);
+    expect(hasTrustCriticalFailure(result.issues)).toBe(false);
+    expect(receipt.judgmentEvidence).toEqual(result.judgmentEvidence);
+    expect(receipt.validation).toHaveLength(1);
+    expect(receipt.validation[0]).toMatchObject({
+      draftSha256: receipt.outputSha256, valid: result.valid,
+      warnings: result.warnings, issues: result.issues, coverage: result.coverage,
+      editorialReviewStatus: 'not-reviewed',
+    });
+    expect(receipt.publicationValidation).toMatchObject({
+      valid: result.valid, warnings: result.warnings, issues: result.issues,
+      coverage: result.coverage, hardFail: false, trustFail: false, partial: false,
+      editorialReviewStatus: 'not-reviewed',
+    });
+    expect(receipt).toEqual(buildMarketingSampleReceipt({ regeneratedAt: receipt.syntheticRegeneratedAt }));
+    expect(receipt.grounding.urls).toEqual([]);
+    expect(receipt.grounding.sources).toHaveLength(3);
+    expect(receipt.grounding.sources.every(source => source.url === '' && source.quality.substantive)).toBe(true);
+    expect(receipt.edition.date).toBe('2026-07-24');
+    expect(Number.isFinite(Date.parse(receipt.syntheticRegeneratedAt))).toBe(true);
+    expect(receipt.syntheticNote).toContain('not a real collection or generation');
+  });
+
+  test('replay catches unsupported confidence and a missing scenario confirmation even when the saved receipt says passed', () => {
+    const receipt = JSON.parse(read('sample-briefing.manifest.json'));
+    const changed = read('sample-briefing.md')
+      .replace('**Confidence:** High —', '**Confidence:** Almost certain (95–99%) —')
+      .replace(/\*\*Confirmation:\*\*[^\n]+\n/, '');
+    const result = validateBrief(changed, receipt.edition.date, validationSourceFromManifest(receipt));
+    expect(receipt.publicationValidation.valid).toBe(true);
+    expect(result.valid).toBe(false);
+    expect(result.issues.map(issue => issue.code)).toEqual(expect.arrayContaining([
+      'EVIDENCE_CONFIDENCE_REQUIRED', 'SCENARIO_DECISION_GAP',
+    ]));
   });
 
   test('preserves the production print CSS, all three horizons, source passages, and working local downloads', () => {

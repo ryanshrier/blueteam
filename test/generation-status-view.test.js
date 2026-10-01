@@ -20,6 +20,15 @@ test('saved failed publication accounting presents the cost without publishing a
   expect(model.billing).toContain('$0.3776');
 });
 
+test('interrupted-attempt status resolves its exact durable ID, never an unrelated latest edition', () => {
+  const target = { id: 'interrupted-id', status: 'complete', filename: 'brief-2026-09-04.md' };
+  const latest = { id: 'other-id', status: 'complete', filename: 'brief-2026-09-05.md' };
+  const data = { persistence: 'ok', latest, jobs: [latest, target] };
+  expect(generationStatusModel(data, target.id)).toMatchObject({ jobId: target.id, filename: target.filename });
+  expect(generationStatusModel(data, 'missing-id')).toMatchObject({ kind: 'unavailable' });
+  expect(generationStatusModel(data, 'missing-id').filename).toBeUndefined();
+});
+
 test('unknown final usage never appears as a final complete cost or automatically retries', () => {
   const data = failed();
   data.latest.status = 'interrupted';

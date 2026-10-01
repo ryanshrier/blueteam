@@ -4,12 +4,15 @@
   "capturedAt": "2026-07-24T12:00:00Z",
   "application": {
     "name": "blueteam-news",
-    "version": "1.1.0",
+    "version": "1.2.1",
     "implementationSha256": {
-      "prompts": "04446a118b72ee707fb522580a78c43e1c638ed9b88e9fe3cbcf20e805c13235",
-      "grounding": "debb92dd957c1f6bc51d88be83e2622afe0dc526cc91d6ad978c21897052aeed",
-      "validation": "1adf2adbc254b7e96da941d9b7046e78e34e8d4cc438a757bd3e8cb871329aee",
-      "scoring": "14b75d6a420935bd953d3fa4c25e2d08718abf4a939a687a3357df04f280af47"
+      "prompts": "76586a15d10d357a82384693ff308e32cf58b1f51b0910d1846fb5b9b6a71a97",
+      "grounding": "fb552605f306c13e084d8ff0baaf68ed4f2fa556f40a78c9f0774e0eed3f6a67",
+      "validation": "296a5506d7153313053ae0f8b53c0fc7c0aa509a9c3f1123b9d95890af99ca3b",
+      "scoring": "825b3a8bb288f5157697af4a9d2cb80b46a2cd5ab37ae84e4871d1e479ab922c",
+      "evidence-quality": "e35a168bcdd7253dd24795e6a43d1e52ddc94c38d35b780759bcce2525babf97",
+      "claim-checks": "843a57849edd9632805edfe29e155cf7468c05133c78fd8bc44d12fbf3c43f6f",
+      "cvss": "f104cbdea01da3737d7595d9e3df802939a6679e54baf3a5620b7c30651cf3c6"
     }
   },
   "edition": {
@@ -58,9 +61,10 @@
   "generationSettings": {
     "preferredModel": "synthetic-fixture",
     "fallbackModel": "synthetic-fixture",
-    "maxTokens": 16000,
+    "maxTokens": null,
     "thinkingEffort": "off",
-    "continuityDepth": 5
+    "continuityDepth": 0,
+    "provider": "none"
   },
   "selectedEvidence": [
     {
@@ -72,7 +76,14 @@
       "horizon": 1,
       "passage": {
         "kind": "feed-excerpt",
-        "text": "In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory."
+        "text": "In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory.",
+        "quality": {
+          "status": "substantive",
+          "substantive": true,
+          "reasons": [
+            "retained-body-detail"
+          ]
+        }
       },
       "sourceRevisions": [],
       "groupMembers": [],
@@ -94,6 +105,8 @@
       "enrichment": {
         "cveData": "",
         "cvssSeverityText": "",
+        "cvssMetrics": [],
+        "cveConfigurations": [],
         "isKEV": null,
         "kevCVE": "",
         "kevDateAdded": "",
@@ -114,7 +127,14 @@
       "horizon": 2,
       "passage": {
         "kind": "feed-excerpt",
-        "text": "The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification."
+        "text": "The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification.",
+        "quality": {
+          "status": "substantive",
+          "substantive": true,
+          "reasons": [
+            "retained-body-detail"
+          ]
+        }
       },
       "sourceRevisions": [],
       "groupMembers": [],
@@ -136,6 +156,8 @@
       "enrichment": {
         "cveData": "",
         "cvssSeverityText": "",
+        "cvssMetrics": [],
+        "cveConfigurations": [],
         "isKEV": null,
         "kevCVE": "",
         "kevDateAdded": "",
@@ -156,7 +178,14 @@
       "horizon": 3,
       "passage": {
         "kind": "feed-excerpt",
-        "text": "The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet."
+        "text": "The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet.",
+        "quality": {
+          "status": "substantive",
+          "substantive": true,
+          "reasons": [
+            "retained-body-detail"
+          ]
+        }
       },
       "sourceRevisions": [],
       "groupMembers": [],
@@ -178,6 +207,8 @@
       "enrichment": {
         "cveData": "",
         "cvssSeverityText": "",
+        "cvssMetrics": [],
+        "cveConfigurations": [],
         "isKEV": null,
         "kevCVE": "",
         "kevDateAdded": "",
@@ -190,7 +221,7 @@
       }
     }
   ],
-  "deterministicFacts": "Authored fictional evidence only; no live collection or provider calls.",
+  "deterministicFacts": "",
   "grounding": {
     "cves": [],
     "urls": [],
@@ -206,6 +237,16 @@
         "evidenceText": "Fictional gateway exercise advisory In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory.",
         "retrievedAt": "",
         "collectionStale": false,
+        "passage": "In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory.",
+        "passageKind": "feed-excerpt",
+        "quality": {
+          "status": "substantive",
+          "substantive": true,
+          "reasons": [
+            "retained-body-detail"
+          ]
+        },
+        "cvssMetrics": [],
         "cves": [],
         "sourceRevisions": []
       },
@@ -220,6 +261,16 @@
         "evidenceText": "Fictional response exercise timeline The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification.",
         "retrievedAt": "",
         "collectionStale": false,
+        "passage": "The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification.",
+        "passageKind": "feed-excerpt",
+        "quality": {
+          "status": "substantive",
+          "substantive": true,
+          "reasons": [
+            "retained-body-detail"
+          ]
+        },
+        "cvssMetrics": [],
         "cves": [],
         "sourceRevisions": []
       },
@@ -234,6 +285,16 @@
         "evidenceText": "Fictional annual assurance proposal The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet.",
         "retrievedAt": "",
         "collectionStale": false,
+        "passage": "The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet.",
+        "passageKind": "feed-excerpt",
+        "quality": {
+          "status": "substantive",
+          "substantive": true,
+          "reasons": [
+            "retained-body-detail"
+          ]
+        },
+        "cvssMetrics": [],
         "cves": [],
         "sourceRevisions": []
       }
@@ -247,26 +308,57 @@
   "retention": {
     "maxBytes": 4194304,
     "policy": "Saved with the edition until the operator removes both files. Selected excerpts only; no full article cache or provider credentials.",
-    "promptRetention": "SHA-256 of exact provider inputs and implementation files; prompts and discarded model drafts are not retained."
+    "promptRetention": "SHA-256 of exact provider inputs and implementation files. Prompts are not retained. Rejected final drafts and these captured inputs are separately retained under the draft recovery policy."
   },
   "providerAttempts": [],
   "validation": [
     {
-      "draftSha256": "26f444d80ba8a83ee56c1595ad0bf0897697d5d04c0af33b3d4c0eddee09bcb5",
+      "draftSha256": "1c39eb5f3eb163f1e153b3459f663b92b1baafaf3ea9eaa0d01ee77235a29c05",
       "valid": true,
       "warnings": [],
-      "issues": []
+      "issues": [],
+      "coverage": {
+        "schemaVersion": 1,
+        "scope": "whole-document-supported-forms",
+        "checked": [
+          "CVE identities and closed counts (including same-year slash shorthand)",
+          "listed KEV addition windows and remediation dates",
+          "explicit CVSS values and evidence-absence claims",
+          "explicit retrospective event intervals",
+          "citation identity and source access",
+          "bounded action dependencies and recovery omissions"
+        ],
+        "notEstablished": [
+          "arbitrary natural-language entailment",
+          "source independence without provenance",
+          "statistical representativeness or population trends",
+          "local deployment and response sufficiency",
+          "forecast calibration and editorial prioritization"
+        ],
+        "editorialReviewStatus": "not-reviewed",
+        "materialReviewRequired": false,
+        "citationCount": 0
+      },
+      "editorialReviewStatus": "not-reviewed"
     }
   ],
   "generatedAt": "2026-07-24T12:00:00Z",
   "synthetic": true,
-  "authoring": "Authored static demonstration fixture. Dates describe the fictional scenario, not a real generation.",
+  "syntheticRegeneratedAt": "2026-10-01T21:52:46.669Z",
+  "syntheticNote": "Authored fictional demonstration; no provider was called. Edition, source, collection, capturedAt, and generatedAt dates describe the July 24, 2026 scenario, not a real collection or generation. syntheticRegeneratedAt records when this sample receipt was rebuilt and checked against the recorded application implementation. Passing supported checks does not verify real-world events or complete analyst review.",
   "filename": "brief-2026-07-24-01.md",
-  "outputSha256": "26f444d80ba8a83ee56c1595ad0bf0897697d5d04c0af33b3d4c0eddee09bcb5",
+  "outputSha256": "1c39eb5f3eb163f1e153b3459f663b92b1baafaf3ea9eaa0d01ee77235a29c05",
   "modelUsed": "synthetic-fixture",
+  "editorialStandard": 2,
   "verification": {
     "kevCatalogLoaded": false,
-    "selectedKevCves": []
+    "selectedKevCves": [],
+    "kevTiming": {}
+  },
+  "costEstimate": {
+    "usd": 0,
+    "currency": "USD",
+    "basis": "Authored fixture; no provider calls or billed generation."
   },
   "judgmentEvidence": [
     {
@@ -295,11 +387,30 @@
     "issues": [],
     "hardFail": false,
     "trustFail": false,
-    "partial": false
-  },
-  "costEstimate": {
-    "usd": 0,
-    "currency": "USD",
-    "basis": "Authored fixture; no provider calls or billed generation."
+    "partial": false,
+    "coverage": {
+      "schemaVersion": 1,
+      "scope": "whole-document-supported-forms",
+      "checked": [
+        "CVE identities and closed counts (including same-year slash shorthand)",
+        "listed KEV addition windows and remediation dates",
+        "explicit CVSS values and evidence-absence claims",
+        "explicit retrospective event intervals",
+        "citation identity and source access",
+        "bounded action dependencies and recovery omissions"
+      ],
+      "notEstablished": [
+        "arbitrary natural-language entailment",
+        "source independence without provenance",
+        "statistical representativeness or population trends",
+        "local deployment and response sufficiency",
+        "forecast calibration and editorial prioritization"
+      ],
+      "editorialReviewStatus": "not-reviewed",
+      "materialReviewRequired": false,
+      "citationCount": 0
+    },
+    "sourceCheckStatus": "passed-supported-checks",
+    "editorialReviewStatus": "not-reviewed"
   }
 }

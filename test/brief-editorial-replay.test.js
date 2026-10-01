@@ -103,3 +103,44 @@ test('an unrelated independently sourced record cannot justify this judgment\'s 
   const records = [{ url: 'https://example.test/report', passage: 'Vendor statement repeated.' }, { url: 'https://example.test/other', passage: 'Independent observations of another event.', independence: { verified: true } }];
   expect(editorialIssues('', [entry], { records }).map(issue => issue.code)).toContain('INDEPENDENCE_UNESTABLISHED');
 });
+
+describe('source independence claim polarity', () => {
+  const issues = basis => editorialIssues('', [`**Confidence:** Moderate — ${basis}\n**What happened:** [Publisher, 2026-09-05](https://example.test/report)`], {
+    records: [{ url: 'https://example.test/report', passage: 'One reported observation.' }],
+  }).filter(issue => issue.code === 'INDEPENDENCE_UNESTABLISHED');
+
+  test('the September 7 corrective draft explicitly disclaims independent corroboration', () => {
+    expect(issues('CCCS relays the vendor advisory and confirms the vulnerability details; BleepingComputer cites vulnerability-intelligence firm Previdian as the source of the exploitation claim — this is a single reported observation, not independently corroborated. This CVE pair is not in the captured CISA KEV catalog as of this briefing.')).toEqual([]);
+  });
+
+  test.each([
+    'The observation is not independently confirmed.',
+    'The observation has not yet been independently corroborated.',
+    'The observation hasn’t been independently confirmed.',
+    'The observation cannot be independently confirmed.',
+    'The observation can’t yet be independently corroborated.',
+    'The observation is neither independently confirmed nor independently corroborated.',
+    'The observation is not independently confirmed or independently corroborated.',
+    'No independent reporting is available.',
+    'Without any independent researcher reporting, confidence remains limited.',
+    'No retained evidence of independent reporting.',
+    'Independent reporting is not yet available.',
+    'Single report; **not** independently corroborated.',
+    'Not independently confirmed and not independently corroborated.',
+  ])('accepts a directly attached disclaimer: %s', basis => {
+    expect(issues(basis)).toEqual([]);
+  });
+
+  test.each([
+    'Independently corroborated.',
+    'Not only independently corroborated, but independently confirmed.',
+    'Deployment is not established; independently confirmed exploitation.',
+    'Not independently corroborated initially, but independently confirmed now.',
+    'Independently confirmed exploitation; attribution is not established.',
+    'No independent reporting on attribution. Independent reporting confirms exploitation.',
+    'Not independently corroborated; multiple independent outlets confirm the event.',
+    'Not independently confirmed, or attribution is unresolved; independently corroborated exploitation.',
+  ])('still blocks an unsupported affirmative claim: %s', basis => {
+    expect(issues(basis)).toHaveLength(1);
+  });
+});

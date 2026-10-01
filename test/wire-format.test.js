@@ -19,6 +19,16 @@ describe('parseCveData', () => {
     expect(p.affects).toBe('Widget 2');
   });
 
+  test.each(['3.1', '3.0', '4.0', '2.0'])('reads NVD CVSS v%s evidence and preserves product qualification', version => {
+    const p = parseCveData(`CVE-2026-1234: CVSS v${version} 9.8 (CRITICAL) (source: nvd@nist.gov) (Primary assessment) (provisional) — Affected products in NVD configurations (conditions and version limits apply): Acme Server, Widget 2 — exploit references exist`);
+    expect(p).toMatchObject({ cve: 'CVE-2026-1234', cvss: '9.8', sev: 'CRITICAL', exploit: true,
+      affects: 'Acme Server, Widget 2 (conditions and version limits apply)' });
+  });
+
+  test('a CVSS version without an actual score is not itself a score', () => {
+    expect(parseCveData('CVE-2026-1234: CVSS v3.1').cvss).toBe('');
+  });
+
   test('missing fields yield empty strings / false, never throw', () => {
     const p = parseCveData('some prose with no structured fields');
     expect(p).toMatchObject({ cve: '', cvss: '', sev: '', exploit: false, affects: '' });

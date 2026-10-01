@@ -27,7 +27,7 @@ describe('visual fixture manifest', () => {
 
   test('keeps the public showcase synthetic and valid under the Briefing contract', () => {
     const result = validateBrief(MARKETING_BRIEF, '2026-07-24', {
-      publication: true, groundingManifest: buildGroundingManifest({ headlines: MARKETING_SOURCES }), kevSet: new Set(),
+      publication: true, editorialStandard: 2, groundingManifest: buildGroundingManifest({ headlines: MARKETING_SOURCES }), kevSet: new Set(),
     });
     expect(result.warnings).toEqual([]);
     expect(result.judgmentEvidence).toHaveLength(3);
@@ -48,6 +48,13 @@ describe('production-shell synthetic fixtures', () => {
     expect(data.evidence.revisions[0].revisionId).toBe(reference.revisionId);
     expect(data.brief.inputManifest.status).toBe('available');
     expect(data.briefs[0].filename).not.toBe(buildAppFixture('normal', now).briefs[0].filename);
+  });
+
+  test('evidence variant preserves its authored confidence bases when the public sample changes', () => {
+    const content = buildAppFixture('evidence', now).brief.content;
+    expect(content).toContain('**Confidence:** Moderate — the [Fixture publisher, September 4, 2026](https://example.test/fixture/basis)');
+    expect(content).toContain('**Confidence:** Moderate — the [fictional incident timeline](https://example.test/fixture/timeline)');
+    expect(content).toContain('This authored basis is specific to the fictional exercise.');
   });
 
   test.each(['normal', 'long', 'sparse'])('%s covers every existing Wall content type through the real Briefing parser', scenario => {

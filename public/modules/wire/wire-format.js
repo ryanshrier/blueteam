@@ -39,6 +39,30 @@ export function dateMs(dateStr) {
 // identity) and filterSignals' unread/dismissed filtering agree on one definition.
 export function sigKey(h) { return (h && (h.link || h.title)) || ''; }
 
+// A URL identifies the story; retained revisions identify what was actually read.
+export function signalReadKey(headline) {
+  const revisions = (headline?.evidence || []).filter(source => source.revisionId)
+    .map(source => `${source.sourceId || ''}:${source.revisionId}`).sort();
+  return revisions.length ? `revision:${JSON.stringify([sigKey(headline), revisions])}` : sigKey(headline);
+}
+
+export function isSignalRead(headline, readKeys) {
+  return Boolean(readKeys?.has(signalReadKey(headline))
+    || (readKeys?.has(sigKey(headline)) && !headline?.evidence?.some(source => source.changed)));
+}
+
+export function migrateLegacyReadKeys(headlines, readKeys) {
+  const migrated = new Set(readKeys);
+  for (const headline of headlines) {
+    const key = sigKey(headline), revisionKey = signalReadKey(headline);
+    if (revisionKey === key || !migrated.has(key)) continue;
+    migrated.delete(key);
+    // An already changed capture cannot inherit a pre-revision read marker.
+    if (!headline.evidence?.some(source => source.changed)) migrated.add(revisionKey);
+  }
+  return migrated;
+}
+
 export function signalUrl(headline, origin = '', evidence = null) {
   const url = `${origin}/wire?signal=${encodeURIComponent(sigKey(headline))}`;
   return evidence?.sourceId ? `${url}&source=${encodeURIComponent(evidence.sourceId)}${evidence.revisionId ? `&revision=${encodeURIComponent(evidence.revisionId)}` : ''}` : url;
@@ -66,12 +90,16 @@ export function matchesCluster(headline, cluster) {
 export function parseCveData(cveData) {
   const data = typeof cveData === 'string' ? cveData : '';
   const cve = (data.match(/CVE-\d{4}-\d{4,7}/i) || [])[0] || '';
-  const cvss = (data.match(/CVSS\s+([\d.]+)/i) || [])[1] || '';
+  const cvss = (data.match(/CVSS\s+(?:v\d+(?:\.\d+)?\s+)?(\d+(?:\.\d+)?)/i) || [])[1] || '';
   const sev = (data.match(/\(([A-Za-z]+)\)/i) || [])[1] || '';
   const exploit = /exploit references exist/i.test(data);
-  let affects = ((data.match(/Affects:\s*([^—]+?)(?:\s+—|$)/i) || [])[1] || '')
+  const configuredProducts = data.match(/Affected products in NVD configurations \((conditions and version limits apply)\):\s*([^—]+?)(?:\s+—|$)/i);
+  let affects = (configuredProducts?.[2] || (data.match(/Affects:\s*([^—]+?)(?:\s+—|$)/i) || [])[1] || '')
     .replace(/\s*·?\s*CVE-\d{4}-\d{4,7}:.*$/i, '')   // strip a secondary "· CVE-…: CVSS …" that bleeds in
     .trim();
+  // Carry the NVD qualification into every compact label and export consumer;
+  // a configured product is not an unconditional affected-version claim.
+  if (affects && configuredProducts) affects += ` (${configuredProducts[1]})`;
   return { raw: data, cve, cvss, sev, exploit, affects };
 }
 
@@ -95,7 +123,7 @@ export function filterSignals(headlines, filters = {}, sortMode = 'relevance') {
   else if (dismissedKeys && dismissedKeys.size) items = items.filter(h => !dismissedKeys.has(sigKey(h)));
   if (filters.unread) {
     const readKeys = filters.readKeys instanceof Set ? filters.readKeys : null;
-    if (readKeys) items = items.filter(h => !readKeys.has(sigKey(h)));
+    if (readKeys) items = items.filter(h => !isSignalRead(h, readKeys));
   }
   // Free-text `q`: case-insensitive substring over the title, description, and the
   // freeform cveData (so a bare "CVE-2026-1234" or a vendor keyword deep-links). Each

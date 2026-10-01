@@ -40,14 +40,14 @@ afterAll(() => {
 });
 
 describe('Wall route presentation changes', () => {
-  test('switches kiosk/operator on query changes, but keeps a held operator page on same-route navigation', async () => {
+  test('switches presentation/reading on read=1 changes, but preserves the current view on unrelated query changes', async () => {
     const initialMount = nextMount();
     await import('../public/app.js');
     await expect(initialMount).resolves.toBe(region);
     expect(mount).toHaveBeenCalledTimes(1);
 
     const operatorMount = nextMount();
-    window.location.search = '?operator';
+    window.location.search = '?read=1';
     emit('route-changed', { mode: 'wall' });
     await expect(operatorMount).resolves.toBe(region);
     expect(mount).toHaveBeenCalledTimes(2);
@@ -59,10 +59,13 @@ describe('Wall route presentation changes', () => {
     expect(mount).toHaveBeenCalledTimes(2);
 
     const kioskMount = nextMount();
-    window.location.search = '?kiosk';
+    window.location.search = '';
     emit('route-changed', { mode: 'wall' });
     await expect(kioskMount).resolves.toBe(region);
     expect(mount).toHaveBeenCalledTimes(3);
     expect(unmount).toHaveBeenCalledTimes(2);
+    window.location.search = '?operator';
+    emit('route-changed', { mode: 'wall' });
+    expect(mount).toHaveBeenCalledTimes(3);
   });
 });

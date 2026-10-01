@@ -9,6 +9,14 @@ const replay = JSON.parse(readFileSync(new URL('./fixtures/retained-briefing-202
 const secondOpening = JSON.parse(readFileSync(new URL('./fixtures/retained-briefing-2026-09-06-02-opening.json', import.meta.url),'utf8'));
 const audit = content => validateBrief(content, '2026-09-06', validationSourceFromManifest(replay.manifest));
 
+test('source-count disclaimers do not become independence claims or hide later claims', () => {
+  const check = text => wholeDocumentReliability(text).issues.filter(issue => issue.code === 'SOURCE_INDEPENDENCE_UNESTABLISHED');
+  expect(check('No independent sources are available; publisher count alone is insufficient.')).toEqual([]);
+  expect(check('Independent publishers are not established in the retained provenance.')).toEqual([]);
+  expect(check('No independent sources on attribution; independent publishers confirm exploitation.')).toHaveLength(1);
+  expect(check('Not only independent outlets but primary observations confirm exploitation.')).toHaveLength(1);
+});
+
 describe('whole-document reliability against actual retained September 6 inputs', () => {
   test('detects the known material contradictions outside What happened with locations', () => {
     expect(sha256(replay.content)).toBe(replay.provenance.originalSha256);
