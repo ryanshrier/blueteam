@@ -12,7 +12,11 @@ export function captureWireFocus(list, activeElement) {
   if (index < 0) return null;
   const row = rows[index];
   const action = ACTIONS.find(selector => [...row.querySelectorAll(selector)].includes(activeElement));
-  return { key: row.dataset.key, index, action, cve: activeElement.dataset?.copyCve };
+  const form = activeElement.closest?.('[data-decision-form]');
+  const field = form && activeElement.name;
+  return { key: row.dataset.key, index, action, cve: activeElement.dataset?.copyCve,
+    ...(field ? { field, selectionStart: activeElement.selectionStart, selectionEnd: activeElement.selectionEnd,
+      selectionDirection: activeElement.selectionDirection, scrollTop: activeElement.scrollTop } : {}) };
 }
 
 export function restoreWireFocus(list, saved, fallback) {
@@ -20,6 +24,12 @@ export function restoreWireFocus(list, saved, fallback) {
   const rows = [...list.querySelectorAll('.wire-item')];
   const row = rows.find(item => item.dataset.key === saved.key);
   let target = row;
+  if (row && saved.field) {
+    const form = row.querySelector?.('[data-decision-form]');
+    target = form?.elements?.namedItem(saved.field) || row;
+    const disclosure = form?.closest?.('details');
+    if (disclosure) disclosure.open = true;
+  }
   if (row && saved.action) {
     target = [...row.querySelectorAll(saved.action)]
       .find(node => !node.disabled && (!saved.cve || node.dataset?.copyCve === saved.cve)) || row;
@@ -28,4 +38,8 @@ export function restoreWireFocus(list, saved, fallback) {
   // the last remaining row. Empty feeds return to the persistent search field.
   target ||= rows[Math.min(saved.index, rows.length - 1)] || fallback;
   target?.focus?.({ preventScroll: true });
+  if (saved.field && typeof saved.selectionStart === 'number') {
+    try { target?.setSelectionRange?.(saved.selectionStart, saved.selectionEnd, saved.selectionDirection); } catch { /* non-text input */ }
+    if (target) target.scrollTop = saved.scrollTop || 0;
+  }
 }

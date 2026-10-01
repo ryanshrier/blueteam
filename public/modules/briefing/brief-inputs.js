@@ -58,8 +58,10 @@ export function receiptSources(data = {}) {
   return records.map((item, index) => ({ ...item, id: item.id || `input-${index + 1}`, judgments: bindings.get(item.id) || [], bindingKind: reviewed ? 'reviewed' : 'original', passageText: passage(item) }));
 }
 
-export function inputReceiptHtml(data = {}) {
+export function inputReceiptHtml(data = {}, { judgment = null } = {}) {
   const evidence = receiptSources(data);
+  const judgments = new Set(evidence.flatMap(item => item.judgments));
+  if (Number.isSafeInteger(Number(judgment)) && Number(judgment) > 0) judgments.add(Number(judgment));
   const reviewed = Array.isArray(data.review?.evidenceBindings);
   const moved = new Map((reviewed ? [] : data.review?.notes || []).filter(note => /^### Signal (\d+)\b/.test(note.original || '') && !/^### Signal (\d+)\b/.test(note.replacement || '')).map(note => [Number(note.original.match(/^### Signal (\d+)\b/)[1]), note.anchor || 'editorial-review']));
   const judgmentLabel = number => `${reviewed ? 'Reviewed' : 'Original'} judgment ${number}${moved.has(number) ? ' (moved to Developing)' : ''}`;
@@ -73,7 +75,7 @@ export function inputReceiptHtml(data = {}) {
     <details class="brief-input-continuity"><summary>Edition continuity · ${escapeHtml(delta ? deltaLabel : 'not recorded for this edition')}</summary>${delta ? `<p>${['added', 'changed', 'removed', 'unchanged'].map(key => `${Number.isSafeInteger(delta[key]) && delta[key] >= 0 ? delta[key] : 'Unknown'} ${key}`).join(' · ')}</p><p>${escapeHtml(delta.explanation || 'Counts compare retained publisher passages, not independently established threat developments.')}</p>` : '<p>This legacy receipt does not record an input comparison. A new publication time alone does not establish new intelligence.</p>'}</details>
     <details class="brief-input-profile"><summary>Effective profile for this edition</summary><p>${escapeHtml(profile.teamProfile || 'Team context not recorded')}</p><dl>${Object.entries(names).map(([key, label]) => `<dt>${label}</dt><dd>${escapeHtml((profile[key] || []).join(', ') || 'None recorded')}${profile.provenance?.[key] ? ` · ${escapeHtml(typeof profile.provenance[key] === 'string' ? profile.provenance[key] : JSON.stringify(profile.provenance[key]))}` : ''}</dd>`).join('')}</dl><p>Interests do not establish deployed assets. ${profile.provenance ? 'Recorded origins are shown above.' : 'Legacy receipt: configuration origins were not recorded; terms may include inherited defaults.'}</p></details>
     </details>`;
-  return `<p class="brief-input-summary">${evidence.filter(item => item.judgments.length).length} cited · ${evidence.length} retained passages</p><form class="brief-input-filter" role="search"><label class="brief-input-field"><span>Find a retained source</span><input type="search" data-input-search placeholder="Publisher, topic, CVE, or evidence ID"></label><label class="brief-input-field"><span>${reviewed ? 'Reviewed' : 'Original generation'} judgment</span><select data-input-judgment><option value="">All ${reviewed ? 'reviewed' : 'original'} judgments</option>${[...new Set(evidence.flatMap(item => item.judgments))].sort((a,b) => a-b).map(value => `<option value="${value}">${judgmentLabel(value)}</option>`).join('')}</select></label><label class="brief-input-cited"><input type="checkbox" data-input-cited> Cited in ${reviewed ? 'reviewed' : 'original'} judgments only</label></form><p data-input-count role="status"></p>
+  return `<p class="brief-input-summary">${evidence.filter(item => item.judgments.length).length} cited · ${evidence.length} retained passages</p><form class="brief-input-filter" role="search"><label class="brief-input-field"><span>Find a retained source</span><input type="search" data-input-search placeholder="Publisher, topic, CVE, or evidence ID"></label><label class="brief-input-field"><span>${reviewed ? 'Reviewed' : 'Original generation'} judgment</span><select data-input-judgment><option value="">All ${reviewed ? 'reviewed' : 'original'} judgments</option>${[...judgments].sort((a,b) => a-b).map(value => `<option value="${value}">${judgmentLabel(value)}</option>`).join('')}</select></label><label class="brief-input-cited"><input type="checkbox" data-input-cited> Cited in ${reviewed ? 'reviewed' : 'original'} judgments only</label></form><p data-input-count role="status"></p>
     <h3>Retained source passages</h3><ol class="brief-input-sources">${evidence.map(item => {
       const url = safeSourceUrl(item.url);
       const title = String(item.title || item.label || item.source || 'Source title unavailable');
@@ -92,13 +94,15 @@ export function filterReceiptSources(root) {
   const cited = root.querySelector('[data-input-cited]')?.checked;
   const judgment = root.querySelector('[data-input-judgment]')?.value || '';
   let count = 0;
+  let boundCount = 0;
   root.querySelectorAll('[data-input-source]').forEach(row => {
     const judgments = (row.dataset.inputJudgments || '').split(',').filter(Boolean);
+    if (judgment && judgments.includes(judgment)) boundCount++;
     row.hidden = !row.dataset.inputText.includes(query) || (cited && !judgments.length) || (judgment && !judgments.includes(judgment));
     if (!row.hidden) count++;
   });
   const status = root.querySelector('[data-input-count]');
-  if (status) status.textContent = `${count} retained ${count === 1 ? 'passage' : 'passages'} shown`;
+  if (status) status.textContent = judgment && !boundCount ? `No retained passages are bound to judgment ${judgment}.` : `${count} retained ${count === 1 ? 'passage' : 'passages'} shown`;
 }
 
 // Add known article titles to the existing source appendix without rewriting
@@ -148,7 +152,7 @@ export function openInputReceipt({ filename, receipt = null, opener = null, judg
     try {
       const data = receipt || await fetchInputReceipt(filename);
       if (request.active) {
-        body.innerHTML = inputReceiptHtml({ ...data, filename, review });
+        body.innerHTML = inputReceiptHtml({ ...data, filename, review }, { judgment });
         if (judgment) body.querySelector('[data-input-judgment]').value = String(judgment);
         body.querySelector('form')?.addEventListener('submit', event => event.preventDefault());
         body.querySelector('form')?.addEventListener('input', () => filterReceiptSources(body));

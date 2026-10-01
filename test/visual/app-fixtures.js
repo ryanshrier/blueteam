@@ -22,14 +22,14 @@ export const LONG_BRIEF = MARKETING_BRIEF
   .replace('In this fictional scenario, an internet-facing identity gateway is under active exploitation after a vendor confirmed the attack path.', context)
   .replace('The example environment has two test gateways whose public reachability and update state need same-shift verification.', `${context} Include disaster-recovery gateways and equipment managed by suppliers in the final exposure check.`)
   .replace(/- \*\*Required decisions:\*\*[^\n]+/, `- **Required decisions:** ${['Infrastructure', 'Detection engineering', 'Identity operations', 'Incident command', 'Service owners', 'Recovery engineering', 'Shift lead'].map((owner, i) => `${owner} — ${action} and retain the decision record for workstream ${i + 1} — recommended target July ${24 + i}, 2026`).join('; ')}.`)
-  .replace('In this synthetic scenario, a confirmed authentication bypass makes unpatched internet-facing gateways the immediate operational priority.', context)
+  .replace(/\*\*Assessment:\*\*[^\n]+/, `**Assessment:** ${context}`)
   .replace('Treat every unverified example gateway as exposed until its build and logs say otherwise.', `Treat every unverified example gateway as exposed until its build and logs say otherwise, including standby systems, supplier-managed access paths, and recently restored hosts that may retain pre-remediation sessions.`)
   .replace('Infrastructure — verify or isolate every example gateway — recommended target July 24, 2026.', `Infrastructure — ${action} — recommended target July 24, 2026.`)
   .replace('The next exercise adds credential rotation, service restoration, and leadership notification to the existing containment scenario.', `Accelerating — ${context}`)
   .replace('Escalate the exercise if the recovery team cannot produce one timestamped record linking exposure, containment, validation, and service return.', `Escalate the exercise if the recovery team cannot produce one timestamped record linking exposure, containment, validation, and service return, if any supplier-managed gateway remains outside the approved inventory, or if the identity team observes a second unexplained administrator session after token rotation. Preserve the session evidence and notify the incident commander before the next handoff.`)
-  .replace('The fictional gateway scenario couples a technical vulnerability with the practical challenge of assembling a defensible operating picture across teams.', context)
-  .replace('Unverified exposure slows containment, incomplete identity telemetry weakens scoping, and unclear ownership delays the final risk decision.', `${context} Restoration then recreates the original exposure unless ownership and retained evidence are reviewed together.`)
-  .replace('Use the Print Edition as the shared handoff artifact while the analyst Briefing retains the linked working context.', `Prepare — ${action}, then confirm the documented escalation trigger with incident command.`);
+  .replace(/\*\*The intersection:\*\*[^\n]+/, `**The intersection:** ${context}`)
+  .replace(/\*\*The cascade:\*\*[^\n]+/, `**The cascade:** Analytical hypothesis: ${context} Restoration could then recreate the original exposure unless ownership and retained evidence are reviewed together.`)
+  .replace(/\*\*The move:\*\*[^\n]+/, `**The move:** Prepare — ${action}, then confirm the documented escalation trigger with incident command.`);
 
 export const SPARSE_BRIEF = `# BlueTeam.News
 ### Threat Landscape Briefing · 2026-07-24 · Friday
@@ -68,14 +68,14 @@ The revised synthetic edition confirms containment; review the signed handoff be
 export const EVIDENCE_BRIEF = MARKETING_BRIEF
   .replaceAll('2026-07-24', '2026-09-04').replaceAll('July 24, 2026', 'September 4, 2026')
   .replace('Example identity gateways require same-shift verification', 'CVE-2026-123456 requires synthetic gateway verification')
-  .replace('Almost certain (95–99%) — based on the fictional vendor advisory and synthetic incident report.',
-    'Likely (55–80%) — the [Fixture publisher, September 4, 2026](https://example.test/fixture/basis) confirms exploitation in a controlled test, while deployment breadth and persistence remain unverified. This authored basis is specific to the fictional exercise.')
+  .replace(/\*\*Confidence:\*\*[^\n]+/,
+    '**Confidence:** Moderate — the [Fixture publisher, September 4, 2026](https://example.test/fixture/basis) confirms exploitation in a controlled test, while deployment breadth and persistence remain unverified. This authored basis is specific to the fictional exercise.')
   .replace('Infrastructure — verify or isolate every example gateway — recommended target September 4, 2026.',
     'Infrastructure — verify all services and escalate unresolved exposure using the [synthetic remediation advisory](https://example.test/fixture/remediation) — recommended target September 5, 2026.')
   .replace('The example vendor published a corrected build after its test telemetry showed exploitation of exposed management interfaces.',
     'The [synthetic vendor bulletin](https://example.test/fixture/vendor) reports CVE-2026-123456 exploitation against exposed test management interfaces and a corrected build.')
-  .replace('Likely (55–80%) — based on the synthetic incident timeline and the example environment map.',
-    'Moderate — the [fictional incident timeline](https://example.test/fixture/timeline) supports the ownership gap, but the source does not establish how widely it occurs.');
+  .replace(/\*\*Confidence:\*\* Moderate — the synthetic incident report[^\n]+/,
+    '**Confidence:** Moderate — the [fictional incident timeline](https://example.test/fixture/timeline) supports the ownership gap, but the source does not establish how widely it occurs.');
 
 export function buildAppFixture(scenario = 'normal', now = new Date()) {
   const fixture = buildFixtureData(now);

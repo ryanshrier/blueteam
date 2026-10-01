@@ -2,6 +2,7 @@
 
 const inFlight = new Map();
 const cache = new Map();
+const versions = new Map();
 
 // Every fetch is bounded so a hung request (half-open TCP, a blackholing proxy)
 // can't wedge the inFlight dedupe map forever — without this, a single dead
@@ -16,11 +17,12 @@ async function getJson(url, { ttlMs = 0 } = {}) {
 
   if (inFlight.has(url)) return inFlight.get(url);
 
+  const version = versions.get(url) || 0;
   const promise = (async () => {
     const res = await fetch(url, { signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`Request failed (${url}): ${res.status}`);
     const data = await res.json();
-    if (ttlMs > 0) cache.set(url, { data, expires: Date.now() + ttlMs });
+    if (ttlMs > 0 && version === (versions.get(url) || 0)) cache.set(url, { data, expires: Date.now() + ttlMs });
     return data;
   })();
 
@@ -28,7 +30,7 @@ async function getJson(url, { ttlMs = 0 } = {}) {
   try {
     return await promise;
   } finally {
-    inFlight.delete(url);
+    if (inFlight.get(url) === promise) inFlight.delete(url);
   }
 }
 
@@ -37,6 +39,8 @@ async function getJson(url, { ttlMs = 0 } = {}) {
 // immediately, ahead of the URL's normal ttlMs.
 function invalidate(url) {
   cache.delete(url);
+  inFlight.delete(url);
+  versions.set(url, (versions.get(url) || 0) + 1);
 }
 
 export function fetchLandscape() {
@@ -135,37 +139,49 @@ export async function generateBrief() {
   // Content-Type: application/json is required by the server's contentTypeCheck
   // (it forces a CORS preflight, closing the localhost-CSRF hole). Send it plus
   // an empty JSON body even though the route reads no body.
-  const res = await fetch('/api/brief', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
-  });
-  if (res.status === 429) {
-    const body = await res.json().catch(() => ({}));
-    const headerSeconds = Number(res.headers.get('retry-after'));
-    const retryAfter = Number.isFinite(Number(body.retryAfterSeconds))
-      ? Number(body.retryAfterSeconds)
-      : (Number.isFinite(headerSeconds) ? headerSeconds : null);
-    const suffix = retryAfter ? ` Try again in about ${Math.max(1, Math.ceil(retryAfter))} seconds.` : '';
-    const messages = {
-      E_GENERATION_ACTIVE: `A Briefing is already being generated.${suffix}`,
-      E_GENERATION_COOLDOWN: `A Briefing request was started recently.${suffix}`,
-      E_GENERATION_RATE: `Too many Briefing requests were started from this client.${suffix}`,
-      E_GENERATION_DAILY_LIMIT: 'The daily Briefing generation limit has been reached. Try again tomorrow.',
-    };
-    const err = new Error(messages[body.code] || body.error || `Briefing generation is rate limited.${suffix}`);
-    err.code = body.code || 'E_RATE_LIMIT';
-    err.retryAfterSeconds = retryAfter;
-    throw err;
+  // Limit waiting for response headers, then let the SSE heartbeat own the
+  // longer generation. A timeout signal left armed would abort a healthy stream.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch('/api/brief', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    const failure = new Error(controller.signal.aborted ? 'Connection timed out before generation could be confirmed. Check generation status before retrying.' : (error.message || 'Generation connection failed.'));
+    failure.streamLost = true;
+    throw failure;
   }
-  if (res.status === 503) {
-    // AI disabled (no key). Tag it so the UI can guide to Settings, not Retry.
-    const body = await res.json().catch(() => ({}));
-    const err = new Error(body.error || 'AI briefing is disabled on this server.');
-    err.code = body.code || 'E002';
-    err.aiDisabled = true;
-    throw err;
-  }
-  if (!res.ok) throw new Error(`Server returned ${res.status}`);
-  return res;
+  try {
+    if (res.status === 429) {
+      const body = await res.json().catch(() => ({}));
+      const headerSeconds = Number(res.headers.get('retry-after'));
+      const retryAfter = Number.isFinite(Number(body.retryAfterSeconds))
+        ? Number(body.retryAfterSeconds)
+        : (Number.isFinite(headerSeconds) ? headerSeconds : null);
+      const suffix = retryAfter ? ` Try again in about ${Math.max(1, Math.ceil(retryAfter))} seconds.` : '';
+      const messages = {
+        E_GENERATION_ACTIVE: `A Briefing is already being generated.${suffix}`,
+        E_GENERATION_COOLDOWN: `A Briefing request was started recently.${suffix}`,
+        E_GENERATION_RATE: `Too many Briefing requests were started from this client.${suffix}`,
+        E_GENERATION_DAILY_LIMIT: 'The daily Briefing generation limit has been reached. Try again tomorrow.',
+      };
+      const err = new Error(messages[body.code] || body.error || `Briefing generation is rate limited.${suffix}`);
+      err.code = body.code || 'E_RATE_LIMIT';
+      err.retryAfterSeconds = retryAfter;
+      throw err;
+    }
+    if (res.status === 503) {
+      // AI disabled (no key). Tag it so the UI can guide to Settings, not Retry.
+      const body = await res.json().catch(() => ({}));
+      const err = new Error(body.error || 'AI briefing is disabled on this server.');
+      err.code = body.code || 'E002';
+      err.aiDisabled = true;
+      throw err;
+    }
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    return res;
+  } finally { clearTimeout(timer); }
 }

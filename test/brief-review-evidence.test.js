@@ -13,6 +13,17 @@ const copy = value => JSON.parse(JSON.stringify(value));
 const reviewFor = evidenceBindings => ({ schemaVersion:1, originalSha256:createHash('sha256').update(opening).digest('hex'), corrections:[], evidenceBindings });
 
 describe('reviewed source bindings against actual retained Magento evidence', () => {
+  test('an unbound requested judgment remains selectable and filters to an explicit zero-source result', () => {
+    const html = inputReceiptHtml({ ...retained, judgmentEvidence: [{ signal: 1, sourceIds: ['S11.1'] }] }, { judgment: 9 });
+    const tree = parseDocument(html);
+    const options = DomUtils.findAll(node => node.name === 'option', tree.children);
+    expect(options.some(node => node.attribs.value === '9')).toBe(true);
+    const rows = [{ dataset: { inputText: 'vendor source', inputJudgments: '1' } }];
+    const count = {};
+    filterReceiptSources({ querySelector: selector => ({ '[data-input-search]': { value: '' }, '[data-input-judgment]': { value: '9' }, '[data-input-count]': count })[selector], querySelectorAll: () => rows });
+    expect(rows[0].hidden).toBe(true);
+    expect(count.textContent).toBe('No retained passages are bound to judgment 9.');
+  });
   test('binds display summaries to the corrected reading copy and falls back safely for malformed or stale records', () => {
     const authored = reviewFor([]);
     authored.presentation = { schemaVersion:1, contentSha256:authored.originalSha256, reviewer:'Display review', reviewedAt:'2026-09-06T17:00:00Z', bluf:'Reviewed display assessment.', judgments:[], developing:[] };

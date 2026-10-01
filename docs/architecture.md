@@ -32,6 +32,8 @@ RSS/Atom | Google News | CISA KEV | NVD | EPSS | Anthropic / OpenAI
 | `lib/evidence.js` | Stable source identity, bounded immutable excerpt revisions and text comparison |
 | `lib/watch-profile.js` | Unified declared context and literal applicability explanations |
 | `lib/generation-manifest.js` | Versioned allowlisted edition input receipts and integrity checks |
+| `lib/brief-reading-checks.js` | Shared current reading-copy validation, receipt integrity, and publication eligibility |
+| `lib/brief-review.js` | Original-bound editorial corrections and approvals of the exact current reading copy |
 | `lib/scoring-snapshot.js` | Collection-time scoring configuration snapshot for generation receipts |
 | `routes/brief.js` | Briefing generation stream, validation, history, and search |
 | `routes/landscape.js` | Landscape, headline, feed, and refresh endpoints |
@@ -69,6 +71,12 @@ explanation may use a newer saved profile than a cached signal's score; the
 edition receipt separates collection and generation profiles to preserve that
 distinction. Profile details remain behind the existing trusted-operator gate.
 
+Wire keeps decisions and hidden/read state in browser storage and reflects saves
+across tabs on the same origin. Read identities include retained revision IDs so
+changed evidence becomes unread. Current-result exports include the selected
+signals and their decisions; a separate JSON export includes all retained local
+decisions, including those whose signals are no longer in the feed.
+
 ## Briefing flow
 
 `routes/brief.js`:
@@ -77,7 +85,7 @@ distinction. Profile details remain behind the existing trusted-operator gate.
 2. streams output from the selected Anthropic or OpenAI provider to the browser over server-sent events;
 3. checks required sections, citation allowlists and dates, KEV claims, and other source constraints;
 4. performs one corrective retry after a blocking validation failure;
-5. blocks publication while structural or trust failures remain, or when the provider reports an incomplete response such as an output-token stop, while preserving non-blocking warnings for operator review;
+5. blocks publication while structural or trust failures remain, or when the provider response lacks its terminal event or reports an incomplete stop, while preserving non-blocking warnings for operator review;
 6. saves the completed Briefing as Markdown under `briefs/`; and
 7. indexes it in SQLite FTS5 for search.
 
@@ -88,8 +96,16 @@ archive completion marker. The receipt embeds source member passages, selected
 enrichment and revision references, effective profiles, scoring inputs,
 implementation/prompt hashes, model identities, attempt/validation records and
 the saved Markdown hash. Failed receipt writes cannot emit successful
-publication. Trust-gated reads validate the receipt and archive hash; legacy or
-externally edited archives explicitly lack matching historical evidence.
+publication. Saved-edition consumers share current-reading-copy checks and
+eligibility. They verify the receipt and archive hash, preserve material review
+exclusions, and distinguish legacy absence from an existing invalid receipt.
+Corrections and publication dispositions live in `reviews/`. Explicit approval
+binds to the exact current reading-copy hash, so later corrections do not inherit
+it. Material findings can remain in the archive while excluding the edition from
+Latest, Wall, RSS, continuity, and completion webhook delivery. Later approval
+does not replay that webhook.
+Structured NVD metric provenance and applicability conditions survive receipt
+replay; legacy prose evidence must bind scores unambiguously to a CVE.
 Hash identities support identification, not exact prompt/model replay. The
 generation ledger records attempts before provider calls and checkpoints usage.
 Startup reconciles verified publications and marks unfinished jobs interrupted;

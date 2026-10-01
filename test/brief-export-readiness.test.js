@@ -117,6 +117,7 @@ describe('Briefing generation failure state', () => {
       code: 'E_PARTIAL_GENERATION',
       draftArtifact: null,
       streamLost: false,
+      generationId: '',
       accumulatedText: 'attempt oneattempt two',
       recoverableDraft: '# Attempt two only',
     });
@@ -132,6 +133,14 @@ describe('Briefing generation failure state', () => {
 });
 
 describe('Briefing TOC breakpoint behavior', () => {
+  test('review disclosure and correction anchors resolve from cold links without requiring a heading', () => {
+    const review = { id: 'editorial-review', tagName: 'DETAILS' };
+    const correction = { id: 'review-correction-1', tagName: 'LI' };
+    const content = { querySelectorAll: selector => selector.includes('#editorial-review') ? [review, correction] : [] };
+    expect(findBriefFragmentHeading(content, '#editorial-review')).toBe(review);
+    expect(findBriefFragmentHeading(content, '#review-correction-1')).toBe(correction);
+    expect(findBriefFragmentHeading(content, '#unrelated')).toBeNull();
+  });
   test('cold fragments resolve judgments that are intentionally absent from the compact TOC', () => {
     const section = { id: 'section-judgments', tagName: 'H2' };
     const judgment = { id: 'judgment-2', tagName: 'H3' };

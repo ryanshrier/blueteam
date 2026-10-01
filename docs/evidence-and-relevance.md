@@ -20,6 +20,14 @@ from that evidence or confirm exposure in your organization.
 
 The inspector supports keyboard navigation, source selection, expandable revisions, and Escape to close. Grouping retains the original members and their attribution; a publisher count does not prove independent confirmation. Manual split/merge controls are not included.
 
+## Wire decisions and read state
+
+Read state follows the retained revisions attached to a signal. A later revision becomes unread even when its story URL is unchanged; signals without retained revisions use the story identity. Marking a signal read records reading state, not an assessment of its claims or your exposure.
+
+Saved decisions and hidden/read preferences update across tabs using the same browser profile and application origin. They remain local to that browser. If browser storage is unavailable, the interface reports that a decision is retained only for the session.
+
+**Export current results** includes the currently filtered signals, their evidence references, and any saved decisions. **Export all saved decisions (JSON)** exports the browser's decision records even when their signals are hidden, filtered out, or no longer in the current feed. This separate export contains decision records and links, not a copy of the underlying source evidence. Up to 2,000 decisions are retained in browser storage; server backups do not include them.
+
 ## What a watch match means
 
 The profile unifies technologies, sectors, regions, intelligence questions, exclusions, preferred horizons, and team context. Existing watch terms and organization overrides remain compatible. Explicit empty lists clear an interest; omitted fields preserve the applicable saved/default value.
@@ -48,6 +56,7 @@ Every newly completed edition writes `briefs/brief-YYYY-MM-DD-NN.manifest.json` 
 
 - Generation identity, edition date/timezone, application version, and implementation hashes.
 - Selected prompt-visible passages, all grouped feed passages, source/revision references, source labels, scores, and deterministic enrichment.
+- Structured NVD metrics with their CVE, CVSS version, source, assessment type, and provisional status, plus applicability configurations and version limits.
 - Collection-time profile and scoring configuration, separately from the generation-time profile and allowed prompt settings.
 - Deterministic fact text, grounding allowlists, validation results, and the validation KEV catalog fingerprint and matching selected CVEs.
 - Each provider attempt's requested model, returned model when supplied, token usage, stop/failure state, and SHA-256 hashes of its exact system prompt and messages.
@@ -55,19 +64,23 @@ Every newly completed edition writes `briefs/brief-YYYY-MM-DD-NN.manifest.json` 
 
 The receipt is bounded to 4 MiB. Configuration and evidence fields are allowlisted; the application does not serialize provider clients, raw settings, keys, or local file paths into it. Credential-shaped text and sensitive URL query parameters receive defensive redaction. Treat the profile and retained passages as local working material when sharing a receipt.
 
-The manifest is written and flushed before the Markdown completion marker. A receipt publication failure cannot announce a completed edition, index it, or dispatch its webhook. A later Markdown publication failure removes the receipt where possible; a crash can leave an orphan receipt that a retry replaces. Existing scheduled archive markers still prevent repurchasing an already completed daily edition.
+NVD product labels retain the qualification that configuration conditions and version limits apply. They do not establish that every installation of that product is affected or that the operator has an exposed asset. Supported CVSS checks bind a score to the cited CVE and preserve its version and provisional status; ambiguous legacy prose cannot supply that binding.
 
-The API checks the manifest version, filename, size, and Markdown hash. Editing the saved Markdown directly makes that receipt fail verification; preserve the original pair. Old editions return an explicit unavailable status. Exact prompts are represented by hashes rather than stored text; these hashes are not tamper-proof signatures and do not guarantee reproducible model output.
+The manifest is written and flushed before the Markdown completion marker. A receipt publication failure cannot announce a completed edition, index it, or dispatch its webhook. A later Markdown publication failure removes the receipt where possible; a crash can leave an orphan receipt that a retry replaces. Recovery of an existing scheduled edition verifies its receipt, completion flags, date, and timezone. Inconsistent artifacts return `E_SCHEDULE_INTEGRITY` without starting another provider call or overwriting the original.
+
+The API checks the manifest version, filename, size, and Markdown hash. Editing the saved Markdown directly makes that receipt fail verification; preserve the original pair. An existing invalid receipt excludes the edition from default publication surfaces. Legacy editions without a receipt remain readable with an explicit unavailable status; a completely deleted receipt cannot be distinguished from a legacy absence. Exact prompts are represented by hashes rather than stored text; these hashes are not tamper-proof signatures and do not guarantee reproducible model output.
 
 Rejected or interrupted output is retained separately when a draft is available to save. **Drafts** lets an operator inspect findings, save repair revisions, and recheck against the captured inputs without another model call or publication. Not every intermediate retry draft is retained. Source-check results and editorial review are separate: passing the supported checks is not approval of every narrative claim or action.
 
-Editorially corrected copies and publication dispositions are stored separately and bound to the original edition's SHA-256. The interface preserves access to the original and its input receipt. Editions marked review-required or superseded are excluded from default Latest and Wall selection. These review records do not supply individual user authentication, shared acknowledgment, or action-completion tracking.
+Editorial corrections and publication decisions are stored in `reviews/` and bound to the original edition's SHA-256. The interface preserves access to the original and its input receipt. An eligible editorial disposition approves the exact current reading copy. Later edits lose that approval: material findings require approval of the new copy, while a clean correction can remain automatically eligible without a reviewed label. Legacy approvals still apply to unchanged original text.
+
+The reader, archive list, search, Latest, Wall, RSS, and generation continuity use the same current reading copy and its checks. Review-required and superseded editions remain inspectable in the archive but are excluded from Latest, Wall, RSS, and continuity. Approval cannot override structural or source-trust failures, unavailable checks for a corrected copy, or an invalid receipt. Briefing webhooks require eligibility at generation completion; later approval does not resend them. These review records do not supply individual user authentication, shared acknowledgment, or action-completion tracking.
 
 ## Retention, backups, and sharing
 
 The evidence database prunes sources not observed within 30 days, keeps at most 5,000 sources, and retains at most eight revisions per source across all its feed representations. Pruning runs during collection. A source observed continuously can retain an older revision until the revision cap removes it. These bounds are code defaults, not operator-configurable retention policy controls.
 
-Saved Briefings and their manifests do not expire automatically. Their copied excerpts survive pruning of the rolling evidence database. Back up `data/`, `briefs/`, configuration, and the corresponding application version together using the stopped-process procedure in [Operations](operations.md#state-and-backups). Backups can outlive live retention; manage their access and expiration separately.
+Saved Briefings and their manifests do not expire automatically. Their copied excerpts survive pruning of the rolling evidence database. Back up `data/`, `briefs/`, `reviews/`, configuration, and the corresponding application version together using the stopped-process procedure in [Operations](operations.md#state-and-backups). Losing `reviews/` loses corrections, approvals, and publication exclusions. Backups can outlive live retention; manage their access and expiration separately.
 
 Unpublished draft artifacts have separate bounds: 30 days, at most 20 drafts, and up to eight saved revisions per draft. Wire decision records live in browser storage rather than the server backup; export them before clearing that storage or moving to another browser.
 

@@ -58,6 +58,10 @@ function fakeResponse({ status = 200, headers = {}, cancel = jest.fn() } = {}) {
 }
 
 describe('stripHtml', () => {
+  test('discards hidden script/style contents, including encoded and truncated elements', () => {
+    expect(stripHtml('<p>Security notice</p><script>actively exploited malware</script><style>ransomware</style>')).toBe('Security notice');
+    expect(stripHtml('&lt;p&gt;Security notice&lt;/p&gt;&lt;script&gt;actively exploited')).toBe('Security notice');
+  });
   test('decodes entity-encoded markup from feeds with entity processing off', () => {
     const raw = '&lt;p&gt;CISA has added one new vulnerability to its &lt;a href="https://example.com"&gt;KEV catalog&lt;/a&gt;.&lt;/p&gt;';
     expect(stripHtml(raw)).toBe('CISA has added one new vulnerability to its KEV catalog.');
@@ -889,7 +893,7 @@ describe('fetchSearchResults — bounded Google News ingress', () => {
           horizon: 2,
           weight: 0.7,
           deepExtract: false,
-          date: 'Tue, 28 Jul 2026 12:00:00 GMT',
+          date: new Date().toUTCString(),
           dateUnknown: false,
           corroboration: 1,
         }]),
@@ -921,5 +925,54 @@ describe('fetchSearchResults — bounded Google News ingress', () => {
     } finally {
       setDomainPack(originalPack);
     }
+  });
+});
+
+describe('feed shape and discovery freshness regressions', () => {
+  beforeEach(() => {
+    safeFetchMock.mockReset(); readCappedMock.mockReset();
+    getFeedCacheMock.mockReset(); setFeedCacheMock.mockReset();
+    getExternalCacheMock.mockReset().mockReturnValue(null); setExternalCacheMock.mockReset();
+  });
+  test('reports a parseable login page as a feed failure and retains last good items', async () => {
+    const date = new Date().toISOString();
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue('<html><body><p>Login required</p></body></html>');
+    const feed = { url: 'https://example.test/shape', source: 'Shape fixture', horizon: 2 };
+    expect(await fetchNewsContext([feed], {})).toEqual([]);
+    expect(getFeedHealth().feeds[feed.source]).toBe('parse-error');
+    getFeedCacheMock.mockReturnValue({ cached_at: date.replace('T', ' ').slice(0, 19), items_json: JSON.stringify([{ title: 'Retained advisory', date, link: 'https://example.test/advisory' }]) });
+    const retained = await fetchNewsContext([feed], {});
+    expect(retained).toHaveLength(1);
+    expect(retained[0].collectionStale).toBe(true);
+    expect(getFeedHealth().feeds[feed.source]).toBe('ok (stale)');
+  });
+  test.each(['<rss><channel><title>Empty RSS</title></channel></rss>', '<feed xmlns="http://www.w3.org/2005/Atom"><title>Empty Atom</title></feed>'])('accepts a recognized empty feed: %s', async xml => {
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue(xml);
+    const feed = { url: 'https://example.test/empty-shape', source: 'Empty shape fixture', horizon: 2 };
+    expect(await fetchNewsContext([feed], {})).toEqual([]);
+    expect(getFeedHealth().feeds[feed.source]).toBe('empty');
+  });
+  test('live discovery ignores old and implausibly future records before applying its result limit', async () => {
+    const original = getDomainPack();
+    try {
+      setDomainPack({ id: 'discovery-freshness-test', label: 'Fixture', feeds: { searchQueries: [{ q: 'security test', horizon: 2 }] } });
+      const dates = [-30, -20, -10, 2, 0].map(days => new Date(Date.now() + days * 86400_000).toUTCString());
+      safeFetchMock.mockResolvedValue(fakeResponse());
+      readCappedMock.mockResolvedValue(`<rss><channel>${dates.map((date, i) => `<item><title>Report ${i}</title><pubDate>${date}</pubDate><link>https://example.test/${i}</link></item>`).join('')}</channel></rss>`);
+      expect((await fetchSearchResults({})).map(item => item.title)).toEqual(['Report 4']);
+    } finally { setDomainPack(original); }
+  });
+  test.each(['fresh', '304', 'failure'])('cached discovery rechecks item ages on %s reuse', async mode => {
+    const original = getDomainPack();
+    try {
+      setDomainPack({ id: 'discovery-cache-age-test', label: 'Fixture', feeds: { searchQueries: [{ q: 'security test', horizon: 2 }] } });
+      const items = [-30, 2, 0].map((days, i) => ({ title: `Cached ${i}`, date: new Date(Date.now() + days * 86400_000).toISOString(), link: `https://example.test/${i}` }));
+      getExternalCacheMock.mockReturnValue({ body: JSON.stringify(items), expired: mode !== 'fresh', fetched_at: new Date().toISOString(), etag: 'fixture' });
+      safeFetchMock.mockResolvedValue(fakeResponse({ status: mode === '304' ? 304 : 503 }));
+      expect((await fetchSearchResults({})).map(item => item.title)).toEqual(['Cached 2']);
+      if (mode === 'fresh') expect(safeFetchMock).not.toHaveBeenCalled();
+    } finally { setDomainPack(original); }
   });
 });

@@ -159,13 +159,13 @@ export const cyberPack = {
     ],
     elevated: [
       'zero.?day',
-      'critical.?vuln', 'rce\\b', 'remote.?code.?exec', 'emergency.?patch',
+      'critical.?vuln', '\\brce\\b', 'remote.?code.?exec', 'emergency.?patch',
       'proposed.?rule', 'indictment', 'ransomware',
       'malware', 'apt\\d', 'threat.?actor', 'data.?leak', 'patch.?tuesday', 'phishing.?campaign',
     ],
     horizon1Promote: [
       'CVE-\\d{4}.*(exploit|attack|in.?the.?wild)', 'zero.?day', 'active.?exploit',
-      'breach.?confirm', 'ransomware.?(attack|hits|claims|deployed)', 'rce\\b',
+      'breach.?confirm', 'ransomware.?(attack|hits|claims|deployed)', '\\brce\\b',
       'emergency.?patch', 'critical.?vuln', 'data.?leak.*confirm',
     ],
   },

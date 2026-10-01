@@ -10,9 +10,9 @@ import { showToast } from '../core/toast.js';
 import { TIER_NAMES, TIERS } from '../core/tiers.js';
 import { openEvidenceInspector, closeEvidenceInspector, renderEvidenceContext } from './evidence-inspector.js';
 import { highlightWireText, wireIcon, reflectReadControl } from './wire-presentation.js';
-import { DECISION_STATES, DECISION_STORAGE_KEY, readDecisions, normalizeDecision, decisionForm, reflectDecisionDraft, filterChips, scanFacts, signalAssessmentMeta, exportContext, captureScrollAnchor } from './wire-workspace.js';
+import { DECISION_STATES, DECISION_STORAGE_KEY, readDecisions, mergeDecisions, saveDecisionRecord, exportDecisionRecords, normalizeDecision, decisionForm, reflectDecisionDraft, filterChips, scanFacts, signalAssessmentMeta, exportContext, captureScrollAnchor } from './wire-workspace.js';
 import {
-  dateMs, parseCveData, filterSignals, parseWireQuery, serializeWireUrl, signalUrl, toCsv, sigKey as fmtSigKey, CSV_COLUMNS, briefingLinkModel, isFeedStale,
+  dateMs, parseCveData, filterSignals, parseWireQuery, serializeWireUrl, signalUrl, signalReadKey, isSignalRead, migrateLegacyReadKeys, toCsv, sigKey as fmtSigKey, CSV_COLUMNS, briefingLinkModel, isFeedStale,
 } from './wire-format.js';
 
 // Human-readable labels for the scoreComponents breakdown. Keys mirror the
@@ -139,7 +139,10 @@ function markRead(key, read, passive = true) {
   if (!key) return;
   if (read && passive && filters.unread) heldReviewed.add(key);
   else heldReviewed.delete(key);
-  if (read) readKeys.add(key); else readKeys.delete(key);
+  const headline = cachedHeadlines.find(item => sigKey(item) === key) || (sigKey(selectedSnapshot) === key ? selectedSnapshot : { link: key });
+  readKeys = loadKeySet(LS_READ_KEY, readKeys);
+  readKeys.delete(key); // retire the legacy URL-only marker
+  if (read) readKeys.add(signalReadKey(headline)); else readKeys.delete(signalReadKey(headline));
   saveKeySet(LS_READ_KEY, readKeys);
   // Reflect passive inspection without rebuilding a row or closing its details.
   document.querySelectorAll('#wireList .wire-item').forEach(row => {
@@ -150,6 +153,11 @@ function markRead(key, read, passive = true) {
     });
   });
   reflectHeldReviewed();
+}
+
+function signalIsRead(key) {
+  const headline = cachedHeadlines.find(item => sigKey(item) === key) || (sigKey(selectedSnapshot) === key ? selectedSnapshot : { link: key });
+  return isSignalRead(headline, readKeys);
 }
 
 // Hidden signals remain recoverable after the instant Undo expires. The Hidden
@@ -246,6 +254,7 @@ export function render(main) {
               <button type="button" data-export="json" disabled title="Download the currently filtered signals as JSON">JSON <small>Structured data</small></button>
             </div>
           </section>
+              <button type="button" class="btn-ghost" id="wireExportDecisions">Export all saved decisions (JSON)</button>
             </div>
           </details>
         </div>
@@ -446,7 +455,7 @@ export function render(main) {
     const readBtn = e.target.closest('[data-mark-read]');
     if (readBtn) {
       const key = readBtn.dataset.markRead;
-      markRead(key, !readKeys.has(key), false);   // explicit click toggles read/unread
+      markRead(key, !signalIsRead(key), false);   // explicit click toggles read/unread
       renderList();
       return;
     }
@@ -503,7 +512,7 @@ export function render(main) {
     if (e.target === row && ['Enter', 'i', 'r', 'h', 'c'].includes(e.key)) {
       e.preventDefault();
       if (e.key === 'Enter' || e.key === 'i') selectSignal(row.dataset.key, true);
-      if (e.key === 'r') { markRead(row.dataset.key, !readKeys.has(row.dataset.key), false); renderList(); }
+      if (e.key === 'r') { markRead(row.dataset.key, !signalIsRead(row.dataset.key), false); renderList(); }
       if (e.key === 'h') dismissSignal(row.dataset.key);
       if (e.key === 'c') copyToClipboard(signalUrl({ link: row.dataset.key }, location.origin), 'Signal link copied', row);
       return;
@@ -572,7 +581,7 @@ function renderInspector() {
   host.closest?.('.wire-workspace')?.classList.toggle('has-inspector', Boolean(headline));
   if (!headline) { host.innerHTML = ''; delete host.dataset.signal; inspectorFingerprint = ''; return; }
   selectedSnapshot = headline;
-  const fingerprint = JSON.stringify([headline, decisions.get(selectedSignal), readKeys.has(selectedSignal), dismissedKeys.has(selectedSignal)]);
+  const fingerprint = JSON.stringify([headline, decisions.get(selectedSignal), isSignalRead(headline, readKeys), dismissedKeys.has(selectedSignal)]);
   const scope = host.querySelector('.wire-inspector-scope');
   const visible = applyFilters(cachedHeadlines).some(h => sigKey(h) === selectedSignal);
   if (scope) { scope.hidden = visible; scope.textContent = 'Selected snapshot retained here; this signal is outside the current results.'; }
@@ -596,14 +605,19 @@ function closeSignalInspector() {
 }
 
 function onWorkspaceStorage(event) {
-  if (![DECISION_STORAGE_KEY, LS_READ_KEY, LS_DISMISSED_KEY].includes(event.key)) return;
-  decisions = readDecisions(localStorage);
-  readKeys = loadKeySet(LS_READ_KEY);
-  dismissedKeys = loadKeySet(LS_DISMISSED_KEY);
+  if (event.key !== null && ![DECISION_STORAGE_KEY, LS_READ_KEY, LS_DISMISSED_KEY].includes(event.key)) return;
+  reloadWorkspaceState();
   renderList();
 }
 
+function reloadWorkspaceState() {
+  try { decisions = mergeDecisions(decisions, localStorage); } catch { /* browser storage unavailable */ }
+  readKeys = loadKeySet(LS_READ_KEY, readKeys);
+  dismissedKeys = loadKeySet(LS_DISMISSED_KEY, dismissedKeys);
+}
+
 function bindWorkspace(main) {
+  reloadWorkspaceState();
   const surface = main.querySelector('.wire-view');
   inspectorFingerprint = '';
   restoreScroll = true;
@@ -617,6 +631,12 @@ function bindWorkspace(main) {
   measureControls();
   if (typeof ResizeObserver !== 'undefined') { controlsObserver = new ResizeObserver(measureControls); controlsObserver.observe(controls); }
   window.addEventListener('storage', onWorkspaceStorage);
+  document.getElementById('wireExportDecisions')?.addEventListener('click', () => {
+    reloadWorkspaceState();
+    if (!decisions.size) { showToast('No saved decisions in this browser'); return; }
+    const records = exportDecisionRecords(decisions, { origin: location.origin });
+    triggerDownload(new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' }), `wire-decisions-${new Date().toISOString().slice(0, 10)}.json`);
+  });
   document.getElementById('wireDensity')?.addEventListener('change', event => {
     density = event.target.value === 'comfortable' ? 'comfortable' : 'compact';
     main.querySelector('.wire-view').dataset.density = density;
@@ -678,10 +698,11 @@ function bindWorkspace(main) {
     const headline = cachedHeadlines.find(h => sigKey(h) === key) || selectedSnapshot;
     const entry = normalizeDecision({ ...Object.fromEntries(new FormData(form)), recordedAt: new Date().toISOString() });
     if (!entry.evidence && headline?.evidence?.[0]) entry.evidence = signalUrl(headline, location.origin, headline.evidence[0]);
-    decisions.set(key, entry); decisionDrafts.delete(key);
-    while (decisions.size > PERSISTED_KEY_CAP) decisions.delete(decisions.keys().next().value);
-    let persisted = true;
-    try { localStorage.setItem(DECISION_STORAGE_KEY, JSON.stringify(Object.fromEntries(decisions))); } catch { persisted = false; }
+    let storage;
+    try { storage = localStorage; } catch { /* retain the session copy */ }
+    const saved = saveDecisionRecord(storage, decisions, key, entry);
+    decisions = saved.decisions; decisionDrafts.delete(key);
+    const { persisted } = saved;
     inspectorFingerprint = ''; renderList();
     [...surface.querySelectorAll('[data-decision-form]')].find(candidate => candidate.dataset.decisionForm === key && candidate.getClientRects().length)?.querySelector('button[type="submit"]')?.focus({ preventScroll: true });
     showToast(persisted ? 'Decision saved in this browser' : 'Decision kept for this session; browser storage unavailable', persisted ? 'success' : 'error');
@@ -844,7 +865,7 @@ function exportSignals(format) {
   // Carry the analyst's read/unread state into the export (a spread copy so
   // the export never mutates the cached headline objects renderList reads from).
   const capturedAt = new Date().toISOString();
-  const items = filtered.map(h => exportContext(h, { read: readKeys.has(sigKey(h)), decision: decisions.get(sigKey(h)), filters, sort: sortMode, capturedAt, origin: location.origin }));
+  const items = filtered.map(h => exportContext(h, { read: isSignalRead(h, readKeys), decision: decisions.get(sigKey(h)), filters, sort: sortMode, capturedAt, origin: location.origin }));
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
   if (format === 'json') {
     const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
@@ -953,6 +974,12 @@ function tickFreshness() {
 
 function adoptSnapshot(data) {
   cachedHeadlines = data.headlines.filter(h => h && typeof h === 'object');
+  readKeys = loadKeySet(LS_READ_KEY, readKeys);
+  const migrated = migrateLegacyReadKeys(cachedHeadlines, readKeys);
+  if (migrated.size !== readKeys.size || [...migrated].some(key => !readKeys.has(key))) {
+    readKeys = migrated;
+    saveKeySet(LS_READ_KEY, readKeys);
+  }
   for (const key of expandedDetails) if (!cachedHeadlines.some(h => sigKey(h) === key)) expandedDetails.delete(key);
   detectArrivals();
   lastGoodAt = Date.now();
@@ -1149,7 +1176,10 @@ function detectArrivals() {
 function applyFilters(headlines) {
   // Hidden selects dismissed records; the ordinary view excludes them. Read is
   // a separate axis, narrowing either view only when Unread is selected.
-  const effectiveRead = new Set([...readKeys].filter(key => !heldReviewed.has(key)));
+  const effectiveRead = new Set(readKeys);
+  for (const headline of headlines) if (heldReviewed.has(sigKey(headline))) {
+    effectiveRead.delete(sigKey(headline)); effectiveRead.delete(signalReadKey(headline));
+  }
   return filterSignals(headlines, { ...filters, dismissedKeys, readKeys: effectiveRead }, sortMode);
 }
 
@@ -1324,7 +1354,7 @@ function renderList() {
     // folds the chip hedges/context that used to each carry their own tabindex into
     // a single AT-readable summary of the row, reachable with j/k below.
     const rowDesc = rowDescription(h, cveInfo);
-    const isRead = readKeys.has(key);   // dims a row the analyst has already opened/marked read
+    const isRead = isSignalRead(h, readKeys);   // only the retained revision actually reviewed
     return `
     <article class="wire-item h${h.horizon}${urgency === 'critical' ? ' critical' : ''}${promoted ? ' promoted' : ''}${h.kevOverdue ? ' kev-overdue' : ''}${isRead ? ' is-read' : ''}${selectedSignal === key ? ' is-selected' : ''}${arrived}" role="listitem" aria-labelledby="${titleId}" data-key="${escapeHtml(key)}" tabindex="0"${rowDesc ? ` aria-description="${escapeHtml(rowDesc)}. Enter inspect. R mark read. H hide. C copy link."` : ''}>
       ${scoreBlock(h)}
@@ -1414,7 +1444,7 @@ function signalSubmeta(h, cveInfo) {
 function signalDetailsHtml(h, cveInfo = parseCveData(h.cveData), submeta = signalSubmeta(h, cveInfo)) {
   const key = sigKey(h);
   const href = safeHref(h.link);
-  const isRead = readKeys.has(key);
+  const isRead = isSignalRead(h, readKeys);
   const localDecision = decisions.get(key);
   return `${editorialContextHtml(h)}<p class="wire-local-state">${localDecision && localDecision.state !== 'unreviewed' ? `Your assessment · ${escapeHtml(DECISION_STATES[localDecision.state])}` : 'Local exposure · Unknown'}</p>
     <div class="wire-evidence-row">${h.evidence?.length ? `<button type="button" class="wire-inspect" data-evidence="${escapeHtml(key)}">Inspect evidence <span class="wire-evidence-count">${h.evidence.length} retained ${h.evidence.length === 1 ? 'source' : 'sources'}</span></button>` : '<p class="wire-retention-note">No retained excerpt is attached to this signal. Open the source for its reporting.</p>'}</div>

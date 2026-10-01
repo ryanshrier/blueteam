@@ -135,6 +135,15 @@ describe('buildSystemPrompt — key-judgment fields', () => {
     expect(p).not.toMatch(/WHAT MUST HAPPEN BY|absolute local deadline|HH:MM|\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\b(?:CT|ET|PT)\b/);
   });
 
+  test('makes metric citations, per-identifier deadlines, and independence limits explicit before generation', () => {
+    setDomainPack(cyberPack);
+    const p = buildSystemPrompt(cfg);
+    expect(p).toContain("Cite the exact supplied authority for a metric in the same judgment's What happened field");
+    expect(p).toContain('naming the authority in parentheses does not replace its exact source citation');
+    expect(p).toContain('repeat each full identifier beside its own external deadline');
+    expect(p).toContain('When independent confirmation is not established, say so explicitly and attribute the claim to its original reporting source');
+  });
+
   test('does not emit the retired "Revises if" analytical scaffold', () => {
     setDomainPack(cyberPack);
     const p = buildSystemPrompt(cfg);

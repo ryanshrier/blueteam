@@ -28,6 +28,18 @@ afterEach(() => {
 });
 
 describe('startGeneration completion boundary', () => {
+  test('a lost stream retains the server-provided attempt identity for exact status recovery', async () => {
+    generateBriefMock.mockResolvedValue({ body: { getReader: () => ({
+      read: jest.fn().mockResolvedValueOnce({ done: false, value: encode('data: {"generationId":"generation-exact-id","statusUrl":"/api/brief/status"}\n\ndata: {"text":"Unfinished draft"}\n\n') })
+        .mockRejectedValueOnce(new Error('connection reset')),
+      cancel: jest.fn().mockResolvedValue(undefined),
+    }) } });
+    const errors = [];
+    capture('generation-error', errors);
+    await startGeneration();
+    expect(errors).toEqual([expect.objectContaining({ generationId: 'generation-exact-id', streamLost: true, accumulatedText: 'Unfinished draft' })]);
+    expect(getState().isGenerating).toBe(false);
+  });
   test('replacement attempts emit a reset and complete with only the authoritative saved edition', async () => {
     const text = 'Final validated replacement briefing. '.repeat(6);
     const reader = { read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(

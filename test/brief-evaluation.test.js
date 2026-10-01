@@ -95,6 +95,7 @@ async function execute(item, corrective = false) {
       yield { type: 'message_start', message: { model: params.model, usage: { input_tokens: 100, output_tokens: 0 } } };
       yield { type: 'content_block_delta', delta: { type: 'text_delta', text: draft } };
       yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 200 } };
+      yield { type: 'message_stop' };
     } };
   } } };
   const app = express(); app.use(express.json());

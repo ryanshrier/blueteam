@@ -11,7 +11,7 @@ export default {
   // at that path. Map them back to the real node_modules package so importing a
   // module under test doesn't throw "Cannot find module" (see test/sanitize.test.js).
   moduleNameMapper: {
-    '^/vendor/purify\\.es\\.mjs$': '<rootDir>/node_modules/dompurify/dist/purify.es.mjs',
+    '^/vendor/purify\\.es\\.mjs(?:\\?v=[\\d.]+)?$': '<rootDir>/node_modules/dompurify/dist/purify.es.mjs',
     '^/vendor/marked\\.esm\\.js$': '<rootDir>/node_modules/marked/lib/marked.esm.js',
     '^/vendor/brief-schema\\.js$': '<rootDir>/lib/brief-schema.js',
   },

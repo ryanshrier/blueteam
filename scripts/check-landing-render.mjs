@@ -283,7 +283,9 @@ export async function launchBrowser(browserPath) {
   const deadline = Date.now() + TIMEOUT_MS;
   let activePort;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Browser exited during startup (${child.exitCode}):\n${stderr}`);
+    // On Windows, Edge may exit its launcher successfully after handing this
+    // temporary profile to a child process. DevTools readiness owns that case.
+    if (child.exitCode !== null && child.exitCode !== 0) throw new Error(`Browser exited during startup (${child.exitCode}):\n${stderr}`);
     try {
       activePort = await readFile(activePortFile, 'utf8');
       if (activePort.trim()) break;
@@ -297,12 +299,29 @@ export async function launchBrowser(browserPath) {
     throw new Error(`Browser did not expose DevTools in time:\n${stderr}`);
   }
 
-  const [port] = activePort.trim().split(/\r?\n/);
+  const [port, browserSocketPath] = activePort.trim().split(/\r?\n/);
+  const debugOrigin = `http://127.0.0.1:${port}`;
   return {
     child,
-    debugOrigin: `http://127.0.0.1:${port}`,
+    debugOrigin,
     profile,
     async close() {
+      // Closing only the launcher leaves a delegated Edge process alive. Match
+      // both the profile's port and browser ID before closing its CDP endpoint.
+      let connection;
+      try {
+        const response = await fetch(`${debugOrigin}/json/version`, { signal: AbortSignal.timeout(3_000) });
+        const version = await response.json();
+        const expectedSocket = `ws://127.0.0.1:${port}${browserSocketPath}`;
+        if (version.webSocketDebuggerUrl === expectedSocket) {
+          connection = new CdpConnection(expectedSocket);
+          await connection.call('Browser.close', {}, undefined, 3_000);
+        }
+      } catch {
+        // The browser may already be gone, or close before acknowledging.
+      } finally {
+        connection?.close();
+      }
       if (child.exitCode === null) {
         child.kill();
         await Promise.race([

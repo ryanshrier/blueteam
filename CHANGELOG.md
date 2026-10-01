@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.1 — 2026-10-01
+
+- Require a terminal provider event for complete generation, verify scheduled replay receipts, and use the same current-copy publication eligibility in Briefing, Wall, RSS, and continuity.
+- Bind CVSS claims to their CVE, version, and provisional status; retain NVD assessment provenance and configuration conditions in generation receipts. Enforce supporting citation identities and complete Convergence entries.
+- Preserve multiline assessment qualifications and supported trajectory labels. Correct article excerpt selection, feed parsing and freshness, actor/urgency matches, and zero source weights.
+- Preserve Wire decisions across tabs and export the saved decision set. Track read state by source revision, retain decision input focus, and show newer revisions in Wall updates.
+- Bound generation request waits, recover the exact generation attempt, and prevent stale history responses from replacing refreshed results. Correct Wall mode links, review deep links, evidence filtering, and model verification state.
+- Refuse to open databases from a newer schema before changing their journal mode.
+- Bind editorial approval to the exact reading copy, include review records in backup guidance, and document eligibility, recovery, and notification behavior.
+- Refresh the fictional public sample and its HTML, PDF, and receipt against current publication checks. Simplify setup guidance to recommend Node.js 24 with npm and correct the sample link and screenshot descriptions.
+- Update DOMPurify, Undici, brace-expansion, and ip-address to resolve dependency advisories found during release validation.
+
 ## 1.2.0 — 2026-09-06
 
 - Add OpenAI Codex Briefing generation through the Responses API. Settings supports both provider keys, provider selection, OpenAI model selection, and live verification. Manual and scheduled generation use the selected provider.

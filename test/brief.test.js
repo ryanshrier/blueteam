@@ -165,7 +165,7 @@ function fakeAnthropic(scriptFn) {
 
 function textStream(text, {
   usage = { input_tokens: 100, output_tokens: 200 },
-  stopReason = null,
+  stopReason = 'end_turn',
 } = {}) {
   return async () => ({
     controller: { abort() {} },
@@ -177,6 +177,7 @@ function textStream(text, {
         ...(stopReason ? { delta: { stop_reason: stopReason } } : {}),
         usage: { output_tokens: usage.output_tokens },
       };
+      yield { type: 'message_stop' };
     },
   });
 }
@@ -193,7 +194,8 @@ function delayedTextStream(text, delayMs, { usage = { input_tokens: 100, output_
       yield { type: 'message_start', message: { usage: { input_tokens: usage.input_tokens, output_tokens: 0 } } };
       await new Promise(r => setTimeout(r, delayMs));
       yield { type: 'content_block_delta', delta: { text } };
-      yield { type: 'message_delta', usage: { output_tokens: usage.output_tokens } };
+      yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: usage.output_tokens } };
+      yield { type: 'message_stop' };
     },
   });
 }
@@ -213,6 +215,7 @@ function refusalStream(text = 'I cannot assist with this request. '.repeat(10)) 
       yield { type: 'message_start', message: { usage: { input_tokens: 100, output_tokens: 0 } } };
       yield { type: 'content_block_delta', delta: { text } };
       yield { type: 'message_delta', delta: { stop_reason: 'refusal' }, usage: { output_tokens: 40 } };
+      yield { type: 'message_stop' };
     },
   });
 }
@@ -437,7 +440,10 @@ describe('POST /api/brief - scheduled job idempotency and edition context', () =
   test('returns an existing deterministic archive without touching the provider', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'scheduled-brief-replay-'));
     const filename = 'brief-2026-07-02-00.md';
-    writeFileSync(join(dir, filename), GOOD_BRIEF);
+    realSaveBrief(dir, GOOD_BRIEF, { date: '2026-07-02', scheduled: true, manifest: {
+      schemaVersion: 1, edition: { date: '2026-07-02', timezone: 'Pacific/Kiritimati', scheduled: true },
+      publicationValidation: { partial: false, hardFail: false, trustFail: false },
+    } });
     const getAnthropic = jest.fn(() => null);
     try {
       ctx = await makeServer({
@@ -698,6 +704,39 @@ describe('POST /api/brief — evidence publication gate', () => {
 describe('POST /api/brief — corrective retry recovery', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test('publishes a corrective draft that explicitly disclaims independent corroboration', async () => {
+    const firstDraft = GOOD_BRIEF.replace(
+      '**Confidence:** Moderate — reported by one source.',
+      '**Confidence:** Moderate — independently corroborated reporting.',
+    );
+    const correctedDraft = firstDraft.replace(
+      '**Confidence:** Moderate — independently corroborated reporting.',
+      '**Confidence:** Moderate — single source observation, not independently corroborated.',
+    );
+    const stream = jest.fn(async () => textStream(stream.mock.calls.length === 1 ? firstDraft : correctedDraft)());
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(stream.mock.calls[1][0].messages)).toContain('claims source independence that is not established');
+    expect(events.some(event => event.error)).toBe(false);
+    expect(complete).toMatchObject({ text: correctedDraft, tokens: 600 });
+    expect(saveBriefMock).toHaveBeenCalledTimes(1);
+    expect(saveBriefMock).toHaveBeenCalledWith(
+      '/fake/history',
+      correctedDraft,
+      expect.objectContaining({
+        scheduled: false,
+        manifest: expect.objectContaining({
+          publicationValidation: expect.objectContaining({ hardFail: false, trustFail: false, partial: false }),
+        }),
+      }),
+    );
+    expect(indexBriefMock).toHaveBeenCalledTimes(1);
+  });
 
   test('returns but never publishes the first invalid draft when its corrective retry is interrupted', async () => {
     const firstDraft = GOOD_BRIEF.replace('## BLUF', '## OVERVIEW');
@@ -1715,7 +1754,7 @@ describe('generation manifests — publication and trusted retrieval', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(await response.json()).toEqual(manifest);
     const detail = await fetch(`${ctx.base}/api/brief/${filename}`).then(response => response.json());
-    expect(detail.inputManifest).toEqual({ status: 'available', url: `/api/brief/${filename}/manifest` });
+    expect(detail.inputManifest).toEqual({ status: 'available', integrity: 'verified', url: `/api/brief/${filename}/manifest` });
   });
 
   test('does not disclose a local watch profile on an unauthenticated network deployment', async () => {

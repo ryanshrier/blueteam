@@ -33,7 +33,7 @@ jest.unstable_mockModule('../lib/domain.js', () => ({
 // after ESM dependency evaluation still take effect.
 process.env.NVD_API_KEY = 'test-key';
 
-const { enrichCVEs, enrichEPSS, extractArticleBody, refreshKEV } = await import('../lib/enrichment.js');
+const { enrichCVEs, enrichEPSS, extractArticleBody, refreshKEV, nvdCveEvidence } = await import('../lib/enrichment.js');
 
 // A minimal Response-shaped fake matching the convention in test/feeds.test.js
 // — enrichCVEs/enrichEPSS only touch .status/.ok; the body is consumed by the
@@ -67,14 +67,15 @@ beforeEach(() => {
 });
 
 describe('enrichCVEs — CVSS version-label parse', () => {
-  test('a v4.0-only CVE renders the version AFTER the score, not between "CVSS" and the number', async () => {
+  test('a v4.0-only CVE retains its version separately from the ranking score', async () => {
     safeFetchMock.mockResolvedValue(fakeResponse());
     readCappedMock.mockResolvedValue(JSON.stringify(nvdBody('CVE-2025-0001', { baseScore: 9.3, baseSeverity: 'CRITICAL', version: '40' })));
 
     const h = { title: 'CVE-2025-0001 patched', description: '' };
     await enrichCVEs([h], 5);
 
-    expect(h.cveData).toBe('CVE-2025-0001: CVSS 9.3 (CRITICAL) (v4.0)');
+    expect(h.cveData).toBe('CVE-2025-0001: CVSS v4.0 9.3 (CRITICAL)');
+    expect(h.cvssMetrics).toEqual([expect.objectContaining({ cve: 'CVE-2025-0001', score: 9.3, version: '4.0', selected: true, provisional: false })]);
     // The severity axis's dedicated parse source carries ONLY the number, with
     // no version label in front of it — CVSS\s+([\d.]+) must capture 9.3, not 4.0.
     expect(h.cvssSeverityText).toBe('CVSS 9.3 (CRITICAL)');
@@ -90,7 +91,7 @@ describe('enrichCVEs — CVSS version-label parse', () => {
     await enrichCVEs([h], 5);
 
     expect(h.cvssSeverityText.match(/CVSS\s+([\d.]+)/)[1]).toBe('7.5');
-    expect(h.cveData).toContain('(v2.0)');
+    expect(h.cveData).toContain('CVSS v2.0 7.5');
   });
 
   test('a multi-CVE roundup scores on the MAX across CVEs, not the first match', async () => {
@@ -122,6 +123,62 @@ describe('enrichCVEs — CVSS version-label parse', () => {
       process.env.NVD_API_KEY = prior;
     }
   });
+});
+
+describe('NVD retained assessments and applicability', () => {
+  const cve = 'CVE-2026-90210';
+  const assessment = (score, source, type) => ({ source, type, cvssData: { baseScore: score, baseSeverity: score >= 9 ? 'CRITICAL' : 'MEDIUM' } });
+  test('primary selection is independent of order and never substitutes the highest score', () => {
+    const primary = assessment(5, 'nvd@nist.gov', 'Primary');
+    const secondary = assessment(9.8, 'vendor.example', 'Secondary');
+    for (const metrics of [[secondary, primary], [primary, secondary]]) {
+      const result = nvdCveEvidence(cve, { vulnStatus: 'Awaiting Analysis', metrics: { cvssMetricV31: metrics } });
+      expect(result.score).toBe(5);
+      expect(result.metrics).toEqual([
+        expect.objectContaining({ cve, version: '3.1', score: 5, source: 'nvd@nist.gov', type: 'Primary', selected: true, provisional: true }),
+        expect.objectContaining({ cve, version: '3.1', score: 9.8, source: 'vendor.example', type: 'Secondary', selected: false, provisional: true }),
+      ]);
+      expect(result.text).toContain('CVSS v3.1 5');
+      expect(result.text).toContain('CVSS v3.1 9.8');
+      expect(result.text.match(/provisional/g)).toHaveLength(2);
+    }
+  });
+  test('retains distinct 3.0 and 4.0 assessments and abstains on same-provenance conflicts', () => {
+    const result = nvdCveEvidence(cve, { metrics: { cvssMetricV30: [assessment(5, 'a', 'Primary')], cvssMetricV40: [assessment(9.3, 'b', 'Secondary')] } });
+    expect(result.metrics.map(metric => metric.version)).toEqual(['3.0', '4.0']);
+    expect(result.text).toContain('CVSS v3.0 5');
+    const ambiguous = nvdCveEvidence(cve, { metrics: { cvssMetricV31: [assessment(5, 'a', 'Primary'), assessment(9.8, 'a', 'Primary')] } });
+    expect(ambiguous.score).toBeNull();
+    expect(ambiguous.metrics.every(metric => !metric.selected)).toBe(true);
+    expect(nvdCveEvidence(cve, { vulnStatus: 'Rejected', metrics: { cvssMetricV31: [assessment(9.8, 'a', 'Primary')] } }).metrics).toEqual([]);
+  });
+  test('walks all configurations while retaining AND, negation, prerequisites and version limits', () => {
+    const match = (name, vulnerable, extra = {}) => ({ criteria: `cpe:2.3:a:fixture:${name}:*:*:*:*:*:*:*:*`, vulnerable, ...extra });
+    const result = nvdCveEvidence(cve, { configurations: [{ operator: 'AND', nodes: [
+      { operator: 'OR', cpeMatch: [match('prerequisite_os', false)] },
+      { operator: 'OR', children: [{ cpeMatch: [match('affected_app', true, { versionEndExcluding: '2.5' })] }] },
+      { operator: 'OR', negate: true, cpeMatch: [match('excluded_app', true)] },
+    ] }, { nodes: [{ cpeMatch: [match('second_app', true)] }] }] });
+    expect(result.text).toContain('Fixture Affected-APP');
+    expect(result.text).toContain('Fixture Second-APP');
+    expect(result.text).not.toMatch(/Prerequisite|Excluded/);
+    expect(result.text).toContain('conditions and version limits apply');
+    expect(result.configurations[0]).toMatchObject({ operator: 'AND', nodes: [
+      { cpeMatch: [{ vulnerable: false }] },
+      { nodes: [{ cpeMatch: [{ vulnerable: true, versionEndExcluding: '2.5' }] }] },
+      { negate: true },
+    ] });
+  });
+});
+
+test('article selection retains later mitigation and excludes script/style text', async () => {
+  safeFetchMock.mockResolvedValue(fakeResponse());
+  readCappedMock.mockResolvedValue(`<article><p>Vendor published an advisory.</p><script>SecretScript actively exploited</script><style>SecretStyle malware</style>${'<p>This paragraph introduces the service and its background for readers.</p>'.repeat(65)}<p>Mitigation requires re-imaging the appliance and resetting passwords and TOTP credentials.</p></article>`);
+  const body = await extractArticleBody('https://example.test/long-advisory');
+  expect(body).toContain('Mitigation requires re-imaging');
+  expect(body).not.toMatch(/SecretScript|SecretStyle/);
+  expect(body.length).toBeLessThanOrEqual(4000);
+  expect(body).toContain('[…]');
 });
 
 describe('enrichCVEs — live request budget', () => {

@@ -293,13 +293,13 @@ describe('routes/landscape.js — GET /briefs.xml', () => {
     expect(xml).toContain('/briefing/brief-2026-07-01.md');
   });
 
-  test('prefers the persisted brief_meta bluf over re-parsing the file when present', async () => {
-    writeFileSync(join(dir, 'brief-2026-07-02.md'), '## BLUF\n\nStale on-disk text that should not be used.\n');
-    getBriefMetaMock.mockReturnValue({ bluf: 'Meta-sourced BLUF wins.' });
+  test('uses the verified reading text instead of a stale metadata summary', async () => {
+    writeFileSync(join(dir, 'brief-2026-07-02.md'), '## BLUF\n\nCurrent saved summary.\n');
+    getBriefMetaMock.mockReturnValue({ bluf: 'Stale indexed summary.' });
     ctx = await makeServer({ historyDir: dir });
     const xml = await (await fetch(`${ctx.base}/api/briefs.xml`)).text();
-    expect(xml).toContain('Meta-sourced BLUF wins.');
-    expect(xml).not.toContain('Stale on-disk text');
+    expect(xml).not.toContain('Stale indexed summary.');
+    expect(xml).toContain('Current saved summary.');
   });
 
   test('Wall and syndication agree that a later scheduled publication is newer than an early manual edition', async () => {

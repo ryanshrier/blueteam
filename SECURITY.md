@@ -70,7 +70,7 @@ If the correct classification is unclear, report privately.
 - For remote access, use at least 32 random characters for `API_SECRET`, configure `PUBLIC_BASE_URL` and `TRUST_PROXY` precisely, and require authentication and TLS at the reverse proxy.
 - Restrict the listener with the host firewall. Do not use wildcard CORS for a network deployment.
 - Run the process as a dedicated, unprivileged account and keep dependencies and the host patched.
-- Protect `.env`, `data/`, `briefs/`, logs, and backups. Test restoration regularly.
+- Protect `.env`, `data/`, `briefs/`, `reviews/`, logs, and backups. Restore the state directories together so corrections and publication decisions remain attached to their editions. Test restoration regularly.
 - Treat configured webhooks and the selected AI provider as data recipients.
 - Monitor process logs and authenticated `/api/ready` details for persistent failures.
 

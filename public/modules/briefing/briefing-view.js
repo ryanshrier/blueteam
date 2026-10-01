@@ -28,7 +28,7 @@ let settingsLoading = false;
 let settingsRequest = 0;
 let settingsReady = Promise.resolve(); // resolves once aiEnabled is known, so the cold-start empty state never races to the wrong CTA
 let searchTimer = null; // module-scoped so route changes/unmount can cancel a pending archive search
-let recoveredBriefTimer = null; // a recovered generation must never pull the operator away after leaving Briefing
+let recoveryGenerationId = null; // only the exact interrupted attempt may navigate this view
 let generationStatus = null;
 let closeInputReceipt = null;
 let closeOriginalEdition = null;
@@ -37,6 +37,7 @@ let closePrintPreview = null;
 const receiptCache = new Map();
 const archiveScrollPositions = new Map();
 let latestFilename = null;
+let historyRequest = 0;
 let readingMode = 'overview';
 let stopRecentDevelopments = null;
 try { const saved = localStorage.getItem('briefing.readingMode'); if (['overview', 'scan', 'read'].includes(saved)) readingMode = saved === 'scan' ? 'read' : saved; } catch { /* browser storage is optional */ }
@@ -144,6 +145,7 @@ export function generationFailureModel(payload) {
     aiDisabled: Boolean(structured && payload.aiDisabled),
     code: structured ? (payload.code || '') : '',
     streamLost: Boolean(structured && payload.streamLost),
+    generationId: structured && typeof payload.generationId === 'string' ? payload.generationId : '',
     accumulatedText: structured ? (payload.accumulatedText || '') : '',
     recoverableDraft: draft.trim() ? draft : '',
     draftArtifact: structured && payload.draftArtifact?.id ? payload.draftArtifact : null,
@@ -326,10 +328,12 @@ export function render(main) {
   generationStatus?.stop();
   generationStatus = mountGenerationStatus(document.getElementById('briefAttemptStatus'), {
     isGenerating: () => getState().isGenerating,
+    getGenerationId: () => recoveryGenerationId,
     onState: model => {
       const host = document.getElementById('briefAttemptStatus');
       const destination = document.getElementById(model?.kind === 'complete' ? 'briefSuccessStatus' : 'briefAttemptSlot');
       if (host && destination && host.parentElement !== destination) destination.appendChild(host);
+      reflectGenerationRecovery(model);
     },
   });
   handleRoute();
@@ -421,7 +425,7 @@ async function runArchive(page) {
 
 // ── Store event wiring (bound once — DOM is re-queried per event) ──
 function setupStoreListeners() {
-  on('generation-started', () => generationStatus?.refresh());
+  on('generation-started', () => { recoveryGenerationId = null; generationStatus?.refresh(); });
   on('generating-changed', reflectBriefGenerate);
   on('ai-status-changed', ai => {
     // A newly saved/cleared key wins over an older settings request.
@@ -536,7 +540,6 @@ function setupStoreListeners() {
   });
 
   on('generation-error', (payload) => {
-    generationStatus?.refresh();
     // A failure must surface even when the operator has navigated away from
     // the Briefing view; silently swallowing it left them discovering the failure
     // (or worse, a stale/empty state with no explanation) only when they returned.
@@ -553,20 +556,20 @@ function setupStoreListeners() {
       : failure.code === 'E_EVIDENCE' ? 'Briefing did not start'
       : 'Draft not published');
 
-    // A dropped stream connection does not mean the server-side run failed; it
-    // typically keeps generating and archives the brief. Poll once, ~30s out, and
-    // auto-navigate to the newly-appeared brief if it shows up — so the operator
-    // isn't left believing a completed brief simply vanished.
+    // The durable job status owns recovery. Never infer success from an
+    // unrelated archive entry or start another paid request automatically.
     const content = document.getElementById('briefContent');
     if (!content || !showingGeneration) {
       // Off-view: no DOM to paint an inline error into — a toast is the only signal
       // the operator gets until they return to the Briefing.
+      generationStatus?.refresh();
       showToast(aiDisabled ? 'AI Briefing is off — add a key in Settings.' : msg, 'error');
       return;
     }
     leaveDocument(content);
     content.removeAttribute('aria-busy');
-    if (streamLost) pollForRecoveredBrief();
+    recoveryGenerationId = streamLost ? failure.generationId || null : null;
+    generationStatus?.refresh();
     if (content._streamTimer) { clearTimeout(content._streamTimer); content._streamTimer = null; }
     setGenStatus('');
     if (aiDisabled) {
@@ -581,11 +584,17 @@ function setupStoreListeners() {
       // in-progress lock ("already generating"), compounding the confusion.
       content.innerHTML = `
         <div class="error-message stream-lost">
-          <span>Connection lost — the brief may still complete on the server. Checking History in about 30 seconds…</span>
+          <span data-generation-recovery>${recoveryGenerationId ? 'Connection lost — checking this attempt in generation status. No new generation will be started.' : 'Connection lost before the server confirmed this request. Check generation status and History before trying again.'}</span>
+          <button type="button" class="btn-ghost" id="checkInterruptedGeneration">Check generation status</button>
         </div>
-        <p class="brief-draft-label">Draft · connection interrupted · not yet saved</p>
-        ${accumulatedText ? renderDraftMarkdown(accumulatedText) : ''}
+        ${accumulatedText ? `<p class="brief-draft-label">Draft · connection interrupted · not yet saved</p>${renderDraftMarkdown(accumulatedText)}` : ''}
       `;
+      document.getElementById('checkInterruptedGeneration')?.addEventListener('click', async event => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try { await generationStatus?.refresh(); }
+        finally { button.disabled = false; }
+      });
       return;
     }
     if (recoverableDraft) {
@@ -644,8 +653,7 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
   const token = contentRenderToken;
   announce('');
   showingGeneration = data?.action === 'generate' && getState().isGenerating;
-  clearTimeout(recoveredBriefTimer);
-  recoveredBriefTimer = null;
+  recoveryGenerationId = null;
   leaveDocument(content);
   const search = document.getElementById('briefSearch');
   if (search) search.value = '';
@@ -1022,7 +1030,7 @@ export function findBriefFragmentHeading(content, hash = '') {
   try {
     const id = decodeURIComponent(String(hash).replace(/^#/, ''));
     if (!id) return null;
-    return [...content.querySelectorAll('h2[id], h3[id]'), ...content.querySelectorAll('.brief-cite-link[id], .brief-sources-appendix > li[id]')].find(heading => heading.id === id) || null;
+    return [...content.querySelectorAll('h2[id], h3[id]'), ...content.querySelectorAll('.brief-cite-link[id], .brief-sources-appendix > li[id], #editorial-review, .brief-review-summary [id]')].find(heading => heading.id === id) || null;
   } catch { return null; }
 }
 
@@ -1110,6 +1118,9 @@ function buildTOC(content) {
     const token = contentRenderToken;
     const activate = () => {
       if (token !== contentRenderToken || content.isConnected === false) return;
+      if (fragmentHeading.tagName === 'DETAILS') fragmentHeading.open = true;
+      const reviewDisclosure = fragmentHeading.closest?.('details.brief-review-summary');
+      if (reviewDisclosure) reviewDisclosure.open = true;
       let sectionLink = fragmentLink;
       if (!sectionLink) {
         for (const heading of content.querySelectorAll('h2[id], h3[id]')) {
@@ -1301,7 +1312,9 @@ export async function handleCopyDecision(event) {
   }
   const headingId = card.querySelector('h3')?.id;
   const editionUrl = `${location.origin}/briefing/${encodeURIComponent(currentBrief.filename)}${headingId ? `#${encodeURIComponent(headingId)}` : ''}`;
-  const text = decisionCopyText({ ...decisionCardContent(card), editionUrl, editionLabel: formatBriefPublication(currentBrief) });
+  const text = decisionCopyText({ ...decisionCardContent(card), editionUrl, editionLabel: formatBriefPublication(currentBrief),
+    disposition: currentBrief.disposition, review: currentBrief.review, warnings: currentBrief.warnings,
+    sourceCheckStatus: currentBrief.sourceCheckStatus, editorialReviewStatus: currentBrief.editorialReviewStatus });
   if (!text) return;
   button.disabled = true;
   try {
@@ -1444,8 +1457,10 @@ async function loadHistoryDropdown({ force = false } = {}) {
   if (!dropdown && !force) return;
   if (!force && dropdown.options.length > 1) return;
 
+  const request = ++historyRequest;
   try {
     const briefs = await fetchBriefs({ fresh: true });
+    if (request !== historyRequest) return;
     latestFilename = briefs?.find(eligibleEdition)?.filename || null;
     if (getState().currentBrief?.content) setMeta('');
     // Refresh the archive cache after off-view completion too, but never paint
@@ -1471,38 +1486,26 @@ function syncHistoryDropdown(filename) {
   }
 }
 
-// After a mid-stream connection drop, the server-side generation typically
-// keeps running and archives the brief on its own; the client just lost the SSE
-// connection, not the run itself. Snapshot the known filenames now, then re-check
-// once ~30s out (a bypass fetch — the 20s cache TTL would otherwise mask a brief
-// that lands mid-window) and auto-navigate to whichever filename is new, so a run
-// that actually succeeded doesn't get filed as "failed" by the operator.
-async function pollForRecoveredBrief() {
-  clearTimeout(recoveredBriefTimer);
-  const token = contentRenderToken;
-  let before = [];
-  try { before = (await fetchBriefs()) || []; } catch { /* best-effort */ }
-  if (token !== contentRenderToken || !showingGeneration) return;
-  const knownFilenames = new Set(before.map(b => b.filename));
-
-  recoveredBriefTimer = setTimeout(async () => {
-    recoveredBriefTimer = null;
-    let after;
-    try { after = await fetchBriefs({ fresh: true }); } catch { return; }
-    if (token !== contentRenderToken || !showingGeneration) return;
-    if (!Array.isArray(after)) return;
-    const recovered = after.find(b => !knownFilenames.has(b.filename));
-    if (!recovered) return;   // still nothing new — leave the "connection lost" state as-is
+// The same bounded status polling that paints accounting also recovers the
+// interrupted attempt. A latest-but-different job can never become its result.
+function reflectGenerationRecovery(model) {
+  if (!recoveryGenerationId || !showingGeneration) return;
+  const status = document.querySelector?.('[data-generation-recovery]');
+  if (model?.jobId === recoveryGenerationId && model.kind === 'complete' && model.filename) {
+    recoveryGenerationId = null;
     loadHistoryDropdown({ force: true });
-    showToast('The briefing completed after all — opening it now');
-    navigate(`/briefing/${encodeURIComponent(recovered.filename)}`);
-  }, 30_000);
+    showToast('The interrupted attempt published an edition — opening it now');
+    navigate(`/briefing/${encodeURIComponent(model.filename)}`);
+    return;
+  }
+  if (status && model?.message) status.textContent = model.message;
 }
 
 // Invalidate work tied to the detached briefing DOM. The store listeners stay
 // bound once for background generation events, but route/search requests started
 // by this mount must not repaint or replace state after the operator leaves.
 export function unmount() {
+  historyRequest++;
   disposePrintPreview();
   stopRecentDevelopments?.();
   stopRecentDevelopments = null;
@@ -1519,8 +1522,7 @@ export function unmount() {
   showingGeneration = false;
   clearTimeout(searchTimer);
   searchTimer = null;
-  clearTimeout(recoveredBriefTimer);
-  recoveredBriefTimer = null;
+  recoveryGenerationId = null;
   const content = document.getElementById('briefContent');
   if (content?._streamTimer) {
     clearTimeout(content._streamTimer);

@@ -53,6 +53,31 @@ export function readDecisions(storage) {
   } catch { return new Map(); }
 }
 
+// Merge against storage at the point of use: another tab may have saved while
+// this view was unmounted. Keep newer session-only records after a failed write.
+export function mergeDecisions(current, storage) {
+  const merged = new Map(current);
+  for (const [key, value] of readDecisions(storage)) {
+    if (!merged.has(key) || (value.recordedAt || '') >= (merged.get(key).recordedAt || '')) merged.set(key, value);
+  }
+  return merged;
+}
+
+export function saveDecisionRecord(storage, current, key, value) {
+  const merged = mergeDecisions(current, storage);
+  merged.delete(key);
+  merged.set(key, normalizeDecision(value));
+  while (merged.size > 2000) merged.delete(merged.keys().next().value);
+  let persisted = false;
+  try { storage.setItem(DECISION_STORAGE_KEY, JSON.stringify(Object.fromEntries(merged))); persisted = true; } catch { /* preserve the session copy */ }
+  return { decisions: merged, persisted };
+}
+
+export function exportDecisionRecords(decisions, { origin = '', capturedAt = new Date().toISOString() } = {}) {
+  return [...decisions].map(([key, value]) => ({ signal: key,
+    signalUrl: signalUrl({ link: key }, origin), exportedAt: capturedAt, decision: normalizeDecision(value) }));
+}
+
 export function decisionForm(headline, value = {}) {
   const d = normalizeDecision(value);
   return `<details class="wire-outcome"${d.state !== 'unreviewed' || d.note ? ' open' : ''}><summary>Decision record · ${escapeHtml(DECISION_STATES[d.state])}</summary>

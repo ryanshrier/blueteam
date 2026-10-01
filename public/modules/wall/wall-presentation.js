@@ -202,11 +202,14 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
   const catalogCves = new Set(selectedKev.map(item => item.cve));
   const seenArticles = new Set(), seenCves = new Set();
   const signals = (landscape?.signals || []).filter(item => {
-    if (!item?.title || featuredArticles.has(articleIdentity(item.link))) return false;
+    if (!item?.title) return false;
+    const updatedCapture = Number.isFinite(briefTime) && item.evidence?.some(source => source.changed
+      && Date.parse(source.retrievedAt) > briefTime);
+    const later = Number.isFinite(briefTime) && (Date.parse(item.date) > briefTime || updatedCapture);
+    if (featuredArticles.has(articleIdentity(item.link)) && !later) return false;
     if (coveredReports.some(report => articleIdentity(report.url) === articleIdentity(item.link)
-      && Date.parse(report.publishedAt) === Date.parse(item.date))) return false;
+      && Date.parse(report.publishedAt) === Date.parse(item.date)) && !updatedCapture) return false;
     const identities = topicCves({ title: item.title, kevCVE: item.kevCVE, whatHappened: item.description });
-    const later = Number.isFinite(briefTime) && Date.parse(item.date) > briefTime;
     if (identities.length && !identities.some(cve => !catalogCves.has(cve) && (!featuredCves.has(cve) || later))) return false;
     const article = articleIdentity(item.link);
     if ((article && seenArticles.has(article)) || (identities.length && identities.every(cve => seenCves.has(cve)))) return false;

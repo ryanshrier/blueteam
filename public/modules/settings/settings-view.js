@@ -323,6 +323,8 @@ export function render(main) {
     paintProvider();
   });
   modelEl.addEventListener('input', () => {
+    verifiedCandidate = null;
+    setFeedback('', { sticky: false });
     drafts.set('openaiModel', modelEl.value);
     modelEl.setAttribute('aria-invalid', String(!modelValid()));
     syncKeyControls();
