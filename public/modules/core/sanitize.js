@@ -1,6 +1,7 @@
 // BlueTeam.News — HTML sanitization (DOMPurify, served from /vendor).
 
-import DOMPurify from '/vendor/purify.es.mjs';
+// Change this version with sanitizer upgrades to bypass the vendor route's cache.
+import DOMPurify from '/vendor/purify.es.mjs?v=3.4.16';
 
 export const SANITIZE_CONFIG = {
   ALLOWED_TAGS: [

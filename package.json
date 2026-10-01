@@ -60,7 +60,7 @@
     "@anthropic-ai/sdk": "^0.110.0",
     "better-sqlite3": "^12.10.0",
     "compression": "^1.8.1",
-    "dompurify": "^3.4.14",
+    "dompurify": "^3.4.16",
     "dotenv": "^17.4.1",
     "express": "^4.21.2",
     "express-rate-limit": "^8.3.2",
@@ -68,7 +68,7 @@
     "helmet": "^8.1.0",
     "htmlparser2": "^12.0.0",
     "marked": "^15.0.7",
-    "undici": "^8.9.0",
+    "undici": "^8.10.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -81,7 +81,8 @@
     "test-exclude": "8.0.0",
     "glob": "13.0.6",
     "minimatch": "10.2.5",
-    "brace-expansion": "5.0.9",
+    "brace-expansion": "5.0.12",
+    "ip-address": "10.7.1",
     "qs": "6.16.0"
   }
 }

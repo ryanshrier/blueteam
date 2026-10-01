@@ -10,6 +10,7 @@
 - Refuse to open databases from a newer schema before changing their journal mode.
 - Bind editorial approval to the exact reading copy, include review records in backup guidance, and document eligibility, recovery, and notification behavior.
 - Refresh the fictional public sample and its HTML, PDF, and receipt against current publication checks. Simplify setup guidance to recommend Node.js 24 with npm and correct the sample link and screenshot descriptions.
+- Update DOMPurify, Undici, brace-expansion, and ip-address to resolve dependency advisories found during release validation.
 
 ## 1.2.0 — 2026-09-06
 
