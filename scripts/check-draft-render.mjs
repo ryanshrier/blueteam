@@ -47,7 +47,7 @@ try {
       const screenshot = await connection.call('Page.captureScreenshot', { format: 'png' });
       await writeFile(resolve(screenshotDir, `draft-control-review-${width}.png`), Buffer.from(screenshot.data, 'base64'));
     }
-    console.log(`PASS draft recovery ${width}px: ${result.result.value.checks} checks; save/reopen, publish, blocked/review, conflict, interrupted outcome`);
+    console.log(`PASS draft recovery ${width}px: ${result.result.value.checks} checks; exact finding/evidence jump, save/reopen, publish, blocked/review, conflict, interrupted outcome`);
   }
 } finally {
   connection?.close();
@@ -173,6 +173,45 @@ async function runDraftChecks() {
     check(q('.draft-review-folio').textContent.includes('fixes needed') && !q('[data-control-review]'), 'Required fixes precede specific review and cannot be waived');
     edit(basic + '\n\n[BLOCKED] Saved unresolved repair.'); await act('[data-draft-publish]');
     check(q('.draft-review-note').textContent.includes('Draft saved · not published') && q('#draftRepair').value.includes('Saved unresolved repair.'), 'Blocked publish shows the durable saved, unpublished result');
+    close();
+
+    const scoreLine = '**What happened:** The [captured advisory](https://publisher.invalid/cvss) discusses CVE-2026-12345 and CVE-2026-67890. A CVSS v3.1 score of **9.8** is reported without identifying which vulnerability it describes.';
+    const scoreLines = ['# Defensive briefing — retained evidence', '', '## KEY JUDGMENTS', '',
+      '### Signal 2 — [Horizon 1] Review the two gateway vulnerabilities', '',
+      '**Assessment:** Confirm the affected builds before deciding on a response.', '', scoreLine, '',
+      '**The line:** Keep the score tied to its supported vulnerability.'];
+    const scoreIssue = { code: 'CVE_CVSS_AMBIGUOUS', severity: 'trust',
+      message: 'Signal 2: CVSS v3.1 9.8 needs one explicit CVE association in this passage.',
+      location: { scope: 'paragraph', line: scoreLines.indexOf(scoreLine) + 1, excerpt: 'A CVSS v3.1 score of 9.8 is reported without identifying which vulnerability it describes.' },
+      sourceIds: ['source-cvss'] };
+    const scoreDraft = await make('cvss-location', scoreLines.join('\n'));
+    scoreDraft.publicationDecision = { blockers: [scoreIssue], reviewIssues: [], notes: [], canPublish: false, requiresReview: false };
+    scoreDraft.revisions[0].validation = { valid: false, issues: [scoreIssue] };
+    scoreDraft.manifest.grounding.sources.push({ id: 'source-cvss', label: 'Captured CVSS advisory',
+      title: 'Two synthetic gateway vulnerabilities', url: 'https://publisher.invalid/cvss',
+      evidenceText: 'CVE-2026-12345 has a CVSS v3.1 score of 9.8. CVE-2026-67890 has a CVSS v3.1 score of 7.5.' });
+    await open('cvss-location');
+    const reference = q('.draft-reference-panel');
+    if (!reference.open) reference.querySelector('summary').click();
+    const finding = q('[data-draft-line]');
+    check(finding.textContent.includes(scoreIssue.message) && finding.textContent.includes(`Line ${scoreIssue.location.line}`), 'Specific CVSS finding and raw Markdown line number are visible');
+    check(finding.closest('li').querySelector('blockquote').textContent === scoreIssue.location.excerpt, 'Finding preserves its exact diagnostic excerpt');
+    q('[data-draft-source="source-1"]').open = true;
+    const beforeFinding = calls.length;
+    finding.click();
+    const scoreEditor = q('#draftRepair');
+    const scoreStart = scoreLines.slice(0, scoreIssue.location.line - 1).join('\n').length + 1;
+    check(!q('[data-draft-editor]').hidden && q('.draft-preview').hidden && document.activeElement === scoreEditor, 'Finding switches from readable preview to focused editor');
+    check(scoreEditor.selectionStart === scoreStart && scoreEditor.selectionEnd === scoreStart + scoreLine.length
+      && scoreEditor.value.slice(scoreEditor.selectionStart, scoreEditor.selectionEnd) === scoreLine, 'Finding selects exactly the saved raw Markdown score line, including link and formatting');
+    check(q('.draft-captured-evidence').open && q('[data-draft-source="source-cvss"]').open
+      && !q('[data-draft-source="source-1"]').open && !q('[data-draft-source="source-2"]').open, 'Finding opens only its matching captured source');
+    check(reference.open === (innerWidth > 900), 'Phone finding navigation focuses editing while desktop keeps references open');
+    if (!reference.open) reference.querySelector('summary').click();
+    const capturedPassage = q('[data-draft-source="source-cvss"] blockquote');
+    check(reference.open && capturedPassage.getClientRects().length > 0
+      && capturedPassage.textContent.includes('CVE-2026-12345 has a CVSS v3.1 score of 9.8'), 'Matching evidence remains accessible when the phone reference panel is reopened');
+    check(calls.length === beforeFinding && !q('[data-control-review]'), 'Inspecting a CVSS blocker neither submits a request nor creates an approval flow');
     close();
 
     await make('control', basic + '\n\n[CONTROL]'); await open('control');

@@ -4,15 +4,15 @@
   "capturedAt": "2026-07-24T12:00:00Z",
   "application": {
     "name": "blueteam-news",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "implementationSha256": {
       "prompts": "6af521220bf0dccce28df641264c9967ec2d8fcc300df4d0b4b27b710d27cfcb",
       "grounding": "d45305f40a34b06f37761e358a759e01123a5c6ded401e5000738d8f0a678724",
-      "validation": "fa6568b14648282978d1d3a8e45dd2aad37d851fc5751edcbd9d5798b0717137",
+      "validation": "016dfa6c766cc00d85f997cb1eccca7ba57d040bededf3d55922dd6af34b7472",
       "scoring": "825b3a8bb288f5157697af4a9d2cb80b46a2cd5ab37ae84e4871d1e479ab922c",
       "evidence-quality": "1fdc59c13d9d105294b945940b7d26e7784c1fdd38d2348fc81401e1b30f8faf",
       "claim-checks": "843a57849edd9632805edfe29e155cf7468c05133c78fd8bc44d12fbf3c43f6f",
-      "cvss": "a8f4579377841d2dcbfbcbbae7d6ead77aa0fe6b2972a63ef903db6e1b9d90b5",
+      "cvss": "42066e3bb891ca9b2dcdb8e50365f77c4915ada37e350b7daddd8fcfcad239e9",
       "cve-identities": "165ad931857a69851f60a277118ee1d55c7f9450cbd530e3d72b223d6ac6959e",
       "brief-action-security": "9200fe647dd9ceb9fc5b9f75bf32a84849de41f895cfb406de1d48356786476c"
     }
@@ -346,7 +346,7 @@
   ],
   "generatedAt": "2026-07-24T12:00:00Z",
   "synthetic": true,
-  "syntheticRegeneratedAt": "2026-10-09T16:23:24.958Z",
+  "syntheticRegeneratedAt": "2026-10-09T18:09:24.760Z",
   "syntheticNote": "Authored fictional demonstration; no provider was called. Edition, source, collection, capturedAt, and generatedAt dates describe the July 24, 2026 scenario, not a real collection or generation. syntheticRegeneratedAt records when this sample receipt was rebuilt and checked against the recorded application implementation. Passing supported checks does not verify real-world events or complete analyst review.",
   "filename": "brief-2026-07-24-01.md",
   "outputSha256": "7e6d0cbf6133fc131b0d8513192f2809c3696f467cd35d00631179cecb11c7d3",

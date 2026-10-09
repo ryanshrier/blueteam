@@ -9,7 +9,7 @@ BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and
 ## Start, stop, and restart
 
 ```bash
-git clone --branch v1.3.1 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.3.2 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
