@@ -827,6 +827,10 @@ describe('POST /api/brief — corrective retry recovery', () => {
       GOOD_BRIEF,
       expect.objectContaining({ scheduled: false }),
     );
+    expect(saveBriefMock.mock.calls[0][2].manifest.providerAttempts.map(attempt => attempt.thinkingConfiguration)).toEqual([
+      { requestedEffort: 'low', configuredBy: 'built-in', requestEffort: 'low' },
+      { requestedEffort: 'off', configuredBy: 'built-in', requestEffort: 'off' },
+    ]);
   });
 });
 
@@ -1391,6 +1395,129 @@ describe('GET /api/search — FTS5 sanitizer', () => {
 });
 
 describe('streamWithRecovery — pure unit', () => {
+  test.each(['direct', 'SDK'])('honors the first %s terminal event without reading late payload or awaiting cleanup', async kind => {
+    const iterator = {
+      next: jest.fn()
+        .mockResolvedValueOnce({ value: { type: 'content_block_delta', delta: { text: 'Complete answer' } } })
+        .mockResolvedValueOnce({ value: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 12, output_tokens: 34 } } })
+        .mockResolvedValueOnce({ value: { type: 'message_stop' } })
+        .mockResolvedValueOnce({ value: { type: 'content_block_delta', delta: { text: 'Ignored late text' }, usage: { output_tokens: 999 } } })
+        .mockImplementation(() => new Promise(() => {})),
+      return: jest.fn(() => new Promise(() => {})),
+    };
+    const response = { [Symbol.asyncIterator]: () => iterator };
+    const stream = () => response;
+    const onChunk = jest.fn();
+    const result = await streamWithRecovery(kind === 'direct' ? { stream } : fakeAnthropic(stream), {}, { timeoutMs: 20, onChunk });
+    expect(result).toMatchObject({ text: 'Complete answer', timedOut: false, error: null,
+      terminalReceived: true, stopReason: 'end_turn', usage: { input_tokens: 12, output_tokens: 34 } });
+    expect(iterator.next).toHaveBeenCalledTimes(3);
+    expect(iterator.return).toHaveBeenCalledTimes(1);
+    expect(onChunk).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([null, 'length'])('the first terminal event cannot be repaired by a later stop reason: %p', async stopReason => {
+    const iterator = {
+      next: jest.fn()
+        .mockResolvedValueOnce({ value: { type: 'message_delta', delta: { stop_reason: stopReason } } })
+        .mockResolvedValueOnce({ value: { type: 'message_stop' } })
+        .mockResolvedValueOnce({ value: { type: 'message_delta', delta: { stop_reason: 'end_turn' } } })
+        .mockResolvedValue({ done: true }),
+      return: jest.fn(() => new Promise(() => {})),
+    };
+    const result = await streamWithRecovery({ stream: () => ({ [Symbol.asyncIterator]: () => iterator }) }, {}, { timeoutMs: 20 });
+    expect(result).toMatchObject({ timedOut: false, terminalReceived: true, error: { code: 'E_PROVIDER_INCOMPLETE' } });
+    expect(iterator.next).toHaveBeenCalledTimes(2);
+    expect(iterator.return).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(['direct', 'SDK'])('bounds a hung %s iterator and return cleanup, ignoring late text and usage', async kind => {
+    let resolveLate;
+    const iterator = {
+      next: jest.fn().mockResolvedValueOnce({ value: { type: 'content_block_delta', delta: { text: 'Retained prefix' } } })
+        .mockImplementationOnce(() => new Promise(resolve => { resolveLate = resolve; })),
+      return: jest.fn(() => new Promise(() => {})),
+    };
+    const response = { controller: { abort: jest.fn() }, [Symbol.asyncIterator]: () => iterator };
+    const stream = jest.fn(() => response);
+    const onChunk = jest.fn();
+    const onUsage = jest.fn();
+    const result = await streamWithRecovery(kind === 'direct' ? { stream } : fakeAnthropic(stream), {}, { timeoutMs: 10, onChunk, onUsage });
+    expect(result).toMatchObject({ timedOut: true, text: 'Retained prefix', error: null });
+    expect(stream.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(response.controller.abort).toHaveBeenCalledTimes(1);
+    expect(iterator.return).toHaveBeenCalledTimes(1);
+    resolveLate({ value: { type: 'content_block_delta', delta: { text: 'Ignored late text' }, usage: { output_tokens: 99 } } });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(onChunk).toHaveBeenCalledTimes(1);
+    expect(onUsage).not.toHaveBeenCalled();
+    expect(result.usage).toEqual({ input_tokens: 0, output_tokens: 0 });
+  });
+
+  test('observes a late next rejection without rejecting the completed timeout', async () => {
+    let rejectLate;
+    const stream = () => ({ [Symbol.asyncIterator]: () => ({
+      next: () => new Promise((_resolve, reject) => { rejectLate = reject; }),
+      return: () => Promise.reject(new Error('cleanup failed')),
+    }) });
+    const result = await streamWithRecovery({ stream }, {}, { timeoutMs: 10 });
+    rejectLate(new Error('late transport failure'));
+    await new Promise(resolve => setImmediate(resolve));
+    expect(result).toMatchObject({ timedOut: true, error: null, text: '' });
+  });
+
+  test('requests cleanup for a stream that opens after its deadline', async () => {
+    let resolveLate;
+    const abort = jest.fn();
+    const cleanup = jest.fn(() => new Promise(() => {}));
+    const result = await streamWithRecovery({ stream: () => new Promise(resolve => { resolveLate = resolve; }) }, {}, { timeoutMs: 10 });
+    resolveLate({ controller: { abort }, [Symbol.asyncIterator]: () => ({ return: cleanup }) });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(result.timedOut).toBe(true);
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  test('an opening abort rejection remains a timeout rather than a retryable availability failure', async () => {
+    const stream = (_params, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted opening'), { status: 529 })));
+    });
+    const result = await streamWithRecovery({ stream }, {}, { timeoutMs: 10 });
+    expect(result).toMatchObject({ timedOut: true, error: null, text: '' });
+  });
+
+  test('merges terminal usage without erasing omitted fields or accepting invalid counts', async () => {
+    const onUsage = jest.fn();
+    const stream = async function* () {
+      yield { type: 'message_start', message: { model: 'fixture-model', usage: {
+        input_tokens: 11, output_tokens: 2, input_tokens_details: { cached_tokens: 5 },
+      } } };
+      yield { type: 'message_start', message: { usage: { cost_usd: 0.25 } } };
+      yield { type: 'message_delta', usage: { input_tokens: 123, output_tokens: 45,
+        input_tokens_details: { cache_write_tokens: 7 }, output_tokens_details: { reasoning_tokens: 9 } } };
+      yield { type: 'message_delta', usage: { input_tokens: -1, output_tokens: NaN,
+        cost_usd: Infinity, input_tokens_details: { cached_tokens: '12', cache_write_tokens: -1 },
+        output_tokens_details: { reasoning_tokens: null } } };
+      yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {
+        output_tokens: 0, cost_usd: 0, input_tokens_details: { cached_tokens: 0 },
+      } };
+      yield { type: 'message_stop' };
+    };
+    const result = await streamWithRecovery({ stream }, {}, { onUsage });
+    expect(result.error).toBeNull();
+    expect(onUsage.mock.calls[1][0]).toMatchObject({ input_tokens: 11, output_tokens: 2 });
+    expect(onUsage.mock.calls[3][0]).toEqual({ input_tokens: 123, output_tokens: 45,
+      cached_input_tokens: 5, cache_write_input_tokens: 7, reasoning_tokens: 9, cost_usd: 0.25 });
+    expect(result.usage).toEqual({ input_tokens: 123, output_tokens: 0,
+      cached_input_tokens: 0, cache_write_input_tokens: 7, reasoning_tokens: 9, cost_usd: 0 });
+  });
+
+  test.each(['length', 'tool_use', 'stop', { status: 'success' }])('rejects unsupported normalized stop reason %p', async stopReason => {
+    const result = await streamWithRecovery(fakeAnthropic(textStream('Retained draft', { stopReason })), {}, {});
+    expect(result).toMatchObject({ text: 'Retained draft', terminalReceived: true,
+      error: { code: 'E_PROVIDER_INCOMPLETE' }, timedOut: false });
+  });
+
   test('assembles content_block_delta text and captures usage from message_start/message_delta', async () => {
     const result = await streamWithRecovery(fakeAnthropic(textStream('Hello world', { usage: { input_tokens: 12, output_tokens: 34 } })), {}, {});
     expect(result.text).toBe('Hello world');
@@ -1468,6 +1595,61 @@ describe('local module briefing generation', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
+  test('a hung invalid draft is retained without corrective or model fallback calls', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'blueteam-adapter-partial-'));
+    try {
+      getConfigMock.mockReturnValue({ analysisSettings: { generationTimeoutSec: 0.02 }, horizons: {}, organization: {} });
+      const stream = jest.fn(() => ({ [Symbol.asyncIterator]: () => ({
+        next: jest.fn().mockResolvedValueOnce({ value: { type: 'content_block_delta', delta: {
+          text: GOOD_BRIEF.replace('It matters to the floor today.', 'CVE-2099-9999 is exploited.'),
+        } } }).mockImplementation(() => new Promise(() => {})),
+        return: () => new Promise(() => {}),
+      }) }));
+      ctx = await makeServer({ historyDir: directory,
+        getAiClient: () => ({ provider: 'fixture', model: 'first-model', fallbackModel: 'other-model', stream }) });
+      const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      expect(events.some(event => event.briefComplete)).toBe(false);
+      expect(events.find(event => event.error)).toMatchObject({ awaitingReview: true, draftArtifact: { id: expect.any(String) } });
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(saveBriefMock).not.toHaveBeenCalled();
+      const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+      expect(status.active).toBe(false);
+      expect(status.latest.attempts).toHaveLength(1);
+      expect(status.latest.attempts[0]).toMatchObject({ timedOut: true, usageComplete: false });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  test('an empty timed-out scheduled attempt stays blocked after router restart while a manual run is explicit', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'blueteam-adapter-timeout-'));
+    try {
+      getConfigMock.mockReturnValue({ analysisSettings: { generationTimeoutSec: 0.02 }, horizons: {}, organization: {} });
+      const stream = jest.fn(() => ({ [Symbol.asyncIterator]: () => ({
+        next: () => new Promise(() => {}), return: () => new Promise(() => {}),
+      }) }));
+      const client = { provider: 'local-fixture', model: 'local-model', fallbackModel: 'other-model', stream };
+      const options = { historyDir: directory, getAiClient: () => client, scheduledJobToken: 'fixture-token' };
+      const request = { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-blueteam-scheduled-token': 'fixture-token' },
+        body: JSON.stringify({ scheduledJob: { jobKey: 'daily-brief:2026-07-02', editionDate: '2026-07-02', timezone: 'local' } }) };
+      ctx = await makeServer(options);
+      const first = await readSSE(await fetch(`${ctx.base}/api/brief`, request));
+      expect(first.find(event => event.error)?.error).toMatch(/timed out/);
+      expect(stream).toHaveBeenCalledTimes(1);
+      const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+      expect(status.active).toBe(false);
+      expect(status.latest).toMatchObject({ status: 'failed', billing: 'unknown-final-usage', attempts: [{ timedOut: true }] });
+      await new Promise(resolve => ctx.server.close(resolve));
+      ctx = await makeServer(options);
+      const repeated = await readSSE(await fetch(`${ctx.base}/api/brief`, request));
+      expect(repeated.find(event => event.error)?.code).toBe('E_GENERATION_AMBIGUOUS');
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(saveBriefMock).not.toHaveBeenCalled();
+      stream.mockImplementation(textStream(GOOD_BRIEF));
+      const manual = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      expect(manual.some(event => event.briefComplete)).toBe(true);
+      expect(stream).toHaveBeenCalledTimes(2);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   test.each([0, 0.0123])('uses an unknown provider and its reported cost %s without provider-specific params', async cost => {
     const client = {
       provider: 'local-fixture', model: 'local-model',
@@ -1489,6 +1671,52 @@ describe('local module briefing generation', () => {
     const manifest = saveBriefMock.mock.calls[0][2].manifest;
     expect(manifest.providerAttempts[0]).toMatchObject({ provider: 'local-fixture', responseModel: 'local-model-v2', costUsd: cost, pricing: { basis: 'Provider-reported cost' } });
     expect(manifest.costEstimate.usd).toBe(cost);
+    expect(manifest.generationSettings).toMatchObject({ thinkingEffort: 'low',
+      thinkingConfiguration: { requestedEffort: 'low', configuredBy: 'adapter-default', requestEffort: null } });
+    expect(manifest.providerAttempts[0].thinkingConfiguration).toEqual(manifest.generationSettings.thinkingConfiguration);
+  });
+
+  test('retains final-only usage in receipt, cost estimate and durable status', async () => {
+    const client = { provider: 'local-fixture', model: 'gpt-5.3-codex',
+      configureRequest(params, { effort }) { params.reasoning = { effort }; },
+      stream: jest.fn(async function* () {
+        yield { type: 'content_block_delta', delta: { text: GOOD_BRIEF } };
+        yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {
+          input_tokens: 123, output_tokens: 45, input_tokens_details: { cached_tokens: 10 },
+        } };
+        yield { type: 'message_stop' };
+      }),
+    };
+    ctx = await makeServer({ getAiClient: () => client });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const expectedCost = estimateCostUsd(client.model, 123, 45, undefined, 10);
+    expect(events.find(event => event.briefComplete)).toMatchObject({ tokens: 168, costUsd: expectedCost });
+    const manifest = saveBriefMock.mock.calls[0][2].manifest;
+    expect(manifest.providerAttempts[0]).toMatchObject({ usage: { inputTokens: 123, outputTokens: 45, cachedInputTokens: 10 },
+      costUsd: expectedCost, thinkingConfiguration: { requestedEffort: 'low', configuredBy: 'adapter-hook', requestEffort: 'low' } });
+    const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+    expect(status.latest.attempts[0]).toMatchObject({ usage: { inputTokens: 123, outputTokens: 45 }, costUsd: expectedCost });
+  });
+
+  test('does not publish or automatically retry an unsupported completion reason', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'blueteam-adapter-contract-'));
+    try {
+      const stream = jest.fn(async function* () {
+        yield { type: 'content_block_delta', delta: { text: GOOD_BRIEF } };
+        yield { type: 'message_delta', delta: { stop_reason: 'length' }, usage: { input_tokens: 123, output_tokens: 45 } };
+        yield { type: 'message_stop' };
+      });
+      ctx = await makeServer({ historyDir: directory, getAiClient: () => ({ provider: 'fixture', model: 'fixture-model', stream }) });
+      const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      expect(events.some(event => event.briefComplete)).toBe(false);
+      expect(events.find(event => event.error)?.error).toContain('unsupported stop reason');
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(saveBriefMock).not.toHaveBeenCalled();
+      const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+      expect(status.latest).toMatchObject({ status: 'failed', billing: 'unknown-final-usage' });
+      expect(status.latest.attempts[0]).toMatchObject({ status: 'failed', usageComplete: false,
+        usage: { inputTokens: 123, outputTokens: 45 } });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
   test.each(['', GOOD_BRIEF, GOOD_BRIEF.replace('It matters to the floor today.', 'CVE-2099-9999 is exploited.')])('retains a local provider reason before or after output', async content => {

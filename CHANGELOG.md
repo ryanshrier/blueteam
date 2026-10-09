@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Preserve CVE/score associations across soft line wraps and explicit trailing CVE parentheses, while rejecting ambiguous objects and scores borrowed from adjacent vulnerabilities. Locate score blockers on the affected draft line and link their captured evidence.
+- Enforce normalized Custom provider completion reasons, retain usage reported at the end of a stream, and record how reasoning requests were configured for each attempt.
+- Bound provider iteration and cleanup waits, preserve interrupted drafts and uncertain outcomes, and prevent automatically purchasing the same scheduled attempt again after a timeout. Document CLI adapter requirements, including corrective conversations and IBM Bob output handling.
+
 ## 1.3.1 — 2026-10-09
 
 - Correct CVSS version/score parsing, parenthetical CVE associations, shortened CVE lists, and equivalent product-version wording. Preserve exact supporting citations, provenance, and actionable retry guidance while rejecting unsupported scores, deadlines, and exploitation claims.

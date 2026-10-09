@@ -9,6 +9,23 @@ const start = jobs => jobs.start({ id: 'generation-1', editionDate: '2026-09-05'
 const attempt = { model: 'claude-sonnet-5', systemPromptSha256: 'a'.repeat(64), messagesSha256: 'b'.repeat(64), pricing: { asOf: '2026-09-05', perMillionTokens: { input: 2, output: 10 } }, system: 'private prompt sk-ant-secret', messages: [{ role: 'user', content: 'private sources' }] };
 
 describe('durable generation accounting', () => {
+  test('a finished timeout blocks the same scheduled purchase after restart but allows an explicit manual run', () => {
+    const db = storage();
+    const first = createGenerationJobs({ ...db, sessionId: 'process-1' });
+    start(first);
+    first.startAttempt('generation-1', attempt);
+    first.finishAttempt('generation-1', 1, { timedOut: true, failed: false });
+    first.finish('generation-1', { status: 'failed', code: 'E_GENERATION_FAILED' });
+    const restarted = createGenerationJobs({ ...db, sessionId: 'process-2' });
+    expect(restarted.status().latest).toMatchObject({ status: 'failed', billing: 'unknown-final-usage',
+      attempts: [{ timedOut: true, usageComplete: false }] });
+    expect(() => restarted.start({ id: 'automatic-retry', editionDate: '2026-09-05',
+      scheduledJobKey: 'daily-brief:2026-09-05' })).toThrow(/unknown outcome/);
+    expect(() => restarted.start({ id: 'manual-retry', editionDate: '2026-09-05' })).not.toThrow();
+    expect(() => restarted.start({ id: 'next-day', editionDate: '2026-09-06',
+      scheduledJobKey: 'daily-brief:2026-09-06' })).not.toThrow();
+  });
+
   test('restart exposes interrupted status and known usage, without replaying an ambiguous paid edition', () => {
     const db = storage();
     const firstProcess = createGenerationJobs({ ...db, sessionId: 'process-1' });

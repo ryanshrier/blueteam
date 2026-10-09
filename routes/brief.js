@@ -125,6 +125,18 @@ export function applyThinking(params, model, effort, client = {}) {
   }
 }
 
+// These are request facts, not a claim that a remote model used reasoning.
+function thinkingConfiguration(params, requestedEffort, client) {
+  const explicitEffort = params.reasoning?.effort || params.output_config?.effort
+    || (params.thinking?.type === 'disabled' ? 'off' : null);
+  return {
+    requestedEffort,
+    configuredBy: typeof client.configureRequest === 'function' ? 'adapter-hook'
+      : typeof client.stream === 'function' ? 'adapter-default' : 'built-in',
+    requestEffort: typeof explicitEffort === 'string' ? explicitEffort.slice(0, 32) : null,
+  };
+}
+
 function reducedRecoveryThinkingEffort(effort) {
   return effort === 'low' || effort === 'off' ? 'off' : 'low';
 }
@@ -241,6 +253,8 @@ export function buildGroundTruth(run) {
 export async function streamWithRecovery(client, params, { timeoutMs = 180_000, onChunk, onUsage } = {}) {
   let fullText = '';
   let stream;
+  let iterator;
+  let iterationComplete = false;
   let timedOut = false;
   let streamError = null;
   let stopReason = null;
@@ -251,6 +265,22 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
   const boundedTimeoutMs = Math.max(1, Number(timeoutMs) || 1);
   const timeoutMarker = Symbol('generation-timeout');
   let genTimeout;
+  const closeIterator = value => {
+    // A subprocess adapter may never settle return() while next() is pending.
+    // Request cleanup without letting it hold the HTTP request or generation lock.
+    Promise.resolve().then(() => typeof value?.return === 'function' ? value.return() : undefined).catch(() => {});
+  };
+  const abortStream = value => {
+    try { value?.controller?.abort(); } catch { /* best effort */ }
+  };
+  const deadline = new Promise(resolve => {
+    genTimeout = setTimeout(() => {
+      timedOut = true;
+      abortController.abort();
+      abortStream(stream);
+      resolve(timeoutMarker);
+    }, boundedTimeoutMs);
+  });
 
   try {
     const streamResult = await Promise.race([
@@ -258,15 +288,15 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
         signal: abortController.signal,
         timeout: boundedTimeoutMs,
         maxRetries: 0,
-      })),
-      new Promise(resolve => {
-        genTimeout = setTimeout(() => {
-          timedOut = true;
-          abortController.abort();
-          try { stream?.controller?.abort(); } catch { /* best effort */ }
-          resolve(timeoutMarker);
-        }, boundedTimeoutMs);
+      })).then(opened => {
+        if (timedOut) {
+          abortStream(opened);
+          try { closeIterator(opened?.[Symbol.asyncIterator]?.() || opened?.[Symbol.iterator]?.()); }
+          catch { /* late stream setup cannot undo the timeout */ }
+        }
+        return opened;
       }),
+      deadline,
     ]);
     if (streamResult === timeoutMarker) {
       log.warn('stream', `Generation timeout (${boundedTimeoutMs / 1000}s) before the stream opened`);
@@ -275,51 +305,67 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
     stream = streamResult;
   } catch (err) {
     clearTimeout(genTimeout);
-    return { text: fullText, error: err, timedOut: false, usage };
+    return { text: fullText, error: timedOut ? null : err, timedOut, usage };
   }
 
   try {
-    for await (const event of stream) {
+    iterator = stream?.[Symbol.asyncIterator]?.() || stream?.[Symbol.iterator]?.();
+    if (!iterator || typeof iterator.next !== 'function') throw new Error('Provider returned no iterable response stream.');
+    while (true) {
+      // Racing every next() also bounds adapters that ignore AbortSignal. Late
+      // settlements are observed by Promise.race but cannot append output/usage.
+      const next = await Promise.race([Promise.resolve().then(() => iterator.next()), deadline]);
+      if (timedOut || next === timeoutMarker) break;
+      if (next.done) { iterationComplete = true; break; }
+      const event = next.value;
       if (event.type === 'content_block_delta' && event.delta?.text) {
         fullText += event.delta.text;
         if (onChunk) onChunk(event.delta.text, fullText);
       }
-      if (event.type === 'message_start' && event.message?.usage) {
-        usage.input_tokens = event.message.usage.input_tokens || 0;
-        usage.output_tokens = event.message.usage.output_tokens || 0;
-        if (event.message.usage.input_tokens_details) usage.cached_input_tokens = event.message.usage.input_tokens_details.cached_tokens || 0;
-        if (Number.isFinite(event.message.usage.input_tokens_details?.cache_write_tokens)) usage.cache_write_input_tokens = event.message.usage.input_tokens_details.cache_write_tokens;
-        if (event.message.usage.output_tokens_details) usage.reasoning_tokens = event.message.usage.output_tokens_details.reasoning_tokens || 0;
-      }
       if (event.type === 'message_start' && typeof event.message?.model === 'string') {
         responseModel = event.message.model.slice(0, 128);
       }
-      if (event.type === 'message_delta' && event.usage?.output_tokens) {
-        usage.output_tokens = event.usage.output_tokens;
-      }
       const reportedUsage = event.type === 'message_start' ? event.message?.usage : event.usage;
-      if (Number.isFinite(reportedUsage?.cost_usd) && reportedUsage.cost_usd >= 0) usage.cost_usd = reportedUsage.cost_usd;
+      // Either normalized usage event may supply cumulative counts. Omitted or
+      // invalid fields must not erase a previous checkpoint; explicit zero is valid.
+      for (const [field, value] of Object.entries({
+        input_tokens: reportedUsage?.input_tokens, output_tokens: reportedUsage?.output_tokens,
+        cached_input_tokens: reportedUsage?.input_tokens_details?.cached_tokens,
+        cache_write_input_tokens: reportedUsage?.input_tokens_details?.cache_write_tokens,
+        reasoning_tokens: reportedUsage?.output_tokens_details?.reasoning_tokens,
+        cost_usd: reportedUsage?.cost_usd,
+      })) {
+        if (Number.isFinite(value) && value >= 0) usage[field] = value;
+      }
       if (event.type === 'message_delta' && event.delta?.stop_reason) {
         stopReason = event.delta.stop_reason;
       }
       if (event.type === 'message_stop') terminalReceived = true;
       if (onUsage && ((event.type === 'message_start' && event.message?.usage)
         || (event.type === 'message_delta' && event.usage))) onUsage({ ...usage }, responseModel);
+      // The normalized terminal event confirms completion. Waiting for another
+      // next() would let subprocess cleanup turn a completed answer into a timeout,
+      // or append data after the terminal boundary. Validate its reason below.
+      if (terminalReceived) break;
     }
     if (!timedOut && (!terminalReceived || !stopReason)) {
       throw Object.assign(new Error('Provider stream ended before verified completion.'), { code: 'E_PROVIDER_INCOMPLETE' });
+    }
+    if (!timedOut && !['end_turn', 'max_tokens', 'refusal'].includes(stopReason)) {
+      throw Object.assign(new Error('Provider returned an unsupported stop reason. The adapter must report end_turn, max_tokens, or refusal.'), { code: 'E_PROVIDER_INCOMPLETE' });
     }
   } catch (err) {
     if (!timedOut) {
       streamError = err;
       abortController.abort();
-      try { stream?.controller?.abort(); } catch { /* stop paid work after checkpoint failure */ }
+      abortStream(stream);
       log.warn('stream', `Stream interrupted: ${err.message}${err.status ? ` (HTTP ${err.status})` : ''}`);
     }
   } finally {
     clearTimeout(genTimeout);
+    if (!iterationComplete) closeIterator(iterator);
     if (timedOut) {
-      log.warn('stream', `Generation timeout (${boundedTimeoutMs / 1000}s) — partial draft discarded`);
+      log.warn('stream', `Generation timeout (${boundedTimeoutMs / 1000}s) — provider completion remains unverified`);
     }
   }
 
@@ -856,8 +902,10 @@ export function createBriefRouter({
         messages: [{ role: 'user', content: userPrompt }],
       };
       const thinkingEffort = s.thinkingEffort || 'low';
+      let requestedThinkingEffort = thinkingEffort;
       applyThinking(modelParams, preferredModel, thinkingEffort, client);
       generationManifest.generationSettings.thinkingEffort = modelParams.reasoning?.effort || thinkingEffort;
+      generationManifest.generationSettings.thinkingConfiguration = thinkingConfiguration(modelParams, thinkingEffort, client);
 
       const onChunk = (chunk) => { recoveryContent += chunk; send({ text: chunk, seq: chunkSeq++ }); };
       let providerAttemptCount = 0;
@@ -867,6 +915,7 @@ export function createBriefRouter({
         providerAttemptCount++;
         const attempt = recordProviderAttempt(generationManifest, modelParams);
         attempt.provider = provider;
+        attempt.thinkingConfiguration = thinkingConfiguration(modelParams, requestedThinkingEffort, client);
         attempt.pricing = { asOf: '2026-09-05', perMillionTokens: modelPrice(attempt.model) };
         jobs.startAttempt(generationJobId, attempt);
         res.locals.briefGenerationAttempted = true;
@@ -1033,6 +1082,7 @@ export function createBriefRouter({
         )).map(issue => issue.message);
         if (stoppedAtOutputLimit) {
           const recoveryEffort = reducedRecoveryThinkingEffort(thinkingEffort);
+          requestedThinkingEffort = recoveryEffort;
           applyThinking(modelParams, modelUsed, recoveryEffort, client);
           log.warn('brief', `Output-token recovery retry (${thinkingEffort} → ${recoveryEffort} thinking)`);
           send({ reset: true, progress: 'Retrying — requesting a shorter draft to complete every section...', stage: 'generating' });

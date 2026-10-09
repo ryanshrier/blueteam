@@ -92,6 +92,18 @@ Without a health hook, Check status returns `valid: null` and a note that the mo
 
 For failures, throw an `Error` with an optional operator-safe `reason`, such as `gateway timeout (524)`, and numeric `status`. The reason is retained in generation failures even when the underlying command uses silent logging. Never include credentials in diagnostics. A module path or implementation change requires a server restart; switching between already configured providers in Settings does not.
 
+### Adapting a command-line assistant
+
+A CLI wrapper must forward `params.system` and **every** item in `params.messages`, in order. A corrective retry includes the original input, the rejected assistant draft, and a new user message with located findings and captured facts. Forwarding only the first user message repeats the original request and loses the repair instructions. Send large prompts through stdin or another supported input channel without shell interpolation or silent truncation.
+
+Parse the tool's machine-readable final result rather than its terminal presentation. Emit only the completed briefing as text; progress messages, reasoning, tool logs, and intermediate drafts are separate output. A successful process exit alone does not establish a completed model response. Normalize completion to `end_turn`, `max_tokens`, or `refusal`; an unsupported reason is an incomplete provider response. Report cumulative usage whether it arrives at the beginning or end of the stream, and report `cost_usd` only when its currency and amount are known.
+
+For IBM Bob Shell, consult the documentation matching the installed CLI version. The current [non-interactive interface](https://bob.ibm.com/docs/shell/getting-started/start-bobshell-non-interactive) documents `bob run --format json` / `stream-json`, a final result status, `last_message`, and token statistics. Its cost limit is denominated in Bobcoins; do not assume a Bob cost value is USD. Bob's unattended mode can invoke tools, so configure the wrapper's workspace, tool access, MCP, and session behavior deliberately for synthesis from the captured input. Reusing an unrelated agent session or fetching additional evidence breaks the correspondence with the application's saved input receipt.
+
+The module must still honor cancellation, including terminating any child process it owns. The application bounds how long it waits for the stream, but cannot guarantee that arbitrary trusted module code stops external work. A timed-out scheduled attempt retains an uncertain outcome and is not automatically purchased again for the same scheduled job; inspect the job and provider usage before explicitly starting another generation.
+
+Receipts retain the configured `thinkingEffort` and add `thinkingConfiguration` for each attempt. This distinguishes an adapter hook, adapter defaults, and built-in request configuration. `requestEffort` records a request field when present; it does not certify the model's actual reasoning behavior. A Custom module without `configureRequest` controls its own defaults.
+
 Saved draft revalidation makes no provider call. It automatically normalizes equivalent standalone no-intersection sentences and inserts blank lines between adjacent list items before checking the captured evidence. Repairs are saved as a new revision; the original draft and its inputs remain available. Dates, citations, and substantive claims still require operator correction when unsupported.
 
 ## Runtime Settings
