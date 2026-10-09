@@ -427,6 +427,48 @@ describe('Wall mounted playback and recovery', () => {
     expect(document.getElementById('nbSlug').textContent).toBe('THE WIRE');
   });
 
+  test('a wrapped continuation folio cannot trap traversal before the next topic', async () => {
+    window.location.search = '';
+    const title = 'A long saved headline wraps in the narrow continuation folio';
+    fetchLandscape.mockImplementation(async () => snapshot({ signals: [
+      { title, description: 'The complete first report remains available.', horizon: 1 },
+      { title: 'The next saved report', description: 'The next topic is reachable.', horizon: 2 },
+    ] }));
+    const body = document.getElementById('nbBody');
+    const slug = document.getElementById('nbSlug');
+    let scrollTop = 0, text = '';
+    body.scrollHeight = 662;
+    Object.defineProperty(body, 'clientHeight', { get: () => text === title ? 552 : 571 });
+    Object.defineProperty(body, 'scrollTop', {
+      get: () => scrollTop,
+      set: value => { scrollTop = Math.max(0, Math.min(value, body.scrollHeight - body.clientHeight)); },
+    });
+    Object.defineProperty(slug, 'textContent', {
+      get: () => text,
+      set: value => {
+        text = value;
+        // Browser reflow clamps the scroll range when the short section label
+        // replaces a wrapped topic. This reproduced the handset traversal loop.
+        scrollTop = Math.min(scrollTop, body.scrollHeight - body.clientHeight);
+      },
+    });
+    mount(document.getElementById('wallLayer'));
+    await jest.advanceTimersByTimeAsync(0);
+    expect(body.innerHTML).toContain(title);
+    key('ArrowRight');
+    expect(body.scrollTop).toBe(91);
+    expect(slug.textContent).toBe(title);
+    key('ArrowRight');
+    expect(body.scrollTop).toBe(110);
+    expect(slug.textContent).toBe(title);
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(body.scrollTop).toBe(110);
+    expect(slug.textContent).toBe(title);
+    key('ArrowRight');
+    expect(body.scrollTop).toBe(0);
+    expect(body.innerHTML).toContain('The next saved report');
+  });
+
   test('passive footer includes a real reading link tied to the displayed archived judgment during continuations', async () => {
     window.location.search = '';
     fetchLandscape.mockImplementation(async () => snapshot({ brief: { filename: 'brief-2026-08-30.md', date: '2026-08-30' } }));

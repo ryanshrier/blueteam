@@ -176,14 +176,36 @@ try {
   await until('document.querySelector(".np-frame")?.contentDocument?.querySelector(".np-colophon") && !document.querySelector(".np-ov-print").disabled');
   assert(await client.execute('return document.querySelector(".np-overlay-reading-note").textContent.includes("Continuous reading preview") && document.querySelector(".np-frame").title.includes("continuous reading preview");'), 'Safari preview distinguishes continuous reading from print pagination');
   const edition = await client.execute(`const frame = document.querySelector('.np-frame'); const doc = frame.contentDocument; return {
-    warnings:[...doc.querySelectorAll('.np-validation li')].map(e=>e.textContent.trim()),
+    readerText:doc.body.innerText, qualifications:[...doc.querySelectorAll('#npCurrentQualifications li')].map(e=>e.innerText.trim()),
     headings:[...doc.querySelectorAll('h2,h3')].map(e=>e.textContent.trim()),
+    recordLinks:[...doc.querySelectorAll('.np-colophon a')].filter(e=>e.hash === '#edition-record').map(e=>({ href:e.href, text:e.innerText.trim() })),
     width:frame.clientWidth, scrollWidth:doc.documentElement.scrollWidth, fonts:[...doc.fonts].filter(f=>f.status==='loaded').map(f=>f.family),
     colophon:doc.querySelector('.np-colophon').textContent.trim(), supportDisclosures:doc.querySelectorAll('.brief-judgment-support').length };`);
-  assert.equal(edition.warnings.length, 2, 'Safari Print Edition preserves saved review notes');
+  const materialQualification = 'Synthetic qualification: local exposure remains unverified.';
+  const editorialNote = 'Synthetic editorial note: normalize the confidence field.';
+  const historicalNote = 'Synthetic review note: verify the fictional gateway deadline before distribution.';
+  assert.equal(edition.readerText.split(materialQualification).length - 1, 1, 'Safari retains the current reader qualification exactly once, inline or in the unplaced-findings appendix');
+  assert(edition.qualifications.every(message => message === materialQualification), 'Only unplaced current reader findings enter the Safari print appendix');
+  assert(!edition.readerText.includes(editorialNote), 'Routine diagnostic stays in the edition record');
+  assert(!edition.readerText.includes(historicalNote), 'Historical finding stays in the edition record');
+  for (const qualification of [
+    'Their installed builds and public reachability still require verification within the exercise.',
+    'A resulting response delay is an analytical inference that the next exercise must test.',
+    'There is no completed exercise series showing that this proposal improves assurance.',
+  ]) assert(edition.readerText.includes(qualification), `Safari preserves authored uncertainty: ${qualification}`);
+  for (const source of ['Synthetic vendor advisory', 'Synthetic incident report', 'Synthetic exercise planning note']) {
+    assert(edition.readerText.includes(source), `Safari retains the source attribution: ${source}`);
+  }
+  assert(!/Internal ·|Verify before acting|Verify every CVE|review before distribution/.test(edition.readerText), 'Safari print invents no handling restriction or generic distribution hold');
+  assert.equal((edition.readerText.match(/AI-generated/g) || []).length, 1, 'Safari retains one quiet AI disclosure');
+  assert(edition.colophon.includes('AI-generated synthesis from sourced signals.'), 'Safari accurately identifies the published copy');
+  assert.equal(edition.recordLinks.length, 1, 'Safari links the edition record once from the colophon');
+  const recordUrl = new URL(edition.recordLinks[0].href);
+  assert.equal(recordUrl.origin, origin, 'The edition record link stays on the fixture origin');
+  assert.match(recordUrl.pathname, /^\/briefing\/brief-\d{4}-\d{2}-\d{2}-handoff\.md$/, 'The record belongs to this permanent synthetic edition');
+  assert.equal(edition.recordLinks[0].text, 'Edition record and sources', 'The record link has a meaningful label');
   assert(edition.fonts.length > 0, 'Safari loads print fonts');
   assert(edition.scrollWidth <= edition.width + 1, 'Safari Print Edition fits the iframe');
-  assert(edition.colophon.includes('Verify every CVE ID'), 'Safari retains the print verification footer');
   assert.equal(edition.supportDisclosures, 0, 'Print includes supporting evidence without collapsed reader disclosures');
   for (const label of ['Executive summary', 'Developing situations', 'Convergence', 'Watchlist', 'Sources']) {
     assert(edition.headings.some(value => value.toLowerCase().includes(label.toLowerCase())), `Safari print preview contains ${label}`);
@@ -201,7 +223,7 @@ try {
     const top = box.top + frame.clientTop + footer.top, bottom = top + footer.height;
     const overlay = document.querySelector('.np-overlay').getBoundingClientRect();
     return footer.height > 0 && top >= Math.max(0, box.top + frame.clientTop, overlay.top) - 1
-      && bottom <= Math.min(innerHeight, box.bottom, overlay.bottom) + 1; })()`, 'actual Print Edition verification footer is fully visible after scrolling');
+      && bottom <= Math.min(innerHeight, box.bottom, overlay.bottom) + 1; })()`, 'actual Print Edition provenance and record footer is fully visible after scrolling');
   report.edition.endPosition = await client.execute(`const frame = document.querySelector('.np-frame'), doc = frame.contentDocument, overlay = document.querySelector('.np-overlay');
     const footer = doc.querySelector('.np-colophon').getBoundingClientRect(); return { innerScrollTop:doc.scrollingElement.scrollTop,
       outerScrollTop:overlay.scrollTop, frameTop:frame.getBoundingClientRect().top, frameHeight:frame.clientHeight,
@@ -210,6 +232,13 @@ try {
   await record('print-preview-end');
   await client.click('.np-ov-close');
   assert(await client.execute('return !document.querySelector(".np-overlay") && document.activeElement.id === "briefExport";'), 'Safari closes Print Edition and restores its opener');
+  await client.click('#edition-record > summary');
+  await until('document.querySelector("#edition-record").open', 'the retained edition record opens');
+  assert(await client.execute('return document.querySelector("#edition-record").innerText.includes(arguments[0]);', [editorialNote]), 'Routine diagnostic remains readable in the current edition record');
+  await client.click('#edition-record details > summary');
+  assert(await client.execute('return document.querySelector("#edition-record").innerText.includes(arguments[0]);', [historicalNote]), 'Historical finding remains readable in its disclosed record');
+  assert(await client.execute('return document.querySelector("#edition-record").innerText.includes("These records describe an earlier revision or historical metadata.");'), 'Safari distinguishes historical findings from current checks');
+  await record('briefing-edition-record');
 
   await navigate(origin + '/settings?scenario=normal&theme=dark&capture&reducedMotion');
   await until('document.querySelector("#profileTechnologies")?.value === "Gateway" && document.querySelector("#systemHealth")?.textContent.includes("42")');

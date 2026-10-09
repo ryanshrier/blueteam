@@ -976,6 +976,15 @@ function refreshReadingStops(rearm = false) {
   }
 }
 
+function displayedFolioLabel() {
+  const label = SECTION_LABELS[displayedPage.kind] || 'Cyber Defense Intelligence';
+  // A wrapped topic changes the available reading height on narrow screens.
+  // Both pager and liveness updates must keep it stable while scrolled, even
+  // when remeasured stops put this offset before the new first stop.
+  return isPresentation() && (document.getElementById('nbBody')?.scrollTop || 0) > 2
+    ? displayedPage.topic || label : label;
+}
+
 function reflectPager() {
   if (!displayedPage) return;
   const body = document.getElementById('nbBody');
@@ -992,9 +1001,7 @@ function reflectPager() {
     const position = Math.max(0, topics.indexOf(topicKey(displayedPage))) + 1;
     const continuation = displayedPage.parts > 1 ? ` · Response ${displayedPage.part + 1}/${displayedPage.parts}` : '';
     setText('nbTopicPosition', `Topic ${String(position).padStart(2, '0')} / ${topics.length}${continuation}${part}`);
-    // Keep the section identity while the headline is visible. On a scrolled
-    // continuation, move the full topic into the folio to preserve context.
-    setText('nbSlug', index > 0 ? displayedPage.topic || SECTION_LABELS[displayedPage.kind] : SECTION_LABELS[displayedPage.kind]);
+    setText('nbSlug', displayedFolioLabel());
   }
   const availableIndex = availablePages.findIndex(page => pageKey(page) === pageKey(displayedPage));
   const oldEdition = BRIEF_KINDS.has(displayedPage.kind) && displayedPage.briefFile !== briefDoc?.filename;
@@ -1102,7 +1109,7 @@ function reflectPageMetadata() {
   const briefKind = BRIEF_KINDS.has(displayedPage.kind);
   const stale = briefKind && isBriefStale(displayedPage.briefDate, displayedPage.briefGeneratedAt);
   if (slugEl) {
-    slugEl.textContent = SECTION_LABELS[displayedPage.kind] || 'Cyber Defense Intelligence';
+    slugEl.textContent = displayedFolioLabel();
     slugEl.dataset.status = 'live'; // Edition age belongs to its dated stamp.
   }
   setText('nbSubject', displayedPage.topicText || topicLabel(displayedPage, briefDoc, landscape));

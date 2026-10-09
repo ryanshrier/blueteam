@@ -3,7 +3,7 @@
 ## 1.3.1 — 2026-10-09
 
 - Correct CVSS version/score parsing, parenthetical CVE associations, shortened CVE lists, and equivalent product-version wording. Preserve exact supporting citations, provenance, and actionable retry guidance while rejecting unsupported scores, deadlines, and exploitation claims.
-- Rework Wall views for quick reading at a distance, with full-width responsive layouts, complete vulnerability headlines, concise takeaways, and essential operational facts. Improve laptop, ultrawide, 1080p, and 4K layouts; retain meaningful uncertainty in the assessment text.
+- Rework Wall views for quick reading at a distance, with full-width responsive layouts, complete vulnerability headlines, concise takeaways, and essential operational facts. Improve laptop, ultrawide, 1080p, and 4K layouts; retain meaningful uncertainty in the assessment text. Prevent wrapped continuation headings from trapping narrow-screen navigation.
 - Restore JPCERT feed ingestion and require more than half of feeds to be unavailable before showing degraded collection status, while retaining stale-data warnings.
 - Add budgeted OpenAI support to the separate live evaluation harness and recognize GPT-6.1 Sol reasoning and cost estimates.
 - Separate current-copy checks, scoped approvals, operational notices, and original findings across Briefing, Wall, copy, and print. Keep material exceptions actionable in both reading modes and routine checks in the optional edition record.
