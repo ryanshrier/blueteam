@@ -37,8 +37,8 @@ For example, send `{}` as the body of `POST /api/brief` and `POST /api/refresh`.
 | `/api/ready` | `GET` | Readiness status and the same trusted diagnostics as `/api/health` |
 | `/api/health` | `GET` | Compatibility alias for readiness |
 | `/api/edition` | `GET` | Active CTI profile identity: id, title, label, and regions |
-| `/api/settings` | `GET`, `POST` | Read/update the watch profile, generation schedule, provider/model selection, and separate masked Anthropic/OpenAI keys |
-| `/api/settings/verify` | `POST` | Make a small billable request to verify a provider key and, for OpenAI, selected model access |
+| `/api/settings` | `GET`, `POST` | Read/update the watch profile, generation schedule, provider/model selection, and separate masked Anthropic/OpenAI keys; select an environment-configured experimental Custom module |
+| `/api/settings/verify` | `POST` | Make a small billable request to verify a built-in provider key and, for OpenAI, model access; for experimental Custom, call the optional module health hook instead |
 | `/embed` | `GET` | Headerless signal strip for an iframe; supports `tier`, `limit`, and `theme` query parameters |
 
 ## Generation stream
@@ -49,13 +49,15 @@ The route permits only one in-process generation at a time and applies a short c
 
 `GET /api/brief/status` returns `persistence`, `active`, `latest`, and a bounded `jobs` list. Each paid attempt is recorded before its provider call, with model, prompt hashes, usage checkpoints, estimated cost, and final outcome. No prompts, source excerpts, provider credentials, or raw provider errors are retained in this ledger. Trusted health diagnostics also include a compact `generation` summary. The stream announces its `generationId` and status URL before starting paid work.
 
+A finite nonnegative `usage.cost_usd` reported by the provider overrides the token-rate estimate for that attempt. Completed receipts and stream results sum the per-attempt costs, including retries; if any attempt lacks both a reported cost and a known model rate, the total is `null`. Provider-reported amounts and list-rate estimates are not a final billing statement.
+
 Clients recovering a disconnected stream must match that `generationId` in `jobs`; an unrelated `latest` job is not the result of their request. A provider response requires its terminal event and stop reason before it can be recorded as complete. An incomplete stream retains recoverable output and reports unknown final usage. Scheduled replay verifies the reserved edition's receipt, completion flags, date, and timezone; inconsistent artifacts return 409 `E_SCHEDULE_INTEGRITY` without starting another generation.
 
 After a process restart, a job without a verified matching publication is `interrupted`, with `billing: "unknown-final-usage"` and `automaticRetry: false`. Token counts and costs are only the last recorded provider usage, not a final billing statement. A verified saved manifest can reconcile a publication even if the final ledger write failed. The scheduler cannot automatically repeat an ambiguous paid attempt for the same edition; review its status and provider usage before explicitly requesting another manual generation. Initial ledger failure stops generation before a provider call; later checkpoint failures stop further attempts and surface a storage error. This endpoint reports status; it does not replay the stream or resume a discarded draft.
 
 ## AI provider settings
 
-Trusted clients can configure both provider keys and choose which one generates Briefings:
+Trusted clients can configure both built-in provider keys and choose which provider generates Briefings:
 
 ```json
 {
@@ -67,7 +69,7 @@ Trusted clients can configure both provider keys and choose which one generates 
 
 Send this body to `POST /api/settings`. Use `aiProvider: "anthropic"` and `anthropicKey` for Anthropic. Omitted keys remain unchanged; an empty key string removes that saved key. Both keys can be stored at once. Environment keys override saved keys for the same provider and cannot be removed through this endpoint. Saved provider/model choices override `AI_PROVIDER` and `OPENAI_MODEL` defaults. See [Configuration](configuration.md#environment-variables).
 
-`GET /api/settings` returns the effective `ai.provider`, `ai.model`, `ai.enabled`, `ai.keySource`, and masked `ai.keyMasked`. Trusted responses also include `ai.providers.anthropic` and `ai.providers.openai`, each with `enabled`, `keySource`, `keyMasked`, and `model`. Raw keys are never returned.
+`GET /api/settings` returns the effective `ai.provider`, `ai.model`, `ai.enabled`, `ai.keySource`, and masked `ai.keyMasked`. Trusted responses also include `ai.providers.anthropic`, `ai.providers.openai`, and `ai.providers.custom`. Each reports `enabled`, `keySource`, and `keyMasked`, plus `model` when available. Custom uses `keyMasked: null`; `keySource` is `"env"` when a module was loaded, otherwise `null`. Its `enabled` flag means the factory returned a valid client, not that health or credentials were verified. Raw keys, the module path, and client version are not returned here.
 
 To verify OpenAI before saving:
 
@@ -80,6 +82,10 @@ To verify OpenAI before saving:
 ```
 
 Send this body to `POST /api/settings/verify`. Omit the key to use the effective environment or saved key. Anthropic accepts `provider: "anthropic"` with optional `anthropicKey`. For compatibility, omitting `provider` selects Anthropic unless `openaiKey` is supplied. Verification does not save settings. OpenAI verification and generation call the Responses API; Codex CLI and ChatGPT subscription logins are not accepted.
+
+**Custom (local module) is experimental; its contract may change.** Select it with `{ "aiProvider": "custom" }` in `POST /api/settings` after configuring `AI_PROVIDER_MODULE` in the server environment and restarting. Modules run trusted code with the server's permissions and read credentials from the environment; this API cannot set the module path or store module credentials. See the [local provider contract](configuration.md#local-provider-modules).
+
+For a module status check, send `{ "provider": "custom" }` to `POST /api/settings/verify`. Do not include `anthropicKey`, `openaiKey`, or `openaiModel`; those fields return HTTP 400 `E_KEYFMT`. The application calls the optional `health({ signal })` hook with a 15-second deadline and never calls `stream`. Results contain `valid: true | false | null` and optional `note`, `error`, and `version` strings. A missing or invalid client returns `valid: false`; a missing hook, timeout, or thrown hook error returns `valid: null`. Without a hook, the note includes the client's version when available. Hook results and diagnostics are bounded and scrubbed for common credential forms, but modules must still keep secrets out of them. The hook defines its own network behavior; the application does not perform a built-in verification request for Custom.
 
 ## Watch profile and applicability
 
@@ -161,6 +167,8 @@ It is disabled by default whenever `API_SECRET` is set because an iframe cannot 
 Use `/api/live` for process supervision and `/api/ready` for traffic readiness. `/api/health` remains a compatibility alias for readiness. All three remain reachable without a token.
 
 Liveness returns HTTP 200 while the process can serve HTTP. Readiness returns HTTP 503 when current pipeline, feed, or database state is degraded. When `API_SECRET` is configured, unauthenticated readiness callers receive only the overall `status`, including a reverse proxy connecting over loopback. Supply the valid bearer token for detailed diagnostics. With the default keyless loopback configuration, local callers receive the detailed payload.
+
+These probes do not invoke a Custom module's optional health hook. Use `POST /api/settings/verify` with `provider: "custom"` for that separate check; its result does not change the loaded client's enabled state.
 
 ## Browser request boundary
 

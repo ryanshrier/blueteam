@@ -83,9 +83,19 @@ describe('retained September 6 action parity', () => {
     const reviewed = parseBrief(fs.readFileSync(new URL('./fixtures/retained-reviewed-brief-2026-09-06.md', import.meta.url), 'utf8'));
     expect(reviewed.actions).toHaveLength(11);
     expect(reviewed.actions.every(action => action.owner && action.imperative && action.target)).toBe(true);
-    expect(reviewed.actions.filter(action => action.completionCriterion)).toHaveLength(6);
+    expect(reviewed.actions.every(action => action.completionCriterion)).toBe(true);
+    expect(reviewed.actions.map(action => action.target)).toEqual([
+      'September 6, 2026', 'September 7, 2026', 'September 6, 2026',
+      'September 6, 2026', 'September 7, 2026', 'September 6, 2026',
+      'September 7, 2026', 'September 6, 2026', 'September 7, 2026',
+      'September 6, 2026', 'September 6, 2026',
+    ]);
+    expect(reviewed.actions[2].dependencies).toContain('unmanaged/BYOD');
+    expect(reviewed.actions[4].evidence).toContain('explicit indicator gap');
+    expect(reviewed.actions[4].completionCriterion).toContain('exposure/retention-based lookback');
     const recovery = reviewed.actions.find(action => action.recoverySteps);
     expect(recovery.owner).toBe('Incident response');
+    expect(recovery.condition).toBe('affected, potentially exposed appliances');
     expect(recovery.recoverySteps).toContain('reimage hardware or redeploy virtual appliances, change all user/admin passwords and reset TOTP tokens');
     expect(recovery.completionCriterion).toContain('keep unfinished investigation open');
     for (const size of ['standard', 'large', 'largest']) {

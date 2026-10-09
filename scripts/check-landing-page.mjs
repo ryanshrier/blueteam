@@ -390,13 +390,13 @@ function validateProductTruth(file, document) {
     .filter(Boolean)
     .join(' ');
   const requiredClaims = [
-    [/Requirements\s*Node\.js \+ npm/i, 'must disclose the local runtime requirements in the product proof'],
-    [/Briefing generation\s*Anthropic or OpenAI (?:\(Codex\) )?API key/i, 'must disclose the Briefing key requirement in the product proof'],
+    [/Requirements:\s*Node\.js \+ npm/i, 'must disclose the local runtime requirements in Quick start'],
+    [/Wire and Wall work without an API key\. Add your own Anthropic or OpenAI key for AI-generated briefings\./i, 'must explain the no-key starting point and scope provider keys to AI-generated briefings'],
     [/Anthropic or OpenAI (?:\(Codex\) )?API key for Briefing generation/i, 'must scope the quick-start key requirement to Briefing generation'],
-    [/One Briefing\. Two formats\./i, 'must explain that the reader and Print Edition share one Briefing'],
+    [/Overview[\s\S]*Full report[\s\S]*same edition into print/i, 'must distinguish Overview and Full report while explaining that print uses the same edition'],
     [/\bAI-generated\b/i, 'must label Briefings AI-generated'],
     [/\bPrint Edition\b/i, 'must name the Print Edition'],
-    [/\bRun locally\b/i, 'must use source-run language for the primary call to action'],
+    [/\bRun locally\b/i, 'must use source-run language for the setup call to action'],
   ];
   if (/\u00c2\u00b7|\u00e2\u20ac|\u00e2\u2020/.test(bodyText + publicMetadata)) {
     fail(file, 'text contains misdecoded UTF-8 punctuation');

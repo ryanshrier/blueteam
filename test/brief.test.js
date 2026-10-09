@@ -752,7 +752,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
               yield { type: 'message_start', message: { usage: { input_tokens: 30, output_tokens: 0 } } };
               yield { type: 'content_block_delta', delta: { text: 'Interrupted replacement draft. '.repeat(8) } };
               yield { type: 'message_delta', usage: { output_tokens: 40 } };
-              throw new Error('socket hang up');
+              throw Object.assign(new Error('socket hang up'), { reason: 'gateway timeout (524)' });
             },
           };
         },
@@ -766,6 +766,8 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(calls).toBe(2);
     expect(blocked).toBeTruthy();
     expect(blocked.draft).toBe(firstDraft);
+    expect(blocked.error).toContain('Corrective retry failed: gateway timeout (524)');
+    expect(blocked.validation.warnings).toContain('Corrective retry failed: gateway timeout (524)');
     expect(blocked.tokens).toBe(370);
     expect(events.some(e => e.briefComplete)).toBe(false);
     expect(saveBriefMock).not.toHaveBeenCalled();
@@ -805,7 +807,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
       { maxTokens: 16000, thinking: { type: 'disabled' }, effort: undefined },
     ]);
     expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
-    expect(events.find(event => event.progress?.includes('reducing thinking effort'))?.reset).toBe(true);
+    expect(events.find(event => event.progress?.includes('requesting a shorter draft'))?.reset).toBe(true);
     expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
     expect(saveBriefMock).toHaveBeenCalledWith(
       '/fake/history',
@@ -1441,6 +1443,46 @@ describe('streamWithRecovery — pure unit', () => {
   });
 });
 
+describe('local module briefing generation', () => {
+  let ctx;
+  afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test.each([0, 0.0123])('uses an unknown provider and its reported cost %s without provider-specific params', async cost => {
+    const client = {
+      provider: 'local-fixture', model: 'local-model',
+      stream: jest.fn(async function* (params) {
+        expect(this).toBe(client);
+        expect(params.model).toBe('local-model');
+        expect(params.thinking).toBeUndefined();
+        expect(params.reasoning).toBeUndefined();
+        yield { type: 'message_start', message: { model: 'local-model-v2', usage: { input_tokens: 17 } } };
+        yield { type: 'content_block_delta', delta: { text: GOOD_BRIEF } };
+        yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 29, cost_usd: cost } };
+        yield { type: 'message_stop' };
+      }),
+    };
+    ctx = await makeServer({ getAiClient: () => client });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(client.stream).toHaveBeenCalledTimes(1);
+    expect(events.find(event => event.briefComplete)).toMatchObject({ model: 'local-model', costUsd: cost, tokens: 46 });
+    const manifest = saveBriefMock.mock.calls[0][2].manifest;
+    expect(manifest.providerAttempts[0]).toMatchObject({ provider: 'local-fixture', responseModel: 'local-model-v2', costUsd: cost, pricing: { basis: 'Provider-reported cost' } });
+    expect(manifest.costEstimate.usd).toBe(cost);
+  });
+
+  test.each(['', GOOD_BRIEF, GOOD_BRIEF.replace('It matters to the floor today.', 'CVE-2099-9999 is exploited.')])('retains a local provider reason before or after output', async content => {
+    const stream = jest.fn(async function* () {
+      if (content) yield { type: 'content_block_delta', delta: { text: content } };
+      throw Object.assign(new Error('Local runner exited'), { reason: 'gateway timeout (524)' });
+    });
+    ctx = await makeServer({ getAiClient: () => ({ provider: 'any-local-name', model: 'local-model', stream }) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.find(event => event.error).error).toContain('gateway timeout (524)');
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(saveBriefMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('OpenAI briefing generation', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
@@ -1520,6 +1562,11 @@ describe('OpenAI briefing generation', () => {
 });
 
 describe('safeErrorMsg — redaction', () => {
+  test('explicit provider reasons survive silent logs and redact credentials', () => {
+    expect(safeErrorMsg({ message: 'process failed', reason: 'gateway timeout (524)' })).toBe('gateway timeout (524)');
+    expect(safeErrorMsg({ reason: 'denied: Bearer local-secret-value and sk-test-secret' })).toBe('denied: Bearer [REDACTED] and [REDACTED]');
+  });
+
   test('known operational error shapes pass through (truncated)', () => {
     expect(safeErrorMsg(new Error('rate limit exceeded'))).toBe('rate limit exceeded');
   });

@@ -53,9 +53,15 @@
   .wire-view .wire-converge-head { min-height: 32px; padding-block: 3px; font-size: 13px; }
   .wire-view .wire-converge { margin-bottom: 2px; }
   .wire-view .wire-colhead { padding-block: 5px; }
-  /* A reading sheet leaves the index geometry unchanged when a signal opens. */
-  .wire-workspace.has-inspector { grid-template-columns: minmax(0, 1fr); }
-  .wire-inspector { display: block; position: fixed; z-index: 35; top: calc(var(--header-rendered-height, var(--header-height)) + 16px); right: var(--workspace-gutter); width: clamp(460px, 36vw, 560px); max-height: calc(100dvh - var(--header-rendered-height, var(--header-height)) - 32px); overflow: auto; overscroll-behavior: contain; padding: 0 24px 24px; border: 1px solid var(--hairline-strong); border-radius: 0; background: var(--bg-reading); box-shadow: var(--shadow-lg); container-type: inline-size; }
+  /* Keep the selected signal beside the index and below the shared controls. */
+  .wire-workspace.has-inspector { grid-template-columns: minmax(0, 1fr) clamp(380px, 40%, 560px); }
+  .wire-inspector { --inspector-top: calc(var(--header-rendered-height, var(--header-height)) + var(--wire-controls-height, 90px) + 16px); display: block; position: sticky; top: var(--inspector-top); min-width: 0; max-height: calc(100dvh - max(var(--wire-workspace-top, 240px), var(--inspector-top)) - 16px); overflow: auto; overscroll-behavior: contain; padding: 0 24px 24px; border: 1px solid var(--hairline-strong); border-radius: 0; background: var(--bg-reading); container-type: inline-size; }
+  .wire-workspace.has-inspector .wire-lead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
+  .wire-workspace.has-inspector .wire-item-h { grid-column: 1 / -1; grid-row: 1; }
+  .wire-workspace.has-inspector .wire-scan-identity { grid-column: 1 / -1; grid-row: 2; }
+  .wire-workspace.has-inspector .wire-scan-meta { grid-column: 1; grid-row: 3; align-items: center; align-content: center; margin: 0; }
+  .wire-workspace.has-inspector .wire-scan-meta .wire-src { flex-basis: auto; }
+  .wire-workspace.has-inspector .wire-row-tools { grid-column: 2; grid-row: 3; align-self: center; flex-wrap: wrap; }
   .wire-inspector-chrome { position: sticky; top: 0; z-index: 2; margin-inline: -24px; padding: 8px 24px 0; background: var(--bg-reading); border-bottom: 1px solid var(--border); }
   .wire-inspector-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
   .wire-inspector h2 { margin: 20px 0; font: 650 24px/1.3 var(--font-sans); letter-spacing: -.02em; }

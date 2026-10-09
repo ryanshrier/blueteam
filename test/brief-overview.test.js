@@ -46,6 +46,8 @@ function reporting(overrides = {}) {
   };
 }
 
+const assessmentCards = html => [...html.matchAll(/<article\b[^>]*>([\s\S]*?)<\/article>/g)].map(match => match[1]);
+
 describe('saved overview identity and authored meaning', () => {
   test('uses only verified presentation entries that match the current authored heading, retaining the full qualification', () => {
     const originalTitle = overviewModel(SAVED_BRIEF).judgments[0].title;
@@ -61,11 +63,46 @@ describe('saved overview identity and authored meaning', () => {
     expect(renderOverview({ ...brief, content: brief.content.replace(originalTitle, 'A changed heading') })).not.toContain('Reviewed short summary.');
   });
 
+  test('opens with the reviewed edition lead and binds developing summaries to their authored topic', () => {
+    const topic = overviewModel(SAVED_BRIEF).developing[0];
+    const presentation = { status: 'reviewed', bluf: 'The reviewed lead identifies the unresolved exposure decision.',
+      developing: [{ index: 0, originalTitle: topic.name, title: 'Recovery evidence remains outstanding',
+        summary: 'Recovery remains unconfirmed.', condition: 'Escalate if the signed recovery record is unavailable at handoff.' }] };
+    const brief = { ...SAVED_BRIEF, review: { presentation } };
+    const html = renderOverview(brief);
+    expect(html.indexOf(presentation.bluf)).toBeLessThan(html.indexOf('id="overview-judgment-1"'));
+    expect(html).toContain('Recovery evidence remains outstanding');
+    expect(html).toContain('Recovery remains unconfirmed.');
+    expect(html).toContain('Escalate if the signed recovery record is unavailable at handoff.');
+    const unavailable = renderOverview({ ...brief, review: { presentation: { ...presentation, status: 'unavailable' } } });
+    expect(unavailable).not.toContain(presentation.bluf);
+    expect(unavailable).toContain('The saved edition concerns the fictional gateway,');
+    expect(unavailable).toContain('Uncertain — no completed recovery evidence.');
+    const changed = renderOverview({ ...brief, content: brief.content.replace(topic.name, 'A different recovery topic') });
+    expect(changed).not.toContain('Recovery evidence remains outstanding');
+    expect(changed).not.toContain('Recovery remains unconfirmed.');
+    expect(changed).toContain('Uncertain — no completed recovery evidence.');
+  });
+
+  test('shows the absolute assessment date and age independently of current reporting', () => {
+    const html = renderOverview(SAVED_BRIEF, { now: Date.parse('2026-10-09T16:00:00Z') });
+    expect(html).toContain('Assessment from Sep 4, 2026, 12:15 UTC');
+    expect(html).toContain('35 days old');
+    const withoutTime = renderOverview({ ...SAVED_BRIEF, generatedAt: undefined }, { now: Date.parse('2026-09-05T00:00:00Z') });
+    expect(withoutTime).toContain('Assessment from Sep 4, 2026 · brief 2');
+    expect(withoutTime).toContain('1 day old');
+    expect(withoutTime).not.toContain('00:00 UTC');
+    const undated = renderOverview({ content: SAVED_BRIEF.content }, { now: Date.parse('2026-10-09T16:00:00Z') });
+    expect(undated).toContain('Assessment date unavailable');
+    expect(undated).not.toContain('days old');
+    const future = renderOverview(SAVED_BRIEF, { now: Date.parse('2026-09-03T16:00:00Z') });
+    expect(future).not.toContain('days old');
+  });
+
   test('an over-budget unreviewed assessment is disclosed whole, never clipped into a potentially unqualified claim', () => {
     const passage = `${'The scope remains unverified. '.repeat(24)}Only apply this recommendation after confirming the affected version.`;
     const brief = { ...SAVED_BRIEF, content: SAVED_BRIEF.content.replace('A corrected build is available, but deployment breadth remains unknown.', passage) };
     const html = renderOverview(brief);
-    expect(html).toContain('brief-overview-claim--long');
     expect(html).toContain(passage);
     expect(html).not.toContain('scope remains unverified…');
   });
@@ -110,15 +147,19 @@ describe('saved overview identity and authored meaning', () => {
     expect(html).toContain('Likely (55–80%) — the vendor confirms the build; independent deployment evidence remains unavailable.');
     expect(html).toContain('High for the existence of separate records; Moderate for response impact — impact has not been measured.');
     expect(html).toContain('Synthetic exercise. The exposure and ownership questions remain unresolved.');
-    expect(html).toContain('Escalate if the signed recovery record is still unavailable at handoff.');
+    expect(model.developing[0].watch).toBe('Escalate if the signed recovery record is still unavailable at handoff.');
+    const mixed = assessmentCards(html)[1];
+    expect(mixed.indexOf('High for the existence of separate records; Moderate for response impact — impact has not been measured.'))
+      .toBeLessThan(mixed.indexOf('<details'));
+    expect(mixed).toContain('Confidence by claim');
   });
 
-  test('leaves missing confidence, severity and assessment update explicit despite dated sources', () => {
+  test('keeps missing confidence explicit without filling unavailable metadata from dated sources', () => {
     const brief = { ...SAVED_BRIEF, content: SAVED_BRIEF.content.replace(/^\*\*Confidence:\*\*[^\n]*\n/gm, '') };
     const html = renderOverview(brief);
     expect(html).toContain('Assessment confidence</dt><dd class="assessment-meta__value">Not assessed');
-    expect(html).toContain('Severity</dt><dd class="assessment-meta__value">Not assessed');
-    expect(html).toContain('Assessment updated</dt><dd class="assessment-meta__value">Not recorded');
+    expect(html).not.toContain('data-field="severity"');
+    expect(html).not.toContain('data-field="time"');
     expect(html).not.toContain('data-level="danger"');
     expect(html).not.toContain('High confidence');
   });
@@ -147,18 +188,160 @@ The [later source note](https://saved.example/later) qualifies its scope.
     const html = renderOverview(brief);
     expect(html).toContain('Edition summary');
     expect(html).not.toContain('Lead assessment');
+    expect(html).toContain('href="https://saved.example/first"');
     expect(html).toContain('href="https://saved.example/later"');
     expect(html).toContain('href="/briefing/brief-2026-09-04-02.md?view=report"');
   });
 
-  test('retains an action condition and dependencies authored as continuation lines', () => {
+  test('retains complete authored actions in the model and saved source while leaving response detail to the report', () => {
     const content = SAVED_BRIEF.content.replace(
       '- **Act now:** Infrastructure — verify installed versions — recommended target September 5, 2026.',
       '- **Act now:** Infrastructure — isolate the fictional gateway — recommended target September 5, 2026.\n  **Condition:** Only if the retained advisory confirms this build is affected.\n  **Dependencies:** Incident command approval before isolation.',
     );
-    const html = renderOverview({ ...SAVED_BRIEF, content });
-    expect(html).toContain('Only if the retained advisory confirms this build is affected.');
-    expect(html).toContain('Incident command approval before isolation.');
+    const brief = { ...SAVED_BRIEF, content };
+    const before = JSON.stringify(brief);
+    const model = overviewModel(brief);
+    expect(model.judgments[0].action).toContain('Only if the retained advisory confirms this build is affected.');
+    expect(model.judgments[0].action).toContain('Incident command approval before isolation.');
+    expect(model.judgments[0].actions[0].condition).toBe('Only if the retained advisory confirms this build is affected.');
+    expect(model.judgments[0].actions[0].dependencies).toBe('Incident command approval before isolation.');
+    const html = renderOverview(brief);
+    expect(html).not.toContain('isolate the fictional gateway');
+    expect(html).not.toContain('Incident command approval before isolation.');
+    expect(html).toContain('href="/briefing/brief-2026-09-04-02.md#judgment-1"');
+    expect(JSON.stringify(brief)).toBe(before);
+  });
+
+  test('presents assessed implications without response blocks, decision windows or a numbered index', () => {
+    const html = renderOverview(SAVED_BRIEF);
+    const cards = assessmentCards(html);
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toContain('A corrected build is available, but deployment breadth remains unknown.');
+    expect(cards[1]).toContain('Fragmented records may slow response.');
+    expect(cards[1]).not.toContain('Establish one evidence owner.');
+    expect(html).not.toContain('Infrastructure — verify installed versions — recommended target September 5, 2026.');
+    expect(html).not.toContain('First response');
+    expect(html).not.toContain('First action');
+    expect(html).not.toContain('Decision window');
+    expect(html).not.toContain('Current shift.');
+    expect(html).not.toContain('data-overview-jump');
+    expect(html).not.toContain('aria-label="In this edition"');
+    expect(html).not.toMatch(/>Assessment \d+</);
+  });
+
+  test('keeps later assessments linked to their complete report without copying their action plans', () => {
+    const content = SAVED_BRIEF.content.replace(
+      '**The line:** Establish one evidence owner.',
+      '**Recommended actions:**\n- **Act now:** Incident response — reconcile the ownership record — recommended target September 7, 2026.\n  **Condition:** Only if both teams confirm the record is incomplete.\n  **Dependencies:** Preserve both original logs before reconciliation.\n- **Operations** — schedule a later exercise.\n**Decision window:** Within 7 days\n**The line:** Establish one evidence owner.',
+    );
+    const brief = { ...SAVED_BRIEF, content };
+    const before = JSON.stringify(brief);
+    const model = overviewModel(brief);
+    const cards = assessmentCards(renderOverview(brief));
+    expect(cards[0]).not.toContain('verify installed versions');
+    expect(cards[1]).not.toContain('reconcile the ownership record');
+    expect(cards[1]).not.toContain('Within 7 days');
+    expect(cards[1]).not.toContain('schedule a later exercise');
+    expect(cards[1]).toContain('href="/briefing/brief-2026-09-04-02.md#judgment-2"');
+    expect(model.judgments[1].actions).toHaveLength(2);
+    expect(model.judgments[1].action).toContain('Only if both teams confirm the record is incomplete.');
+    expect(model.judgments[1].action).toContain('Preserve both original logs before reconciliation.');
+    expect(model.judgments[1].decision).toBe('Within 7 days');
+    expect(JSON.stringify(brief)).toBe(before);
+  });
+
+  test('falls back to the authored line and then what happened when an assessment field is absent', () => {
+    const withoutAssessment = SAVED_BRIEF.content.replace('**Assessment:** Fragmented records may slow response.\n', '');
+    expect(assessmentCards(renderOverview({ ...SAVED_BRIEF, content: withoutAssessment }))[1])
+      .toContain('Establish one evidence owner.');
+    const withoutLine = withoutAssessment.replace('**The line:** Establish one evidence owner.\n', '');
+    expect(assessmentCards(renderOverview({ ...SAVED_BRIEF, content: withoutLine }))[1])
+      .toContain('The Saved exercise report records separate ownership systems.');
+  });
+
+  test('retains unique overview anchors and correct report destinations in authored order, including duplicate titles', () => {
+    const duplicate = SAVED_BRIEF.content.replace('Ownership needs an evidence trail', 'Gateway exposure requires verification');
+    const html = renderOverview({ ...SAVED_BRIEF, content: duplicate });
+    const targets = [...html.matchAll(/<h2\b[^>]*id="(overview-judgment-\d+)"/g)].map(match => match[1]);
+    expect(targets).toEqual(['overview-judgment-1', 'overview-judgment-2']);
+    expect(new Set(targets).size).toBe(targets.length);
+    const cards = assessmentCards(html);
+    expect(cards).toHaveLength(targets.length);
+    cards.forEach((card, index) => {
+      expect(card).toMatch(new RegExp(`<h2\\b[^>]*id="${targets[index]}"`));
+      expect(card).toContain(`href="/briefing/${SAVED_BRIEF.filename}#judgment-${index + 1}"`);
+      expect((html.match(new RegExp(`\\bid="${targets[index]}"`, 'g')) || [])).toHaveLength(1);
+    });
+    expect(cards[0]).toContain('deployment breadth remains unknown');
+    expect(cards[1]).toContain('Fragmented records may slow response');
+    expect(cards[0]).toContain('Featured story');
+    expect(cards[1]).not.toContain('Featured story');
+    expect(html.indexOf('aria-label="More stories from this edition"')).toBeGreaterThan(html.indexOf('id="overview-judgment-1"'));
+  });
+
+  test('keeps the edition note and authored assessment order before watching topics and current reporting', () => {
+    const html = renderOverview(SAVED_BRIEF);
+    const summary = html.indexOf('The saved edition concerns the fictional gateway,');
+    const feature = html.indexOf('id="overview-judgment-1"');
+    const supporting = html.indexOf('id="overview-judgment-2"');
+    const watch = html.indexOf('Fictional recovery check');
+    const current = html.indexOf('aria-label="Recent developments"');
+    expect(summary).toBeGreaterThanOrEqual(0);
+    expect(feature).toBeGreaterThanOrEqual(0);
+    expect(summary).toBeLessThan(feature);
+    expect(supporting).toBeGreaterThan(feature);
+    expect(supporting).toBeGreaterThan(summary);
+    expect(watch).toBeGreaterThan(supporting);
+    expect(current).toBeGreaterThan(watch);
+  });
+
+  test('surfaces watching topics with their complete authored trajectory and escalation criteria', () => {
+    const html = renderOverview(SAVED_BRIEF);
+    const criterion = 'Escalate if the signed recovery record is still unavailable at handoff.';
+    expect(html).toContain('Fictional recovery check');
+    expect(html).toContain('Read watch criteria');
+    expect(html).toContain(criterion);
+    expect(html).toContain('Uncertain — no completed recovery evidence.');
+    expect(overviewModel(SAVED_BRIEF).developing[0].watch).toBe(criterion);
+    const watchLink = /<a\b[^>]*href="([^"]+)"[^>]*>Read watch criteria/.exec(html);
+    expect(watchLink).not.toBeNull();
+    expect(watchLink[1]).toBe('/briefing/brief-2026-09-04-02.md?view=report');
+    const withAnchor = renderOverview(SAVED_BRIEF, { developingAnchor: 'section-7-developing-situations-retained' });
+    const anchoredLink = /<a\b[^>]*href="([^"]+)"[^>]*>Read watch criteria/.exec(withAnchor);
+    expect(anchoredLink?.[1]).toBe('/briefing/brief-2026-09-04-02.md#section-7-developing-situations-retained');
+  });
+
+  test('a missing summary remains explicit and does not prevent reading any saved assessment', () => {
+    const brief = { ...SAVED_BRIEF, content: SAVED_BRIEF.content.replace(/## BLUF\n[^]*?(?=## KEY JUDGMENTS)/, '') };
+    const html = renderOverview(brief);
+    expect(html).toContain('No edition summary recorded.');
+    expect(assessmentCards(html)).toHaveLength(2);
+    expect(html).toContain('href="/briefing/brief-2026-09-04-02.md?view=report"');
+  });
+
+  test('keeps approved summaries complete and original qualifications inside one evidence disclosure per card', () => {
+    const summary = `${'The scope remains conditional. '.repeat(20)}Only proceed after affected deployment is confirmed.`;
+    const judgments = overviewModel(SAVED_BRIEF).judgments.map((story, index) => ({
+      index, originalTitle: story.title, title: story.title,
+      summary: index === 0 ? summary : 'Ownership impact remains unmeasured.',
+      condition: 'Confirm local applicability before acting.',
+    }));
+    const cards = assessmentCards(renderOverview({ ...SAVED_BRIEF, review: { presentation: { status: 'reviewed', judgments } } }));
+    cards.forEach((card, index) => {
+      const details = [...card.matchAll(/<details\b[^>]*>([\s\S]*?)<\/details>/g)];
+      expect(details).toHaveLength(1);
+      expect(details[0][1]).toContain('Full assessment and qualifications');
+      expect(details[0][1]).toContain(overviewModel(SAVED_BRIEF).judgments[index].claim);
+      expect(card.indexOf('Confirm local applicability before acting.')).toBeLessThan(card.indexOf('<details'));
+      const reportLinks = [...card.matchAll(/<a\b(?=[^>]*\bdata-overview-open\b)[^>]*href="([^"]+)"[^>]*>/g)];
+      expect(reportLinks).toHaveLength(2);
+      expect(reportLinks.map(link => link[1])).toEqual(Array(2).fill(`/briefing/${SAVED_BRIEF.filename}#judgment-${index + 1}`));
+      expect(card).toMatch(/<h2\b[^>]*><a\b[^>]*data-overview-open/);
+    });
+    expect(cards[0]).toContain(summary);
+    expect(cards[0].indexOf(summary)).toBeLessThan(cards[0].indexOf('<details'));
+    expect(cards[0]).toContain('independent deployment evidence remains unavailable.');
+    expect(cards[1]).toContain('impact has not been measured.');
   });
 
   test('renders edition and live-report strings as text and preserves only safe source destinations', () => {

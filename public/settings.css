@@ -382,6 +382,13 @@
 .settings-changes ul { list-style: none; margin: 8px 0; padding: 0; }
 .settings-changes a { display: inline-block; padding: 5px 0; }
 .settings-changes p { color: var(--text-secondary); font-size: var(--type-label); line-height: 1.5; }
+@media (min-width: 1001px) {
+  .settings-index { display: flex; flex-direction: column; max-height: calc(100dvh - var(--settings-index-top, calc(var(--header-rendered-height, var(--header-height)) + 20px)) - 20px); }
+  .settings-index-links { flex: none; }
+  /* Long drafts scroll within Changes while the section links stay available. */
+  .settings-changes { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .settings-changes summary { position: sticky; top: 0; z-index: 1; background: var(--bg-primary); }
+}
 @media (max-width: 1000px) {
   .settings-changes { position: static; flex: none; border: 0; margin: 0; padding: 0; }
   .settings-changes[open] { border-bottom: 2px solid var(--brand-text); }

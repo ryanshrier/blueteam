@@ -10,7 +10,7 @@ BlueTeam.News is a self-hosted threat-intelligence desk. It collects public repo
 - **Wire:** a filterable analyst feed with retained source passages, revision comparisons, local decision records, and exports.
 - **Briefing:** an AI-generated assessment using your Anthropic or OpenAI API key, with saved inputs and a Print Edition for paper or PDF. OpenAI supports Codex models through the Responses API.
 
-Wall and Wire work without API keys. Briefing generation and key verification use billable provider requests.
+Wall and Wire work without API keys. Briefing generation may incur provider charges; built-in provider key verification makes a small billable request.
 
 ![Wire showing collected public reporting](docs/assets/screenshot-wire.jpg)
 
@@ -19,7 +19,7 @@ Wall and Wire work without API keys. Briefing generation and key verification us
 Recommended: Node.js 24 with npm. See the full supported ranges in [Operations](docs/operations.md#runtime-support) and [Development](docs/development.md).
 
 ```bash
-git clone https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.3.0 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -31,7 +31,9 @@ Install dependencies on the machine and Node major that will run the service. SQ
 
 ## Configure Briefing generation
 
-In **Settings**, choose **Anthropic** or **OpenAI (Codex)**, enter that provider's API key, and save. Both keys can be stored so you can switch providers. For OpenAI, select a model available to your API account; the default is `gpt-5.3-codex`. Verify makes a small billable request to test the key; OpenAI verification also checks the selected model.
+In **Settings**, choose **Anthropic** or **OpenAI (Codex)**, enter that provider's API key, and save. Both built-in provider keys can be stored so you can switch providers. For OpenAI, select a model available to your API account; the default is `gpt-5.3-codex`. Verify makes a small billable request to test the key; OpenAI verification also checks the selected model.
+
+**Custom (local module) is experimental.** Set `AI_PROVIDER_MODULE=./local/generic-provider.js` to load an operator-supplied adapter; its contract may change. Modules run trusted code with the server's permissions and read credentials from the environment. Settings provides an optional module health check instead of key verification. See the [local provider contract](docs/configuration.md#local-provider-modules).
 
 You can also copy `.env.example` to `.env` and set one provider:
 
@@ -60,7 +62,7 @@ Automatic generation is off by default. Enable it separately in Settings and cho
 
 **Wire** (`/wire`) exposes score components and filters for tier, urgency, KEV, and unread state. **Inspect evidence** shows retained passages and changes between observations. A watch profile explains literal matches to your technologies, sectors, and regions; local exposure remains unknown. Read state follows retained revisions, so changed evidence becomes unread again. Decisions and hidden/read preferences stay in this browser and update across its tabs. CSV and JSON exports cover current results; **Export all saved decisions (JSON)** also includes decisions for hidden, filtered, and older signals.
 
-**Briefing** (`/briefing`) opens saved editions in Overview or Full report. **Edition tools** provides history, source inputs, drafts, copying, printing, and generation. New editions retain the evidence, configuration, provider/model attempts, and validation used to generate them. Historical editions may lack these receipts. Draft repair and reviewed copies preserve the original edition.
+**Briefing** (`/briefing`) opens saved editions in Overview or Full report. Overview presents featured and supporting stories as a news front page; Full report contains the complete analysis, actions, timing, and citations. **Edition tools** provides history, source inputs, drafts, copying, printing, and generation. New editions retain the evidence, configuration, provider/model attempts, and validation used to generate them. Historical editions may lack these receipts. Draft repair and reviewed copies preserve the original edition.
 
 Review generated claims against their cited reporting. Publication checks cover structure, citation identities and dates, incomplete provider output, and specified CVE, CVSS, version, and KEV claim forms. They do not verify every narrative claim or confirm your organization's exposure.
 
@@ -70,7 +72,7 @@ The Print Edition renders the same saved assessment locally without another mode
 |---|---|
 | ![Briefing Overview](docs/assets/screenshot-briefing-reader.jpg) | ![Print Edition](docs/assets/screenshot-print-edition.jpg) |
 
-Read the [fictional sample](https://blueteam.news/sample-briefing.html), [Markdown](docs/sample-briefing.md), [input receipt](docs/sample-briefing.manifest.json), or [PDF](docs/sample-briefing.pdf). Screenshots show collected reporting and the reviewed September 6, 2026 edition 2 at capture time; they are not a current assessment.
+Read the [fictional sample](https://blueteam.news/sample-briefing.html), [Markdown](docs/sample-briefing.md), [input receipt](docs/sample-briefing.manifest.json), or [PDF](docs/sample-briefing.pdf). The Overview screenshot was refreshed October 9, 2026; the other embedded screenshots were captured September 6, 2026. They show collected reporting and the reviewed September 6 edition 2, not a current assessment.
 
 See [Evidence and relevance](docs/evidence-and-relevance.md) for retention rules, review states, and limitations. Shared situation tracking and handoff acknowledgment remain [proposed work](docs/decision-desk-roadmap.md).
 

@@ -6,6 +6,9 @@ import { formatDecisionWindow, judgmentCertainty } from '/vendor/brief-schema.js
 import { TIER_NAMES } from '../core/tiers.js';
 import { assessmentSources, renderAssessmentMeta } from '../core/assessment-meta.js';
 import { structureExecutiveSummary } from './brief-executive.js';
+import { actionRoleHtml } from './brief-action.js';
+
+export { actionRoleHtml };
 
 // Distinguish the generated citation ledger from any authored Sources section.
 export const CITATION_APPENDIX_LABEL = 'References';
@@ -78,21 +81,6 @@ export function authoredText(element) {
   return clone.textContent.trim().replace(/\s+/g, ' ');
 }
 
-/** Wrap only explicit, spaced owner/action/target syntax. Keep every original
- * character and every sanitized inline link; uncertain prose remains prose. */
-export function actionRoleHtml(html) {
-  const source = String(html || '');
-  if (/brief-action-owner|brief-action-target/.test(source)) return source;
-  const match = source.match(/^(?:<strong>)?([^<>]{1,80}?)(?:<\/strong>)?(\s+[—–]\s+)([\s\S]+)$/);
-  if (!match) return source;
-  let body = match[3];
-  const tail = body.match(/(\s+[—–]\s+)([^<>]+)$/);
-  if (tail && /\b(?:\d{4}-\d{2}-\d{2}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d|today|tomorrow|tonight|(?:this|next)\s+shift|within\s+\d+\s+(?:hours?|days?)|close of business)\b/i.test(tail[2])) {
-    body = body.slice(0, tail.index) + `<span class="brief-action-target">${tail[0]}</span>`;
-  }
-  return `<strong class="brief-action-owner">${match[1]}</strong>${match[2]}${body}`;
-}
-
 export function decisionCardContent(card) {
   return {
     title: authoredText(card.querySelector('h3')),
@@ -145,6 +133,9 @@ function attachAssessmentMetadata(card) {
   card.querySelector(':scope > .assessment-meta')?.remove();
   const host = card.ownerDocument.createElement('div');
   host.innerHTML = renderAssessmentMeta({ ...briefAssessmentMetadata(card), omitUnavailable: true });
+  // The complete, authored confidence paragraph is visible in the report.
+  // Repeating a rating here either duplicated it or flattened mixed claims.
+  host.querySelector('[data-field="certainty"]')?.remove();
   const metadata = host.firstElementChild;
   metadata.dataset.readerMetadata = 'true';
   heading.after(metadata);
@@ -550,13 +541,12 @@ export function applySemanticStyling(container, { decisionControls = false } = {
       const clean = h2.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 40);
       h2.id = `section-${idx++}-${clean}`;
     }
-    // The Executive Summary restates the BLUF — de-emphasize it so the read flows
-    // BLUF → Key Judgments without a redundant equal-weight stop.
+    // Keep the executive summary visually subordinate to the edition lead.
     if (/^\s*EXECUTIVE SUMMARY\b/i.test(h2.textContent)) {
       // Archived model output used to put the shift cutoff in this heading,
       // then repeat it in every action. Keep the section label stable and let
       // the decision queue carry genuine, action-specific targets.
-      h2.textContent = 'EXECUTIVE SUMMARY \u2014 SHIFT DECISIONS';
+      h2.textContent = 'EXECUTIVE SUMMARY';
       h2.classList.add('brief-exec-heading');
     }
   });
@@ -723,9 +713,10 @@ export function applySemanticStyling(container, { decisionControls = false } = {
   }
 }
 
-/** Preserve the authored assessment and decision together in the scan view. */
+/** Arrange the report as an argument: assessment, basis, then response.
+ * Keep existing nodes so citations, qualification and copy/export fidelity survive. */
 export function presentDecisionFirst(card) {
-  if (card.querySelector('.brief-judgment-support')) return;
+  if (card._briefReportArranged || card.querySelector('.brief-judgment-support')) return;
   const heading = card.querySelector(':scope > h3');
   if (!heading) return;
   const meta = card.querySelector(':scope > .brief-judgment-meta');
@@ -736,9 +727,7 @@ export function presentDecisionFirst(card) {
   if (!action && !recommendations.length) return;
   const tools = card.querySelector(':scope > .brief-judgment-tools');
   const certainty = card.querySelector(':scope > .brief-certainty');
-  // Applicability, versions, impact and uncertainty remain available in the
-  // decision summary. The complete authored assessment stays ahead of actions;
-  // additional narrative and evidence can use the supporting disclosure.
+  // Keep applicability, evidence, impact and uncertainty ahead of actions.
   const essential = [...card.children].filter(node => /^(What happened|Defender impact|Impact|Relevance|The line):/i.test(node.textContent?.trim() || '') || /\bthe-line\b/.test(node.className));
   let confidence = certainty;
   if (certainty && !certainty.querySelector('a')) {
@@ -747,8 +736,8 @@ export function presentDecisionFirst(card) {
       confidence = card.ownerDocument.createElement('details');
       confidence.className = 'brief-confidence-detail';
       const summary = card.ownerDocument.createElement('summary');
-      // Keep mixed High/Moderate qualifications together, including semicolons.
-      summary.textContent = statements[0].trim();
+      // Keep the complete authored rating and qualification together.
+      summary.textContent = /^Likelihood:/i.test(certainty.textContent.trim()) ? 'Likelihood details' : 'Confidence details';
       confidence.appendChild(summary);
       certainty.replaceWith(confidence);
       confidence.appendChild(certainty);
@@ -764,20 +753,18 @@ export function presentDecisionFirst(card) {
       }
     }
   }
-  const primary = [heading, assessment, assessmentMeta, meta, action, ...recommendations, ...essential, confidence, tools].filter(Boolean);
+  const conclusions = essential.filter(node => /\bthe-line\b/.test(node.className) || /^The line:/i.test(node.textContent?.trim() || ''));
   // The list itself is now in the action area; an empty label in supporting
   // evidence would misleadingly imply another set of recommendations.
   [...card.children].filter(node => /^Recommended actions:\s*$/i.test(node.textContent?.trim() || '')).forEach(node => node.remove());
-  const supporting = [...card.children].filter(node => !primary.includes(node));
+  // Unlabelled continuations, lists and tables stay with their authored evidence
+  // paragraphs. Moving only known labels detached those details from their basis.
+  const fixed = new Set([heading, assessment, meta, assessmentMeta, confidence, action, ...recommendations, ...conclusions, tools]);
+  const context = [...card.children].filter(node => !fixed.has(node));
+  const limits = essential.filter(node => !conclusions.includes(node) && !context.includes(node));
+  const primary = [heading, assessment, meta, ...context, ...limits, confidence, action, ...recommendations, ...conclusions, assessmentMeta, tools].filter(Boolean);
   primary.forEach(node => card.appendChild(node));
-  if (!supporting.length) return;
-  const disclosure = card.ownerDocument.createElement('details');
-  disclosure.className = 'brief-judgment-support';
-  const summary = card.ownerDocument.createElement('summary');
-  summary.textContent = 'Supporting evidence and context';
-  disclosure.appendChild(summary);
-  supporting.forEach(node => disclosure.appendChild(node));
-  card.appendChild(disclosure);
+  card._briefReportArranged = true;
 }
 
 // Hostname (sans leading www.) as a compact, honest citation label for the appendix.
@@ -814,7 +801,7 @@ export function extractSections(container) {
 /** Stable, compact navigation labels for a rail much narrower than the article. */
 export function tocLabel(value) {
   const label = String(value || '').trim().replace(/\s+/g, ' ');
-  if (/^EXECUTIVE SUMMARY\b/i.test(label)) return 'Shift decisions';
+  if (/^EXECUTIVE SUMMARY\b/i.test(label)) return 'Executive summary';
   if (/^KEY JUDGMENTS\b/i.test(label)) return 'Key judgments';
   if (/^DEVELOPING SITUATIONS\b/i.test(label)) return 'Developing';
   if (/^CONVERGENCE\b/i.test(label)) return 'Convergence';

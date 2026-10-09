@@ -60,7 +60,7 @@ function buildPanel() {
 
       <div class="help-tasks">
         <section><h3>Investigate a signal</h3><p>Choose a headline in Wire, then Inspect evidence to read the retained source and compare revisions.</p><a href="/wire" data-help-route>Open Wire →</a></section>
-        <section><h3>Read and share an assessment</h3><p>Start with Overview, use Decision summary for actions, or read the Full report for reasoning and citations. Edition tools holds archive, sources, and print.</p><a href="/briefing" data-help-route>Open Briefing →</a></section>
+        <section><h3>Read and share an assessment</h3><p>Start with Overview for the lead assessment and actions, or read the Full report for reasoning and citations. Edition tools holds archive, sources, and print.</p><a href="/briefing" data-help-route>Open Briefing →</a></section>
         <section><h3>Set up the Wall</h3><p>Choose text size, playlist, and display preferences in Settings. Press Escape to return from the automatic Wall.</p><a href="/settings#set-wall" data-help-route>Wall display settings →</a></section>
       </div>
 
@@ -91,7 +91,7 @@ function buildPanel() {
       </details>
       <details class="help-section" id="help-editions">
         <summary class="help-section-h">Editions, drafts, and display</summary>
-        <p>Briefing offers Overview, Decision summary, and Full report views with topic navigation. Check evidence confidence and review notes beside an action. Use Archive to find a dated edition, Sources and saved inputs to inspect its receipt, and Copy link or Print edition to share it. Drafts holds rejected work for repair and rechecking against its captured inputs. Preserve the edition identity and review notes when sharing.</p>
+        <p>Briefing offers Overview and Full report views with topic navigation. Check evidence confidence and review notes beside an action. Use Archive to find a dated edition, Sources and saved inputs to inspect its receipt, and Copy link or Print edition to share it. Drafts holds rejected work for repair and rechecking against its captured inputs. Preserve the edition identity and review notes when sharing.</p>
         <p>Wall opens directly as an automatic TV loop across the full viewport, without navigation controls or a setup step. Change text size, margins, playback, fullscreen, and supported screen-awake preferences in Settings → Wall display. Fullscreen is attempted from your navigation gesture when enabled; the Wall still fills the viewport if the browser declines. Escape returns to the previous view. Feed freshness remains separate from playback.</p>
       </details>
 

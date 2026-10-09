@@ -1,5 +1,8 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { createAiProvider, createOpenAiClient, DEFAULT_OPENAI_MODEL } from '../lib/ai-provider.js';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createAiProvider, createOpenAiClient, DEFAULT_OPENAI_MODEL, loadProviderModule } from '../lib/ai-provider.js';
 
 const openaiKey = ['sk', 'proj', 'fixture-openai-credential'].join('-');
 const anthropicKey = ['sk', 'ant', 'fixture-anthropic-credential'].join('-');
@@ -92,7 +95,77 @@ describe('provider verification', () => {
   });
 });
 
+describe('local provider module', () => {
+  test('loads a module relative to the application directory and requires its factory export', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'blueteam-provider-'));
+    try {
+      writeFileSync(join(directory, 'provider.mjs'), 'export function createClient(env) { return { provider: "local-example", model: env.LOCAL_MODEL, stream: async function* () {} }; }');
+      writeFileSync(join(directory, 'invalid.mjs'), 'export const version = "1.0";');
+      const env = { AI_PROVIDER_MODULE: './provider.mjs', LOCAL_MODEL: 'fixture-model' };
+      const providerModule = await loadProviderModule(env, directory);
+      const manager = createAiProvider({ getSettings: () => ({}), env, providerModule });
+      expect(manager.getClient()).toMatchObject({ provider: 'local-example', model: 'fixture-model' });
+      expect(manager.getStatus()).toMatchObject({ provider: 'custom', enabled: true, source: 'env', masked: null });
+      await expect(loadProviderModule({ AI_PROVIDER_MODULE: './invalid.mjs' }, directory)).rejects.toThrow('export createClient(env)');
+      await expect(loadProviderModule({}, directory)).resolves.toBeNull();
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  test('passes only environment credentials and checks health without streaming', async () => {
+    const env = { AI_PROVIDER: 'custom', LOCAL_TOKEN: 'private-fixture-token' };
+    const custom = { provider: 'example', model: 'example-model', version: '2.0', stream: jest.fn(),
+      health: jest.fn(function({ signal }) { expect(signal).toBeInstanceOf(AbortSignal); return { valid: true, version: this.version, note: 'Ready', unexpected: env.LOCAL_TOKEN }; }) };
+    const createClient = jest.fn(() => custom);
+    const manager = createAiProvider({ getSettings: () => ({ openaiKey, anthropicKey }), env, providerModule: { createClient } });
+    expect(createClient).toHaveBeenCalledWith(env);
+    expect(manager.getStatus()).toMatchObject({ provider: 'custom', enabled: true, version: '2.0' });
+    await expect(manager.verifyKey('ignored-candidate', 'custom')).resolves.toEqual({ valid: true, version: '2.0', note: 'Ready' });
+    expect(custom.stream).not.toHaveBeenCalled();
+    expect(manager.rotateKey('example')).toBeNull();
+  });
+
+  test('retains safe health failure reasons and redacts environment credentials', async () => {
+    const env = { AI_PROVIDER: 'custom', LOCAL_TOKEN: 'private-fixture-token' };
+    const manager = createAiProvider({ getSettings: () => ({}), env, providerModule: { createClient: () => ({
+      provider: 'example', model: 'fixture-model', stream: jest.fn(), health: () => { throw { reason: `gateway timeout (524); ${env.LOCAL_TOKEN}` }; },
+    }) } });
+    await expect(manager.verifyKey('', 'custom')).resolves.toEqual({ valid: null, error: 'gateway timeout (524); [REDACTED]' });
+  });
+
+  test('does not claim verified health without a hook and disables malformed clients', async () => {
+    const env = { AI_PROVIDER: 'custom' };
+    const noHook = createAiProvider({ getSettings: () => ({}), env, providerModule: { createClient: () => ({ provider: 'example', model: 'fixture-model', version: '1.0', stream: jest.fn() }) } });
+    await expect(noHook.verifyKey('', 'custom')).resolves.toEqual({ valid: null, note: 'Local module loaded (1.0); no health hook is available.' });
+    const malformed = createAiProvider({ getSettings: () => ({}), env, providerModule: { createClient: () => ({ provider: 'example' }) } });
+    expect(malformed.getClient()).toBeNull();
+    await expect(malformed.verifyKey('', 'custom')).resolves.toEqual({ valid: false, error: 'createClient(env) must return { provider, model, stream }.' });
+    const missing = createAiProvider({ getSettings: () => ({}), env });
+    await expect(missing.verifyKey('', 'custom')).resolves.toMatchObject({ valid: false, error: expect.stringContaining('AI_PROVIDER_MODULE') });
+  });
+
+  test('bounds a health hook that ignores cancellation', async () => {
+    jest.useFakeTimers();
+    try {
+      const health = jest.fn(() => new Promise(() => {}));
+      const manager = createAiProvider({ getSettings: () => ({}), env: { AI_PROVIDER: 'custom' }, providerModule: { createClient: () => ({ provider: 'example', model: 'fixture-model', stream: jest.fn(), health }) } });
+      const verification = manager.verifyKey('', 'custom');
+      await jest.advanceTimersByTimeAsync(15_000);
+      await expect(verification).resolves.toEqual({ valid: null, error: 'Provider health check timed out.' });
+      expect(health.mock.calls[0][0].signal.aborted).toBe(true);
+    } finally { jest.useRealTimers(); }
+  });
+});
+
 describe('OpenAI Responses streaming', () => {
+  test('configures its own reasoning parameters without generator provider checks', () => {
+    const client = createOpenAiClient(openaiKey);
+    const request = { model: DEFAULT_OPENAI_MODEL, thinking: {}, output_config: {} };
+    client.configureRequest(request, { effort: 'off' });
+    expect(request).toEqual({ model: DEFAULT_OPENAI_MODEL, reasoning: { effort: 'low' } });
+    request.model = 'gpt-4.1';
+    client.configureRequest(request, { effort: 'high' });
+    expect(request).toEqual({ model: 'gpt-4.1' });
+  });
   test('preserves UTF-8 and split SSE frames, ignores reasoning text, and records final usage', async () => {
     const events = [{ type: 'response.reasoning_summary_text.delta', delta: 'Private reasoning' }, { type: 'response.output_text.delta', delta: 'Threat — résumé' }, terminal()];
     const encoded = new TextEncoder().encode(events.map(event => `data: ${JSON.stringify(event)}\r\n\r\n`).join(''));

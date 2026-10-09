@@ -2,11 +2,11 @@
 
 ### Threat Landscape Briefing · 2026-07-24 · Friday
 
-**Synthetic product demonstration.** All sources, systems, and events below are fictional. This authored fixture demonstrates the complete document and source trail; it is not a live assessment or a paid model run.
+**Fictional sample.** All sources, systems, and events below are fictional.
 
 ## BLUF
 
-A synthetic identity-gateway incident shows how one sourced assessment becomes both an analyst Briefing and a paper-first Print Edition without another model call.
+Reported exploitation of exposed management interfaces makes the two test gateways this shift's priority: verify their reachability and installed builds, then connect the findings to a named response owner.
 
 ---
 

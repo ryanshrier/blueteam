@@ -47,7 +47,10 @@ describe('Wire Hidden recovery', () => {
   const toggleHidden = () => click('wireToggles', '.wire-toggle', { toggle: 'hidden' });
   const start = async () => {
     get('main').querySelector = selector => selector === '.wire-view' ? get('wireSurface') : null;
-    get('wireSurface').querySelector = selector => selector === '.wire-controls' ? get('wireControls') : null;
+    const surfaceChildren = { '.wire-controls': 'wireControls', '.wire-head': 'wireHead', '.wire-workspace': 'wireWorkspace' };
+    get('wireSurface').querySelector = selector => surfaceChildren[selector] ? get(surfaceChildren[selector]) : null;
+    get('wireWorkspace').getBoundingClientRect = () => ({ top: 215 - window.scrollY, bottom: 815 - window.scrollY, height: 600 });
+    get('wireInspector').closest = selector => selector === '.wire-workspace' ? get('wireWorkspace') : null;
     wire = await import('../public/modules/wire/wire-view.js');
     wire.render(get('main'));
     await jest.advanceTimersByTimeAsync(0);
@@ -56,8 +59,6 @@ describe('Wire Hidden recovery', () => {
     wire.unmount();
     jest.resetModules();
     elements = new Map();
-    get('main').querySelector = selector => selector === '.wire-view' ? get('wireSurface') : null;
-    get('wireSurface').querySelector = selector => selector === '.wire-controls' ? get('wireControls') : null;
     await start();
   };
 

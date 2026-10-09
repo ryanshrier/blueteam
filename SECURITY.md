@@ -38,7 +38,9 @@ The supported deployment models are:
 
 The shared API secret authenticates requests; it is not a multi-user authorization system. BlueTeam.News should not be exposed directly to the public internet.
 
-The application sends no product telemetry. Outbound requests go to configured threat sources and enrichment services, the selected AI provider (Anthropic or OpenAI) during verification or Briefing generation, and an optional webhook. See [Network behavior](docs/operations.md#network-behavior) for the data boundary.
+The application sends no product telemetry. Outbound requests go to configured threat sources and enrichment services, the selected built-in AI provider (Anthropic or OpenAI) during verification or Briefing generation, and an optional webhook. An experimental Custom module defines its own destinations and data handling. See [Network behavior](docs/operations.md#network-behavior) for the data boundary.
+
+**Custom (local module) is experimental; its contract may change.** `AI_PROVIDER_MODULE` loads trusted operator-supplied code into the server process. Modules run with the server account's permissions, receive its environment, and are not sandboxed. Their credentials are configured in the environment, never through the Settings key fields. Only install code you trust; the application's fetch protections do not restrict arbitrary module networking or file access. The optional health hook can perform module-defined work, although the application's status check never invokes generation.
 
 ## Scope
 
@@ -70,11 +72,11 @@ If the correct classification is unclear, report privately.
 - For remote access, use at least 32 random characters for `API_SECRET`, configure `PUBLIC_BASE_URL` and `TRUST_PROXY` precisely, and require authentication and TLS at the reverse proxy.
 - Restrict the listener with the host firewall. Do not use wildcard CORS for a network deployment.
 - Run the process as a dedicated, unprivileged account and keep dependencies and the host patched.
-- Protect `.env`, `data/`, `briefs/`, `reviews/`, logs, and backups. Restore the state directories together so corrections and publication decisions remain attached to their editions. Test restoration regularly.
+- Protect `.env`, `data/`, `briefs/`, `reviews/`, logs, backups, and any trusted local provider module. Restore the state directories together so corrections and publication decisions remain attached to their editions. Test restoration regularly.
 - Treat configured webhooks and the selected AI provider as data recipients.
 - Monitor process logs and authenticated `/api/ready` details for persistent failures.
 
-Provider keys saved through Settings are stored in plaintext at `data/settings.local.json`. They are masked in API responses and common credentials are redacted from logs, but those controls do not protect against local file access. Prefer environment or service-manager secret injection when disk access is in the threat model.
+Built-in provider keys saved through Settings are stored in plaintext at `data/settings.local.json`. They are masked in API responses and common credentials are redacted from logs, but those controls do not protect against local file access. Prefer environment or service-manager secret injection when disk access is in the threat model. Experimental Custom modules use environment credentials; keep secrets out of their errors, health responses, and generated text.
 
 On POSIX systems the application requests mode `0700` for state directories and `0600` for sensitive state files. Windows uses the service account's filesystem ACLs. These are defense-in-depth defaults, not encryption.
 

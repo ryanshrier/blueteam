@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 dotenv.config({ quiet: true }); // suppress dotenv's stdout banner/tip line
 
 import express from 'express';
-import { createAiProvider } from './lib/ai-provider.js';
+import { createAiProvider, loadProviderModule } from './lib/ai-provider.js';
 import { randomBytes } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -172,10 +172,11 @@ const bootKevWarmup = refreshKEV().catch(err => log.warn('kev', `Boot KEV warm-u
 
 // Provider selection and credentials can change without restarting the server.
 loadUserSettings(DATA_DIR);
-const ai = createAiProvider({ getSettings: getUserSettings, getAnalysisSettings: () => getConfig().analysisSettings || {} });
+const providerModule = await loadProviderModule(process.env, __dirname);
+const ai = createAiProvider({ getSettings: getUserSettings, getAnalysisSettings: () => getConfig().analysisSettings || {}, providerModule });
 const refreshAi = () => ai.refresh();
 const getAiStatus = () => ai.getStatus();
-if (!ai.getClient()) log.warn('env', 'No API key configured for the selected provider — AI briefing disabled');
+if (!ai.getClient()) log.warn('env', ai.getStatus().error || 'Selected AI provider is not configured — AI briefing disabled');
 
 // ── Cooldown gate (per-process duplicate-generation guard) ──
 const cooldown = {

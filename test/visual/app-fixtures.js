@@ -17,8 +17,8 @@ const action = 'verify each synthetic gateway against the approved inventory, re
 const context = 'The synthetic gateway incident combines public management access, inconsistent asset ownership, and incomplete identity records across a fictional estate. The response remains incomplete until the team can connect each exposed system to its patch evidence and a timestamped containment decision; a successful update alone does not establish that earlier access was absent.';
 
 export const LONG_BRIEF = MARKETING_BRIEF
-  .replace('A synthetic identity-gateway incident shows how one sourced assessment becomes both an analyst Briefing and a paper-first Print Edition without another model call.',
-    `The synthetic identity-gateway incident requires verification across the entire exposed estate before normal operations resume because a corrected build cannot establish whether attackers gained access before remediation. ${context} Infrastructure and detection engineering must ${action}.`)
+  .replace(/(## BLUF\n\n)[^\n]+/,
+    (_, heading) => `${heading}The synthetic identity-gateway incident requires verification across the entire exposed estate before normal operations resume because a corrected build cannot establish whether attackers gained access before remediation. ${context} Infrastructure and detection engineering must ${action}.`)
   .replace('In this fictional scenario, an internet-facing identity gateway is under active exploitation after a vendor confirmed the attack path.', context)
   .replace('The example environment has two test gateways whose public reachability and update state need same-shift verification.', `${context} Include disaster-recovery gateways and equipment managed by suppliers in the final exposure check.`)
   .replace(/- \*\*Required decisions:\*\*[^\n]+/, `- **Required decisions:** ${['Infrastructure', 'Detection engineering', 'Identity operations', 'Incident command', 'Service owners', 'Recovery engineering', 'Shift lead'].map((owner, i) => `${owner} — ${action} and retain the decision record for workstream ${i + 1} — recommended target July ${24 + i}, 2026`).join('; ')}.`)

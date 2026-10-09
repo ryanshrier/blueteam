@@ -36,7 +36,8 @@ Copy `.env.example` to `.env` for local use. Do not commit populated secret file
 
 | Variable | Required | Description |
 |---|---|---|
-| `AI_PROVIDER` | No | Default Briefing provider: `anthropic` or `openai`. A saved Settings selection takes precedence. Without an explicit selection, OpenAI is used only when an OpenAI key exists and no Anthropic key exists; otherwise Anthropic is the default. |
+| `AI_PROVIDER` | No | Default Briefing provider: built-in `anthropic` or `openai`, or experimental `custom`. A saved Settings selection takes precedence. Without an explicit selection, a configured local module selects Custom; otherwise OpenAI is used only when an OpenAI key exists and no Anthropic key exists; otherwise Anthropic is the default. |
+| `AI_PROVIDER_MODULE` | For Custom | Experimental trusted local JavaScript module exporting `createClient(env)`; the contract may change. Relative paths resolve from the application directory. Restart after changing the path or module. |
 | `ANTHROPIC_API_KEY` | For Anthropic | Anthropic Briefing and verification key. `ANTHROPIC_API_KEY_PRIMARY` is accepted as an alias. |
 | `ANTHROPIC_API_KEY_SECONDARY` | No | Anthropic fallback key used after an authentication failure. |
 | `OPENAI_API_KEY` | For OpenAI | OpenAI Briefing and verification key, including Codex models through the Responses API. |
@@ -56,7 +57,7 @@ Copy `.env.example` to `.env` for local use. Do not commit populated secret file
 
 `TRUST_PROXY` controls whether Express honors `X-Forwarded-*` headers for client IPs, rate limiting, and request-derived feed URLs. Without it, direct clients cannot use those headers to spoof proxy information. `PUBLIC_BASE_URL` takes precedence for emitted feed URLs.
 
-For each provider, an environment key takes precedence over a saved key. Removing a saved key does not remove an environment key. Provider and OpenAI model choices saved in Settings override their environment defaults. Verifying a key makes a small billable request; OpenAI verification checks access to the selected model. Briefing generation sends the configured organization context and selected public-source evidence described in [Network behavior](operations.md#network-behavior).
+For each built-in provider, an environment key takes precedence over a saved key. Removing a saved key does not remove an environment key. Provider and OpenAI model choices saved in Settings override their environment defaults. Verifying a built-in provider key makes a small billable request; OpenAI verification checks access to the selected model. Custom modules use environment credentials and their own optional health hook. Briefing generation sends the configured organization context and selected public-source evidence described in [Network behavior](operations.md#network-behavior).
 
 OpenAI uses the Responses API directly. It requires an OpenAI API key, not a Codex CLI login or ChatGPT subscription. Both provider keys can be configured at once, but a generation uses only the selected provider. OpenAI corrective retries retain the selected model and do not fall back to Anthropic. Anthropic model and fallback settings remain in `analysisSettings`.
 
@@ -68,6 +69,31 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 
 Host validation protects the default local server from DNS-rebinding requests. Present browser origins are also checked on state-changing API requests. If a reverse proxy changes the public host, configure `PUBLIC_BASE_URL` to its canonical origin and keep proxy trust narrowly scoped.
 
+## Local provider modules
+
+**Custom (local module) is experimental; the module contract may change.** Anthropic and OpenAI remain the built-in providers. A generic adapter is operator-supplied code, not a bundled provider integration.
+
+Set `AI_PROVIDER=custom` and `AI_PROVIDER_MODULE=./local/generic-provider.js`, restart, and select **Custom (local module)** in Settings if a different provider was previously saved. Relative module paths resolve from the application directory. Modules run trusted code with the server's permissions, without a sandbox. Settings hides the API key field; define any credentials required by your module in the process environment or `.env`.
+
+The ES module exports a synchronous `createClient(env)` function returning `{ provider, model, stream }`. `provider` and `model` are nonempty strings recorded in generation receipts. `stream(params, { signal, timeout, maxRetries })` returns an async iterable (or a promise of one) and must honor `signal` to stop work on cancellation. Input parameters contain `model`, `system`, `messages`, and `max_tokens`. The generator uses this contract for every direct-stream provider, without a provider-name allowlist.
+
+Emit the same normalized events as the built-in OpenAI adapter:
+
+- `{ type: 'message_start', message: { model, usage: { input_tokens, output_tokens, cost_usd } } }` reports the actual model and usage. Usage fields are optional; when available, `cost_usd` must be a finite nonnegative number representing cumulative USD cost for that attempt, not a per-event increment.
+- `{ type: 'content_block_delta', delta: { text } }` appends generated text.
+- `{ type: 'message_delta', delta: { stop_reason }, usage }` updates usage and the final stop reason: `end_turn`, `max_tokens`, or `refusal`.
+- `{ type: 'message_stop' }` confirms completion. Ending the iterable without a terminal event leaves an interrupted draft.
+
+Provider-reported `cost_usd` takes precedence over the built-in model-rate estimate for that attempt. The generation total sums all attempts, including retries. If any attempt has neither a reported cost nor a known model rate, the total is unavailable (`null`), not zero. Receipts identify provider-reported costs separately from list-rate estimates; neither is a verified invoice.
+
+Optional client fields are `fallbackModel`, `version` (a string), `configureRequest(params, { effort })` to modify provider-specific request parameters, and `health({ signal })`. **Check status** in Settings calls `health` with a 15-second deadline and never invokes `stream`. Return `{ valid: true | false | null, note?, error?, version? }`: `true` means the module reports ready, `false` means it reports not ready, and `null` means readiness is unknown. The application aborts the supplied signal on timeout and returns an unknown result. Keep factory and health operations lightweight; any network calls or charges made by the hook are controlled by the module.
+
+Without a health hook, Check status returns `valid: null` and a note that the module loaded, including its `version` when supplied. A loaded client is marked enabled independently of this check; health results do not gate generation. The normal `/api/live`, `/api/ready`, and `/api/health` probes do not call the module hook. See the [Settings API](api.md#ai-provider-settings) for response fields.
+
+For failures, throw an `Error` with an optional operator-safe `reason`, such as `gateway timeout (524)`, and numeric `status`. The reason is retained in generation failures even when the underlying command uses silent logging. Never include credentials in diagnostics. A module path or implementation change requires a server restart; switching between already configured providers in Settings does not.
+
+Saved draft revalidation makes no provider call. It automatically normalizes equivalent standalone no-intersection sentences and inserts blank lines between adjacent list items before checking the captured evidence. Repairs are saved as a new revision; the original draft and its inputs remain available. Dates, citations, and substantive claims still require operator correction when unsupported.
+
 ## Runtime Settings
 
 The Settings page stores server-side operator values in the gitignored `data/settings.local.json`. The API never returns raw provider keys, but the file itself is plaintext and must be protected. Appearance preferences stay in that browser's local storage.
@@ -75,7 +101,7 @@ The Settings page stores server-side operator values in the gitignored `data/set
 Settings controls:
 
 - the active Briefing provider and OpenAI model;
-- separate Anthropic and OpenAI keys, including verification and removal;
+- separate Anthropic and OpenAI keys, including verification and removal, or an optional health check for the experimental Custom module;
 - organization profile overrides and literal watch terms;
 - browser-local appearance preferences; and
 - automatic Briefing generation.

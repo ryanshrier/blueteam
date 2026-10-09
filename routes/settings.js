@@ -176,7 +176,7 @@ export function createSettingsRouter({
     res.json(payload);
   });
 
-  // POST /settings/verify makes a minimal provider request to confirm a key
+  // POST /settings/verify checks a local module's health or makes a minimal provider request to confirm a key
   // works (not just that it's well-formed). Same write-gate as POST /settings since
   // it accepts a key in the body. Returns { valid: true|false|null, error?, note? }.
   router.post('/settings/verify', async (req, res) => {
@@ -188,7 +188,14 @@ export function createSettingsRouter({
     }
     const body = req.body || {};
     const provider = body.provider ?? (Object.hasOwn(body, 'openaiKey') ? 'openai' : 'anthropic');
-    if (!['anthropic', 'openai'].includes(provider)) return res.status(400).json({ valid: false, error: 'provider must be anthropic or openai.', code: 'E_PROVIDER' });
+    if (!['anthropic', 'openai', 'custom'].includes(provider)) return res.status(400).json({ valid: false, error: 'provider must be anthropic, openai, or custom.', code: 'E_PROVIDER' });
+    if (provider === 'custom') {
+      if (['anthropicKey', 'openaiKey', 'openaiModel'].some(field => Object.hasOwn(body, field))) {
+        return res.status(400).json({ valid: false, error: 'Custom modules use environment credentials and model settings only.', code: 'E_KEYFMT' });
+      }
+      try { return res.json(await verifyKey('', provider)); }
+      catch { return res.json({ valid: null, error: 'Module status check failed unexpectedly.' }); }
+    }
     const field = provider === 'openai' ? 'openaiKey' : 'anthropicKey';
     const otherField = provider === 'openai' ? 'anthropicKey' : 'openaiKey';
     if (Object.hasOwn(body, otherField)) return res.status(400).json({ valid: false, error: 'Send only the selected provider’s key.', code: 'E_KEYFMT' });
@@ -238,7 +245,7 @@ export function createSettingsRouter({
         if (error) return res.status(400).json({ error, code: 'E_KEYFMT' });
         patch[field] = body[field].trim() || undefined;
       } else if (field === 'aiProvider') {
-        if (!['anthropic', 'openai'].includes(body[field])) return res.status(400).json({ error: 'aiProvider must be anthropic or openai.', code: 'E_PROVIDER' });
+        if (!['anthropic', 'openai', 'custom'].includes(body[field])) return res.status(400).json({ error: 'aiProvider must be anthropic, openai, or custom.', code: 'E_PROVIDER' });
         patch[field] = body[field];
       } else {
         if (typeof body[field] !== 'string' || (body[field].trim() && !validOpenaiModel(body[field].trim()))) return res.status(400).json({ error: 'openaiModel must be a model ID of 1–128 characters, or empty to reset.', code: 'E_MODEL' });

@@ -336,10 +336,10 @@ describe('parseBrief', () => {
 // (prompts.js, which states the target) and the audit side (validation.js,
 // which warns past it) can never disagree.
 describe('BLUF_MAX_WORDS', () => {
-  test('is a small positive number suitable for a one-sentence BLUF', () => {
+  test('is a compact paragraph target with room for applicability and uncertainty', () => {
     expect(typeof BLUF_MAX_WORDS).toBe('number');
     expect(BLUF_MAX_WORDS).toBeGreaterThan(10);
-    expect(BLUF_MAX_WORDS).toBeLessThan(60);
+    expect(BLUF_MAX_WORDS).toBeLessThan(100);
   });
 });
 

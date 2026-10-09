@@ -127,7 +127,7 @@ export async function verifyKey(key, provider = 'anthropic', openaiModel) {
   const res = await fetch('/api/settings/verify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, [provider === 'openai' ? 'openaiKey' : 'anthropicKey']: key, ...(provider === 'openai' && openaiModel ? { openaiModel } : {}) }),
+    body: JSON.stringify({ provider, ...(provider !== 'custom' ? { [provider === 'openai' ? 'openaiKey' : 'anthropicKey']: key } : {}), ...(provider === 'openai' && openaiModel ? { openaiModel } : {}) }),
     signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS + 2_000),
   });
   const body = await res.json().catch(() => ({}));

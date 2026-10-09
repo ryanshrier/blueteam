@@ -627,9 +627,17 @@ function bindWorkspace(main) {
     if (active && !savedScroll && !filters.signal) window.scrollTo(0, 0);
   });
   const controls = surface.querySelector('.wire-controls');
-  const measureControls = () => surface.style.setProperty('--wire-controls-height', `${Math.ceil(controls.getBoundingClientRect().height)}px`);
+  const workspace = surface.querySelector('.wire-workspace');
+  const measureControls = () => {
+    surface.style.setProperty('--wire-controls-height', `${Math.ceil(controls.getBoundingClientRect().height)}px`);
+    // Reserve the heading and page spacing before scrolling pins the inspector.
+    surface.style.setProperty('--wire-workspace-top', `${Math.ceil(workspace.getBoundingClientRect().top + window.scrollY)}px`);
+  };
   measureControls();
-  if (typeof ResizeObserver !== 'undefined') { controlsObserver = new ResizeObserver(measureControls); controlsObserver.observe(controls); }
+  if (typeof ResizeObserver !== 'undefined') {
+    controlsObserver = new ResizeObserver(measureControls);
+    [surface, controls, surface.querySelector('.wire-head'), document.querySelector('.app-header')].filter(Boolean).forEach(element => controlsObserver.observe(element));
+  }
   window.addEventListener('storage', onWorkspaceStorage);
   document.getElementById('wireExportDecisions')?.addEventListener('click', () => {
     reloadWorkspaceState();

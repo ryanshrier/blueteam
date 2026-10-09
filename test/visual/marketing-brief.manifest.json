@@ -4,11 +4,11 @@
   "capturedAt": "2026-07-24T12:00:00Z",
   "application": {
     "name": "blueteam-news",
-    "version": "1.2.1",
+    "version": "1.3.0",
     "implementationSha256": {
-      "prompts": "76586a15d10d357a82384693ff308e32cf58b1f51b0910d1846fb5b9b6a71a97",
+      "prompts": "78babd3d745f23a6aec1b872e4a64ca52192c8c01f8c78d6bc8f133192ec582e",
       "grounding": "fb552605f306c13e084d8ff0baaf68ed4f2fa556f40a78c9f0774e0eed3f6a67",
-      "validation": "296a5506d7153313053ae0f8b53c0fc7c0aa509a9c3f1123b9d95890af99ca3b",
+      "validation": "cece5f91be0ebb1f6ea9397b062f7c974d439562b27bfa3793f84ab5ce026368",
       "scoring": "825b3a8bb288f5157697af4a9d2cb80b46a2cd5ab37ae84e4871d1e479ab922c",
       "evidence-quality": "e35a168bcdd7253dd24795e6a43d1e52ddc94c38d35b780759bcce2525babf97",
       "claim-checks": "843a57849edd9632805edfe29e155cf7468c05133c78fd8bc44d12fbf3c43f6f",
@@ -313,7 +313,7 @@
   "providerAttempts": [],
   "validation": [
     {
-      "draftSha256": "1c39eb5f3eb163f1e153b3459f663b92b1baafaf3ea9eaa0d01ee77235a29c05",
+      "draftSha256": "7e6d0cbf6133fc131b0d8513192f2809c3696f467cd35d00631179cecb11c7d3",
       "valid": true,
       "warnings": [],
       "issues": [],
@@ -344,10 +344,10 @@
   ],
   "generatedAt": "2026-07-24T12:00:00Z",
   "synthetic": true,
-  "syntheticRegeneratedAt": "2026-10-01T21:52:46.669Z",
+  "syntheticRegeneratedAt": "2026-10-09T13:45:04.918Z",
   "syntheticNote": "Authored fictional demonstration; no provider was called. Edition, source, collection, capturedAt, and generatedAt dates describe the July 24, 2026 scenario, not a real collection or generation. syntheticRegeneratedAt records when this sample receipt was rebuilt and checked against the recorded application implementation. Passing supported checks does not verify real-world events or complete analyst review.",
   "filename": "brief-2026-07-24-01.md",
-  "outputSha256": "1c39eb5f3eb163f1e153b3459f663b92b1baafaf3ea9eaa0d01ee77235a29c05",
+  "outputSha256": "7e6d0cbf6133fc131b0d8513192f2809c3696f467cd35d00631179cecb11c7d3",
   "modelUsed": "synthetic-fixture",
   "editorialStandard": 2,
   "verification": {

@@ -103,7 +103,7 @@ describe('buildSystemPrompt — BLUF word budget', () => {
   test('the BLUF instruction states the shared word budget', () => {
     setDomainPack(cyberPack);
     const p = buildSystemPrompt(cfg);
-    expect(p).toContain(`maximum ~${BLUF_MAX_WORDS} words`);
+    expect(p).toContain(`aim for about ${BLUF_MAX_WORDS} words or fewer`);
   });
 });
 

@@ -2,12 +2,14 @@
 
 [Back to the README](../README.md)
 
-BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and the Wire require no API key. AI-generated Briefings require an Anthropic or OpenAI API key for the selected provider. Configure both keys and switch providers in Settings; OpenAI supports Codex models through the Responses API. The default listener is loopback-only.
+BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and the Wire require no API key. Its built-in Briefing providers require an Anthropic or OpenAI API key. Configure both keys and switch providers in Settings; OpenAI supports Codex models through the Responses API. The default listener is loopback-only.
+
+**Custom (local module) is experimental; its contract may change.** It loads an operator-supplied adapter that runs trusted code with the server's permissions and reads credentials from the environment. Configure and review the module before enabling generation; see the [local provider contract](configuration.md#local-provider-modules).
 
 ## Start, stop, and restart
 
 ```bash
-git clone https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.3.0 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -39,7 +41,7 @@ The CI policy job separately pins npm 11.18 to enforce the exact lifecycle scrip
 
 ## Briefing schedule and cost
 
-Manual Briefing generation requires a valid key for the selected provider and enough current source evidence. Automatic generation is a separate, explicit opt-in under **Settings** and is disabled by default. Its controls are:
+Manual Briefing generation requires a configured provider and enough current source evidence. Built-in providers need a valid key; an experimental Custom module supplies its own client and environment credentials. Automatic generation is a separate, explicit opt-in under **Settings** and is disabled by default. Its controls are:
 
 | Setting | Default | Meaning |
 |---|---:|---|
@@ -50,15 +52,15 @@ Manual Briefing generation requires a valid key for the selected provider and en
 | Retry interval | 15 minutes | Delay after a failed attempt |
 | Maximum attempts | 3 | Daily automatic-attempt limit |
 
-Schedule state and outcomes persist in SQLite, so a restart does not erase the attempt count or duplicate a successful daily run. Catch-up applies only to today's missed scheduled time and does not replay multiple missed days. An attempt chain that already began can resume after restart within the saved daily attempt limit, even when the initial missed-run policy is **Skip**. If no key is available for the selected provider, an enabled schedule waits and reports that state instead of enabling itself or issuing a provider call.
+Schedule state and outcomes persist in SQLite, so a restart does not erase the attempt count or duplicate a successful daily run. Catch-up applies only to today's missed scheduled time and does not replay multiple missed days. An attempt chain that already began can resume after restart within the saved daily attempt limit, even when the initial missed-run policy is **Skip**. If the selected provider has no client, an enabled schedule waits instead of issuing a provider call. For built-in providers this normally means a missing key; for Custom it means the module did not supply a valid client.
 
-Manual and automatic requests share the same generation route, cooldown, rate limits, validation, storage, and webhook path. Route-level request limits use process-local fixed windows and reset when the server restarts; the separate automatic-schedule attempt count persists in SQLite. Key verification sends a minimal provider request, and every provider request may consume billable tokens on the selected provider account. Corrective retries, timeout recovery, and model or key fallback can make additional provider calls, so these limits are guardrails rather than spending caps. Review provider account limits and billing separately. OpenAI retries use the selected model; they never switch providers. Anthropic retains its configured model and key fallback behavior.
+Manual and automatic requests share the same generation route, cooldown, rate limits, validation, storage, and webhook path. Route-level request limits use process-local fixed windows and reset when the server restarts; the separate automatic-schedule attempt count persists in SQLite. Built-in key verification sends a minimal provider request, and provider requests may consume billable tokens. Corrective retries, timeout recovery, and model or key fallback can make additional provider calls, so these limits are guardrails rather than spending caps. Review provider account limits and billing separately. OpenAI retries use the selected model; they never switch providers. Anthropic retains its configured model and key fallback behavior. Custom status checks call only the module's optional health hook; any work or charges inside that hook are module-defined.
 
 The default generation settings use `thinkingEffort: "low"`, a 16,000-token output cap, and a 300-second generation deadline. Explicit operator configuration remains authoritative.
 
 If the provider stops at the configured output-token limit, BlueTeam.News uses its one-retry allowance without raising the cap. Anthropic recovery lowers thinking effort, disabling it when the original setting was low. Codex uses its lowest supported effort, `low`. If the retry also exhausts the limit, the app returns the recoverable draft without publishing it. Raise `analysisSettings.maxTokens` in `config.json` or reduce the Briefing scope before trying again.
 
-Completed Briefings report the model, token counts, and an estimated cost when pricing is known. A custom model without a known rate shows cost as unavailable. Estimates can differ from the provider invoice; OpenAI reasoning tokens are included in output usage rather than charged twice.
+Completed Briefings report the model, token counts, and cost when available. A finite nonnegative `cost_usd` reported by the provider takes precedence over the application's token-rate estimate for that attempt. The total includes all attempts and retries. If any attempt has neither a reported cost nor a known model rate, the total is unavailable (`null`), not zero; an experimental Custom module can report cost even for an unknown model. Receipts identify provider-reported amounts separately from list-rate estimates. Both can differ from the invoice; OpenAI reasoning tokens are included in output usage rather than charged twice.
 
 New editions require the provider's terminal event and a completed stop reason, then save a JSON input manifest before publishing their Markdown. A publication error prevents completion and webhook delivery. The generation ledger records paid attempts, usage checkpoints, and outcomes; after a restart it reconciles verified publications and marks unfinished jobs interrupted. Ambiguous paid attempts are not automatically repeated. Inspect **Settings → System health**, `/api/brief/status`, and provider usage before requesting another generation. Usage checkpoints can be incomplete and discarded output cannot be resumed. See [Generation stream](api.md#generation-stream).
 
@@ -80,7 +82,7 @@ Back up these paths:
 | `config.json` | Feeds, scoring, organization/watch-profile defaults, models, and webhooks |
 | `.env` or service environment | Optional secrets and server configuration |
 
-`data/settings.local.json` can contain both provider keys in plaintext. Store backups with the same care as the live host. Do not back up `node_modules`; reinstall it on the restore target.
+`data/settings.local.json` can contain both built-in provider keys in plaintext. Custom module credentials come from the environment rather than Settings; preserve the trusted module and its service configuration separately when backing up an experimental installation. Store backups with the same care as the live host. Do not back up `node_modules`; reinstall it on the restore target.
 
 For a consistent backup:
 
@@ -187,6 +189,8 @@ When `API_SECRET` is configured, an unauthenticated readiness request receives o
 
 The same readiness information is available in **Settings → System health**. The panel reads useful diagnostics from a degraded HTTP 503 response, identifies sources needing attention, and labels retained results when a later request fails. **Refresh diagnostics** is read-only and does not trigger feed collection or generation. Schedule timing and outcomes remain in the Scheduled Briefing section.
 
+For experimental Custom modules, **Settings → AI Briefing → Check status** invokes the optional `health({ signal })` hook with a 15-second deadline. It never invokes the module's `stream` method. A missing hook reports that the client loaded, with its version if supplied, but leaves readiness unknown. Timeouts and thrown hook errors also report unknown readiness. The ordinary liveness/readiness probes do not call this hook, and its result does not gate manual or scheduled generation. Use the hook to report operator-safe diagnostics and keep any module-specific network checks lightweight.
+
 **Copy diagnostics** prepares a limited report containing health counts, version, timing, and database size. Source names and URLs, credentials, organization settings, and raw configuration errors are excluded. Copying does not submit a support request. When clipboard access is unavailable, a selectable sanitized report is shown. A client receiving only the overall readiness status sees that detailed diagnostics are unavailable; the panel does not bypass the existing authentication boundary.
 
 ## Troubleshooting
@@ -195,7 +199,7 @@ The same readiness information is available in **Settings → System health**. T
 |---|---|
 | `POST /api/brief` returns 429 | Another generation may be active, a request may have started within the last 15 seconds (including an early failure), or the short-window/daily limit may be reached. Honor `Retry-After`, do not repeatedly click Generate, and inspect the JSON error and logs. |
 | Briefing reports stale or unavailable evidence (`E_EVIDENCE`) despite a saved key | Generation stops before calling the provider when current source evidence is insufficient. Check **Settings → System health**, restore the server's outbound connectivity to its configured sources, and allow collection to finish before retrying. Replacing the API key does not repair feed connectivity. |
-| Automatic Briefing did not run | Confirm the schedule is enabled in Settings, a valid key is available, the configured timezone is correct, and the displayed schedule status has not reached its daily attempt limit. |
+| Automatic Briefing did not run | Confirm the schedule is enabled in Settings, the selected provider is configured, the configured timezone is correct, and the displayed schedule status has not reached its daily attempt limit. Built-in providers need a valid key; an experimental Custom module must return a valid client. |
 | The generation connection failed or stopped without completion | Use **Check generation status** and History before retrying. Recovery must match the request's generation ID. An incomplete provider stream is not a completed edition; retained output may be available in Drafts, and final usage can be unknown. Status checks do not start another generation. |
 | Scheduled recovery returns `E_SCHEDULE_INTEGRITY` | The reserved edition's receipt or completion metadata did not verify. No provider call was started and the original was preserved. Inspect storage and restore a known-good matching Markdown/receipt pair; repeated retries do not repair it. |
 | `NODE_MODULE_VERSION`, ABI, or native-binding error | Stop the server, confirm Node is a supported release, delete only this clone's `node_modules`, then run `npm install` again. Never reuse another machine's dependency directory. |
@@ -204,6 +208,7 @@ The same readiness information is available in **Settings → System health**. T
 | Health stays degraded after first start | Inspect feed statuses and `configReloadError` in authenticated health details, then review logs for proxy, DNS, certificate, rate-limit, or config validation failures. |
 | Feeds fail behind a corporate proxy | Confirm the host can reach the configured HTTPS origins and that TLS inspection trusts the organization's CA. BlueTeam.News does not include a proxy-bypass mode. |
 | Briefing is disabled | Choose a provider and verify its key in Settings, or set `AI_PROVIDER` with `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. Environment keys override saved keys for that provider. Check the selected OpenAI model if verification reports an access error. |
+| Experimental Custom module is unavailable | Confirm `AI_PROVIDER_MODULE` names a trusted module exporting `createClient(env)`, select Custom, and restart after changing its path, code, or environment credentials. Use **Check status** for initialization or hook diagnostics. A loaded client alone does not verify model access or credentials. |
 | Database, Briefing history, or editorial decisions are missing after a move | Restore `data/`, `briefs/`, and `reviews/` together, confirm filesystem ownership, and use the application version recorded with the backup. |
 | Source evidence is missing or an attached revision is no longer retained | Evidence starts with collection after the upgrade and has rolling count/age limits. Newer observations do not reconstruct an older missing passage. Inspect the source link and collection/storage diagnostics; do not treat missing evidence as a negative finding. |
 | A Briefing has no saved inputs or its manifest fails verification | Old editions have no reconstructed manifest. For newer editions, restore the matching Markdown/manifest pair; check for an external edit, partial restore, corrupt file, or storage failure. A manifest hash does not authorize replacing the original assessment. |
@@ -264,10 +269,12 @@ write keeps the affected area degraded until that operation succeeds again.
 The self-hosted application sends no product telemetry. Expected outbound requests are:
 
 - configured RSS/Atom feeds, news search, selected article pages, and enrichment sources such as CISA KEV, NVD, and EPSS;
-- the selected AI provider, Anthropic or OpenAI, when Briefing generation or key verification is requested; and
+- the selected built-in AI provider, Anthropic or OpenAI, when Briefing generation or key verification is requested, or destinations chosen by an experimental Custom module; and
 - an alert webhook configured by the operator.
 
-Briefing generation sends the selected provider the configured team profile, audience, and effective watch profile, including technologies, sectors, regions, intelligence questions, lower-interest topics, and preferred horizons; selected public-source titles, descriptions or short excerpts, source labels, publication dates, URLs, and enrichment facts; and compact topic labels from recent Briefings for continuity. Key verification sends a minimal provider request. Opening retained evidence or a saved generation manifest makes no publisher or model request.
+Briefing generation sends the selected provider the configured team profile, audience, and effective watch profile, including technologies, sectors, regions, intelligence questions, lower-interest topics, and preferred horizons; selected public-source titles, descriptions or short excerpts, source labels, publication dates, URLs, and enrichment facts; and compact topic labels from recent Briefings for continuity. Built-in key verification sends a minimal provider request. Opening retained evidence or a saved generation manifest makes no publisher or model request.
+
+Custom modules receive the generation parameters and process environment, run without a sandbox, and define their own network behavior, including any health-hook requests. Review the module's destinations and data handling before use; application feed-fetch protections do not constrain arbitrary module code.
 
 Feed, article, and enrichment requests use the default User-Agent `BlueTeam.News/<version> (+https://blueteam.news)`. This identifies the application to source operators but does not report usage back to BlueTeam.News. Set `BLUETEAM_USER_AGENT` to use an operator-controlled identity, such as one containing a contact URL.
 

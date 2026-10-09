@@ -264,6 +264,26 @@ describe('Wall mounted playback and recovery', () => {
     delete global.localStorage;
   });
 
+  test.each(['', '?read=1'])('modal keyboard input does not advance or exit Wall (%s)', async search => {
+    window.location.search = search;
+    const body = document.getElementById('nbBody');
+    body.scrollHeight = 1500;
+    mount(document.getElementById('wallLayer'));
+    await jest.advanceTimersByTimeAsync(0);
+    const initialScroll = body.scrollTop;
+    const initialPage = body.innerHTML;
+    modal = true;
+    for (const value of ['ArrowRight', 'ArrowLeft', 'Escape']) {
+      expect(key(value).preventDefault).not.toHaveBeenCalled();
+    }
+    expect(body.scrollTop).toBe(initialScroll);
+    expect(body.innerHTML).toBe(initialPage);
+    expect(window.history.pushState).not.toHaveBeenCalled();
+    modal = false;
+    expect(key('ArrowRight').preventDefault).toHaveBeenCalled();
+    expect(body.scrollTop).toBeGreaterThan(initialScroll);
+  });
+
   test('quiet-hour reload happens once across document remounts in the same tab', async () => {
     jest.setSystemTime(new Date(2026, 8, 4, 4, 0, 0));
     window.location.search = '';

@@ -1,5 +1,5 @@
 import { describe, expect, test } from '@jest/globals';
-import { captureKevTiming, validateBrief } from '../lib/validation.js';
+import { captureKevTiming, repairBriefFormatting, validateBrief } from '../lib/validation.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 
 const cves = ['CVE-2026-83548', 'CVE-2026-83549'];
@@ -32,6 +32,29 @@ describe('captured CISA KEV remediation dates', () => {
     const distinct = { ...timing, [cves[1]]: { ...timing[cves[1]], dueDate: '2026-09-09' } };
     expect(deadlineIssues('CISA KEV CVE-2026-83548 remediation due 2026-09-05; CVE-2026-83549 remediation due 2026-09-09.', distinct)).toEqual([]);
     expect(deadlineIssues('CISA KEV CVE-2026-83548 remediation due 2026-09-09; CVE-2026-83549 remediation due 2026-09-05.', distinct)).toHaveLength(2);
+  });
+
+  test.each(['-', '*', '+', '1.', '1)'])('binds each tight %s bullet to its own CVE and date', marker => {
+    const records = Object.fromEntries(Array.from({ length: 8 }, (_, index) => [
+      `CVE-2026-${84000 + index}`, { dueDate: `2026-09-${String(10 + index).padStart(2, '0')}` },
+    ]));
+    const claim = 'CISA KEV remediation dates:\n' + Object.entries(records)
+      .map(([cve, record]) => `${marker} ${cve} affects a gateway, remediation due ${record.dueDate}`)
+      .join('\n');
+    expect(deadlineIssues(claim, records)).toEqual([]);
+    expect(deadlineIssues(repairBriefFormatting(claim), records)).toEqual([]);
+    const result = deadlineIssues(claim.replace('due 2026-09-13', 'due 2026-09-30'), records);
+    expect(result).toEqual([expect.objectContaining({
+      code: 'KEV_DEADLINE_MISMATCH', message: expect.stringContaining('CVE-2026-84003'),
+      location: expect.objectContaining({ line: 9, excerpt: expect.stringContaining('due 2026-09-30') }),
+    })]);
+    expect(deadlineIssues(repairBriefFormatting(claim.replace('due 2026-09-13', 'due 2026-09-30')), records))
+      .toEqual([expect.objectContaining({ code: 'KEV_DEADLINE_MISMATCH', message: expect.stringContaining('CVE-2026-84003') })]);
+  });
+
+  test('does not borrow a plural CVE reference from a preceding list item', () => {
+    const claim = '- CVE-2026-83548 and CVE-2026-83549 are in CISA KEV\n- FCEB remediation for both due 2026-09-05.';
+    expect(deadlineIssues(claim)).toEqual([expect.objectContaining({ code: 'KEV_DEADLINE_AMBIGUOUS' })]);
   });
 
   test('rejects the retained September 6 draft remediation-for-both contradiction', () => {

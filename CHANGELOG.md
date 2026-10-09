@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0 — 2026-10-09
+
+- Give Briefing Overview a news-style front page with a featured story, an edition summary, and supporting headlines. Keep complete assessments, response actions, qualifications, and citations in Full report, with direct links from each story.
+- Improve Briefing, Wire, Wall, draft recovery, and Settings layouts for 13-inch laptops, including 1440 × 900 and 1280 × 800 displays.
+- Balance Full report reading margins, remove its duplicate assessment index, improve metadata wrapping, and keep section navigation aligned with the current reading position.
+- Refine briefing prose for executive scanning and analyst follow-through: lead with consequences and applicability, preserve concise decision summaries, show uncertainty before response steps, and distinguish saved assessments from live reporting. Add editorial evaluation guidance and owner/target consistency checks.
+- Add experimental Custom provider support through a trusted local module. Credentials remain in the environment; modules can report status, version, usage, cost, and actionable failure reasons. The module contract may change.
+- Use provider capabilities in generation, preserve reported failure reasons, and expose local module health through Settings verification.
+- Accept more supported no-intersection wording, validate KEV dates per bullet, and include expected wording in validation failures. Repair safe convergence and list formatting when revalidating saved drafts without a provider call.
+- Refresh GitHub Pages branding, briefing screenshots, release documentation, and visual/contrast checks.
+- Patch compression and proxy-addr, and update the test tooling's YAML dependency to remove newly reported dependency advisories.
+
 ## 1.2.1 — 2026-10-01
 
 - Require a terminal provider event for complete generation, verify scheduled replay receipts, and use the same current-copy publication eligibility in Briefing, Wall, RSS, and continuity.

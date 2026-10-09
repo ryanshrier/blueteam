@@ -46,23 +46,60 @@ try {
   }
   async function screenshot(name) {
     await delay(100);
-    const dimensions = await evaluate(`(() => { const first=document.querySelector('.brief-overview-lead h2, .wire-item'); const r=first?.getBoundingClientRect(); return {width:innerWidth,height:innerHeight,pageWidth:document.documentElement.scrollWidth,firstContentY:r?.y,columns:document.querySelector('.brief-overview-grid')?getComputedStyle(document.querySelector('.brief-overview-grid')).gridTemplateColumns:null}; })()`);
+    const dimensions = await evaluate(`(() => { const first=document.querySelector('.brief-overview-feature h2, .wire-item'); const r=first?.getBoundingClientRect(); return {width:innerWidth,height:innerHeight,pageWidth:document.documentElement.scrollWidth,firstContentY:r?.y,columns:document.querySelector('.brief-overview-grid')?getComputedStyle(document.querySelector('.brief-overview-grid')).gridTemplateColumns:null}; })()`);
     assert(dimensions.pageWidth <= dimensions.width, `Horizontal fit: ${name}`);
     const shot = await page.call('Page.captureScreenshot',{format:'png'});
     await writeFile(resolve(output,`${name}.png`),Buffer.from(shot.data,'base64'));
     records.push({name,...dimensions});
     console.log(`PASS ${name}: ${dimensions.width}px; first content y=${Math.round(dimensions.firstContentY || 0)}`);
   }
-  for(const width of [390, 1024, 1440]) for(const theme of ['light','dark']) {
-    await page.call('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<500});
+  async function assertOverview() {
+    const overview = await evaluate(`(() => {
+      const host = document.querySelector('#briefOverview');
+      const box = node => { const r = node?.getBoundingClientRect(); return r ? {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width} : null; };
+      const cards = [...host.querySelectorAll('.brief-overview-story')];
+      const reportIds = [...document.querySelectorAll('.brief-judgment-card > h3[id]')].map(node => node.id);
+      const watch = host.querySelector('.brief-overview-watch'), recent = host.querySelector('.brief-overview-recent');
+      return {
+        width:innerWidth, feature:box(host.querySelector('.brief-overview-feature')),
+        note:box(host.querySelector('.brief-overview-edition-note')),
+        supporting:[...host.querySelectorAll('.brief-overview-grid > .brief-overview-story')].map(box),
+        reportIds, cards:cards.map(card => ({id:card.querySelector('h2[id]')?.id,
+          destinations:[...card.querySelectorAll('[data-overview-open]')].map(link => new URL(link.href).hash.slice(1)),
+          disclosures:card.querySelectorAll('details').length})),
+        repeatedControls:host.querySelectorAll('[data-overview-jump], .brief-overview-action, .brief-overview-window').length,
+        savedBeforeCurrent:!watch || !!(watch.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING)
+      };
+    })()`);
+    assert(overview.feature && overview.note, 'Overview presents an edition lead and featured story');
+    assert(overview.reportIds.length > 0, 'Fixture has saved assessments to compare');
+    assert.deepEqual(overview.cards.map(card => card.id), overview.reportIds.map(id => `overview-${id}`), 'Overview preserves every assessment in authored order');
+    for (const [index, card] of overview.cards.entries()) {
+      assert.equal(card.disclosures, 1, 'Each story has one complete evidence disclosure');
+      assert.deepEqual(card.destinations, [overview.reportIds[index], overview.reportIds[index]], 'Headline and reading link open the same saved assessment');
+    }
+    assert.equal(overview.repeatedControls, 0, 'Overview does not repeat the report index or response controls');
+    assert(overview.savedBeforeCurrent, 'Saved watching topics precede current reporting');
+    assert(overview.feature.top >= overview.note.bottom - 1, 'Edition lead appears above the featured story at every viewport');
+    if (overview.width > 900) {
+      if (overview.supporting.length >= 2) {
+        const [first, second] = overview.supporting;
+        assert(second.left >= first.right - 1 && Math.abs(first.width - second.width) <= 1, 'Supporting stories use equal-width desktop columns');
+      }
+    }
+    if (overview.supporting.length) assert(overview.supporting[0].top >= Math.max(overview.feature.bottom, overview.note.bottom) - 1, 'Supporting stories begin below the complete opening');
+  }
+  for(const [width, height] of [[390, 900], [1024, 900], [1280, 800], [1440, 900]]) for(const theme of ['light','dark']) {
+    await page.call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<500});
     await navigate(`/briefing?scenario=sample&theme=${theme}&capture&reducedMotion`);
-    await until('!!document.querySelector(".brief-overview-lead")');
+    await until('!!document.querySelector(".brief-overview-feature")');
     await activate('#briefOverviewMode');
     await until('!!document.querySelector(".brief-overview-timeline")');
     assert(await evaluate('document.querySelector(".briefing-layout").hidden'), 'Full report is preserved but hidden during Overview');
+    await assertOverview();
     await screenshot(`overview-${width}-${theme}`);
     const original = await evaluate('document.querySelector("#briefContent").textContent');
-    await activate('.brief-overview-lead [data-overview-open]');
+    await activate('.brief-overview-feature > h2 [data-overview-open]');
     assert(await evaluate('!document.querySelector(".briefing-layout").hidden && document.querySelector("#briefOverview").hidden'), 'Assessment link opens full report');
     assert(await evaluate('document.activeElement.id === "judgment-1"'), 'Assessment link restores heading focus');
     assert.equal(await evaluate('document.querySelector("#briefContent").textContent'),original,'Changing view preserves authored content');
@@ -81,14 +118,15 @@ try {
   await page.call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
   for(const scenario of ['long','sparse','stale','sourceerror','evidence']) {
     await navigate(`/briefing?scenario=${scenario}&theme=light&capture&reducedMotion`);
-    await until('!!document.querySelector(".brief-overview-lead")');
+    await until('!!document.querySelector(".brief-overview-feature")');
     await activate('#briefOverviewMode');
     await until('!document.querySelector("[data-overview-recent]").textContent.includes("Loading current")');
+    await assertOverview();
     if(['stale','sourceerror'].includes(scenario)) assert(await evaluate('!!document.querySelector("[data-overview-recent] [data-level=warning]")'), 'Reporting failures/staleness explicitly labeled');
     if(scenario === 'evidence') {
-      const sources = await evaluate(`(() => { const links = (host, selector) => [...host.querySelectorAll(selector)].map(link => link.href); return { overview: links(document, '.brief-overview-lead .assessment-meta__source'), report: links(document.querySelector('.brief-judgment-card'), ':scope > .assessment-meta .assessment-meta__source') }; })()`);
+      const sources = await evaluate(`(() => { const links = (host, selector) => [...host.querySelectorAll(selector)].map(link => link.href); return { overview: links(document, '.brief-overview-feature .assessment-meta__source'), report: links(document.querySelector('.brief-judgment-card'), ':scope > .assessment-meta .assessment-meta__source') }; })()`);
       assert(sources.overview.length > 0, 'Resolved sources are present in the overview');
-      assert.deepEqual(sources.overview, sources.report, 'Overview and report retain the same lead sources');
+      assert.deepEqual(sources.overview, sources.report, 'Overview and report retain the same featured-story sources');
     }
     await screenshot(`overview-${scenario}`);
   }

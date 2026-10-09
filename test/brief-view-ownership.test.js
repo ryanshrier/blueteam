@@ -7,6 +7,7 @@ const searchBriefs = jest.fn();
 const navigate = jest.fn();
 const showToast = jest.fn();
 const exportBriefNewspaper = jest.fn();
+const extractSections = jest.fn();
 const originalFetch = globalThis.fetch;
 const fetchStatus = jest.fn();
 jest.unstable_mockModule('../public/modules/core/api.js', () => ({
@@ -23,7 +24,7 @@ jest.unstable_mockModule('../public/modules/core/markdown.js', () => ({
   renderDraftMarkdown: text => `<section>${text}</section>`,
 }));
 jest.unstable_mockModule('../public/modules/briefing/brief-renderer.js', () => ({
-  applySemanticStyling: jest.fn(), extractSections: () => [],
+  applySemanticStyling: jest.fn(), extractSections,
   decisionCardContent: () => ({}), decisionCopyText: () => '',
 }));
 jest.unstable_mockModule('../public/modules/briefing/brief-export.js', () => ({ exportBriefNewspaper }));
@@ -39,6 +40,7 @@ function element() {
     textContent: '', value: '', options: [], dataset: {}, style: {},
     classList: { toggle: jest.fn() },
     setAttribute: jest.fn(), removeAttribute: jest.fn(), addEventListener: jest.fn(), removeEventListener: jest.fn(),
+    focus: jest.fn(), scrollIntoView: jest.fn(),
     prepend(node) { this.innerHTML = node.innerHTML + this.innerHTML; },
     querySelector(selector) {
       if (selector.startsWith('#') && html.includes(`id="${selector.slice(1)}"`)) {
@@ -70,6 +72,7 @@ beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
   exportBriefNewspaper.mockReset();
+  extractSections.mockReset().mockReturnValue([]);
   fetchBrief.mockReset().mockImplementation(async filename => filename === oldBrief().filename
     ? { content: oldBrief().content, meta: { warnings: oldBrief().warnings } }
     : { content: 'SAVED LOADED ARCHIVE', meta: { warnings: ['Archive note.'] } });
@@ -81,9 +84,14 @@ beforeEach(() => {
     'briefGenerateInput', 'briefCopyLink', 'briefExport', 'briefHistory', 'briefSearch', 'genStatus', 'briefSrLive', 'briefAttemptStatus']
     .map(id => [id, element()]));
   global.document = { getElementById: id => elements.get(id) || elements.get('briefContent')?.querySelector(`#${id}`) || null, createElement: element, querySelectorAll: () => [] };
-  global.window = { location: { pathname: '/briefing' }, addEventListener: jest.fn(), scrollTo: jest.fn() };
-  global.location = { hash: '', origin: 'https://desk.example' };
-  global.history = { state: {}, replaceState: jest.fn((_state, _title, path) => { window.location.pathname = path; }) };
+  global.window = { location: { pathname: '/briefing', search: '', hash: '', origin: 'https://desk.example',
+    get href() { return `${this.origin}${this.pathname}${this.search}${this.hash}`; },
+  }, addEventListener: jest.fn(), scrollTo: jest.fn() };
+  global.location = window.location;
+  global.history = { state: {}, replaceState: jest.fn((_state, _title, path) => {
+    const destination = new URL(path, location.href);
+    Object.assign(window.location, { pathname: destination.pathname, search: destination.search, hash: destination.hash });
+  }) };
   setState({ mode: 'briefing', isGenerating: false, currentBrief: oldBrief(), lastGeneratedBrief: null });
 });
 afterEach(() => {
@@ -170,6 +178,121 @@ function listener(id, type = 'click') {
   return elements.get(id).addEventListener.mock.calls.find(([name]) => name === type)?.[1];
 }
 
+function tocUi() {
+  const { layout } = readingUi();
+  const frames = [];
+  window.requestAnimationFrame = jest.fn(callback => { frames.push(callback); return frames.length; });
+  window.cancelAnimationFrame = jest.fn();
+  window.removeEventListener = jest.fn();
+  const link = (id, textContent) => ({ ...element(), dataset: { target: id }, textContent,
+    classList: { add: jest.fn(), remove: jest.fn() } });
+  const section = link('section-key-judgments', 'Key judgments');
+  const judgment = link('judgment-1', 'Authored assessment');
+  const group = { open: false, addEventListener: jest.fn(),
+    parentElement: { querySelector: () => section } };
+  judgment.closest = selector => selector === '.toc-judgments' ? group : null;
+  const disclosure = { open: true };
+  const currentLabel = { textContent: '' };
+  const toc = elements.get('briefToc');
+  toc.querySelector = selector => selector === '.briefing-toc-disclosure' ? disclosure
+    : selector === '.toc-current-label' ? currentLabel : null;
+  toc.querySelectorAll = selector => selector === 'a' ? [section, judgment]
+    : selector === '.toc-judgments' ? [group] : [];
+  const headings = [{ ...element(), tagName: 'H2', id: section.dataset.target, getBoundingClientRect: () => ({ top: -500 }) },
+    { ...element(), tagName: 'H3', id: judgment.dataset.target, getBoundingClientRect: () => ({ top: 80 }) }];
+  headings.forEach(heading => elements.set(heading.id, heading));
+  const content = elements.get('briefContent');
+  const queryAll = content.querySelectorAll;
+  content.querySelectorAll = selector => selector === 'h2[id], h3[id]' ? headings : queryAll(selector);
+  extractSections.mockReturnValue([{ id: section.dataset.target, label: section.textContent,
+    children: [{ id: judgment.dataset.target, label: judgment.textContent }] }]);
+  return { section, judgment, group, disclosure, currentLabel, target: headings[1], layout,
+    flushFrames: () => { const pending = frames.splice(0); pending.forEach(callback => callback()); } };
+}
+
+test('the report TOC distinguishes developing topics from judgments and keeps exact destinations', async () => {
+  extractSections.mockReturnValue([
+    { id: 'section-key-judgments', label: 'Key judgments', children: [{ id: 'judgment-1', label: 'First assessment' }] },
+    { id: 'section-developing', label: 'Developing', children: [{ id: 'topic-a', label: 'First topic' }, { id: 'topic-b', label: 'Second topic' }] },
+  ]);
+  render(element());
+  await flush();
+  const html = elements.get('briefToc').innerHTML;
+  expect(html).toContain('<summary>1 judgment</summary>');
+  expect(html).toContain('<summary>2 topics</summary>');
+  for (const id of ['judgment-1', 'topic-a', 'topic-b']) expect(html).toContain(`href="#${id}" data-target="${id}"`);
+});
+
+test('TOC modified and middle clicks stay native while ordinary clicks focus the exact report heading', async () => {
+  const { judgment, target } = tocUi();
+  window.location.pathname = '/briefing/brief-2026-09-03.md';
+  window.location.search = '?view=report&context=handoff';
+  render(element());
+  await flush();
+  const click = judgment.addEventListener.mock.calls.find(([name]) => name === 'click')[1];
+  for (const modifiers of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }, { defaultPrevented: true }]) {
+    const event = { button: 0, preventDefault: jest.fn(), ...modifiers };
+    click(event);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(target.focus).not.toHaveBeenCalled();
+    expect(history.replaceState).not.toHaveBeenCalled();
+  }
+  const event = { button: 0, preventDefault: jest.fn() };
+  click(event);
+  expect(event.preventDefault).toHaveBeenCalledTimes(1);
+  expect(target.focus).toHaveBeenCalledWith({ preventScroll: true });
+  expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+  expect(location.href).toBe('https://desk.example/briefing/brief-2026-09-03.md?view=report&context=handoff#judgment-1');
+});
+
+test('scrollspy keeps the parent section visible for collapsed judgments and follows disclosure toggles', async () => {
+  const { section, judgment, group, currentLabel, flushFrames } = tocUi();
+  window.location.search = '?view=report';
+  render(element());
+  await flush();
+  flushFrames();
+  expect(section.setAttribute).toHaveBeenLastCalledWith('aria-current', 'location');
+  expect(judgment.setAttribute).not.toHaveBeenCalled();
+  expect(currentLabel.textContent).toBe('Key judgments');
+  const toggle = group.addEventListener.mock.calls.find(([name]) => name === 'toggle')[1];
+  group.open = true;
+  toggle();
+  expect(section.removeAttribute).toHaveBeenLastCalledWith('aria-current');
+  expect(judgment.setAttribute).toHaveBeenLastCalledWith('aria-current', 'location');
+  expect(currentLabel.textContent).toBe('Authored assessment');
+  group.open = false;
+  toggle();
+  expect(judgment.removeAttribute).toHaveBeenLastCalledWith('aria-current');
+  expect(section.setAttribute).toHaveBeenLastCalledWith('aria-current', 'location');
+  expect(currentLabel.textContent).toBe('Key judgments');
+});
+
+test('compact scrollspy retains the clicked heading at its padded anchor landing position', async () => {
+  const { judgment, target, group, currentLabel, flushFrames, layout } = tocUi();
+  window.location.search = '?view=report';
+  document.documentElement = {};
+  document.querySelector = selector => selector === '.briefing-layout' ? layout
+    : selector === '.app-header' ? { getBoundingClientRect: () => ({ height: 112 }) } : null;
+  window.getComputedStyle = node => node === document.documentElement
+    ? { scrollPaddingTop: '128px' } : { scrollMarginTop: node === target ? '76px' : '8px' };
+  // The mobile browser lands at padding + margin, well below header + 25px.
+  target.getBoundingClientRect = () => ({ top: 203.9 });
+  group.open = true;
+  render(element());
+  await flush();
+  judgment.addEventListener.mock.calls.find(([name]) => name === 'click')[1]({ button: 0, preventDefault: jest.fn() });
+  expect(currentLabel.textContent).toBe('Authored assessment');
+  flushFrames();
+  expect(currentLabel.textContent).toBe('Authored assessment');
+  expect(target.focus).toHaveBeenCalledWith({ preventScroll: true });
+  expect(location.hash).toBe('#judgment-1');
+  // A later manual scroll still changes the location; the click is not pinned.
+  target.getBoundingClientRect = () => ({ top: 220 });
+  window.addEventListener.mock.calls.find(([name]) => name === 'scroll')[1]();
+  flushFrames();
+  expect(currentLabel.textContent).toBe('Key judgments');
+});
+
 test('report query opens the selected saved edition in Full report and Overview clears that override', async () => {
   const { overview, layout } = readingUi();
   window.location.search = '?view=report';
@@ -191,7 +314,7 @@ test('ordinary overview links retain edition identity and focus their fragment; 
   render(element());
   await flush();
   listener('briefOverviewMode')();
-  const link = { getAttribute: () => '/briefing/brief-2026-09-03.md#judgment-1' };
+  const link = { getAttribute: () => '/briefing/brief-2026-09-03.md#judgment-1', hasAttribute: () => false };
   const event = overrides => ({ target: { closest: () => link }, button: 0,
     preventDefault: jest.fn(), ...overrides });
   for (const modifiers of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }]) {
@@ -207,6 +330,64 @@ test('ordinary overview links retain edition identity and focus their fragment; 
   expect(target.focus).toHaveBeenCalledWith({ preventScroll: true });
   expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
   expect(history.replaceState).toHaveBeenLastCalledWith(history.state, '', '/briefing/brief-2026-09-03.md#judgment-1');
+});
+
+test('local overview index links preserve the saved edition and query while keeping Overview visible', async () => {
+  const { overview, layout } = readingUi();
+  window.location.pathname = '/briefing/brief-2026-09-03.md';
+  window.location.search = '?context=handoff';
+  const target = element();
+  elements.set('overview-judgment-2', target);
+  render(element());
+  await flush();
+  listener('briefOverviewMode')();
+  const link = { getAttribute: () => '#overview-judgment-2', hasAttribute: name => name === 'data-overview-jump' };
+  const click = overrides => ({ target: { closest: () => link }, button: 0, preventDefault: jest.fn(), ...overrides });
+  const modified = click({ ctrlKey: true });
+  listener('briefOverview')(modified);
+  expect(modified.preventDefault).not.toHaveBeenCalled();
+  const ordinary = click();
+  listener('briefOverview')(ordinary);
+  expect(ordinary.preventDefault).toHaveBeenCalled();
+  expect(overview.hidden).toBe(false);
+  expect(layout.hidden).toBe(true);
+  expect(elements.get('briefOverviewMode').setAttribute).toHaveBeenLastCalledWith('aria-pressed', 'true');
+  expect(target.focus).toHaveBeenCalledWith({ preventScroll: true });
+  expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
+  expect(history.replaceState).toHaveBeenLastCalledWith(history.state, '', '/briefing/brief-2026-09-03.md?context=handoff#overview-judgment-2');
+  expect(location.href).toBe('https://desk.example/briefing/brief-2026-09-03.md?context=handoff#overview-judgment-2');
+  expect(navigate).not.toHaveBeenCalled();
+});
+
+test('an initial overview fragment opens its saved assessment and focuses it after asynchronous rendering', async () => {
+  const { overview, layout } = readingUi();
+  const frames = [];
+  window.requestAnimationFrame = jest.fn(callback => { frames.push(callback); return frames.length; });
+  window.location.pathname = '/briefing/brief-2026-09-03.md';
+  window.location.search = '?view=report';
+  window.location.hash = '#overview-judgment-1';
+  fetchBrief.mockResolvedValueOnce({ content: `# Saved briefing
+## BLUF
+The gateway exposure remains unverified.
+## KEY JUDGMENTS
+### Signal 1 — [Horizon 1] Confirm the gateway version
+**Assessment:** The affected version must be established before remediation.
+**Confidence:** Moderate — inventory remains incomplete.
+`, meta: { warnings: [] } });
+  render(element());
+  await flush();
+  const target = overview.querySelector('#overview-judgment-1');
+  expect(target).not.toBeNull();
+  expect(fetchBrief).toHaveBeenCalledWith('brief-2026-09-03.md');
+  expect(overview.hidden).toBe(false);
+  expect(layout.hidden).toBe(true);
+  expect(elements.get('briefOverviewMode').setAttribute).toHaveBeenLastCalledWith('aria-pressed', 'true');
+  expect(target.focus).not.toHaveBeenCalled();
+  frames.forEach(callback => callback());
+  expect(target.focus).toHaveBeenCalledWith({ preventScroll: true });
+  expect(target.scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
+  expect(location.pathname).toBe('/briefing/brief-2026-09-03.md');
+  expect(location.hash).toBe('#overview-judgment-1');
 });
 
 test('legacy structural warnings appear once in both views without changing persisted warning provenance', async () => {
