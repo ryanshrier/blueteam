@@ -101,15 +101,9 @@ function archiveBluf(value) {
 // Apply (or remove) adaptive thinking on a model param set, honoring the
 // configured effort. Low is the default; higher effort on a large brief can
 // consume the shared output budget before completing the cited document.
-export function applyThinking(params, model, effort, provider = 'anthropic') {
-  if (provider === 'openai') {
-    delete params.thinking;
-    delete params.output_config;
-    // Codex requires reasoning; its lowest supported setting is low.
-    if (/^gpt-5(?:\.|-)/.test(model || '')) params.reasoning = { effort: effort === 'off' ? 'low' : (effort || 'low') };
-    else delete params.reasoning;
-    return;
-  }
+export function applyThinking(params, model, effort, client = {}) {
+  if (typeof client.configureRequest === 'function') return client.configureRequest(params, { effort });
+  if (typeof client.stream === 'function') return;
   if (effort && effort !== 'off' && supportsAdaptiveThinking(model)) {
     params.thinking = { type: 'adaptive' };
     params.output_config = { ...(params.output_config || {}), effort };
@@ -251,7 +245,7 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
 
   try {
     const streamResult = await Promise.race([
-      Promise.resolve().then(() => (client.provider === 'openai' ? client.stream : client.messages.stream.bind(client.messages))(params, {
+      Promise.resolve().then(() => (typeof client.stream === 'function' ? client.stream.bind(client) : client.messages.stream.bind(client.messages))(params, {
         signal: abortController.signal,
         timeout: boundedTimeoutMs,
         maxRetries: 0,
@@ -293,6 +287,8 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
       if (event.type === 'message_delta' && event.usage?.output_tokens) {
         usage.output_tokens = event.usage.output_tokens;
       }
+      const reportedUsage = event.type === 'message_start' ? event.message?.usage : event.usage;
+      if (Number.isFinite(reportedUsage?.cost_usd) && reportedUsage.cost_usd >= 0) usage.cost_usd = reportedUsage.cost_usd;
       if (event.type === 'message_delta' && event.delta?.stop_reason) {
         stopReason = event.delta.stop_reason;
       }
@@ -323,9 +319,12 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
 export function safeErrorMsg(err) {
   // Provider/client errors should never echo credential-shaped material to an
   // SSE client, even if an upstream library includes it in a diagnostic.
-  const msg = (err?.message || '').trim()
-    .replace(/\bsk-[A-Za-z0-9_-]+/g, '[REDACTED]');
+  const reason = typeof err?.reason === 'string' ? err.reason.trim() : '';
+  const msg = (reason || err?.message || '').trim()
+    .replace(/\bsk-[A-Za-z0-9_-]+/g, '[REDACTED]')
+    .replace(/\bBearer\s+[A-Za-z\d_.~+/-]+/gi, 'Bearer [REDACTED]');
   if (!msg) return 'Internal server error';
+  if (reason) return msg.slice(0, 300);
   if (['E_EVIDENCE', 'E_PROVIDER_INCOMPLETE'].includes(err?.code)) return msg.slice(0, 300);
   if (/API key|not configured|rate limit|overloaded|529|timeout|timed out|model|refus|not found|404|400|401|403|429|5\d\d/i.test(msg)) {
     return msg.slice(0, 300);
@@ -558,7 +557,7 @@ export function createBriefRouter({
     const provider = client?.provider || 'anthropic';
     if (!client) {
       return res.status(503).json({
-        error: 'AI briefing disabled — configure an API key for the selected provider in Settings',
+        error: 'AI briefing disabled — configure the selected provider and check its status in Settings',
         code: 'E002',
       });
     }
@@ -719,8 +718,8 @@ export function createBriefRouter({
       generationJobId = generationManifest.generationId;
       send({ generationId: generationJobId, statusUrl: '/api/brief/status' });
 
-      const preferredModel = provider === 'openai' ? client.model : s.preferredModel || 'claude-sonnet-5';
-      const fallbackModel = provider === 'openai' ? preferredModel : s.model || 'claude-haiku-4-5';
+      const preferredModel = client.model || s.preferredModel || 'claude-sonnet-5';
+      const fallbackModel = client.fallbackModel || (typeof client.stream === 'function' ? preferredModel : s.model || 'claude-haiku-4-5');
       Object.assign(generationManifest.generationSettings, { provider, preferredModel, fallbackModel });
       let modelUsed = preferredModel;
       // One wall-clock budget covers stream setup, key rotation, model
@@ -736,7 +735,7 @@ export function createBriefRouter({
         messages: [{ role: 'user', content: userPrompt }],
       };
       const thinkingEffort = s.thinkingEffort || 'low';
-      applyThinking(modelParams, preferredModel, thinkingEffort, provider);
+      applyThinking(modelParams, preferredModel, thinkingEffort, client);
       generationManifest.generationSettings.thinkingEffort = modelParams.reasoning?.effort || thinkingEffort;
 
       const onChunk = (chunk) => { recoveryContent += chunk; send({ text: chunk, seq: chunkSeq++ }); };
@@ -755,17 +754,21 @@ export function createBriefRouter({
           onChunk,
           onUsage: (usage, responseModel) => jobs.usage(generationJobId, attempt.attempt, {
             inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, responseModel,
-            costUsd: estimateCostUsd(responseModel || attempt.model, usage.input_tokens, usage.output_tokens, undefined, usage.cached_input_tokens),
+            costUsd: usage.cost_usd ?? estimateCostUsd(responseModel || attempt.model, usage.input_tokens, usage.output_tokens, undefined, usage.cached_input_tokens),
           }),
         });
         attempt.stopReason = outcome.stopReason || null;
         attempt.responseModel = outcome.responseModel || null;
         attempt.timedOut = outcome.timedOut;
         attempt.failed = Boolean(outcome.error);
+        if (outcome.error) attempt.failureReason = safeErrorMsg(outcome.error);
         attempt.usage = { inputTokens: outcome.usage?.input_tokens || 0, outputTokens: outcome.usage?.output_tokens || 0 };
-        if (provider === 'openai') Object.assign(attempt.usage, { cachedInputTokens: outcome.usage?.cached_input_tokens || 0, reasoningTokens: outcome.usage?.reasoning_tokens || 0 });
-        attempt.pricing = { asOf: '2026-09-05', currency: 'USD', perMillionTokens: modelPrice(attempt.responseModel || attempt.model), basis: provider === 'openai' ? 'Standard API list rates, including reported cached input; reasoning is included in output tokens. Excludes service-tier discounts and taxes.' : 'Standard first-party API list rates; excludes cache, batch, service-tier discounts and taxes', sourceUrl: provider === 'openai' ? 'https://developers.openai.com/api/docs/models/gpt-5.3-codex' : 'https://platform.claude.com/docs/en/about-claude/pricing' };
-        attempt.costUsd = estimateCostUsd(attempt.responseModel || attempt.model, attempt.usage.inputTokens, attempt.usage.outputTokens, undefined, attempt.usage.cachedInputTokens);
+        if (outcome.usage?.cached_input_tokens !== undefined) attempt.usage.cachedInputTokens = outcome.usage.cached_input_tokens;
+        if (outcome.usage?.reasoning_tokens !== undefined) attempt.usage.reasoningTokens = outcome.usage.reasoning_tokens;
+        const reportedCost = outcome.usage?.cost_usd;
+        attempt.pricing = reportedCost !== undefined ? { currency: 'USD', basis: 'Provider-reported cost' }
+          : { asOf: '2026-09-05', currency: 'USD', perMillionTokens: modelPrice(attempt.responseModel || attempt.model), basis: 'Standard API list-rate estimate', ...client.pricing };
+        attempt.costUsd = reportedCost ?? estimateCostUsd(attempt.responseModel || attempt.model, attempt.usage.inputTokens, attempt.usage.outputTokens, undefined, attempt.usage.cachedInputTokens);
         jobs.usage(generationJobId, attempt.attempt, { ...attempt.usage, responseModel: attempt.responseModel, costUsd: attempt.costUsd });
         jobs.finishAttempt(generationJobId, attempt.attempt, { stopReason: attempt.stopReason, failed: attempt.failed, timedOut: attempt.timedOut });
         return outcome;
@@ -796,8 +799,9 @@ export function createBriefRouter({
       // fallback: if the primary key is dead, a different model on the same dead
       // key won't help. rotateKey() returns the secondary-key client, or null
       // when none is configured / it was already rotated (so this never loops).
-      if (provider === 'anthropic' && result.error && (result.error.status === 401 || result.error.status === 403) && typeof rotateKey === 'function') {
-        const rotated = rotateKey(provider);
+      if (result.error && (result.error.status === 401 || result.error.status === 403)
+          && (typeof client.rotateKey === 'function' || (typeof client.stream !== 'function' && typeof rotateKey === 'function'))) {
+        const rotated = typeof client.rotateKey === 'function' ? client.rotateKey() : rotateKey(provider);
         if (rotated) {
           log.warn('brief', `${modelUsed} auth rejected — retrying with secondary API key`);
           client = rotated;
@@ -824,7 +828,7 @@ export function createBriefRouter({
           log.warn('brief', `${preferredModel} unavailable (${result.error.message}) — falling back to ${fallbackModel}`);
           modelUsed = fallbackModel;
           modelParams.model = fallbackModel;
-          applyThinking(modelParams, fallbackModel, thinkingEffort, provider);
+          applyThinking(modelParams, fallbackModel, thinkingEffort, client);
           send({ reset: true, text: `*[Generated with ${fallbackModel} — preferred model unavailable]*\n\n` });
           result = await runProviderAttempt(client);
           if (result.stopReason === 'refusal') {
@@ -880,6 +884,7 @@ export function createBriefRouter({
       let hardFail = hasHardFail(validation.issues);
       let trustFail = hasTrustCriticalFailure(validation.issues);
       let correctiveRetryAttempted = false;
+      let correctiveRetryFailure = null;
 
       // Resolve a link-only failure without paying for another model call.
       // Citation prose stays intact; only an unsupported live href is removed.
@@ -905,10 +910,10 @@ export function createBriefRouter({
           hasHardFail([issue]) || hasTrustCriticalFailure([issue]) || issue.severity === 'review'
         )).map(issue => issue.message);
         if (stoppedAtOutputLimit) {
-          const recoveryEffort = provider === 'openai' ? 'low' : reducedRecoveryThinkingEffort(thinkingEffort);
-          applyThinking(modelParams, modelUsed, recoveryEffort, provider);
+          const recoveryEffort = reducedRecoveryThinkingEffort(thinkingEffort);
+          applyThinking(modelParams, modelUsed, recoveryEffort, client);
           log.warn('brief', `Output-token recovery retry (${thinkingEffort} → ${recoveryEffort} thinking)`);
-          send({ reset: true, progress: provider === 'openai' ? 'Retrying — requesting a shorter draft to complete every section...' : 'Retrying — reducing thinking effort to complete every section...', stage: 'generating' });
+          send({ reset: true, progress: 'Retrying — requesting a shorter draft to complete every section...', stage: 'generating' });
           const failedChecks = correctiveWarnings.length
             ? ` It also failed these checks: ${correctiveWarnings.join('; ')}.`
             : '';
@@ -929,6 +934,8 @@ export function createBriefRouter({
           ];
         }
         const retryResult = await runProviderAttempt(client);
+        if (retryResult.error) correctiveRetryFailure = safeErrorMsg(retryResult.error);
+        else if (retryResult.timedOut) correctiveRetryFailure = 'Generation timed out.';
         retryResult.usage = {
           input_tokens: result.usage.input_tokens + retryResult.usage.input_tokens,
           output_tokens: result.usage.output_tokens + retryResult.usage.output_tokens,
@@ -973,6 +980,7 @@ export function createBriefRouter({
       if (result.error) {
         warnings.push(`Generation was interrupted mid-stream: ${safeErrorMsg(result.error)}`);
       }
+      if (correctiveRetryFailure) warnings.push(`Corrective retry failed: ${correctiveRetryFailure}`);
       if (outputLimitReached) {
         warnings.push('Generation reached the configured output-token limit before completion');
       }
@@ -989,7 +997,7 @@ export function createBriefRouter({
       generationManifest.responseModel = result.responseModel || null;
       generationManifest.judgmentEvidence = validation.judgmentEvidence;
       generationManifest.publicationValidation = { valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial, coverage: validation.coverage, sourceCheckStatus: hardFail || trustFail ? 'findings' : 'passed-supported-checks', editorialReviewStatus: 'not-reviewed' };
-      generationManifest.costEstimate = { usd: estimateAttemptCosts(generationManifest.providerAttempts), currency: 'USD', asOf: '2026-09-05', basis: 'Sum of per-attempt standard API list-rate estimates' };
+      generationManifest.costEstimate = { usd: estimateAttemptCosts(generationManifest.providerAttempts), currency: 'USD', asOf: '2026-09-05', basis: 'Sum of per-attempt reported costs or API list-rate estimates' };
       if (isPartial || hardFail || trustFail) {
         const blocking = validation.issues.filter(issue => (
           hasHardFail([issue]) || hasTrustCriticalFailure([issue])
@@ -1009,8 +1017,10 @@ export function createBriefRouter({
             ? 'Draft was not published because generation reached the configured output-token limit before completing the Briefing. Raise analysisSettings.maxTokens in config.json or reduce the Briefing scope, then generate again.'
             : result.timedOut
               ? 'Draft was not published because generation exceeded the end-to-end timeout.'
-              : 'Draft was not published because the provider stream was interrupted.';
+              : `Draft was not published because the provider stream was interrupted: ${safeErrorMsg(result.error)}`;
         }
+        if (result.error && trustFail) message += ` Provider failure: ${safeErrorMsg(result.error)}`;
+        if (correctiveRetryFailure) message += ` Corrective retry failed: ${correctiveRetryFailure}`;
         let draftArtifact = null;
         try {
           const artifact = saveRejectedBrief(historyDir, { id: generationManifest.generationId, content: fullBrief, manifest: generationManifest, validation, code });
@@ -1046,7 +1056,7 @@ export function createBriefRouter({
       generationManifest.responseModel = result.responseModel || null;
       generationManifest.judgmentEvidence = validation.judgmentEvidence;
       generationManifest.publicationValidation = { ...generationManifest.publicationValidation, valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial };
-      generationManifest.costEstimate = { usd: estimateAttemptCosts(generationManifest.providerAttempts), currency: 'USD', asOf: '2026-09-05', basis: 'Sum of per-attempt standard API list-rate estimates' };
+      generationManifest.costEstimate = { usd: estimateAttemptCosts(generationManifest.providerAttempts), currency: 'USD', asOf: '2026-09-05', basis: 'Sum of per-attempt reported costs or API list-rate estimates' };
       let filename;
       try {
         filename = saveBrief(historyDir, fullBrief, {

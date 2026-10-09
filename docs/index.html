@@ -3,38 +3,38 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BlueTeam.News — self-hosted threat intelligence</title>
-  <meta name="description" content="Self-hosted threat intelligence: inspect source changes and watch-profile matches, then review an AI-generated Briefing and its saved evidence inputs.">
+  <title>BlueTeam.News — your self-hosted threat intelligence desk</title>
+  <meta name="description" content="A self-hosted threat intelligence desk for security analysts. Follow public reporting, compare source changes, and prepare briefings with evidence you can review.">
   <meta name="author" content="Ryan Shrier">
   <meta name="robots" content="index, follow, max-image-preview:large">
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; connect-src 'none'; font-src 'self'; form-action 'none'; img-src 'self' data:; object-src 'none'; script-src 'self' 'sha256-TOePrO3zxIiS6ouztPW6VK6CzZkDVXVKaXeYCUc0DAg='; style-src 'self'; upgrade-insecure-requests">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; connect-src 'none'; font-src 'self'; form-action 'none'; img-src 'self' data:; object-src 'none'; script-src 'self' 'sha256-Q/Cgcc/r6ao3m7Txk9LiCXzpXz7j0FY/ARcn7PZ19EI='; style-src 'self'; upgrade-insecure-requests">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#17191c">
+  <meta name="theme-color" content="#14171b">
   <link rel="canonical" href="https://blueteam.news/">
 
   <meta property="og:type" content="website">
   <meta property="og:locale" content="en_US">
   <meta property="og:site_name" content="BlueTeam.News">
   <meta property="og:url" content="https://blueteam.news/">
-  <meta property="og:title" content="Threat reporting, sources, and daily briefings.">
-  <meta property="og:description" content="Collect public reporting, inspect source changes, and generate Briefings with your Anthropic or OpenAI API key.">
-  <meta property="og:image" content="https://blueteam.news/assets/og.jpg?v=1.2.1&amp;rev=20260906-live">
-  <meta property="og:image:secure_url" content="https://blueteam.news/assets/og.jpg?v=1.2.1&amp;rev=20260906-live">
+  <meta property="og:title" content="BlueTeam.News — see what changed. Decide what needs attention.">
+  <meta property="og:description" content="Your self-hosted threat intelligence desk. Follow public reporting, inspect the evidence, and prepare for your next shift.">
+  <meta property="og:image" content="https://blueteam.news/assets/og.jpg?v=1.3.0&amp;rev=20260906-live">
+  <meta property="og:image:secure_url" content="https://blueteam.news/assets/og.jpg?v=1.3.0&amp;rev=20260906-live">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="BlueTeam.News Wire with collected public reporting and source context.">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Threat reporting, sources, and daily briefings.">
-  <meta name="twitter:description" content="Collect public reporting, inspect source changes, and generate Briefings with your Anthropic or OpenAI API key.">
-  <meta name="twitter:image" content="https://blueteam.news/assets/og.jpg?v=1.2.1&amp;rev=20260906-live">
+  <meta name="twitter:title" content="BlueTeam.News — see what changed. Decide what needs attention.">
+  <meta name="twitter:description" content="Your self-hosted threat intelligence desk. Follow public reporting, inspect the evidence, and prepare for your next shift.">
+  <meta name="twitter:image" content="https://blueteam.news/assets/og.jpg?v=1.3.0&amp;rev=20260906-live">
   <meta name="twitter:image:alt" content="BlueTeam.News Wire with collected public reporting and source context.">
 
-  <link rel="icon" href="favicon.svg?v=1.2.1" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=1.2.1">
-  <link rel="preload" href="assets/fonts/inter-latin-wght-normal.woff2?v=1.2.1" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles.css?v=1.2.1&amp;rev=20260906-desk-2">
+  <link rel="icon" href="favicon.svg?v=1.3.0" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=1.3.0">
+  <link rel="preload" href="assets/fonts/inter-latin-wght-normal.woff2?v=1.3.0" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css?v=1.3.0&amp;rev=20261009-release">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -44,34 +44,35 @@
         "@id": "https://blueteam.news/#website",
         "name": "BlueTeam.News",
         "url": "https://blueteam.news/",
-        "description": "A self-hosted threat-intelligence desk for collecting, prioritizing, investigating, and briefing from chosen reporting."
+        "description": "A self-hosted threat intelligence desk for security analysts to follow public reporting, compare source changes, and prepare briefings with evidence they can review."
       },
       {
         "@type": "SoftwareApplication",
         "@id": "https://blueteam.news/#application",
         "name": "BlueTeam.News",
         "url": "https://blueteam.news/",
-        "description": "A self-hosted threat-intelligence desk whose Wall and Wire work without a key and whose AI-generated Briefing requires the operator's Anthropic or OpenAI API key.",
+        "description": "An open-source threat intelligence desk you run yourself. Wire and Wall work without an API key; AI-generated Briefings use your Anthropic or OpenAI API key.",
         "applicationCategory": "SecurityApplication",
         "applicationSubCategory": "Threat intelligence",
         "softwareRequirements": "Node.js 22.19+ in the Node 22 line, Node.js 24, or Node.js 26",
-        "softwareVersion": "1.2.1",
+        "softwareVersion": "1.3.0",
         "datePublished": "2026-07-13",
-        "dateModified": "2026-10-01",
+        "dateModified": "2026-10-09",
         "isAccessibleForFree": true,
-        "image": "https://blueteam.news/assets/og.jpg?v=1.2.1&rev=20260906-live",
-        "screenshot": "https://blueteam.news/assets/screenshot-print-edition.jpg?v=1.2.1&rev=20260906-live",
+        "image": "https://blueteam.news/assets/og.jpg?v=1.3.0&rev=20260906-live",
+        "screenshot": "https://blueteam.news/assets/screenshot-print-edition.jpg?v=1.3.0&rev=20260906-live",
         "featureList": [
-          "Passive threat-intelligence Wall",
-          "Filterable analyst Wire with retained source passages and revision comparisons",
-          "Watch-profile match explanations with local exposure kept unknown",
+          "Wall display for reporting and saved briefings",
+          "Filterable analyst Wire with saved source excerpts and comparisons across observations",
+          "Technology and topic watch profiles with explained matches",
           "Wall and Wire without API keys",
           "AI-generated Briefing using an operator-provided Anthropic or OpenAI API key",
-          "Saved generation-input receipts for new Briefings",
+          "Experimental Custom provider support through a trusted local module",
+          "Saved evidence inputs for reviewing new Briefings",
           "Locally rendered Print Edition from the saved assessment",
           "No application telemetry"
         ],
-        "downloadUrl": "https://github.com/ryanshrier/blueteam/archive/refs/tags/v1.2.1.tar.gz",
+        "downloadUrl": "https://github.com/ryanshrier/blueteam/archive/refs/tags/v1.3.0.tar.gz",
         "releaseNotes": "https://github.com/ryanshrier/blueteam/releases",
         "softwareHelp": "https://github.com/ryanshrier/blueteam#documentation",
         "offers": {
@@ -104,7 +105,7 @@
       <a class="link-quiet" href="#start">Quick start</a>
       <a class="link-quiet" href="#trust">Security</a>
       <a class="link-quiet" href="https://github.com/ryanshrier/blueteam#documentation">Docs</a>
-      <a class="release-badge" href="https://github.com/ryanshrier/blueteam/releases" aria-label="BlueTeam.News 1.2.1; view release notes">v1.2.1</a>
+      <a class="release-badge" href="https://github.com/ryanshrier/blueteam/releases" aria-label="BlueTeam.News 1.3.0; view release notes">v1.3.0</a>
       <a class="btn btn-ghost" href="https://github.com/ryanshrier/blueteam">GitHub</a>
     </nav>
 
@@ -113,9 +114,9 @@
       <nav class="mobile-nav-panel" aria-label="Mobile">
         <a href="#product">Product</a>
         <a href="#start">Quick start</a>
-        <a href="https://github.com/ryanshrier/blueteam#documentation">Docs</a>
         <a href="#trust">Security</a>
-        <a href="https://github.com/ryanshrier/blueteam/releases">v1.2.1</a>
+        <a href="https://github.com/ryanshrier/blueteam#documentation">Docs</a>
+        <a href="https://github.com/ryanshrier/blueteam/releases">v1.3.0</a>
         <a href="https://github.com/ryanshrier/blueteam">GitHub</a>
       </nav>
     </details>
@@ -125,98 +126,115 @@
     <section class="hero hero-grid" aria-labelledby="hero-title">
       <div class="hero-copy">
         <div class="hero-eyebrow">
-          <p class="kicker">// open source · self-hosted · MIT</p>
+          <p class="kicker">A self-hosted threat intelligence desk</p>
         </div>
-        <h1 class="hero-head" id="hero-title">Threat reporting, sources, and daily briefings.</h1>
-        <p class="hero-sub">Collect and score public threat reports, compare retained source passages, and prepare an AI-generated assessment for your next shift.</p>
-
-
+        <h1 class="hero-head" id="hero-title">See what changed. Decide what needs attention.</h1>
+        <p class="hero-sub">BlueTeam.News helps security analysts prioritize public threat reporting, compare source changes, and prepare briefings with evidence they can review.</p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="#start">Run locally</a>
-          <a class="btn btn-ghost" href="sample-briefing.html">Read a sample Briefing</a>
+          <a class="btn btn-primary" href="sample-briefing.html">See a sample briefing</a>
+          <a class="btn btn-ghost" href="#start">Run locally</a>
         </div>
+        <p class="hero-start-note">Wire and Wall work without an API key. Add your own Anthropic or OpenAI key for AI-generated briefings.</p>
       </div>
 
       <figure class="hero-media hero-proof-visual">
-        <a class="hero-media-link" href="assets/screenshot-wire.jpg?v=1.2.1&amp;rev=20260906-live" data-mobile-src="assets/screenshot-wire-mobile.webp?v=1.2.1&amp;rev=20260906-live" data-viewer-title="Wire" aria-label="Explore the Wire with collected public reporting">
-          <picture><source media="(max-width: 600px)" srcset="assets/screenshot-wire-mobile.webp?v=1.2.1&amp;rev=20260906-live">
-          <img class="hero-product-image" src="assets/screenshot-wire-1585.webp?v=1.2.1&amp;rev=20260906-live" srcset="assets/screenshot-wire-640.webp?v=1.2.1&amp;rev=20260906-live 640w, assets/screenshot-wire-960.webp?v=1.2.1&amp;rev=20260906-live 960w, assets/screenshot-wire-1585.webp?v=1.2.1&amp;rev=20260906-live 1585w" sizes="(max-width: 960px) calc(100vw - 36px), 1120px" alt="Wire with collected public threat reports and source context" loading="eager" fetchpriority="high" decoding="async" width="1585" height="892"></picture>
+        <a class="hero-media-link" href="assets/screenshot-wire.jpg?v=1.3.0&amp;rev=20260906-live" data-mobile-src="assets/screenshot-wire-mobile.webp?v=1.3.0&amp;rev=20260906-live" data-viewer-title="Wire" aria-label="Explore the Wire with collected public reporting">
+          <picture><source media="(max-width: 600px)" srcset="assets/screenshot-wire-mobile.webp?v=1.3.0&amp;rev=20260906-live">
+          <img class="hero-product-image" src="assets/screenshot-wire-1585.webp?v=1.3.0&amp;rev=20260906-live" srcset="assets/screenshot-wire-640.webp?v=1.3.0&amp;rev=20260906-live 640w, assets/screenshot-wire-960.webp?v=1.3.0&amp;rev=20260906-live 960w, assets/screenshot-wire-1585.webp?v=1.3.0&amp;rev=20260906-live 1585w" sizes="(max-width: 600px) calc(100vw - 36px), (max-width: 1280px) 91vw, 1152px" alt="Wire with collected public threat reports and source context" loading="eager" fetchpriority="high" decoding="async" width="1585" height="892"></picture>
         </a>
-        <figcaption class="hero-media-caption">Wire · Collected public reporting. <a href="assets/screenshot-wire.jpg?v=1.2.1&amp;rev=20260906-live" data-viewer-title="Wire · Desktop">Desktop view</a>.</figcaption>
+        <figcaption class="hero-media-caption screenshot-caption"><strong>Wire</strong><p>Prioritize reporting and inspect the evidence.</p><a href="assets/screenshot-wire.jpg?v=1.3.0&amp;rev=20260906-live" data-viewer-title="Wire · Desktop">View Wire screenshot</a></figcaption>
       </figure>
 
       <dl class="hero-proof" aria-label="Product at a glance">
-        <div><dt>Requirements</dt><dd>Node.js + npm</dd></div>
-        <div><dt>Briefing generation</dt><dd>Anthropic or OpenAI API key</dd></div>
-        <div><dt>App telemetry</dt><dd>None</dd></div>
+        <div><dt>Open source</dt><dd>MIT-licensed</dd></div>
+        <div><dt>Self-hosted</dt><dd>Run on your own infrastructure</dd></div>
+        <div><dt>Product telemetry</dt><dd>None</dd></div>
       </dl>
     </section>
 
     <section class="band" id="product" aria-labelledby="workflow-title">
-      <p class="kicker">// from source to decision</p>
-      <h2 class="band-head" id="workflow-title">Inspect the reporting behind each signal.</h2>
+      <p class="kicker">The daily workflow</p>
+      <h2 class="band-head" id="workflow-title">Follow the story. Keep the evidence in view.</h2>
+      <p class="band-lede">A desk for the analyst or security lead who needs to understand the reporting and explain their assessment.</p>
       <ol class="workflow">
-        <li class="workflow-step"><span class="workflow-n">01</span><div class="workflow-copy"><h3>Prioritize the report.</h3><p>Filter Wire by tier, urgency, KEV, or unread state. Inspect score components and watch-profile matches; local exposure remains unknown.</p></div></li>
-        <li class="workflow-step"><span class="workflow-n">02</span><div class="workflow-copy"><h3>Compare what the source says.</h3><p>Read retained passages, source dates, and changes between observations without losing the selected signal.</p></div></li>
-        <li class="workflow-step" id="briefing"><span class="workflow-n">03</span><div class="workflow-copy"><h3>Generate and review a Briefing.</h3><p>Use your selected provider to draft judgments, proposed actions, owners, and decision windows. Check the cited reporting before acting.</p></div></li>
+        <li class="workflow-step"><span class="workflow-n">01</span><div class="workflow-copy"><h3>Find what deserves a closer look.</h3><p>Filter Wire by urgency, known exploited vulnerabilities, or unread reports. See why a report was scored and how it matches the technologies and topics you watch.</p></div></li>
+        <li class="workflow-step"><span class="workflow-n">02</span><div class="workflow-copy"><h3>See the source. Compare what changed.</h3><p>Read saved source excerpts and compare earlier observations. Record your assessment, owner, and next review date in this browser.</p></div></li>
+        <li class="workflow-step" id="briefing"><span class="workflow-n">03</span><div class="workflow-copy"><h3>Prepare a briefing you can review.</h3><p>Generate an assessment with proposed actions and cited sources. Inspect its saved evidence inputs, review the claims, and print the same edition.</p></div></li>
       </ol>
-<figure class="surface-proof surface-proof-evidence">
-          <a href="assets/screenshot-evidence.jpg?v=1.2.1&amp;rev=20260906-live" aria-label="Open the full-size source evidence inspection">
+      <div class="evidence-layout">
+        <div class="evidence-copy">
+          <h3>Compare saved source excerpts.</h3>
+          <p>Compare saved observations of an advisory, with added and removed passages highlighted for review.</p>
+          <details class="product-detail"><summary>How matching and briefing inputs work</summary><p>Watch-profile matches highlight reporting to investigate; they do not confirm exposure in your environment. Wire filters do not select generation inputs. Briefings use the latest collection selection and save the supplied evidence for review. <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/evidence-and-relevance.md">Read the evidence and generation guide</a>.</p></details>
+        </div>
+        <figure class="surface-proof surface-proof-evidence product-detail-visual">
+          <a class="evidence-preview preview-focus" href="assets/screenshot-evidence.jpg?v=1.3.0&amp;rev=20260906-live" aria-label="Open the full-size source evidence inspection">
             <picture>
-              <source type="image/webp" srcset="assets/screenshot-evidence-640.webp?v=1.2.1&amp;rev=20260906-live 640w, assets/screenshot-evidence-960.webp?v=1.2.1&amp;rev=20260906-live 960w, assets/screenshot-evidence-1600.webp?v=1.2.1&amp;rev=20260906-live 1600w" sizes="(max-width: 1000px) calc(100vw - 40px), 960px">
-              <img src="assets/screenshot-evidence.jpg?v=1.2.1&amp;rev=20260906-live" alt="Source evidence from collected public reporting, with retained passages and observation times" loading="lazy" decoding="async" width="1600" height="900">
+              <source type="image/webp" srcset="assets/screenshot-evidence-640.webp?v=1.3.0&amp;rev=20260906-live 640w, assets/screenshot-evidence-960.webp?v=1.3.0&amp;rev=20260906-live 960w, assets/screenshot-evidence-1600.webp?v=1.3.0&amp;rev=20260906-live 1600w" sizes="(max-width: 600px) 280vw, (max-width: 980px) 130vw, (max-width: 1280px) 80vw, 1000px">
+              <img src="assets/screenshot-evidence.jpg?v=1.3.0&amp;rev=20260906-live" alt="Source evidence from collected public reporting, with retained passages and observation times" loading="lazy" decoding="async" width="1600" height="900">
             </picture>
           </a>
-          <figcaption><strong>Source evidence</strong> · A closer look behind a signal. <a href="assets/screenshot-evidence.jpg?v=1.2.1&amp;rev=20260906-live">View full size</a>.</figcaption>
+          <figcaption class="screenshot-caption"><strong>Source comparisons</strong><p>Highlighted source excerpt. Open the full comparison to inspect both observations.</p><a href="assets/screenshot-evidence.jpg?v=1.3.0&amp;rev=20260906-live">View source-comparison screenshot</a></figcaption>
         </figure>
-      <p class="band-foot">Wire filters do not select generation inputs. <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/evidence-and-relevance.md">Evidence and generation guide</a>.</p>
+      </div>
     </section>
       <section class="band briefing-output" id="briefing-output" aria-labelledby="briefing-output-title">
         <header class="briefing-output-header">
-          <p class="surface-kicker">// the publication</p>
-          <h2 class="band-head" id="briefing-output-title">Read, review, and print the assessment.</h2>
-          <p>One Briefing. Two formats. Review on screen and carry the same assessment into print.</p>
+          <p class="kicker">Briefing</p>
+          <h2 class="band-head" id="briefing-output-title">An assessment with sources you can review.</h2>
+          <p class="band-lede">Scan the headlines in Overview, read the complete assessment in Full report, and carry the same edition into print.</p>
         </header>
 
         <div class="briefing-format-grid">
           <figure class="briefing-format">
-            <a class="briefing-format-preview" href="assets/screenshot-briefing-reader.jpg?v=1.2.1&amp;rev=20260906-live" aria-label="Open the full-size live Briefing overview">
-              <img src="assets/screenshot-briefing-reader.jpg?v=1.2.1&amp;rev=20260906-live" alt="The September 6 live Briefing overview with assessments, response windows, and source context" loading="lazy" decoding="async" width="1585" height="892">
+            <a class="briefing-format-preview briefing-preview preview-focus" href="assets/screenshot-briefing-reader.jpg?v=1.3.0&amp;rev=20261009-editorial" aria-label="Open the full-size Briefing overview">
+              <img src="assets/screenshot-briefing-reader.jpg?v=1.3.0&amp;rev=20261009-editorial" alt="The redesigned Briefing Overview showing a featured story, edition summary, and supporting headlines from the saved September 6 edition" loading="lazy" decoding="async" width="1425" height="891">
             </a>
-            <figcaption class="briefing-format-copy">
-              <h3>Briefing</h3>
-              <p>Start with the compact Overview, then open the complete response, qualifications, and citations. <a href="assets/screenshot-briefing-report.jpg?v=1.2.1&amp;rev=20260906-live" data-viewer-title="Briefing · Full report" data-viewer-caption="The September 6 Briefing Full report with its complete assessment, response actions, qualifications, and citations">Inspect Full report</a>.</p>
+            <figcaption class="briefing-format-copy screenshot-caption">
+              <h3>Overview and Full report</h3>
+              <p>Scan the featured story and supporting headlines in Overview. Open Full report for the complete assessment, response actions, qualifications, and citations.</p>
+              <a href="assets/screenshot-briefing-report.jpg?v=1.3.0&amp;rev=20261009-editorial" data-viewer-title="Briefing · Full report" data-viewer-caption="The September 6 Briefing Full report with its complete assessment, response actions, qualifications, and citations">View full-report screenshot</a>
             </figcaption>
           </figure>
 
           <figure class="briefing-format">
-            <a class="briefing-format-preview" href="assets/screenshot-print-edition.jpg?v=1.2.1&amp;rev=20260906-live" aria-label="Open the full-size live Print Edition">
-              <img src="assets/screenshot-print-edition.jpg?v=1.2.1&amp;rev=20260906-live" alt="The September 6 live assessment in the locally rendered Print Edition" loading="lazy" decoding="async" width="1600" height="900">
+            <a class="briefing-format-preview print-preview preview-focus" href="assets/screenshot-print-edition.jpg?v=1.3.0&amp;rev=20260906-live" aria-label="Open the full-size live Print Edition">
+              <img src="assets/screenshot-print-edition.jpg?v=1.3.0&amp;rev=20260906-live" alt="The September 6 live assessment in the locally rendered Print Edition" loading="lazy" decoding="async" width="1585" height="892">
             </a>
-            <figcaption class="briefing-format-copy">
+            <figcaption class="briefing-format-copy screenshot-caption">
               <h3>Print Edition</h3>
-              <p>Read the same saved assessment, rendered locally for paper or PDF.</p>
+              <p>Print preview detail. Take the same saved assessment to paper or PDF, rendered locally without another AI request.</p>
+              <a href="assets/screenshot-print-edition.jpg?v=1.3.0&amp;rev=20260906-live">View Print Edition screenshot</a>
             </figcaption>
           </figure>
         </div>
 
-        <p class="trust-review-note"><strong>Analyst review remains required.</strong> Checks cover structure, citations, and supported CVE, CVSS, version, and KEV claim forms; they do not verify every narrative claim. Each new Briefing retains its generation inputs for review.</p>
-        <p class="demo-disclosure"><a href="sample-briefing.html">Read the fictional sample</a> or download its <a href="sample-briefing.pdf">Print Edition PDF</a>. Both use authored sources, systems, and events.</p>
-        <details class="product-detail"><summary>About these screenshots</summary><p>Captured September 6, 2026. Wire and source evidence show collected public reporting. Briefing, Print, and Wall show the editorially corrected edition 2, with its review status preserved. These captures illustrate the interface, not a current security assessment; the fictional sample is separate.</p></details>
+        <p class="trust-review-note"><strong>AI-generated. Reviewed by you.</strong> Check the claims against their cited reporting before acting. Each new Briefing saves the evidence used to generate it; automated checks do not verify every claim or confirm your exposure.</p>
+        <p class="demo-disclosure"><a href="sample-briefing.html">Read a sample briefing</a> or download the <a href="sample-briefing.pdf">Print Edition PDF</a>. The sample uses a fictional scenario to show the assessment and its source trail.</p>
+        <details class="product-detail"><summary>About these screenshots</summary><p>Overview and Full report were captured October 9, 2026 at 1440 × 900; the other screenshots were captured September 6, 2026. Wire and source evidence show collected public reporting. Briefing, Print, and Wall show the saved, editorially corrected September 6 edition 2. Some previews focus on a detail; open a screenshot to see the complete capture and its review status. These captures illustrate the interface, not a current security assessment; the fictional sample is separate.</p></details>
       </section>
-    <section class="band" id="wall" aria-labelledby="wall-title"><p class="kicker">// the operations floor</p><h2 class="band-head" id="wall-title">Keep the room informed.</h2><p class="band-lede">One complete topic at a time, with response ownership, source context, and edition timing. Wall follows your light or dark theme.</p><figure class="surface-proof">
-          <a href="assets/screenshot-wall-wire.jpg?v=1.2.1&amp;rev=20260906-live" aria-label="Open the full-size Wall topic presentation">
+    <section class="band" id="wall" aria-labelledby="wall-title">
+      <div class="wall-layout">
+        <div class="wall-copy">
+          <p class="kicker">Wall</p>
+          <h2 class="band-head" id="wall-title">Keep the room informed.</h2>
+          <p class="band-lede">Put reporting and saved briefings on an operations display. Wall rotates through topics with their sources and publication times, in your light or dark theme.</p>
+        </div>
+        <figure class="surface-proof">
+          <a href="assets/screenshot-wall-wire.jpg?v=1.3.0&amp;rev=20260906-live" aria-label="Open the full-size Wall topic presentation">
             <picture>
-              <source type="image/webp" srcset="assets/screenshot-wall-640.webp?v=1.2.1&amp;rev=20260906-live 640w, assets/screenshot-wall-960.webp?v=1.2.1&amp;rev=20260906-live 960w, assets/screenshot-wall-1600.webp?v=1.2.1&amp;rev=20260906-live 1600w" sizes="(max-width: 900px) calc(100vw - 40px), 46vw">
-              <img src="assets/screenshot-wall-wire.jpg?v=1.2.1&amp;rev=20260906-live" alt="The Wall presenting the September 6 live Briefing, with a lead assessment and supporting priorities" loading="lazy" decoding="async" width="1920" height="1080">
+              <source type="image/webp" srcset="assets/screenshot-wall-640.webp?v=1.3.0&amp;rev=20260906-live 640w, assets/screenshot-wall-960.webp?v=1.3.0&amp;rev=20260906-live 960w, assets/screenshot-wall-1600.webp?v=1.3.0&amp;rev=20260906-live 1600w" sizes="(max-width: 600px) calc(100vw - 36px), (max-width: 980px) 91vw, (max-width: 1280px) 56vw, 700px">
+              <img src="assets/screenshot-wall-wire.jpg?v=1.3.0&amp;rev=20260906-live" alt="The Wall presenting the September 6 live Briefing, with a lead assessment and supporting priorities" loading="lazy" decoding="async" width="1920" height="1080">
             </picture>
           </a>
-          <figcaption><strong>The Wall</strong> · Shift assessment. <a href="assets/screenshot-wall-wire.jpg?v=1.2.1&amp;rev=20260906-live">View full size</a>.</figcaption>
-        </figure></section>
+          <figcaption class="screenshot-caption"><strong>Wall</strong><p>Keep current reporting and saved briefings in view.</p><a href="assets/screenshot-wall-wire.jpg?v=1.3.0&amp;rev=20260906-live">View Wall screenshot</a></figcaption>
+        </figure>
+      </div>
+    </section>
     <section class="band" id="start" aria-labelledby="start-title">
-      <p class="kicker">// quick start</p>
-      <h2 class="band-head" id="start-title">Start the local server.</h2>
-      <p class="setup-prerequisite"><strong>Recommended:</strong> Node.js 24 with npm. Anthropic or OpenAI API key for Briefing generation.</p>
+      <p class="kicker">Quick start</p>
+      <h2 class="band-head" id="start-title">Run BlueTeam.News locally.</h2>
+      <p class="setup-prerequisite"><strong>Requirements:</strong> Node.js + npm. Node.js 24 is recommended. Anthropic or OpenAI API key for Briefing generation.</p>
 
         <div class="code" data-code>
           <div class="code-toolbar">
@@ -224,52 +242,53 @@
             <button class="copy" type="button" aria-label="Copy quick-start commands" hidden>Copy</button>
             <span class="copy-status sr-only" aria-live="polite"></span>
           </div>
-<pre><code>git clone https://github.com/ryanshrier/blueteam.git blueteam
+<pre tabindex="0" aria-label="Quick-start terminal commands" aria-describedby="code-hint"><code>git clone --branch v1.3.0 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start</code></pre>
         </div>
+      <p class="code-hint" id="code-hint">Copy all four commands, or scroll horizontally to read each line.</p>
 
-      <p class="band-foot">Open <code>http://127.0.0.1:3000</code>. Wall and Wire work without a key. In Settings, choose Anthropic or OpenAI. For OpenAI, choose a model available to your API account. Enter your provider's API key, verify it, and save to activate it. OpenAI uses the Responses API. Automatic generation is off until enabled. <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/configuration.md">Configuration guide</a>.</p>
+      <p class="band-foot">Open <code>http://127.0.0.1:3000</code>. Collection starts automatically, and Wire fills as sources respond. Explore reports and source comparisons without an API key.</p>
+      <details class="product-detail"><summary>Add AI-generated briefings</summary><p>In Settings, choose Anthropic or OpenAI, enter your API key, and select a model available to your account. Save your settings and use Verify to check access. Verification and generation use billable provider requests. Then open Briefing → Edition tools → Generate briefing. Automatic generation stays off until you enable it. Advanced users can also try an experimental Custom provider through a trusted local module; its contract may change, and credentials come only from the environment. <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/configuration.md">Read the configuration guide</a>.</p></details>
 
     </section>
 
     <section class="band" id="trust" aria-labelledby="trust-title">
-      <p class="kicker">// local trust boundary</p>
+      <p class="kicker">Data and security</p>
 
       <div class="band-grid">
         <div class="band-prose trust-summary">
-          <h2 class="band-head" id="trust-title">Local storage. Defined outbound requests.</h2>
-          <p>BlueTeam.News sends no product telemetry or analytics, and it requires no BlueTeam.News account, license check, or runtime CDN. The default bind is <code class="chip">127.0.0.1</code>.</p>
-          <p>SQLite data, Markdown Briefings, and a gitignored Settings file stay local. They are not encrypted by the application; protect the host and backups.</p>
+          <h2 class="band-head" id="trust-title">Run it yourself. See what leaves your host.</h2>
+          <p>BlueTeam.News sends no product telemetry or analytics and requires no BlueTeam.News account. Review what stays on your host and which configured services receive requests.</p>
+          <details class="product-detail"><summary>Storage and access details</summary><p>The server listens on <code class="chip">127.0.0.1</code> by default. Stored data and saved API keys are not encrypted by the application; protect the host and backups. Remote access requires authentication and TLS. There is no license check or runtime CDN. <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md">Read the deployment guidance</a>.</p></details>
         </div>
 
         <div class="trust-network">
         <dl class="egress boundary-list" aria-label="Application data boundary">
           <div class="egress-row boundary-item">
-            <dt><span class="arrow" aria-hidden="true">•</span> On the host</dt>
-            <dd class="egress-note">operational data · Briefings · Settings</dd>
+            <dt><span class="arrow" aria-hidden="true">•</span> Stored on your host</dt>
+            <dd class="egress-note">collected data · briefings · settings</dd>
           </div>
           <div class="egress-row boundary-item">
             <dt><span class="arrow" aria-hidden="true">→</span> Configured sources</dt>
-            <dd class="egress-note">feeds · article pages · KEV · NVD · EPSS</dd>
+            <dd class="egress-note">news feeds · source articles · vulnerability data</dd>
           </div>
           <div class="egress-row boundary-item optional">
-            <dt><span class="arrow" aria-hidden="true">→</span> Anthropic or OpenAI API</dt>
-            <dd class="egress-note">key verification and Briefing generation</dd>
+            <dt><span class="arrow" aria-hidden="true">→</span> Configured AI provider</dt>
+            <dd class="egress-note">Built-in key verification or optional Custom health checks; selected source evidence and configured organization context for generation</dd>
           </div>
           <div class="egress-row boundary-item optional">
             <dt><span class="arrow" aria-hidden="true">→</span> Configured webhook</dt>
             <dd class="egress-note">selected alert or Briefing fields, if enabled</dd>
           </div>
         </dl>
-          <p class="boundary-detail">Key verification and Briefing generation use billable requests to your selected provider. Generation sends selected source evidence and configured organization context. Outbound collection requests identify BlueTeam.News through a configurable User-Agent.</p>
+          <p class="boundary-detail">Your provider may charge for verification and generation. Experimental Custom modules define their own health checks, destinations, and billing.</p>
         </div>
       </div>
 
       <nav class="trust-links" aria-label="Security and operations documentation">
-        <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md#network-behavior">Network behavior</a>
-        <a href="https://github.com/ryanshrier/blueteam/blob/main/lib/net.js">Network guard</a>
+        <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md#network-behavior">Full network details</a>
         <a href="https://github.com/ryanshrier/blueteam/blob/main/SECURITY.md">Security model</a>
         <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md">Operations guide</a>
       </nav>
@@ -278,12 +297,12 @@ npm start</code></pre>
 
     <section class="final-cta" aria-labelledby="final-cta-title">
       <div class="final-cta-copy">
-        <p class="kicker">// source and documentation</p>
-        <h2 class="band-head" id="final-cta-title">Run BlueTeam.News locally.</h2>
-        <p>Clone the repository, start the server, and store the evidence on a host you control.</p>
+        <p class="kicker">Your daily intelligence desk</p>
+        <h2 class="band-head" id="final-cta-title">Bring the reporting into focus.</h2>
+        <p>Run BlueTeam.News locally and start exploring the evidence behind the headlines.</p>
       </div>
       <div class="final-cta-actions">
-        <a class="btn btn-primary" href="#start">Quick start</a>
+        <a class="btn btn-primary" href="#start">Run locally</a>
         <a class="btn btn-ghost" href="https://github.com/ryanshrier/blueteam">View the source</a>
       </div>
     </section>
@@ -301,6 +320,6 @@ npm start</code></pre>
     </nav>
   </footer>
 
-  <script src="main.js?v=1.2.1&amp;rev=20261001-viewer-caption"></script>
+  <script src="main.js?v=1.3.0&amp;rev=20261001-viewer-caption"></script>
 </body>
 </html>

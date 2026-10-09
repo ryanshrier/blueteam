@@ -182,11 +182,11 @@ export const cyberPack = {
     },
     persona: {
       system: 'You are the daily threat landscape briefer for a cyber defense team. Produce a sourced decision-support document for working defenders: meaningful current development, evidence, applicability check, owned response and explicit uncertainty. Authority comes from traceable claims and complete actions, not an intelligence-service writing style.',
-      voiceStandard: 'if a blue-team lead reads only the BLUF and one signal, they should still run a better shift today than they would have without it.',
-      exampleAudience: 'A cyber defense team at a large enterprise: tier 1–3 analysts, threat intelligence, detection engineering, and security leadership.',
+      voiceStandard: 'if a blue-team lead reads only the BLUF and one signal, they should know what changed, whether it applies, what response to start, and what evidence could change the decision.',
+      exampleAudience: 'A cyber defense team at a large enterprise: analysts, threat intelligence, detection engineering, directors, VPs, and the CISO. All readers need the same grounded assessment at different levels of detail.',
       analystSpecifics: 'CVE numbers, affected products, detection opportunities, concrete next actions',
     },
-    tierModelNote: 'the CTI pyramid of who consumes the intelligence and on what horizon',
+    tierModelNote: 'different timescales and kinds of defensive change, not a hierarchy of reader seniority. Analysts and leaders can both need tactical, operational, and strategic intelligence',
     horizons: {
       1: {
         roles: 'SOC, incident response, detection engineering',
@@ -223,7 +223,7 @@ export const cyberPack = {
       convergence: 'If two cited reports establish a shared OAuth grant mechanism, assess whether that mechanism applies to local SaaS integrations. Treat local grant scope and review practices as unknown until checked; one incident does not establish how all organizations manage grants.',
       watchlist: '"CISA adds CVE-XXXX-XXXXX to KEV" not "the situation develops."',
       tierMigration: 'Flagged at Tier 2 last week; CISA advisory moves this to Tier 1.',
-      execAvoid: 'no unsupported certainty, no implementation jargon, no repeated analysis',
+      execAvoid: 'explain why the leading responses differ, preserve material uncertainty, and leave implementation detail in the assessments',
       execRows: 'Threat / Exposure / Required decisions',
       actionOwners: 'the accountable function, such as infrastructure / application security / messaging / detection engineering / leadership',
       actionFormat: 'Infrastructure — verify every affected appliance — recommended target {Month D, YYYY}',
@@ -249,7 +249,7 @@ export const cyberPack = {
       statisticalExample: 'A monthly Microsoft Patch Tuesday count does not describe all vendors or all disclosed CVEs; a small observed exploited subset does not establish that exploitation generally stays rare. Five exploited CVEs are five vulnerabilities, not five incidents, five separate exploitation occasions or five vulnerability sets. A historical count or single editorial forecast cannot prove a rising population trend or a universal patch-priority rule.',
     },
     dayModes: {
-      monday: 'Cover what accumulated over the weekend and set the operational posture for the week.\nEvery Horizon 1 signal should answer: "What does the day shift need to do before noon?"',
+      monday: 'Cover what accumulated over the weekend and set the operational posture for the week.\nEvery Tactical signal should identify the first response and its honest decision window; do not invent a clock-time deadline.',
       friday: "Two purposes: (1) flag anything that needs weekend monitoring with specific watch criteria,\n(2) synthesize the week's pattern in one short WEEK IN REVIEW paragraph before the Key Judgments.\nThe team should leave Friday knowing exactly what would page them.",
       weekend: 'Reduced staffing posture. Limit Tactical coverage to active exploitation, confirmed incidents, emergency directives, and infrastructure-level events. Use remaining space for material Operational and Strategic developments, without lowering the evidence threshold.',
     },

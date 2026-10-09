@@ -103,6 +103,21 @@ describe('executiveSummaryModel', () => {
     expect(model.decisions[2].action).toContain('deployment; if affected, confirm Emergency Patch Release 2');
     expect(model.commonDeadline).toBe('recommended target September 8, 2026');
   });
+  test('keeps action context labels under their actual owner and target while retaining a separate paired response', () => {
+    const response = 'verify deployment; Condition: affected gateways only; Dependencies: retrieve vendor guidance; Initiation: start this shift; Evidence/artifact: inventory and build records; Completion criterion: record the fixed build or exception';
+    const recovery = 'investigate exposed gateways; Recovery: if compromised, reimage and reset credentials';
+    const model = executiveSummaryModel([{ lead: 'Required decisions:', tail: `Infrastructure / Operations — ${response} — recommended target September 8, 2026; Incident response — ${recovery} — recommended target September 9, 2026.` }]);
+    expect(model.decisions).toEqual([
+      { owner: 'Infrastructure / Operations', action: response, deadline: 'recommended target September 8, 2026' },
+      { owner: 'Incident response', action: recovery, deadline: 'recommended target September 9, 2026' },
+    ]);
+    expect(model.commonDeadline).toBe('');
+  });
+  test('an orphan action context label never becomes an invented owner', () => {
+    const model = executiveSummaryModel([{ lead: 'Required decisions:', tail: 'Condition: only affected deployments; Operations — verify applicability — recommended target September 8, 2026.' }]);
+    expect(model.decisions[0]).toEqual({ owner: 'Unassigned', action: 'Condition: only affected deployments', deadline: '' });
+    expect(model.decisions[1].owner).toBe('Operations');
+  });
   test('separates situation from owner decisions and prints a shared deadline once', () => {
     const model = executiveSummaryModel([
       { lead: 'Threat:', tail: 'Two exploited surfaces require action.' },

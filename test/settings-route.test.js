@@ -620,6 +620,36 @@ describe('provider settings', () => {
     expect(getUserSettings()).toEqual({});
   });
 
+  test('custom selection persists without replacing stored provider keys', async () => {
+    saveUserSettings(dir, { anthropicKey: 'sk-ant-fixture', openaiKey: 'sk-proj-fixture' });
+    const refreshAi = jest.fn();
+    ctx = await makeServer({ dataDir: dir, loopback: true, refreshAi });
+    expect((await post({ aiProvider: 'custom' })).status).toBe(200);
+    expect(loadUserSettings(dir)).toEqual({ aiProvider: 'custom', anthropicKey: 'sk-ant-fixture', openaiKey: 'sk-proj-fixture' });
+    expect(refreshAi).toHaveBeenCalledTimes(1);
+  });
+
+  test('custom status uses the health hook with no key and retains its reason/version', async () => {
+    const result = { valid: false, error: 'gateway timeout (524)', version: '1.0.0' };
+    const verifyKey = jest.fn(async () => result);
+    ctx = await makeServer({ dataDir: dir, loopback: true, verifyKey });
+    const response = await fetch(`${ctx.base}/api/settings/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'custom' }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(result);
+    expect(verifyKey).toHaveBeenCalledWith('', 'custom');
+    expect(getUserSettings()).toEqual({});
+  });
+
+  test.each(['anthropicKey', 'openaiKey', 'openaiModel'])('custom status rejects supplied %s before calling the hook', async field => {
+    const verifyKey = jest.fn();
+    ctx = await makeServer({ dataDir: dir, loopback: true, verifyKey });
+    const response = await fetch(`${ctx.base}/api/settings/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'custom', [field]: 'value' }) });
+    expect(response.status).toBe(400);
+    expect(verifyKey).not.toHaveBeenCalled();
+  });
+
   test('only trusted callers receive the other provider’s masked status', async () => {
     const getAiStatus = () => ({ enabled: true, source: 'local', masked: 'sk-…ture', provider: 'openai', model: 'gpt-5.3-codex',
       providers: { openai: { enabled: true, source: 'local', masked: 'sk-…ture', model: 'gpt-5.3-codex', key: 'never-expose' } } });

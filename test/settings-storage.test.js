@@ -16,7 +16,7 @@ beforeEach(() => {
       const attributes = {};
       nodes.set(selector, {
       id: selector.startsWith('#') ? selector.slice(1) : '',
-      innerHTML: '', textContent: '', value: '', dataset: {}, disabled: false,
+      innerHTML: '', textContent: '', value: '', dataset: {}, disabled: false, style: { setProperty: jest.fn() },
       querySelector: get, querySelectorAll: () => [], addEventListener: jest.fn(), removeEventListener: jest.fn(),
       closest: () => get(`card-${selector}`),
       elements: { namedItem: name => get(`[name="${name}"]`) },
@@ -296,5 +296,30 @@ test('an Anthropic environment key does not lock OpenAI settings or verification
   fire('verifyKey'); await flush();
   expect(verifyKey).toHaveBeenCalledWith('', 'openai', 'gpt-5.3-codex');
   expect(saveSettings).not.toHaveBeenCalled();
+  fire('discardKey');
+});
+
+test('custom modules hide key controls, preserve typed drafts, and check status without submitting keys', async () => {
+  render(main); await flush();
+  fill('apiKey', 'sk-ant-fixture');
+  nodes.get('#aiProvider').value = 'custom'; fire('aiProvider', 'change');
+  expect(nodes.get('#keyInputWrap').hidden).toBe(true);
+  expect(nodes.get('#apiKeyLabel').hidden).toBe(true);
+  expect(nodes.get('#apiKey').disabled).toBe(true);
+  expect(nodes.get('#apiKey').value).toBe('');
+  expect(nodes.get('#clearKey').hidden).toBe(true);
+  expect(nodes.get('#openaiModelRow').hidden).toBe(true);
+  expect(nodes.get('#verifyKey').textContent).toBe('Check status');
+  expect(nodes.get('#verifyKey').disabled).toBe(false);
+  verifyKey.mockResolvedValue({ valid: null, note: 'Module loaded; no health hook.', version: '1.0.0' });
+  fire('verifyKey'); await flush();
+  expect(verifyKey).toHaveBeenCalledWith('', 'custom', undefined);
+  expect(nodes.get('#keyFeedback').textContent).toBe('Module loaded; no health hook. · 1.0.0');
+  expect(saveSettings).not.toHaveBeenCalled();
+  fire('saveKey'); await flush();
+  expect(saveSettings).toHaveBeenCalledWith({ aiProvider: 'custom' });
+  nodes.get('#aiProvider').value = 'anthropic'; fire('aiProvider', 'change');
+  expect(nodes.get('#apiKey').value).toBe('sk-ant-fixture');
+  expect(nodes.get('#keyInputWrap').hidden).toBe(false);
   fire('discardKey');
 });

@@ -89,9 +89,17 @@ export function executiveTargetModel(value) {
     : { label: 'Due', value: text.replace(/^due\s*[:·—–-]?\s+/i, '') };
 }
 
+const ACTION_CONTEXT_PREFIX = /^(?:Condition|Dependencies|Initiation|Evidence\s*\/\s*artifact|Completion criterion|Recovery):\s*/i;
+
 function splitExecutiveDecisions(text) {
   const clauses = [];
   for (const fragment of String(text || '').split(/\s*;\s*/).map(value => value.trim()).filter(Boolean)) {
+    // Canonical fallback summaries retain action context labels. They qualify
+    // the preceding owner's response; a colon here never names a new owner.
+    if (clauses.length && ACTION_CONTEXT_PREFIX.test(fragment)) {
+      clauses[clauses.length - 1] += `; ${fragment}`;
+      continue;
+    }
     const ownerStart = fragment.match(/^([^;—–:\n]{1,80}?)(?:\s*[—–]\s*|\s+-\s+|:\s+)(.+)$/);
     // A trailing "— recommended target ..." belongs to the preceding action,
     // not to an owner named "if affected, patch ...". Preserve internal
@@ -111,7 +119,7 @@ function splitExecutiveDecisions(text) {
     // `Owner: action` forms. Parse all without treating hyphens inside products
     // or CVE identifiers as separators.
     const ownerMatch = clause.match(/^(.+?)(?:\s*[—–]\s*|\s+-\s+|:\s+)(.+)$/);
-    if (!ownerMatch) return { owner: 'Unassigned', action: clause, deadline: '' };
+    if (!ownerMatch || ACTION_CONTEXT_PREFIX.test(clause)) return { owner: 'Unassigned', action: clause, deadline: '' };
 
     const owner = ownerMatch[1].trim();
     const parts = ownerMatch[2].split(/\s*[—–]\s*|\s+-\s+/).map(part => part.trim()).filter(Boolean);

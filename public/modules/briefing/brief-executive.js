@@ -37,7 +37,7 @@ export function structureExecutiveSummary(root, { prefix = 'np' } = {}) {
     if (text != null) el.textContent = text;
     return el;
   };
-  heading.textContent = 'EXECUTIVE SUMMARY — SHIFT DECISIONS';
+  heading.textContent = 'EXECUTIVE SUMMARY';
   const panel = make('section', 'panel');
   if (model.facts.length) {
     const facts = make('div', 'facts');
@@ -52,7 +52,7 @@ export function structureExecutiveSummary(root, { prefix = 'np' } = {}) {
   if (model.decisions.length) {
     const queue = make('div', 'queue');
     const head = make('div', 'queue-head');
-    head.appendChild(make('span', '', `${model.decisions.length} ${model.decisions.length === 1 ? 'action preview' : 'action previews'} · complete responses below`));
+    head.appendChild(make('span', '', `${model.decisions.length} recommended ${model.decisions.length === 1 ? 'decision' : 'decisions'}`));
     if (model.commonDeadline) {
       const target = executiveTargetModel(model.commonDeadline);
       head.appendChild(make('span', 'common-due', `${target.label} · ${target.value}`));
@@ -63,10 +63,8 @@ export function structureExecutiveSummary(root, { prefix = 'np' } = {}) {
       const item = make('li');
       item.appendChild(make('span', 'action-index', String(index + 1).padStart(2, '0')));
       const task = make('div', 'action-task');
-      // "Unassigned" is the parser's fallback, not an authored owner.
-      const product = decision.action.match(/\b(SMA1000|Chrome|PaperCut(?: MF\/NG)?|Artifactory|Switchvox|MikroTik|Magento(?:\/Adobe Commerce)?)\b/i)?.[0];
-      if (product) task.appendChild(make('strong', 'product', product === 'SMA1000' ? 'SonicWall SMA1000' : product));
       task.appendChild(make('p', '', decision.action));
+      // "Unassigned" is the parser's fallback, not an authored owner.
       if (decision.owner !== 'Unassigned') task.appendChild(make('span', 'owner', `Owner · ${decision.owner}`));
       item.appendChild(task);
       if (decision.deadline && !model.commonDeadline) {
@@ -78,7 +76,14 @@ export function structureExecutiveSummary(root, { prefix = 'np' } = {}) {
       actions.appendChild(item);
     });
     queue.appendChild(actions);
-    panel.prepend(queue);
+    const judgments = [...root.querySelectorAll('h2')]
+      .find(el => el.id && /^\s*KEY JUDGMENTS\b/i.test(el.textContent || ''));
+    if (judgments) {
+      const link = make('a', 'assessments', 'Read complete assessments');
+      link.href = `#${encodeURIComponent(judgments.id)}`;
+      queue.appendChild(link);
+    }
+    panel.appendChild(queue);
   }
   list.replaceWith(panel);
 }

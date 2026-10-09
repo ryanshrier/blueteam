@@ -39,8 +39,14 @@ describe('Briefing failure explanations', () => {
 
   test('an actual provider rate limit still gets provider guidance, never the no-generation claim', () => {
     expect(generationErrorMessage({ message: '429 rate limit error' })).toBe(
-      'The model is rate-limited or overloaded right now. Wait a moment and retry.',
+      '429 rate limit error The model is rate-limited or overloaded right now. Wait a moment and retry.',
     );
+  });
+
+  test('gateway failure details survive the display formatter even without a provider code', () => {
+    expect(generationErrorMessage({ message: 'gateway timeout (524)' })).toContain('gateway timeout (524)');
+    const message = 'Draft was not published because the provider stream was interrupted: gateway timeout (524)';
+    expect(generationErrorMessage({ code: 'E_PARTIAL_GENERATION', message })).toBe(message);
   });
 
   test('a publication failure retains a CVE identifier that resembles an HTTP error', () => {

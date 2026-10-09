@@ -7,6 +7,8 @@ import {
   CITATION_APPENDIX_LABEL, extractSections,
 } from '../public/modules/briefing/brief-renderer.js';
 import { documentExecutiveModel, structureExecutiveSummary } from '../public/modules/briefing/brief-executive.js';
+import { canonicalizeExecutiveActions } from '../lib/brief-editorial.js';
+import { parseBrief } from '../lib/brief-schema.js';
 
 describe('complete document decision presentation', () => {
   test('decision handoff retains disposition, review identity, and source-check warnings before the actions', () => {
@@ -35,7 +37,7 @@ describe('complete document decision presentation', () => {
     expect(model.decisions).toHaveLength(7);
     expect(model.decisions[6]).toEqual({ owner: 'Owner 7', action: 'Verify service 7', deadline: 'September 11, 2026' });
   });
-  test('renders every model row into the document, with an accurate decision count', () => {
+  test('renders all rationale before the decisions, with an accurate decision count', () => {
     const generated = [];
     const make = tag => ({ tagName: tag.toUpperCase(), children: [], className: '', textContent: '', prepend(el) { this.children.unshift(el); }, appendChild(el) { this.children.push(el); }, append(...els) { this.children.push(...els); } });
     const list = { tagName: 'UL', querySelector: () => null, replaceWith: panel => generated.push(panel), children: items.map(item => ({
@@ -44,9 +46,10 @@ describe('complete document decision presentation', () => {
     })) };
     structureExecutiveSummary({ querySelector: () => null, querySelectorAll: () => [{ textContent: 'EXECUTIVE SUMMARY', nextElementSibling: list }], ownerDocument: { createElement: make } });
     const panel = generated[0];
-    expect(panel.children[1].children).toHaveLength(4);
-    expect(panel.children[0].children[0].children[0].textContent).toBe('7 action previews · complete responses below');
-    expect(panel.children[0].children[1].children).toHaveLength(7);
+    expect(panel.children[0].children).toHaveLength(4);
+    expect(panel.children[0].children.map(row => row.children[1].textContent)).toEqual(items.slice(0, 4).map(item => item.tail));
+    expect(panel.children[1].children[0].children[0].textContent).toBe('7 recommended decisions');
+    expect(panel.children[1].children[1].children).toHaveLength(7);
   });
   test('leaves rich executive summaries intact rather than flattening their evidence links', () => {
     let replaced = false;
@@ -75,9 +78,82 @@ describe('complete document decision presentation', () => {
     const text = node => [node.textContent, ...node.children.map(text)].join(' ');
     expect(text(generated[0])).toContain('CVE-2026-1234');
     expect(text(generated[0])).toContain('152.0.7977.82/.83');
-    expect(text(generated[0])).toContain('1 action preview');
+    expect(text(generated[0])).toContain('1 recommended decision');
     expect(text(generated[0])).toContain('Recommended target · September 8, 2026');
     expect(text(generated[0])).not.toContain('Due recommended');
+  });
+
+  test('uses complete authored decision text for any product and links to the actual judgment section', () => {
+    const generated = [];
+    const make = tag => ({ tagName: tag.toUpperCase(), children: [], className: '', textContent: '',
+      appendChild(el) { this.children.push(el); }, append(...els) { this.children.push(...els); } });
+    const rows = [
+      { lead: 'Threat:', tail: 'A vendor confirms exploitation.' },
+      { lead: 'Required decisions:', tail: 'Infrastructure — Verify both Orion and Chrome deployments before scheduling changes — recommended target September 8, 2026.' },
+    ];
+    const list = { tagName: 'UL', querySelector: () => null, replaceWith: panel => generated.push(panel),
+      children: rows.map(item => ({ tagName: 'LI', querySelector: () => ({ textContent: item.lead }),
+        cloneNode: () => ({ textContent: item.tail, querySelector: () => ({ remove() {} }) }) })) };
+    const heading = { textContent: 'EXECUTIVE SUMMARY — SHIFT DECISIONS', nextElementSibling: list };
+    structureExecutiveSummary({ querySelector: () => null,
+      querySelectorAll: () => [heading, { id: 'section-7-key-judgments-retained', textContent: 'KEY JUDGMENTS — retained' }],
+      ownerDocument: { createElement: make } }, { prefix: 'brief' });
+    const queue = generated[0].children[1];
+    const task = queue.children[1].children[0].children[1];
+    expect(heading.textContent).toBe('EXECUTIVE SUMMARY');
+    expect(task.children.map(node => node.textContent)).toEqual([
+      'Verify both Orion and Chrome deployments before scheduling changes', 'Owner · Infrastructure',
+    ]);
+    expect(task.children.some(node => node.tagName === 'STRONG')).toBe(false);
+    expect(queue.children[2].textContent).toBe('Read complete assessments');
+    expect(queue.children[2].href).toBe('#section-7-key-judgments-retained');
+  });
+
+  test('converting an existing reader executive panel for print preserves its order and links', () => {
+    const facts = { className: 'brief-exec-facts' };
+    const queue = { className: 'brief-exec-queue' };
+    const link = { className: 'brief-exec-assessments', href: '#section-7-key-judgments-retained' };
+    const panel = { className: 'brief-exec-panel', children: [facts, queue], querySelectorAll: () => [facts, queue, link] };
+    structureExecutiveSummary({ querySelector: () => panel });
+    expect(panel.className).toBe('np-exec-panel');
+    expect(panel.children).toEqual([facts, queue]);
+    expect(facts.className).toBe('np-exec-facts');
+    expect(queue.className).toBe('np-exec-queue');
+    expect(link.className).toBe('np-exec-assessments');
+    expect(link.href).toBe('#section-7-key-judgments-retained');
+  });
+
+  test.each(['brief', 'np'])('canonical fallback keeps conditional response and target with the owner in %s presentation', prefix => {
+    const source = `## EXECUTIVE SUMMARY
+- **Required decisions:** old
+## KEY JUDGMENTS
+### Signal 1 — [Horizon 1] Gateway
+**Recommended actions:**
+- Infrastructure — verify deployment; **Condition:** if affected, patch; **Initiation:** start this shift; **Completion criterion:** record the installed build — recommended target September 8, 2026.
+- Incident response — review potential compromise; **Recovery:** if compromised, reset credentials after recovery — recommended target September 9, 2026.
+`;
+    const rows = parseBrief(canonicalizeExecutiveActions(source)).execSummary;
+    const generated = [];
+    const make = tag => ({ tagName: tag.toUpperCase(), children: [], className: '', textContent: '',
+      appendChild(el) { this.children.push(el); }, append(...els) { this.children.push(...els); } });
+    const list = { tagName: 'UL', querySelector: () => null, replaceWith: panel => generated.push(panel), children: rows.map(item => ({
+      tagName: 'LI', querySelector: () => ({ textContent: item.lead }),
+      cloneNode: () => ({ textContent: item.tail, querySelector: () => ({ remove() {} }) }),
+    })) };
+    structureExecutiveSummary({ querySelector: () => null,
+      querySelectorAll: () => [{ textContent: 'EXECUTIVE SUMMARY', nextElementSibling: list }],
+      ownerDocument: { createElement: make } }, { prefix });
+    const queue = generated[0].children[0];
+    const decisions = queue.children[1].children;
+    const text = node => [node.textContent, ...node.children.map(text)].join(' ');
+    expect(queue.children[0].children[0].textContent).toBe('2 recommended decisions');
+    expect(decisions).toHaveLength(2);
+    expect(text(decisions[0])).toContain('Condition: if affected, patch; Initiation: start this shift; Completion criterion: record the installed build');
+    expect(text(decisions[0])).toContain('Owner · Infrastructure');
+    expect(text(decisions[0])).toContain('September 8, 2026');
+    expect(text(decisions[1])).toContain('Recovery: if compromised, reset credentials after recovery');
+    expect(text(decisions[1])).toContain('Owner · Incident response');
+    expect(text(decisions[1])).toContain('September 9, 2026');
   });
 });
 
@@ -163,7 +239,7 @@ describe('briefing section navigation labels', () => {
     ]);
   });
   test.each([
-    ['EXECUTIVE SUMMARY — SHIFT DECISIONS', 'Shift decisions'],
+    ['EXECUTIVE SUMMARY — SHIFT DECISIONS', 'Executive summary'],
     ['KEY JUDGMENTS', 'Key judgments'],
     ['DEVELOPING SITUATIONS', 'Developing'],
     ['CONVERGENCE', 'Convergence'],

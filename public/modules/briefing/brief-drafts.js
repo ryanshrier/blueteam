@@ -65,11 +65,13 @@ export function openDraftReview({ id = '', opener } = {}) {
   };
   function begin() { request?.abort(); request = new AbortController(); return { token: ++serial, signal: request.signal }; }
   function error(message, retry) {
+    body.classList.remove('is-reviewing');
     body.innerHTML = `<p class="draft-request-error" role="alert">${escapeHtml(message)}</p><button type="button" class="btn-ghost" data-draft-retry>Retry</button>`;
     body.querySelector('[data-draft-retry]').addEventListener('click', retry);
   }
   async function list() {
     remember(); artifact = null;
+    body.classList.remove('is-reviewing');
     const { token, signal } = begin();
     body.innerHTML = '<p role="status">Loading saved drafts…</p>';
     try {
@@ -86,15 +88,20 @@ export function openDraftReview({ id = '', opener } = {}) {
     const conflicts = copies.filter(copy => copy.baseRevision !== latest.number);
     const value = pending ? pending.content : latest.content;
     const issues = latest.validation?.issues || [];
-    body.innerHTML = `<div class="draft-review-folio"><button type="button" class="btn-ghost" data-draft-list>All drafts</button><strong>${escapeHtml(artifact.editionDate || 'Unpublished draft')} · Revision ${latest.number}</strong><span>${escapeHtml(draftCheckLabel(latest.validation))}</span></div>
-      <p class="draft-review-note">${escapeHtml(note || 'Save a repair to recheck the evidence. Rechecking does not publish the draft.')}</p>
-      ${artifact.contentRedacted ? '<p class="draft-request-error">Sensitive text was redacted in the retained artifact. Review the saved inputs before repairing it.</p>' : ''}
-      <details class="draft-findings"${issues.length && !globalThis.matchMedia?.('(max-width: 600px)').matches ? ' open' : ''}><summary>${issues.length} findings · select one to inspect its line</summary><ol>${issues.map(issue => `<li><button type="button" data-draft-line="${Number(issue.location?.line) || 1}">${escapeHtml(issue.message || '')}<span>${escapeHtml(issue.code || 'Check')} · ${escapeHtml(issue.severity || 'review')}${issue.location?.line ? ` · Line ${Number(issue.location.line)}` : ''}</span></button></li>`).join('')}</ol></details>
+    const wide = globalThis.matchMedia?.('(min-width: 901px)').matches ?? true;
+    body.classList.add('is-reviewing');
+    body.innerHTML = `<div class="draft-review-meta"><div class="draft-review-folio"><button type="button" class="btn-ghost" data-draft-list>All drafts</button><strong>${escapeHtml(artifact.editionDate || 'Unpublished draft')} · Revision ${latest.number}</strong><span>${escapeHtml(draftCheckLabel(latest.validation))}</span></div>
+      <p class="draft-review-note">${escapeHtml(note || 'Saving repairs safe formatting and rechecks the evidence. Rechecking does not publish the draft.')}</p>
+      ${artifact.contentRedacted ? '<p class="draft-request-error">Sensitive text was redacted in the retained artifact. Review the saved inputs before repairing it.</p>' : ''}</div>
+      <div class="draft-review-workspace"><div class="draft-working-document">
       <div class="draft-view-switch" role="group" aria-label="Draft working view"><button type="button" class="btn-ghost" data-draft-view="edit" aria-pressed="true">Edit Markdown</button><button type="button" class="btn-ghost" data-draft-view="preview" aria-pressed="false">Preview</button></div>
       <div data-draft-editor><label class="draft-editor-label" for="draftRepair">Repair this revision</label><textarea id="draftRepair" maxlength="80000" spellcheck="false">${escapeHtml(value)}</textarea></div>
       <article class="draft-preview" aria-label="Unpublished draft preview" tabindex="-1" hidden></article>
-      <div class="draft-repair-actions"><button type="button" class="btn-primary" data-draft-save>Save revision &amp; recheck</button><span role="status" id="draftRepairStatus">${pending ? 'Unsaved repair restored from this tab.' : 'No unsaved changes.'}</span></div>
-      <details class="draft-revision-history"><summary>Captured inputs and ${artifact.revisions.length} saved revisions</summary><p>Input receipt SHA-256: <code>${escapeHtml(artifact.manifestSha256 || 'Unavailable')}</code></p><p>Review storage follows the server's retention policy. Original inputs and saved revisions are preserved separately from your unsaved edits.</p>${artifact.revisions.map(revision => `<details><summary>Revision ${revision.number} · ${escapeHtml(revision.kind || 'draft')} · ${escapeHtml(formatEventTime(revision.createdAt))}</summary><pre>${escapeHtml(revision.content)}</pre></details>`).join('')}<details><summary>Inspect captured input receipt</summary><pre>${escapeHtml(JSON.stringify(artifact.manifest, null, 2))}</pre></details></details>`;
+      </div><details class="draft-reference-panel"${wide ? ' open' : ''}><summary>Checks and saved inputs</summary><div class="draft-reference-content">
+      <details class="draft-findings"${issues.length ? ' open' : ''}><summary>${issues.length} findings · select one to inspect its line</summary><ol>${issues.map(issue => `<li><button type="button" data-draft-line="${Number(issue.location?.line) || 1}">${escapeHtml(issue.message || '')}<span>${escapeHtml(issue.code || 'Check')} · ${escapeHtml(issue.severity || 'review')}${issue.location?.line ? ` · Line ${Number(issue.location.line)}` : ''}</span></button></li>`).join('')}</ol></details>
+      <details class="draft-revision-history"><summary>Captured inputs and ${artifact.revisions.length} saved revisions</summary><p>Input receipt SHA-256: <code>${escapeHtml(artifact.manifestSha256 || 'Unavailable')}</code></p><p>Review storage follows the server's retention policy. Original inputs and saved revisions are preserved separately from your unsaved edits.</p>${artifact.revisions.map(revision => `<details><summary>Revision ${revision.number} · ${escapeHtml(revision.kind || 'draft')} · ${escapeHtml(formatEventTime(revision.createdAt))}</summary><pre>${escapeHtml(revision.content)}</pre></details>`).join('')}<details><summary>Inspect captured input receipt</summary><pre>${escapeHtml(JSON.stringify(artifact.manifest, null, 2))}</pre></details></details>
+      </div></details></div>
+      <div class="draft-repair-actions"><button type="button" class="btn-primary" data-draft-save>Save revision &amp; recheck</button><span role="status" id="draftRepairStatus">${pending ? 'Unsaved repair restored from this tab.' : 'No unsaved changes.'}</span></div>`;
     body.querySelector('#draftRepair').addEventListener('input', () => {
       remember(); body.querySelector('#draftRepairStatus').textContent = 'Unsaved repair · retained in this open app until saved.';
     });
@@ -102,7 +109,7 @@ export function openDraftReview({ id = '', opener } = {}) {
       const saved = document.createElement('details');
       saved.className = 'draft-revision-conflict';
       saved.innerHTML = `<summary>A newer revision exists. ${conflicts.length} earlier unsaved ${conflicts.length === 1 ? 'repair is' : 'repairs are'} preserved here.</summary>${conflicts.map(copy => `<p>Based on revision ${copy.baseRevision}</p><pre>${escapeHtml(copy.content)}</pre>`).join('')}`;
-      body.querySelector('.draft-review-folio').after(saved);
+      body.querySelector('.draft-reference-content').prepend(saved);
     }
   }
   function setDraftView(view) {
@@ -112,10 +119,12 @@ export function openDraftReview({ id = '', opener } = {}) {
     if (!editor || !preview) return;
     if (previewing) preview.innerHTML = draftPreviewHtml(body.querySelector('#draftRepair').value);
     editor.hidden = previewing; preview.hidden = !previewing;
+    if (globalThis.matchMedia?.('(max-width: 900px)').matches) body.querySelector('.draft-reference-panel').open = false;
     body.querySelectorAll('[data-draft-view]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.draftView === view)));
   }
   async function load(draftId) {
     remember();
+    body.classList.remove('is-reviewing');
     const { token, signal } = begin();
     body.innerHTML = '<p role="status">Loading captured draft and findings…</p>';
     try {
@@ -139,7 +148,7 @@ export function openDraftReview({ id = '', opener } = {}) {
       if (!active || token !== serial) return;
       artifact = data;
       workingCopies.set(artifact.id, (workingCopies.get(artifact.id) || []).filter(copy => copy.baseRevision !== patch.baseRevision));
-      showDraft('Revision saved and rechecked. Editorial review remains required before publication.');
+      showDraft(`${artifact.revisions.at(-1).formattingRepaired ? 'Safe formatting repaired. ' : ''}Revision saved and rechecked. Editorial review remains required before publication.`);
     } catch (e) {
       if (active && token === serial) { button.disabled = false; editor.readOnly = false; status.textContent = `${e.message} Your unsaved repair is preserved in this tab.`; }
     }

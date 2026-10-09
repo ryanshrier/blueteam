@@ -392,7 +392,7 @@ function mountNews(layer) {
           <a id="nbOpen" href="/wire">Open in Wire</a>
           <details class="nb-display-menu"><summary>Display</summary><div>
           <a href="/wall">Present on display</a>
-          <a href="/settings#wallDisplay">Display preferences</a>
+          <a href="/settings#set-wall">Display preferences</a>
           </div></details>
           <button type="button" id="nbPersistentHold" hidden>Pause until I resume</button>
           <a id="nbExit" href="${escapeHtml(getWallReturnUrl())}">Exit Wall</a>
@@ -875,6 +875,7 @@ function advanceNewsPage() {
 // to this mount and respect navigation already handled by global shortcuts.
 function onWallKey(e) {
   if (!mounted) return;
+  if (e.defaultPrevented || document.querySelector('dialog[open], [aria-modal="true"], .help-overlay')) return;
   if (isPresentation()) {
     if (e.key === 'Tab') revealExit();
     if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); navigate(getWallReturnUrl()); }
@@ -884,7 +885,6 @@ function onWallKey(e) {
     return;
   }
   if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return;
-  if (document.querySelector('dialog[open], [aria-modal="true"], .help-overlay')) return;
   if (e.target?.isContentEditable || e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
   const interactive = e.target?.closest?.('button, a, summary, [role="button"]');
   const wallArrow = ['ArrowLeft', 'ArrowRight'].includes(e.key) && e.target?.closest?.('.nb-controls');

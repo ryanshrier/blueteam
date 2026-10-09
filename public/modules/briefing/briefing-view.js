@@ -161,14 +161,14 @@ export function generationErrorMessage({ message, code }) {
   }
   // Structured publication and local request-limit messages already identify
   // their cause. Generic rate/network heuristics would erase that distinction.
-  if (code === 'E006' || code === 'E_API_RATE' || [
+  if (code === 'E006' || code === 'E_API_RATE' || code === 'E_PARTIAL_GENERATION' || code === 'E_VALIDATION' || /^E_PROVIDER/.test(code || '') || [
     'E_GENERATION_ACTIVE', 'E_GENERATION_COOLDOWN',
     'E_GENERATION_RATE', 'E_GENERATION_DAILY_LIMIT',
   ].includes(code)) return message || 'The Briefing request could not proceed.';
   if (/E001|in progress|already running|already generating/i.test(message)) return 'A briefing is already generating — wait for it to finish, then retry.';
-  if (/429|rate.?limit|overloaded|529/i.test(message)) return 'The model is rate-limited or overloaded right now. Wait a moment and retry.';
-  if (/timed out|timeout/i.test(message)) return 'Generation timed out. Retry, or reduce the brief size in config.';
-  if (/\b5\d\d\b|unavailable|network|failed to fetch/i.test(message)) return 'The briefing service is temporarily unavailable. Retry shortly.';
+  if (/429|rate.?limit|overloaded|529/i.test(message)) return `${message} The model is rate-limited or overloaded right now. Wait a moment and retry.`;
+  if (/timed out|timeout/i.test(message)) return `${message} Retry, or reduce the brief size in config.`;
+  if (/\b5\d\d\b|unavailable|network|failed to fetch/i.test(message)) return `${message} Retry shortly.`;
   return message || 'Generation failed. Retry, or check the server logs.';
 }
 
@@ -242,12 +242,12 @@ export function render(main) {
     document.getElementById(id)?.addEventListener('click', () => selectReadingMode(mode));
   }
   document.getElementById('briefOverview')?.addEventListener('click', event => {
-    const link = event.target.closest('[data-overview-open]');
+    const link = event.target.closest('[data-overview-open], [data-overview-jump]');
     if (!link || event.defaultPrevented || event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    const destination = new URL(link.getAttribute('href'), location.origin);
+    const destination = new URL(link.getAttribute('href'), location.href);
     if (destination.origin !== location.origin) return;
     event.preventDefault();
-    selectReadingMode('read');
+    selectReadingMode(link.hasAttribute('data-overview-jump') ? 'overview' : 'read');
     const target = document.getElementById(decodeURIComponent(destination.hash.slice(1))) || document.getElementById('briefContent');
     target?.setAttribute('tabindex', '-1');
     target?.focus({ preventScroll: true });
@@ -788,15 +788,6 @@ function renderBriefContent(content, text, { hardFail = false, checkStructure = 
   content._validatedBriefContent = null;
   content.innerHTML = renderMarkdown(text);
   applySemanticStyling(content, { decisionControls: Boolean(getState().currentBrief?.filename) });
-  const judgments = [...content.querySelectorAll('.brief-judgment-card > h3[id]')];
-  const executive = content.querySelector('.brief-exec-panel');
-  if (executive && judgments.length) {
-    const index = content.ownerDocument.createElement('nav');
-    index.className = 'brief-priority-index';
-    index.setAttribute('aria-label', 'All assessments and complete responses');
-    index.innerHTML = `<p>All ${judgments.length} assessments · complete responses</p><ol>${judgments.map(heading => `<li><a href="#${escapeHtml(heading.id)}">${escapeHtml(heading.textContent)}</a></li>`).join('')}</ol>`;
-    executive.before(index);
-  }
   attachEditorialReview(content, getState().currentBrief);
   const persistedWarnings = getState().currentBrief?.warnings;
   const visibleWarnings = Array.isArray(persistedWarnings) && persistedWarnings.length
@@ -812,12 +803,23 @@ function renderBriefContent(content, text, { hardFail = false, checkStructure = 
   stopRecentDevelopments = null;
   if (overview) {
     const judgmentMetadata = [...content.querySelectorAll('.brief-judgment-card')].map(card => briefRenderer.briefAssessmentMetadata?.(card));
-    overview.innerHTML = renderOverview({ ...getState().currentBrief, warnings: visibleWarnings }, { judgmentMetadata });
+    const developingAnchor = [...content.querySelectorAll('h2[id]')].find(heading => /developing situations/i.test(heading.textContent))?.id || '';
+    overview.innerHTML = renderOverview({ ...getState().currentBrief, warnings: visibleWarnings }, { judgmentMetadata, developingAnchor });
     stopRecentDevelopments = mountRecentDevelopments(overview.querySelector('[data-overview-recent]'), briefingApi.fetchHeadlines);
   }
-  if (new URLSearchParams(window.location.search || '').get('view') === 'report' || findBriefFragmentHeading(content, location.hash)) readingMode = 'read';
+  const overviewTarget = /^#overview-judgment-\d+$/.test(location.hash) ? overview?.querySelector(location.hash) : null;
+  if (overviewTarget) readingMode = 'overview';
+  else if (new URLSearchParams(window.location.search || '').get('view') === 'report' || findBriefFragmentHeading(content, location.hash)) readingMode = 'read';
   applyReadingMode();
   buildTOC(content);
+  if (overviewTarget) {
+    const token = contentRenderToken;
+    window.requestAnimationFrame?.(() => {
+      if (token !== contentRenderToken || overviewTarget.isConnected === false) return;
+      overviewTarget.focus({ preventScroll: true });
+      overviewTarget.scrollIntoView({ behavior: 'auto', block: 'start' });
+    });
+  }
   content._validatedBriefContent = text;
   content.removeAttribute('aria-busy');
   reflectDocumentActions();
@@ -1039,7 +1041,7 @@ export function findBriefFragmentHeading(content, hash = '') {
 export function currentTocHeading(targets = [], readingEdge = 110) {
   const positions = targets.map(target => ({ target, top: target.getBoundingClientRect().top }))
     .filter(item => Number.isFinite(item.top));
-  return positions.filter(item => item.top <= readingEdge).at(-1)?.target
+  return positions.filter(item => item.top <= (typeof readingEdge === 'function' ? readingEdge(item.target) : readingEdge)).at(-1)?.target
     || positions[0]?.target || null;
 }
 
@@ -1063,6 +1065,7 @@ function buildTOC(content) {
     const id = String(s.id || '');
     return `<a href="#${escapeHtml(encodeURIComponent(id))}" data-target="${escapeHtml(id)}" class="${cls}${s.secondary ? ' toc-secondary' : ''}">${escapeHtml(s.label)}</a>`;
   };
+  const childLabel = section => `${section.children.length} ${section.label === 'Key judgments' ? 'judgment' : 'topic'}${section.children.length === 1 ? '' : 's'}`;
   // Keep the rail editorial, not exhaustive. Every signal remains deep-linkable,
   // but listing six long judgment headlines here turned navigation into a second,
   // cramped copy of the brief.
@@ -1077,7 +1080,7 @@ function buildTOC(content) {
         <span class="toc-current-label" aria-hidden="true"></span>
       </summary>
       <ul>
-        ${sections.map(s => `<li>${link(s)}${s.children?.length ? `<details class="toc-judgments"><summary>${s.children.length} judgments</summary><ul>${s.children.map(child => `<li>${link(child)}</li>`).join('')}</ul></details>` : ''}</li>`).join('')}
+        ${sections.map(s => `<li>${link(s)}${s.children?.length ? `<details class="toc-judgments"><summary>${childLabel(s)}</summary><ul>${s.children.map(child => `<li>${link(child)}</li>`).join('')}</ul></details>` : ''}</li>`).join('')}
       </ul>
     </details>
   `;
@@ -1103,6 +1106,7 @@ function buildTOC(content) {
   };
   links.forEach(a => {
     a.addEventListener('click', (e) => {
+      if (e.defaultPrevented || e.button > 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       navigateLink(a, { updateHash: true });
     });
@@ -1145,10 +1149,17 @@ function buildTOC(content) {
   const updateCurrentSection = () => {
     if (content.closest?.('.briefing-layout')?.hidden) return;
     const headerHeight = document.querySelector('.app-header')?.getBoundingClientRect().height || 86;
-    const current = currentTocHeading(targets, headerHeight + 25);
+    const scrollPadding = Number.parseFloat(window.getComputedStyle?.(document.documentElement)?.scrollPaddingTop) || 0;
+    const current = currentTocHeading(targets, target => {
+      const scrollMargin = Number.parseFloat(window.getComputedStyle?.(target)?.scrollMarginTop) || 0;
+      // Native anchor scrolling combines root padding and target margin. Match
+      // that landing edge (including fractional-pixel rounding) on compact TOCs.
+      return Math.max(headerHeight + 25, scrollPadding + scrollMargin + 1);
+    });
     if (current) setActiveTocLink(byId.get(current.id));
   };
   refreshTocCurrent = updateCurrentSection;
+  toc.querySelectorAll('.toc-judgments').forEach(group => group.addEventListener('toggle', updateCurrentSection));
   if (targets.length) tocScrollCleanup = bindTocScroll(window, updateCurrentSection);
   if ('IntersectionObserver' in window && targets.length) {
     tocObserver = new IntersectionObserver(updateCurrentSection, { rootMargin: '-90px 0px -65% 0px', threshold: 0 });
@@ -1158,14 +1169,18 @@ function buildTOC(content) {
 
 function setActiveTocLink(a, toc = document.getElementById('briefToc')) {
   if (!a) return;
+  // Keep the reading location visible when its individual judgment/topic links
+  // are collapsed. Expanding the group restores the exact child highlight.
+  const group = a.closest?.('.toc-judgments');
+  const active = group && !group.open ? group.parentElement?.querySelector(':scope > a[data-target]') || a : a;
   toc?.querySelectorAll('a').forEach(x => {
     x.classList.remove('active');
     x.removeAttribute('aria-current');
   });
-  a.classList.add('active');
-  a.setAttribute('aria-current', 'location');
+  active.classList.add('active');
+  active.setAttribute('aria-current', 'location');
   const label = toc?.querySelector?.('.toc-current-label');
-  if (label) label.textContent = a.textContent;
+  if (label) label.textContent = active.textContent;
 }
 
 // Reading-progress fill — fraction of the briefing sheet scrolled past.
@@ -1367,7 +1382,7 @@ function setMeta(text) {
   const host = document.getElementById('briefInputManifest');
   const brief = getState().currentBrief;
   if (el) el.textContent = brief?.content
-    ? `${brief.filename === latestFilename ? 'Latest edition' : latestFilename ? 'Archived edition' : 'Saved edition'} · ${formatEditionIdentity(brief.filename)}`
+    ? `${brief.filename === latestFilename ? 'Latest saved assessment' : latestFilename ? 'Archived assessment' : 'Saved assessment'} · ${formatEditionIdentity(brief.filename)}`
     : text;
   const generationMeta = document.getElementById('briefGenerationMeta');
   if (generationMeta) { const previous = [brief?.model && formatModelLabel(brief.model), Number.isFinite(brief?.costUsd) && formatCost(brief.costUsd)].filter(Boolean).join(' · '); generationMeta.textContent = previous ? `Previous generation · ${previous}` : ''; }

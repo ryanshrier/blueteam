@@ -91,15 +91,15 @@ export function render(main) {
       </section>
       <section class="settings-card" aria-labelledby="set-ai">
         <div class="settings-section-heading"><h2 id="set-ai">AI Briefing</h2><span class="settings-scope">Shared server</span></div>
-        <p class="settings-note">Choose Anthropic or OpenAI (Codex) for generation. Generation and key verification contact that provider and may incur charges. Wall and Wire work without a key.</p>
+        <p class="settings-note">Choose a provider for generation. Generation and key verification may incur charges. Custom modules manage their own connection; Check status runs their health hook. Wall and Wire work without a key.</p>
         <div class="settings-status" id="aiStatus" data-state="loading" role="status" aria-live="polite">Checking…</div>
         <div class="profile-grid ai-provider-fields">
-          <div><label class="settings-label" for="aiProvider">Provider</label><select id="aiProvider" class="settings-input" disabled><option value="anthropic">Anthropic</option><option value="openai">OpenAI (Codex)</option></select></div>
+          <div><label class="settings-label" for="aiProvider">Provider</label><select id="aiProvider" class="settings-input" disabled><option value="anthropic">Anthropic</option><option value="openai">OpenAI (Codex)</option><option value="custom">Custom (local module) · Experimental</option></select></div>
           <div id="openaiModelRow" hidden><label class="settings-label" for="openaiModel">OpenAI model</label><input id="openaiModel" class="settings-input" maxlength="128" spellcheck="false" placeholder="gpt-5.3-codex" disabled><p class="settings-help">A Responses API model available to your OpenAI account. Uses API billing.</p></div>
         </div>
         <label class="settings-label" id="apiKeyLabel" for="apiKey">Anthropic API key</label>
         <div class="key-row">
-          <div class="key-input-wrap">
+          <div class="key-input-wrap" id="keyInputWrap">
             <input id="apiKey" class="settings-input" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" aria-describedby="keyHelp" disabled>
             <button class="key-reveal" id="revealKey" type="button" aria-label="Show key" aria-pressed="false" title="Show / hide key" tabindex="0">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -246,7 +246,7 @@ export function render(main) {
   providerEl.value = drafts.get('aiProvider') || 'anthropic';
   modelEl.value = drafts.get('openaiModel') || 'gpt-5.3-codex';
   const provider = () => providerEl.value;
-  const keyDraft = () => provider() === 'openai' ? 'openaiKey' : 'key';
+  const keyDraft = () => provider() === 'custom' ? null : provider() === 'openai' ? 'openaiKey' : 'key';
   const providerStatus = () => activeAi?.providers?.[provider()]
     || (provider() === (activeAi?.provider || 'anthropic') ? activeAi : null);
   const plausibleKey = value => provider() === 'openai' ? /^sk-(?!ant-)[A-Za-z0-9_-]+$/.test(value) : /^sk-ant-[A-Za-z0-9_-]+$/.test(value);
@@ -254,7 +254,8 @@ export function render(main) {
   input.value = drafts.get(keyDraft()) || '';
 
   function syncKeyControls() {
-    const envManaged = providerStatus()?.keySource === 'env';
+    const custom = provider() === 'custom';
+    const envManaged = custom || providerStatus()?.keySource === 'env';
     const changed = provider() !== (activeAi?.provider || 'anthropic')
       || (provider() === 'openai' && modelEl.value.trim() !== (activeAi?.providers?.openai?.model || 'gpt-5.3-codex'));
     providerEl.disabled = modelEl.disabled = !canEdit || keyBusy;
@@ -263,8 +264,8 @@ export function render(main) {
       || (!envManaged && Boolean(input.value.trim()) && !plausibleKey(input.value.trim()))
       || !(changed || (!envManaged && input.value.trim()));
     verifyBtn.disabled = !canEdit || !activeAi || keyBusy || !modelValid()
-      || (!input.value.trim() && !providerStatus()?.enabled);
-    if (!keyBusy) verifyBtn.textContent = input.value.trim() && !envManaged ? 'Verify entered key' : 'Verify saved key';
+      || (!custom && !input.value.trim() && !providerStatus()?.enabled);
+    if (!keyBusy) verifyBtn.textContent = custom ? 'Check status' : input.value.trim() && !envManaged ? 'Verify entered key' : 'Verify saved key';
     clearBtn.disabled = !canEdit || envManaged || !providerStatus()?.enabled || keyBusy;
     confirmRemove.disabled = clearBtn.disabled;
     discardKey.hidden = !input.value && !changed;
@@ -287,20 +288,26 @@ export function render(main) {
 
   function paintProvider() {
     const openai = provider() === 'openai';
+    const custom = provider() === 'custom';
     const selected = providerStatus();
     main.querySelector('#openaiModelRow').hidden = !openai;
+    main.querySelector('#keyInputWrap').hidden = main.querySelector('#apiKeyLabel').hidden = clearBtn.hidden = custom;
+    verifyBtn.title = custom ? 'Check the local module status without generating a briefing' : 'Make one tiny test call to confirm the key works';
     main.querySelector('#apiKeyLabel').textContent = openai ? 'OpenAI API key' : 'Anthropic API key';
     input.placeholder = openai ? 'sk-…' : 'sk-ant-…';
-    main.querySelector('#keyHelp').innerHTML = openai
+    main.querySelector('#keyHelp').innerHTML = custom
+      ? 'Experimental provider support. Configure the module and credentials in the server environment. Set <code>AI_PROVIDER_MODULE=./local/generic-provider.js</code> and restart. Keys are never entered or saved here.'
+      : openai
       ? 'Use an <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI API key</a>. A ChatGPT or Codex subscription login is separate. Both providers’ saved keys are retained when switching.'
       : 'Use an <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic API key</a>. Both providers’ saved keys are retained when switching.';
     main.querySelector('#keyRemoveMessage').textContent = `Remove the saved ${openai ? 'OpenAI' : 'Anthropic'} key? Generation using this provider will be unavailable. Saved Briefings remain readable.`;
     statusEl.dataset.state = activeAi?.enabled ? 'on' : 'off';
-    const activeLabel = activeAi?.provider === 'openai' ? 'OpenAI' : 'Anthropic';
+    const activeLabel = activeAi?.provider === 'custom' ? 'Custom (local module) · Experimental' : activeAi?.provider === 'openai' ? 'OpenAI' : 'Anthropic';
     statusEl.textContent = !activeAi ? 'Status unavailable.'
       : `Briefing ${activeAi.enabled ? 'enabled' : 'disabled'} · ${activeLabel}${activeAi.model ? ` · ${activeAi.model}` : ''}. `
-        + (selected?.enabled ? `Selected provider key ${selected.keyMasked || ''} ${selected.keySource === 'env' ? 'from .env' : 'saved'}.` : 'No key for the selected provider.');
-    setFeedback(selected?.keySource === 'env' ? 'This provider’s environment key takes precedence. Edit .env and restart to change it.' : '', { sticky: true });
+        + (custom ? selected?.enabled ? 'Local module loaded.' : 'Local module is not ready. Check status for details.'
+          : selected?.enabled ? `Selected provider key ${selected.keyMasked || ''} ${selected.keySource === 'env' ? 'from .env' : 'saved'}.` : 'No key for the selected provider.');
+    setFeedback(!custom && selected?.keySource === 'env' ? 'This provider’s environment key takes precedence. Edit .env and restart to change it.' : '', { sticky: true });
     disarmClear();
     syncKeyControls();
   }
@@ -340,7 +347,7 @@ export function render(main) {
     const patch = remove ? { [field]: '' } : {
       aiProvider: selected,
       ...(selected === 'openai' ? { openaiModel: model } : {}),
-      ...(value && providerStatus()?.keySource !== 'env' ? { [field]: value } : {}),
+      ...(selected !== 'custom' && value && providerStatus()?.keySource !== 'env' ? { [field]: value } : {}),
     };
     keyBusy = true;
     syncKeyControls();
@@ -394,21 +401,24 @@ export function render(main) {
   confirmRemove.addEventListener('click', () => { if (!clearBtn.disabled) { disarmClear(); void save(true); } });
   discardKey.addEventListener('click', () => {
     for (const name of ['key', 'openaiKey', 'aiProvider', 'openaiModel']) drafts.set(name, null);
-    syncReveal(false); paintStatus(activeAi); input.focus();
+    syncReveal(false); paintStatus(activeAi); (provider() === 'custom' ? providerEl : input).focus();
   });
 
   verifyBtn.addEventListener('click', async () => {
     if (!canEdit || keyBusy || verifyBtn.disabled) return;
-    const candidate = providerStatus()?.keySource === 'env' ? '' : input.value.trim();
+    const custom = provider() === 'custom';
+    const candidate = custom || providerStatus()?.keySource === 'env' ? '' : input.value.trim();
     if (candidate && !plausibleKey(candidate)) { validateKeyInput(); return; }
     keyBusy = true;
     syncKeyControls();
-    verifyBtn.textContent = 'Verifying…';
-    setFeedback('Verifying key and model…', { sticky: true });
+    verifyBtn.textContent = custom ? 'Checking…' : 'Verifying…';
+    setFeedback(custom ? 'Checking module status…' : 'Verifying key and model…', { sticky: true });
     try {
       const r = await verifyKey(candidate, provider(), provider() === 'openai' ? modelEl.value.trim() : undefined);
       if (!ownsView()) return;
-      if (r.valid === true) {
+      if (custom) {
+        setFeedback(`${r.error || r.note || (r.valid === true ? 'Module is ready.' : 'Module health could not be verified.')}${r.version ? ` · ${r.version}` : ''}`, { sticky: true });
+      } else if (r.valid === true) {
         verifiedCandidate = candidate || null;
         setFeedback(`${candidate ? 'Entered key verified; save to activate it.' : 'Saved key verified.'}${r.note ? ` — ${r.note}` : ''}`, { sticky: Boolean(candidate) });
       } else setFeedback(r.error || 'Could not verify the key.', { sticky: true });
@@ -848,6 +858,8 @@ function mountSectionIndex(main) {
     if (stopped) return;
     const header = document.getElementById('appHeader')?.getBoundingClientRect().height || 0;
     const compact = window.matchMedia('(max-width: 1000px)').matches;
+    // Fit Changes below the heading before the section index becomes sticky.
+    if (!compact) nav.style.setProperty('--settings-index-top', `${Math.max(header + 20, Math.ceil(nav.getBoundingClientRect().top))}px`);
     const top = header + (compact ? nav.getBoundingClientRect().height : 0) + 28;
     const scrollPadding = parseFloat(window.getComputedStyle?.(document.documentElement).scrollPaddingTop) || 0;
     let current = 0;

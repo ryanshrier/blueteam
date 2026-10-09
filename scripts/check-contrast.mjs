@@ -181,12 +181,11 @@ for (const n of [1, 2, 3]) {
 // regression.
 const landingRootBody = landingCss.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
 const landingVars = parseVars(landingRootBody);
-const LANDING_BACKGROUNDS = ['bg', 'bg-elev'];
+const LANDING_BACKGROUNDS = ['bg', 'bg-elev', 'bg-band'];
 const LANDING_ROLES = [
   { token: 'ink', min: 4.5 },
   { token: 'ink-2', min: 4.5 },
   { token: 'ink-3', min: 4.5 },
-  { token: 'faint', min: 4.5 },
   { token: 'link', min: 4.5 },
 ];
 

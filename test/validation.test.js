@@ -2,14 +2,14 @@ import { describe, test, expect } from '@jest/globals';
 import { marked } from 'marked';
 import {
   validateBrief, countHorizons, hasHardFail, isHardFailWarning,
-  hasTrustCriticalFailure, isTrustCriticalWarning,
+  hasTrustCriticalFailure, isTrustCriticalWarning, isMaterialReviewIssue,
 } from '../lib/validation.js';
 import {
   buildGroundingManifest, CISA_KEV_CATALOG_URL, delinkUnallowlistedMarkdownUrls,
   findUnallowlistedMarkdownUrls, containsRawHtmlAnchor, stripRawHtmlAnchors,
 } from '../lib/grounding.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
-import { WATCHLIST_MIN_ITEMS } from '../lib/brief-schema.js';
+import { BLUF_MAX_WORDS, WATCHLIST_MIN_ITEMS, parseBluf } from '../lib/brief-schema.js';
 
 function makeBrief({ bluf = true, judgments = true, convergence = true, watchlist = true, horizons = 3, pad = true } = {}) {
   let text = '# THREAT LANDSCAPE BRIEFING\n';
@@ -654,9 +654,34 @@ describe('validateBrief — voice', () => {
     expect(validateBrief(brief).warnings.join(' ')).toMatch(/Banned filler/);
   });
 
-  test('a multi-sentence BLUF is flagged', () => {
-    const brief = makeBrief().replace('## BLUF\n\nOne sharp judgment.', '## BLUF\n\nFirst judgment here. And a second sentence.');
-    expect(validateBrief(brief).warnings.join(' ')).toMatch(/BLUF is \d+ sentences/);
+  test.each([
+    'Confirm local deployment before prioritizing the gateway fix.',
+    'Exposed gateways need patching and a compromise review. Confirm local deployment before treating the warning as applicable.',
+    'Exposed gateways need patching and a compromise review. Confirm local deployment before treating the warning as applicable. The source does not establish when exploitation began.',
+  ])('preserves a complete, concise opening without a sentence-count warning', opening => {
+    const brief = makeBrief().replace('One sharp judgment.', opening);
+    expect(validateBrief(brief).warnings.filter(message => message.startsWith('BLUF is'))).toEqual([]);
+    expect(parseBluf(brief, Infinity)).toBe(opening);
+  });
+
+  test('long openings receive advisory feedback without becoming publication failures', () => {
+    const opening = 'First judgment needs attention. Confirm whether the product is deployed. Preserve the affected scope. Keep the response conditional.';
+    const result = validateBrief(makeBrief().replace('One sharp judgment.', opening));
+    const issues = result.issues.filter(issue => issue.message.startsWith('BLUF is'));
+    expect(issues).toHaveLength(1);
+    expect(issues[0].message).toContain('4 sentences');
+    expect(hasHardFail(issues)).toBe(false);
+    expect(hasTrustCriticalFailure(issues)).toBe(false);
+    expect(issues.some(isMaterialReviewIssue)).toBe(false);
+  });
+
+  test('the shared word target has soft tolerance without imposing a hard length gate', () => {
+    const assess = count => validateBrief(makeBrief().replace('One sharp judgment.', `${'Evidence '.repeat(count - 1)}matters.`));
+    expect(assess(BLUF_MAX_WORDS + 10).warnings.filter(message => message.startsWith('BLUF is'))).toEqual([]);
+    const issues = assess(BLUF_MAX_WORDS + 11).issues.filter(issue => issue.message.startsWith('BLUF is'));
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ code: 'REVIEW', severity: 'review' });
+    expect(issues.some(isMaterialReviewIssue)).toBe(false);
   });
 });
 

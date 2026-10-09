@@ -89,6 +89,83 @@ test('canonical executive actions reuse the judgment record and qualitative conf
   expect(judgmentCertainty('Likely (55-80%) — legacy forecast')).toMatchObject({ label: 'Likelihood' });
 });
 
+describe('concise executive decisions with complete canonical responses', () => {
+  const summary = 'Infrastructure / Incident response — confirm deployment; pair the gateway fix with compromise review — recommended target September 8, 2026; Detection engineering — verify the browser rollout and assign unresolved devices — recommended target September 9, 2026.';
+  const draft = decisions => `## EXECUTIVE SUMMARY
+- **Required decisions:** ${decisions}
+## KEY JUDGMENTS
+### Signal 1 — [Horizon 1] Gateway response
+**Recommended actions:**
+- **Act now:** Infrastructure — verify deployment and apply the fix if affected; **Initiation:** begin inventory this shift; **Condition:** only affected deployments need the update; **Completion criterion:** record the installed fixed build — recommended target September 8, 2026.
+- Incident response — review exposed deployments for compromise; **Dependencies:** retrieve vendor guidance and preserve logs; **Recovery:** if compromised, follow the vendor's recovery procedure — recommended target September 8, 2026.
+**Decision window:** Current shift
+### Signal 2 — [Horizon 1] Browser rollout
+**Recommended actions:**
+- Detection engineering — verify installed browser versions; **Completion criterion:** identify unresolved devices and accountable owners — recommended target September 9, 2026.
+**Decision window:** 72 hours
+## WATCHLIST
+- Vendor revises its recovery guidance.
+`;
+  const summaryIssues = text => editorialIssues(text, []).filter(issue => issue.code.startsWith('ACTION_SUMMARY'));
+
+  test('preserves an authored paired-response summary without copying the full task list over it', () => {
+    const text = draft(summary);
+    expect(canonicalizeExecutiveActions(text)).toBe(text);
+    expect(summaryIssues(text)).toEqual([]);
+    const actions = canonicalActions(text);
+    expect(actions).toHaveLength(3);
+    expect(actions[0].text).toContain('Initiation: begin inventory this shift');
+    expect(actions[1].text).toContain("Recovery: if compromised, follow the vendor's recovery procedure");
+    expect(section(text, SECTIONS.execSummary)).not.toContain('Completion criterion:');
+  });
+
+  test.each(['Infrastructure / Incident response', 'Infrastructure and Incident response', 'Infrastructure & Incident response'])('accepts explicitly grouped canonical owners: %s', owners => {
+    const text = draft(summary.replace('Infrastructure / Incident response', owners));
+    expect(canonicalizeExecutiveActions(text)).toBe(text);
+    expect(summaryIssues(text)).toEqual([]);
+  });
+
+  test('does not invent an owner or silently overwrite its conflicting summary', () => {
+    const text = draft(summary.replace('Infrastructure / Incident response', 'Human resources'));
+    expect(canonicalizeExecutiveActions(text)).toBe(text);
+    expect(summaryIssues(text)).toEqual([expect.objectContaining({ code: 'ACTION_SUMMARY_OWNER_CONFLICT', severity: 'trust' })]);
+  });
+
+  test('the publication path surfaces invented summary ownership as a trust failure', () => {
+    const text = draft(summary.replace('Infrastructure / Incident response', 'Human resources'));
+    const checked = validateBrief(canonicalizeExecutiveActions(text), '2026-09-06', { publication: true, editorialStandard: 2 });
+    const summaryFindings = checked.issues.filter(issue => issue.code === 'ACTION_SUMMARY_OWNER_CONFLICT');
+    expect(summaryFindings).toHaveLength(1);
+    expect(hasTrustCriticalFailure(summaryFindings)).toBe(true);
+  });
+
+  test('rejects a summary date absent from the complete response', () => {
+    const text = draft(summary.replace('September 8, 2026', 'September 10, 2026'));
+    expect(canonicalizeExecutiveActions(text)).toBe(text);
+    expect(summaryIssues(text).map(issue => issue.code)).toContain('ACTION_SUMMARY_CONFLICT');
+  });
+
+  test('a known owner cannot borrow a different owner\'s otherwise valid target', () => {
+    const text = draft(summary.replace('September 8, 2026', 'September 9, 2026'));
+    expect(summaryIssues(text)).toEqual([expect.objectContaining({ code: 'ACTION_SUMMARY_CONFLICT', severity: 'trust' })]);
+  });
+
+  test('recognizes a complete function name containing and before trying grouped-owner syntax', () => {
+    const text = draft(summary).replaceAll('Detection engineering', 'Identity and access management');
+    expect(summaryIssues(text)).toEqual([]);
+  });
+
+  test('one well-formed decision cannot conceal an incomplete trailing decision', () => {
+    const text = draft('Infrastructure — verify applicability — recommended target September 8, 2026; Follow up with somebody later.');
+    const repaired = canonicalizeExecutiveActions(text);
+    expect(repaired).not.toBe(text);
+    expect(section(repaired, SECTIONS.execSummary)).toContain('Recovery:');
+    expect(section(repaired, SECTIONS.execSummary)).not.toContain('Follow up with somebody later.');
+    expect(canonicalActions(repaired)).toEqual(canonicalActions(text));
+    expect(summaryIssues(repaired)).toEqual([]);
+  });
+});
+
 test('new forecasts require an explicit proposition, resolution, probability and basis', () => {
   const valid = '**Confidence:** Moderate — one primary disclosure; deployment unknown.\n**Forecast:** Event: Vendor issues a fixed build | Resolve by: 2026-10-01 | Likelihood: 60% | Confirm when: Vendor advisory names the build | Basis: Published vendor remediation commitment.';
   expect(editorialIssues('', [valid])).toEqual([]);

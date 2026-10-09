@@ -3,7 +3,7 @@
 import { parseBrief, judgmentCertainty, stripMd, sourceCitations, section } from '/vendor/brief-schema.js';
 import { escapeHtml } from '../core/sanitize.js';
 import { renderAssessmentMeta, assessmentSources } from '../core/assessment-meta.js';
-import { formatBriefPublication } from '../core/brief-date.js';
+import { formatBriefPublication, formatBriefPublishedAt, formatBriefLabel } from '../core/brief-date.js';
 import { signalUrl, isFeedStale } from '../wire/wire-format.js';
 
 export function overviewModel(brief = {}) {
@@ -15,6 +15,7 @@ export function overviewModel(brief = {}) {
   // An entry must also match this parsed heading; never reuse a stale summary.
   const presentation = brief.review?.presentation?.status === 'reviewed' ? brief.review.presentation : null;
   return { ...parsed, preface, publication: formatBriefPublication(brief),
+    editionLead: presentation?.bluf || parsed.bluf,
     judgments: parsed.stories.map((story, index) => {
       const edited = presentation?.judgments?.find(item => item.index === index && item.originalTitle === story.title);
       return { ...story, anchor: `judgment-${index + 1}`,
@@ -26,74 +27,102 @@ export function overviewModel(brief = {}) {
         certainty: judgmentCertainty(story.confidence),
       };
     }),
+    developing: parsed.developing.map((item, index) => {
+      const edited = presentation?.developing?.find(entry => entry.index === index && entry.originalTitle === item.name);
+      return { ...item, displayTitle: edited?.title || item.name,
+        summary: edited?.summary || item.trajectoryDetail,
+        condition: edited?.condition || item.watch };
+    }),
     blufSources: sourceCitations(section(content, 'BLUF')),
   };
 }
 
-function metadata(story, compact = false, savedMetadata = null) {
+function confidenceLevels(story) {
+  return new Set((story.certainty?.text?.match(/\b(?:high|moderate|medium|low)\b/gi) || [])
+    .map(value => value.toLowerCase().replace('medium', 'moderate')));
+}
+
+function metadata(story, savedMetadata = null) {
   const sources = assessmentSources(savedMetadata?.sources || (story.citations || []).map(source => ({ label: source.label, href: source.url })));
   const certainty = story.certainty;
-  const levels = new Set((certainty?.text?.match(/\b(?:high|moderate|medium|low)\b/gi) || []).map(value => value.toLowerCase()));
+  const levels = confidenceLevels(story);
   const shortValue = levels.size <= 1 && certainty?.value && certainty.value.length <= 48 ? certainty.value : '';
   const label = shortValue ? `${certainty.label} · ${shortValue}` : certainty?.text ? 'Confidence and qualifications' : 'Confidence not assessed';
-  return `<details class="brief-overview-evidence"><summary>${escapeHtml(label)} <span>${sources.length ? `${sources.length} ${sources.length === 1 ? 'source' : 'sources'}` : 'Source details'}</span></summary>${renderAssessmentMeta({
+  const authored = story.reviewedSummary && story.claim ? `<div class="brief-overview-authored"><h3>Full assessment and qualifications</h3><p>${escapeHtml(story.claim)}</p></div>` : '';
+  return `<details class="brief-overview-evidence"><summary>${escapeHtml(label)} <span>${sources.length ? `${sources.length} ${sources.length === 1 ? 'source' : 'sources'}` : 'Source details'}</span></summary>${authored}${renderAssessmentMeta({
     ...savedMetadata,
     sources: savedMetadata?.sources || (story.citations || []).map(source => ({ label: source.label, href: source.url })),
     time: { label: 'Assessment updated', value: 'Not recorded' },
     severity: { label: 'Severity', value: 'Not assessed' },
     certainty: { label: story.certainty?.label === 'Likelihood' ? 'Likelihood' : 'Assessment confidence',
-      value: story.certainty?.text || 'Not assessed' }, compact,
+      value: story.certainty?.text || 'Not assessed' }, omitUnavailable: true,
   })}</details>`;
 }
 
 const words = value => String(value || '').trim().split(/\s+/).filter(Boolean).length;
 
 /** Whole authored passages remain available; an unreviewed excerpt is never a summary. */
-export function overviewPassage(story, lead = false) {
-  const authored = lead ? story.claim : story.summary;
-  if (story.reviewedSummary) return `<p class="brief-overview-claim">${escapeHtml(story.reviewedSummary)}</p>${story.reviewedCondition ? `<p class="brief-overview-condition">${escapeHtml(story.reviewedCondition)}</p>` : ''}<details class="brief-overview-authored"><summary>Full assessment and qualifications</summary><p>${escapeHtml(story.claim || authored)}</p></details>`;
-  if (words(authored) <= (lead ? 55 : 35)) return `<p class="brief-overview-claim">${escapeHtml(authored)}</p>`;
-  return `<p class="brief-overview-claim brief-overview-claim--long">${escapeHtml(authored)}</p>`;
+export function overviewPassage(story) {
+  const authored = story.claim;
+  const passage = story.reviewedSummary || authored;
+  const condition = story.reviewedCondition || '';
+  // Mixed confidence applies to different parts of a judgment. Keep its full
+  // authored scope visible rather than inventing a single overall rating.
+  const qualification = confidenceLevels(story).size > 1 ? story.certainty.text : '';
+  return `<p class="brief-overview-claim${!story.reviewedSummary && words(authored) > 55 ? ' brief-overview-claim--long' : ''}">${escapeHtml(passage)}</p>`
+    + (condition ? `<p class="brief-overview-condition">${escapeHtml(condition)}</p>` : '')
+    + (qualification && qualification !== condition ? `<p class="brief-overview-qualification"><span>Confidence by claim</span> ${escapeHtml(qualification)}</p>` : '');
+}
+
+function assessmentDate(brief, now) {
+  const timestamp = brief.generatedAt || brief.timestamp;
+  const published = formatBriefPublishedAt(timestamp);
+  const edition = formatBriefLabel(brief.filename || brief.date);
+  const label = published || edition;
+  const day = published ? new Date(timestamp).toISOString().slice(0, 10)
+    : edition ? String(brief.filename || brief.date).match(/\d{4}-\d{2}-\d{2}/)?.[0] : '';
+  const current = new Date(now);
+  const days = day && Number.isFinite(current.getTime())
+    ? Math.round((Date.parse(current.toISOString().slice(0, 10)) - Date.parse(day)) / 86_400_000) : NaN;
+  const age = days >= 0 ? `<span class="brief-overview-age">${days === 0 ? 'Dated today (UTC)' : `${days} ${days === 1 ? 'day' : 'days'} old`}</span>` : '';
+  return `<p class="brief-overview-assessment-date">${label ? `Assessment from ${escapeHtml(label)}` : 'Assessment date unavailable'}${age}</p>`;
+}
+
+function reportHref(filename, anchor) {
+  const edition = filename ? `/briefing/${encodeURIComponent(filename)}` : '/briefing';
+  return anchor ? `${edition}#${encodeURIComponent(anchor)}` : `${edition}?view=report`;
 }
 
 function reportLink(filename, anchor, text, className = '') {
-  const edition = filename ? `/briefing/${encodeURIComponent(filename)}` : '/briefing';
-  const href = anchor ? `${edition}#${encodeURIComponent(anchor)}` : `${edition}?view=report`;
-  return `<a class="brief-overview-open ${className}" data-overview-open href="${escapeHtml(href)}">${escapeHtml(text)} <span aria-hidden="true">→</span></a>`;
+  return `<a class="brief-overview-open ${className}" data-overview-open href="${escapeHtml(reportHref(filename, anchor))}">${escapeHtml(text)} <span aria-hidden="true">→</span></a>`;
 }
 
-function judgment(story, lead = false, savedMetadata = null, filename = '') {
-  return `<article class="brief-overview-story${lead ? ' brief-overview-lead' : ''}">
-    ${lead ? '<p class="brief-overview-label">Lead assessment</p>' : ''}
-    <h2>${escapeHtml(story.displayTitle || story.title)}</h2>
-    ${overviewPassage(story, lead)}
-    ${reportLink(filename, story.anchor, lead ? 'Read assessment and evidence' : 'Read assessment')}
-    ${lead && story.action ? `<div class="brief-overview-action"><span>First response · complete actions in the assessment</span><p>${escapeHtml(story.action)}</p></div>` : ''}
-    ${story.decision ? `<p class="brief-overview-window">Decision window <strong>${escapeHtml(story.decision)}</strong></p>` : ''}
-    ${metadata(story, !lead, savedMetadata)}
+function judgment(story, featured = false, savedMetadata = null, filename = '') {
+  return `<article class="brief-overview-story${featured ? ' brief-overview-feature' : ''}" aria-labelledby="overview-${escapeHtml(story.anchor)}">
+    ${featured ? '<p class="brief-overview-label">Featured story</p>' : ''}
+    <h2 id="overview-${escapeHtml(story.anchor)}" tabindex="-1"><a data-overview-open href="${escapeHtml(reportHref(filename, story.anchor))}">${escapeHtml(story.displayTitle || story.title)}</a></h2>
+    ${overviewPassage(story)}
+    <div class="brief-overview-footer">${metadata(story, savedMetadata)}${reportLink(filename, story.anchor, 'Read assessment')}</div>
   </article>`;
 }
 
-export function renderOverview(brief = {}, { judgmentMetadata = [] } = {}) {
+export function renderOverview(brief = {}, { judgmentMetadata = [], developingAnchor = '', now = Date.now() } = {}) {
   const model = overviewModel(brief);
-  const [lead, ...support] = model.judgments;
+  const [featured, ...stories] = model.judgments;
   const warnings = Array.isArray(brief.warnings) ? brief.warnings : [];
-  return `<div class="brief-overview-edition"><p>Saved assessment <span class="sr-only">· ${escapeHtml(model.publication)}</span></p></div>
-    ${brief.review?.status === 'editorially-corrected' ? `<p class="brief-overview-review">Corrected edition · ${brief.review.notes?.length || 0} corrections · ${reportLink(brief.filename, 'editorial-review', 'Review record')}</p>` : ''}
+  return `<div class="brief-overview-edition">${assessmentDate(brief, now)}
+    ${brief.review?.status === 'editorially-corrected' ? `<p class="brief-overview-review">Corrected edition · ${brief.review.notes?.length || 0} corrections · ${reportLink(brief.filename, 'editorial-review', 'Review record')}</p>` : ''}</div>
     ${model.preface ? `<p class="brief-overview-preface">${escapeHtml(model.preface)}</p>` : ''}
     ${warnings.length ? `<details class="brief-overview-warnings"><summary>${warnings.length} edition review ${warnings.length === 1 ? 'note' : 'notes'}</summary><ul>${warnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul></details>` : ''}
-    <div class="brief-overview-grid">
-      <div class="brief-overview-primary">${lead ? judgment(lead, true, judgmentMetadata[0], brief.filename) : `<article class="brief-overview-story brief-overview-lead"><p class="brief-overview-label">Edition summary</p><h2>${escapeHtml(model.bluf || 'No lead assessment in this edition')}</h2>${metadata({ citations: model.blufSources })}${reportLink(brief.filename, '', 'Read full report')}</article>`}
-      ${lead && model.bluf ? `<details class="brief-overview-summary" open><summary>Edition summary</summary><p>${escapeHtml(model.bluf)}</p></details>` : ''}</div>
-      <section class="brief-overview-support" aria-label="Supporting assessments"><h2 class="brief-overview-label">Supporting briefs</h2>
-        ${support.length ? support.map((story, index) => judgment(story, false, judgmentMetadata[index + 1], brief.filename)).join('') : '<p class="brief-overview-empty">No additional assessments in this edition.</p>'}
-      </section>
+    <section class="brief-overview-edition-note" aria-label="Edition summary"><h2 class="brief-overview-label">${featured ? 'This edition' : 'Edition summary'}</h2><p>${escapeHtml(model.editionLead || 'No edition summary recorded.')}</p>
+      ${!featured ? metadata({ citations: model.blufSources }) : ''}${reportLink(brief.filename, '', 'Read full report')}</section>
+    ${featured ? `<div class="brief-overview-front">${judgment(featured, true, judgmentMetadata[0], brief.filename)}</div>` : ''}
+    ${stories.length ? `<section class="brief-overview-more" aria-label="More stories from this edition"><h2 class="brief-overview-label">More in this edition</h2><div class="brief-overview-grid">${stories.map((story, index) => judgment(story, false, judgmentMetadata[index + 1], brief.filename)).join('')}</div></section>` : ''}
+    ${model.developing.length ? `<section class="brief-overview-watch" aria-label="Also watching from this edition"><h2>Also watching <span>From the saved edition</span></h2><ul>${model.developing.map(item => `<li><h3>${escapeHtml(item.displayTitle)}</h3>${item.summary ? `<p class="brief-overview-watch-summary">${escapeHtml(item.summary)}</p>` : ''}${item.condition ? `<p class="brief-overview-watch-condition"><span>Watch for</span> ${escapeHtml(item.condition)}</p>` : ''}</li>`).join('')}</ul>${reportLink(brief.filename, developingAnchor, 'Read watch criteria')}</section>` : ''}
       <aside class="brief-overview-recent" aria-label="Recent developments"><h2 class="brief-overview-label">Recent developments</h2><p class="brief-overview-recent-note">Current reporting · separate from the saved assessment</p>
         <div data-overview-recent><p role="status">Loading current reporting…</p></div>
         <a class="brief-overview-wire" href="/wire?sort=newest">Open Wire <span aria-hidden="true">→</span></a>
-      </aside>
-    </div>
-    ${model.developing.length ? `<section class="brief-overview-watch" aria-label="Watch criteria from this edition"><h2>Watch criteria <span>From the saved edition</span></h2><dl>${model.developing.map(item => `<div><dt>${escapeHtml(item.name)}</dt><dd>${escapeHtml(item.watch || 'No watch criterion recorded.')}</dd></div>`).join('')}</dl></section>` : ''}`;
+      </aside>`;
 }
 
 export function recentDevelopmentsModel(payload, now = Date.now()) {
