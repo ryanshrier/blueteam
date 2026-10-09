@@ -5,11 +5,18 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_OPENAI_MODEL } from '../lib/ai-provider.js';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const { values } = parseArgs({ options: {
   live: { type: 'boolean', default: false }, 'budget-usd': { type: 'string' },
   output: { type: 'string' }, 'key-file': { type: 'string' },
+  provider: { type: 'string', default: 'anthropic' }, model: { type: 'string' },
 } });
+if (!['anthropic', 'openai'].includes(values.provider)) throw new Error('--provider must be anthropic or openai.');
+if (values.model !== undefined && (values.provider !== 'openai' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(values.model))) {
+  throw new Error('--model accepts an OpenAI model ID with --provider openai.');
+}
+const model = values.model || (values.provider === 'openai' ? DEFAULT_OPENAI_MODEL : 'claude-sonnet-5');
 const budget = Number(values['budget-usd'] || 0);
 if (values.live && (!values.output || !Number.isFinite(budget) || budget <= 0 || budget > 5)) {
   throw new Error('Live mode requires --budget-usd (greater than 0, at most 5) and --output.');
@@ -20,8 +27,10 @@ const env = { ...process.env,
   BLUETEAM_EVAL_BUDGET_USD: String(budget),
   BLUETEAM_EVAL_OUTPUT: values.output ? resolve(values.output) : '',
   BLUETEAM_EVAL_KEY_FILE: values.live && values['key-file'] ? resolve(values['key-file']) : '',
+  BLUETEAM_EVAL_PROVIDER: values.provider,
+  BLUETEAM_EVAL_MODEL: model,
 };
-console.log(values.live ? `Live synthetic evaluation; conservative standard-rate reservation limit $${budget.toFixed(2)}. No operator archive/database writes.` : 'Offline scripted evaluation; no provider calls.');
+console.log(values.live ? `Live synthetic evaluation (${values.provider}, ${model}); conservative standard-rate reservation limit $${budget.toFixed(2)}. No operator archive/database writes.` : `Offline scripted evaluation (${values.provider}, ${model}); no provider calls.`);
 const child = spawn(process.execPath, ['--experimental-vm-modules', resolve(root, 'node_modules/jest/bin/jest.js'),
   '--runInBand', '--runTestsByPath', resolve(root, 'test/brief-evaluation.test.js')], { cwd: root, env, stdio: 'inherit' });
 child.on('error', error => { console.error(error.message); process.exitCode = 1; });

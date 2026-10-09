@@ -155,13 +155,20 @@ try {
     const passageElements = [...doc.querySelectorAll('.np-body p, .np-body li:not(:has(li)):not(:has(p)), .np-exec-action-task > strong, .np-exec-action-due, .np-exec-fact-label, .np-body h2, .np-body h3, .np-validation li, .np-colophon')].filter(e => e.innerText.trim().length > 15);
     const passages = passageElements.map(e => e.innerText.trim());
     const executiveContextIndices = passageElements.flatMap((e, index) => e.matches('.brief-exec-heading, .np-exec-facts p') ? [index] : []);
-    return { source: frame.srcdoc, dom: doc.documentElement.outerHTML, passages, executiveContextIndices,
+    return { source: frame.srcdoc, dom: doc.documentElement.outerHTML, readerText: doc.body.innerText, passages, executiveContextIndices,
       title: doc.title, supportDisclosures: doc.querySelectorAll('.brief-judgment-support').length, warnings: [...doc.querySelectorAll('.np-validation li')].map(e => e.textContent.trim()),
       headings: [...doc.querySelectorAll('.np-body h2, .np-body h3')].map(e => e.textContent.trim()),
       viewport: { width: innerWidth, height: innerHeight, frameWidth: frame.clientWidth, frameHeight: frame.clientHeight },
       fonts: [...doc.fonts].filter(f => f.status === 'loaded').map(f => ({family:f.family, style:f.style, weight:f.weight})) };
   })()`);
-  assert.equal(preview.warnings.length, 2, 'Persisted review notes reach Print Edition');
+  const materialQualification = 'Synthetic qualification: local exposure remains unverified.';
+  assert.equal(preview.readerText.split(materialQualification).length - 1, 1, 'Current reader qualification appears exactly once, beside its claim or in the unplaced-findings appendix');
+  assert(preview.warnings.every(message => message === materialQualification), 'Only an unplaced current reader qualification may enter the appendix');
+  assert(!preview.readerText.includes('Synthetic editorial note: normalize the confidence field.'), 'Routine diagnostic stays in the edition record');
+  assert(!preview.readerText.includes('verify the fictional gateway deadline before distribution'), 'Historical finding stays in the edition record');
+  assert(!/Internal ·|Verify before acting|Verify every CVE|review before distribution/.test(preview.readerText), 'Print does not invent handling restrictions or a generic distribution hold');
+  assert.equal((preview.readerText.match(/AI-generated/g) || []).length, 1, 'One quiet AI disclosure remains');
+  assert(preview.source.includes('#edition-record'), 'The edition record remains linked');
   assert.equal(preview.supportDisclosures, 0, 'Supporting evidence is expanded for printing');
   assert(preview.passages.length > 30, 'Complete edition paragraphs are checked');
   assert(preview.fonts.length > 0, 'Print preview uses loaded self-hosted fonts');
@@ -226,7 +233,7 @@ try {
   report.pdf.executiveContextPage = [...contextPages][0];
   assert.deepEqual(report.errors, [], 'No browser exceptions or external API requests');
   report.status = 'passed';
-  console.log(`PASS: Chromium PDF has ${textResult.pageCount} nonblank pages, ${textResult.checkedPassages} retained passages, both review notes, final source evidence and verification footer.`);
+  console.log(`PASS: Chromium PDF has ${textResult.pageCount} nonblank pages, ${textResult.checkedPassages} retained passages, the current reader qualification, final source evidence and edition-record footer.`);
   console.log(`Review every print-page PNG and print-edition.pdf in ${directory}. Native OS print dialogs and Safari remain separate manual checks.`);
 } catch (error) {
   report.status = 'failed';

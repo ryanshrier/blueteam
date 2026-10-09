@@ -9,7 +9,7 @@ jest.unstable_mockModule('../public/modules/core/api.js', () => ({
   fetchEdition: jest.fn().mockResolvedValue({}),
   fetchHealth,
 }));
-const { judgmentHtml, judgmentSources, presentationHtml, claimKioskMaintenanceReload, wallScaleForWidth, wirePageHtml, mount, unmount } = await import('../public/modules/wall/wall-view.js');
+const { judgmentHtml, judgmentSources, presentationHtml, presentationSourceText, claimKioskMaintenanceReload, wallScaleForViewport, wirePageHtml, mount, unmount } = await import('../public/modules/wall/wall-view.js');
 
 function judgment(overrides = {}) {
   return {
@@ -27,6 +27,60 @@ function judgment(overrides = {}) {
 }
 
 describe('Wall Key Judgment timing', () => {
+  test('passive KEV leads with the complete vulnerability headline and keeps catalog context', () => {
+    const name = 'Gateway Server Path Traversal Vulnerability';
+    const html = presentationHtml({ kind: 'kev', productIdentity: 'Gateway', block: { text: name },
+      cve: 'CVE-2026-12345', added: '2026-10-08', federalDue: '2026-10-29' }, { interactive: false });
+    expect(html).toContain(`<h2 class="nb-glance-headline">${name}</h2>`);
+    expect(html.split(name)).toHaveLength(2);
+    expect(html).toContain('nb-glance-with-rail');
+    expect(html).toContain('Federal civilian deadline');
+    expect(html).toContain('FCEB scope');
+  });
+  test('passive Developing keeps its qualifications without an uncertainty sidebar', () => {
+    const page = { kind: 'developing', topic: 'Separate report remains unresolved', trajectory: 'Uncertain',
+      block: { text: 'The report alleges exploitation. It cannot establish that the separately identified flaw is involved.' } };
+    const html = presentationHtml(page, { interactive: false });
+    expect(html).toContain(page.block.text);
+    expect(html).not.toMatch(/<aside|nb-glance-with-rail|Tracking|Uncertain/);
+    expect(presentationHtml(page)).toContain('Trajectory · Uncertain');
+    const changing = presentationHtml({ ...page, trajectory: 'Accelerating' }, { interactive: false });
+    expect(changing).toContain('<dl class="nb-glance-inline-facts">');
+    expect(changing).toContain('<dt>Trajectory</dt><dd>Accelerating</dd>');
+    expect(changing).not.toContain('<aside');
+  });
+  test('single facts support a full-width story without a dedicated sidebar', () => {
+    for (const page of [
+      { kind: 'wire', topic: 'Report headline', sourceExcerpt: 'The complete reporting excerpt.', source: 'Publisher', isKEV: true, cve: 'CVE-2026-12345' },
+      { kind: 'watchlist', block: { text: 'Escalate only if the vendor confirms affected versions.' }, validity: 'Through October 12, 2026' },
+      { kind: 'execsummary', topic: 'Decision', block: { text: 'Verify exposure before changing response.' }, timing: 'recommended target October 12, 2026' },
+    ]) {
+      const html = presentationHtml(page, { interactive: false });
+      expect(html).toContain('<dl class="nb-glance-inline-facts">');
+      expect(html).not.toMatch(/<aside|nb-glance-with-rail/);
+    }
+  });
+  test('passive presentation shows an authored takeaway and facts without procedural instructions', () => {
+    const page = { kind: 'judgment', topic: 'Appliance & gateway exposure', block: { text: 'Local exposure remains unverified.' },
+      decision: 'Current shift.', editionDate: '2026-09-05', certainty: 'High — vendor and catalog evidence.',
+      actions: [{ id: 'verify', owner: 'Infrastructure', imperative: 'Retrieve the exact installed build.', dependencies: 'Wait for change approval.' },
+        { id: 'recover', owner: 'Incident response', imperative: 'Review retained evidence.', recoverySteps: 'Rebuild the compromised host.' }] };
+    const html = presentationHtml(page, { interactive: false });
+    expect(html).toContain('data-composition="glance"');
+    expect(html.match(/<h2\b/g)).toHaveLength(1);
+    expect(html).toContain('Appliance &amp; gateway exposure');
+    expect(html).toContain('Local exposure remains unverified.');
+    expect(html).toContain('<dt>Response owners</dt><dd>Infrastructure · Incident response</dd>');
+    const visible = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    expect(visible).toContain('Decision window This shift · from 2026-09-05 briefing');
+    expect(html).toContain('<dt>Confidence</dt><dd>High</dd>');
+    expect(html).not.toMatch(/nb-response-|data-action-id=|<(?:a|button|select|nav)\b/);
+    for (const action of page.actions) {
+      expect(html).not.toContain(action.imperative);
+      if (action.dependencies) expect(html).not.toContain(action.dependencies);
+      if (action.recoverySteps) expect(html).not.toContain(action.recoverySteps);
+    }
+  });
   test('long openings retain every authored word as readable copy without changing the topic', () => {
     const text = Array.from({ length: 100 }, (_, index) => `authored-${index}`).join(' ');
     const html = presentationHtml({ kind: 'bluf', topic: 'Shift assessment', block: { text } });
@@ -52,6 +106,37 @@ describe('Wall Key Judgment timing', () => {
     expect(html).toContain('Recommended target · September 8, 2026');
     expect(html).toContain('Confidence · High');
     expect(html).not.toContain('Current shift. · September 8');
+  });
+  test('Developing screens label trajectory separately from their category and confidence', () => {
+    const page = { kind: 'developing', topic: 'Exploit disclosure', trajectory: 'Uncertain',
+      block: { label: 'Developing situation', text: 'A working exploit is reported; attack direction remains unverified.' } };
+    const html = presentationHtml(page);
+    expect(html).toContain('class="nb-display-kicker">Developing situation</p>');
+    expect(html).toContain('Trajectory · Uncertain');
+    expect(html).toContain(page.block.text);
+    expect(html).not.toContain('Confidence · Uncertain');
+    expect(html).not.toContain('>Uncertain</p>');
+    const withoutState = presentationHtml({ ...page, trajectory: '' });
+    expect(withoutState).not.toContain('Trajectory ·');
+    expect(withoutState).not.toContain('Tracking');
+  });
+  test('Developing attribution preserves every full publisher and date, including unlinked references', () => {
+    const citations = [
+      { label: 'SOC Prime, 2026-10-05', url: '' },
+      { label: 'CISA KEV catalog, date unavailable', url: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog' },
+      { label: 'CyberScoop, 2026-10-06', url: 'https://cyberscoop.com/saved-report/' },
+      { label: 'The Hacker News, 2026-10-09', url: 'https://thehackernews.com/saved-report/' },
+    ];
+    const page = { kind: 'developing', topic: 'Disclosure', block: { label: 'Developing situation', text: 'The technical scope remains unresolved.' }, citations };
+    expect(presentationSourceText(page)).toBe(citations.map(item => item.label).join(' · '));
+    const html = presentationHtml(page);
+    for (const { label } of citations) expect(html).toContain(label);
+    expect(html).toContain('class="nb-display-source">SOC Prime, 2026-10-05 · <a href="https://www.cisa.gov/');
+    expect(html).not.toContain('href=""');
+    const unsafe = { ...page, citations: [{ label: '<Untrusted publisher>, 2026-10-09', url: 'javascript:alert(1)' }] };
+    expect(presentationHtml(unsafe)).toContain('&lt;Untrusted publisher&gt;, 2026-10-09');
+    expect(presentationHtml(unsafe)).not.toContain('href="javascript:');
+    expect(presentationSourceText({ ...page, kind: 'judgment' })).toBe('cisa.gov · cyberscoop.com · thehackernews.com');
   });
   test('uses only saved citation hosts and supports judgments without a CVE', () => {
     const story = judgment({ citations: [
@@ -80,11 +165,20 @@ describe('Wall Key Judgment timing', () => {
       expect(claimKioskMaintenanceReload('Sep 6, 2026')).toBe(false);
     } finally { delete global.sessionStorage; }
   });
-  test('native 4K scaling is a valid dimensionless factor with normal viewport fallback', () => {
-    expect(wallScaleForWidth(3840)).toBe(2);
-    expect(wallScaleForWidth(2560)).toBeCloseTo(4 / 3);
-    expect(wallScaleForWidth(1920)).toBe(1);
-    expect(wallScaleForWidth(undefined)).toBe(1);
+  test.each([
+    [1280, 800, 1], [1366, 768, 1], [1440, 900, 1],
+    [1920, 1080, 1], [2560, 1440, 4 / 3], [3840, 2160, 2],
+    [2560, 1080, 1], [3440, 1440, 4 / 3], [5120, 1440, 4 / 3],
+    [3440, 800, 1], [390, 844, 1],
+  ])('scales %s×%s using available height as well as width', (width, height, expected) => {
+    const scale = wallScaleForViewport(width, height);
+    expect(scale).toBeCloseTo(expected);
+    expect(height / scale).toBeGreaterThanOrEqual(Math.min(height, 1080));
+  });
+  test('invalid viewport measurements cannot create invalid CSS zoom', () => {
+    for (const [width, height] of [[undefined, undefined], [3840, undefined], [NaN, 1080], [1920, 0], [-1, 1440], [Infinity, 2160]]) {
+      expect(wallScaleForViewport(width, height)).toBe(1);
+    }
   });
   test('keeps KEV and its intact identity separate from readable source counts', () => {
     const html = wirePageHtml([{ title: 'Synthetic signal', horizon: 2,
@@ -264,6 +358,104 @@ describe('Wall mounted playback and recovery', () => {
     delete global.localStorage;
   });
 
+  test.each(['Accelerating', 'Uncertain'])('reading view labels the authored %s trajectory and preserves its explanation', async trajectory => {
+    const detail = `${trajectory} — Retained reporting has bounded technical scope; verify local exposure.`;
+    fetchLandscape.mockImplementation(async () => snapshot({ brief: { filename: 'brief-2026-09-04.md', date: '2026-09-04' } }));
+    fetchBrief.mockResolvedValue({ content: `## DEVELOPING SITUATIONS\n\n### Example disclosure\n**Trajectory:** ${detail}\n**Watch criteria:** Retrieve the authoritative advisory.` });
+    mount(document.getElementById('wallLayer'));
+    await jest.advanceTimersByTimeAsync(0);
+    document.getElementById('nbLoadReady').dispatch('click');
+    const html = document.getElementById('nbBody').innerHTML;
+    expect(html).toContain(`<small>Trajectory</small><br>${trajectory === 'Accelerating' ? '▲' : '•'} ${trajectory}</span>`);
+    expect(html).toContain(`<p class="nb-dev-context">${detail}</p>`);
+    expect(html).toContain('Retrieve the authoritative advisory.');
+  });
+
+  test('resize preserves physical safe margins and updates logical typography and density', async () => {
+    window.location.search = '';
+    window.innerWidth = 3440;
+    window.innerHeight = 1440;
+    Object.defineProperty(global, 'localStorage', { configurable: true, value: { getItem: () => JSON.stringify({ margin: 'safe' }) } });
+    const wall = document.querySelector('.news-mode');
+    const properties = new Map();
+    wall.style.setProperty = (name, value) => properties.set(name, value);
+    mount(document.getElementById('wallLayer'));
+    await jest.advanceTimersByTimeAsync(0);
+    expect(Number(wall.style.zoom)).toBeCloseTo(4 / 3);
+    expect(wall.dataset).toMatchObject({ displayDensity: 'normal', displayLayout: 'wide' });
+    expect(properties.get('--nb-layout-width')).toBe('1920px');
+    expect(properties.get('--nb-layout-height')).toBe('1080px');
+    expect(parseFloat(properties.get('--nb-safe-padding-x')) * Number(wall.style.zoom)).toBeCloseTo(3440 * .04);
+    expect(parseFloat(properties.get('--nb-safe-padding-y')) * Number(wall.style.zoom)).toBeCloseTo(1440 * .04);
+
+    const resize = window.addEventListener.mock.calls.find(([event]) => event === 'resize')[1];
+    window.innerWidth = 1366;
+    window.innerHeight = 768;
+    resize();
+    expect(wall.style.zoom).toBe('1');
+    expect(wall.dataset).toMatchObject({ displayDensity: 'compact', displayLayout: 'wide' });
+    expect(properties.get('--nb-layout-width')).toBe('1366px');
+    window.innerWidth = 960;
+    resize();
+    expect(wall.dataset.displayLayout).toBe('narrow');
+  });
+
+  test('presentation pager follows the reachable end when browser layout clamps a continuation', async () => {
+    window.location.search = '';
+    const body = document.getElementById('nbBody');
+    body.scrollHeight = 760;
+    let scrollTop = 0;
+    Object.defineProperty(body, 'scrollTop', {
+      get: () => scrollTop,
+      set: value => {
+        // A footer/font reflow shrinks the scroll range after stops were read.
+        if (value > 0) body.scrollHeight = 732;
+        scrollTop = Math.min(value, body.scrollHeight - body.clientHeight);
+      },
+    });
+    mount(document.getElementById('wallLayer'));
+    await jest.advanceTimersByTimeAsync(0);
+    expect(document.getElementById('nbTopicPosition').textContent).toContain('Screen 1 of 2');
+    expect(document.getElementById('nbSlug').textContent).toBe('THE WIRE');
+    key('ArrowRight');
+    expect(body.scrollTop).toBe(132);
+    expect(document.getElementById('nbTopicPosition').textContent).toContain('Screen 2 of 2');
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(document.getElementById('nbTopicPosition').textContent).toContain('Screen 2 of 2');
+    expect(document.getElementById('nbSlug').textContent).not.toBe('THE WIRE');
+    key('ArrowLeft');
+    expect(document.getElementById('nbSlug').textContent).toBe('THE WIRE');
+  });
+
+  test('passive footer includes a real reading link tied to the displayed archived judgment during continuations', async () => {
+    window.location.search = '';
+    fetchLandscape.mockImplementation(async () => snapshot({ brief: { filename: 'brief-2026-08-30.md', date: '2026-08-30' } }));
+    fetchBrief.mockResolvedValueOnce({ content: '## KEY JUDGMENTS\n\n### Signal 1 — [Horizon 1] Older saved judgment\n**The line:** The older authored takeaway remains visible.' });
+    const body = document.getElementById('nbBody');
+    const layer = document.getElementById('wallLayer');
+    mount(layer);
+    await jest.advanceTimersByTimeAsync(0);
+    // The harness creates missing IDs on demand; inspect real emitted markup
+    // as well as the node receiving the displayed edition's destination.
+    const footer = layer.innerHTML.match(/<footer class="nb-display-footer">([\s\S]*?)<\/footer>/)?.[1];
+    expect(footer).toMatch(/<a id="nbOpen" class="nb-display-reader"/);
+    expect(layer.innerHTML.match(/id="nbOpen"/g)).toHaveLength(1);
+    expect(document.getElementById('nbOpen').href).toBe('/briefing/brief-2026-08-30.md#judgment-1');
+    expect(document.getElementById('nbOpen').textContent).toBe('Read full briefing →');
+    body.scrollHeight = 3000;
+    key('ArrowRight');
+    expect(body.scrollTop).toBeGreaterThan(0);
+    expect(document.getElementById('nbOpen').href).toBe('/briefing/brief-2026-08-30.md#judgment-1');
+    fetchLandscape.mockImplementation(async () => snapshot({ brief: { filename: 'brief-2026-09-04.md', date: '2026-09-04' } }));
+    fetchBrief.mockResolvedValueOnce({ content: '## KEY JUDGMENTS\n\n### Signal 1 — [Horizon 1] Newer judgment\n**The line:** The newer saved takeaway.' });
+    // Prevent automatic advancement from finishing this exceptional overflow
+    // before the normal data poll; the next timer still uses genuine playback.
+    body.scrollHeight = 9000;
+    await jest.advanceTimersByTimeAsync(61_000);
+    expect(body.innerHTML).toContain('Older saved judgment');
+    expect(document.getElementById('nbOpen').href).toBe('/briefing/brief-2026-08-30.md#judgment-1');
+  });
+
   test.each(['', '?read=1'])('modal keyboard input does not advance or exit Wall (%s)', async search => {
     window.location.search = search;
     const body = document.getElementById('nbBody');
@@ -383,8 +575,10 @@ describe('Wall mounted playback and recovery', () => {
     const stamp = document.getElementById('nbBriefStamp').textContent;
     expect(stamp).toContain('Aug 30, 2026, 09:00 UTC');
     expect(stamp).toContain('Older edition');
-    expect(stamp).toContain('AI-generated · Verify before acting');
-    expect(stamp).toContain('1 review note');
+    expect(stamp).toContain('AI-generated');
+    expect(stamp).not.toContain('Verify before acting');
+    expect(stamp).not.toContain('1 review note');
+    expect(document.getElementById('nbReview').innerHTML).toContain('Verify vendor attribution.');
     expect(document.getElementById('nbBriefStamp').title).toBe('Verify vendor attribution.');
     fetchLandscape.mockImplementation(async () => snapshot({ brief: { filename: 'brief-2026-09-04.md', date: '2026-09-04' } }));
     fetchBrief.mockResolvedValueOnce({ content: '## BLUF\n\nThe newer claim.', meta: { generated_at: '2026-09-04T11:00:00Z' } });
@@ -411,12 +605,12 @@ describe('Wall mounted playback and recovery', () => {
     document.getElementById('nbLoadReady').dispatch('click');
     expect(document.getElementById('nbBody').innerHTML).toContain('Corrected bounded claim.');
     expect(document.getElementById('nbBody').innerHTML).not.toContain('Original generated claim.');
-    expect(document.getElementById('nbReview').innerHTML).toContain('editorial-review');
+    expect(document.getElementById('nbReview').innerHTML).toContain('edition-record');
     expect(document.getElementById('nbReview').innerHTML).toContain('Retained sources only.');
-    expect(document.getElementById('nbReview').innerHTML).toContain('Original generation source-check notes (1)');
+    expect(document.getElementById('nbReview').innerHTML).toContain('Original publication notes');
     expect(document.getElementById('nbReview').innerHTML).toContain('Original supporting-section provenance needs review.');
     expect(document.getElementById('nbReview').hidden).toBe(false);
-    expect(document.getElementById('nbBriefStamp').textContent).toContain('AI-generated · Editorially reviewed');
+    expect(document.getElementById('nbBriefStamp').textContent).toContain('AI-generated · Corrected');
     expect(document.getElementById('nbBriefStamp').textContent).not.toContain('1 review note');
     expect(document.getElementById('nbBriefStamp').dataset.status).toBe('live');
     const picker = document.getElementById('nbSections');
@@ -424,6 +618,48 @@ describe('Wall mounted playback and recovery', () => {
     expect(document.getElementById('nbOpen').href).toBe('/briefing/brief-2026-09-04.md#section-0-executive-summary-shift-decisions');
     picker.value = '2'; picker.dispatch('change', { target: picker });
     expect(document.getElementById('nbOpen').href).toBe('/briefing/brief-2026-09-04.md#section-2-developing-situations');
+  });
+
+  test('corrected copy keeps current notes separate from original findings without a warning-count banner', async () => {
+    fetchLandscape.mockImplementation(async () => snapshot({ brief: { filename: 'brief-2026-09-04.md', date: '2026-09-04' } }));
+    fetchBrief.mockResolvedValue({ content: '## BLUF\n\nOriginal claim.', reviewedContent: '## BLUF\n\nAffected versions remain uncertain.',
+      meta: { warnings: ['Original attribution finding.'] },
+      presentation: { revision: 'r1', currentChecks: { status: 'checked', warnings: ['Current version qualification.'] }, history: [{ kind: 'original-publication', label: 'Original publication', warnings: ['Original attribution finding.'] }] },
+      disposition: { status: 'eligible', eligibleForLatest: true }, review: { status: 'editorially-corrected', scope: 'Attribution corrected.' } });
+    mount(document.getElementById('wallLayer'));
+    await jest.advanceTimersByTimeAsync(0);
+    document.getElementById('nbLoadReady').dispatch('click');
+    const record = document.getElementById('nbReview').innerHTML;
+    expect(record).toContain('Current copy notes');
+    expect(record).toContain('Current version qualification.');
+    expect(record).toContain('Original publication');
+    expect(record).toContain('Original attribution finding.');
+    expect(document.getElementById('nbBriefStamp').title).toBe('Current version qualification.');
+    expect(document.getElementById('nbBriefStamp').dataset.status).toBe('live');
+    expect(document.getElementById('nbBody').innerHTML).toContain('Affected versions remain uncertain.');
+  });
+
+  test('diagnostic-only changes refresh the exact held copy without changing its body or scroll', async () => {
+    fetchLandscape.mockImplementation(async () => snapshot({ brief: { filename: 'brief-2026-09-04.md', date: '2026-09-04' } }));
+    const content = '## BLUF\n\nThe exact saved claim remains held.';
+    fetchBrief.mockResolvedValueOnce({ content, presentation: { revision: 'r1', currentChecks: { warnings: ['First note.'] }, history: [] } });
+    mount(document.getElementById('wallLayer'));
+    await jest.advanceTimersByTimeAsync(0);
+    document.getElementById('nbLoadReady').dispatch('click');
+    const body = document.getElementById('nbBody');
+    const html = body.innerHTML;
+    body.scrollHeight = 2000;
+    body.scrollTop = 200;
+    fetchBrief.mockResolvedValue({ content, presentation: { revision: 'r2', currentChecks: { warnings: ['Updated exact-copy note.'] }, history: [],
+      approval: { status: 'recorded', scope: 'security-control-change', reviewer: 'Operator', reason: 'Approved the specified control exception.' } } });
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(body.innerHTML).toBe(html);
+    expect(body.scrollTop).toBe(200);
+    expect(document.getElementById('nbBriefStamp').title).toBe('Updated exact-copy note.');
+    expect(document.getElementById('nbReview').innerHTML).toContain('Control exception reviewed');
+    expect(document.getElementById('nbReview').innerHTML).not.toContain('First note.');
+    expect(document.getElementById('nbReview').innerHTML).not.toContain('Editorially reviewed');
+    expect(document.getElementById('nbReady').hidden).toBe(true);
   });
 
   test('revalidates an editorial overlay for the same filename without replacing the held reading copy', async () => {
@@ -591,6 +827,35 @@ describe('Wall mounted playback and recovery', () => {
     expect(document.getElementById('nbPause').textContent).toBe('Resume');
   });
 
+  test.each([[40, 41, 'FEEDS CURRENT'], [20, 40, 'FEEDS CURRENT'], [19, 40, 'FEEDS DEGRADED'], [0, 41, 'FEEDS DEGRADED']])(
+    'matches readiness severity while retaining partial feed failures (%i of %i available)', async (ok, total, label) => {
+      window.location.search = '';
+      fetchLandscape.mockImplementation(async () => snapshot({ feeds: { ok, total,
+        statuses: [{ source: 'Unavailable publisher', ok: false, status: 'parse-error' }] } }));
+      mount(document.getElementById('wallLayer'));
+      await jest.advanceTimersByTimeAsync(0);
+      const detail = document.getElementById('nbIntegrity');
+      expect(document.getElementById('nbLiveWord').textContent).toBe(label);
+      expect(document.getElementById('nbLiveDot').dataset.status).toBe(label === 'FEEDS DEGRADED' ? 'warn' : 'live');
+      expect(detail.textContent).toContain(`${total - ok} unavailable`);
+      expect(detail.title).toContain('Unavailable publisher: parse-error');
+      expect(detail.hidden).toBe(false);
+    },
+  );
+
+  test('minor feed failures do not hide stale or unknown freshness warnings', async () => {
+    fetchLandscape.mockImplementation(async () => snapshot({ generatedAt: '2026-09-04T09:00:00Z', feeds: { ok: 40, total: 41 } }));
+    mount(document.getElementById('wallLayer'));
+    await jest.advanceTimersByTimeAsync(0);
+    expect(document.getElementById('nbLiveWord').textContent).toBe('FEEDS STALE');
+    expect(document.getElementById('nbLiveDot').dataset.status).toBe('warn');
+    expect(document.getElementById('nbIntegrity').textContent).toContain('1 unavailable');
+    fetchLandscape.mockImplementation(async () => snapshot({ generatedAt: null, feeds: { ok: 40, total: 41 } }));
+    await jest.advanceTimersByTimeAsync(90_000);
+    expect(document.getElementById('nbLiveWord').textContent).toBe('FEEDS UNKNOWN');
+    expect(document.getElementById('nbLiveDot').dataset.status).toBe('warn');
+  });
+
   test.each(['', '?operator'])('starts directly and reveals only Exit without pausing (%s)', async query => {
     window.location.search = query;
     fetchLandscape.mockImplementation(async () => snapshot({ signals: [{ title: 'First retained report', horizon: 1 }, { title: 'Second retained report', horizon: 1 }] }));
@@ -705,7 +970,7 @@ describe('Wall mounted playback and recovery', () => {
     expect(firstFeedAt - startedAt).toBeGreaterThanOrEqual(82_000);
   });
 
-  test('keeps measured owner responses consecutive across timer advances and refreshes', async () => {
+  test('multiple response owners stay on one glance card across timer advances and refreshes', async () => {
     window.location.search = '';
     fetchLandscape.mockImplementation(async () => snapshot({ brief: { filename: 'brief-2026-09-04.md', date: '2026-09-04' } }));
     fetchBrief.mockResolvedValue({ content: '## KEY JUDGMENTS\n\n### Signal 1 — [Horizon 1] Appliance response\n**The line:** Remediate and investigate together.\n**Recommended actions:**\n- Infrastructure — apply the fixed release — September 4, 2026\n- Incident response — assess compromise and record recovery — September 5, 2026\n\n### Signal 2 — [Horizon 1] Following topic\n**The line:** Review the next event.' });
@@ -713,16 +978,18 @@ describe('Wall mounted playback and recovery', () => {
     Object.defineProperty(body, 'scrollHeight', { configurable:true, get: () => (body.innerHTML.match(/data-action-id=/g) || []).length > 1 ? 800 : 600 });
     mount(document.getElementById('wallLayer'));
     await jest.advanceTimersByTimeAsync(0);
-    expect(body.innerHTML).toContain('Part 1 of 2');
-    expect(body.innerHTML).toContain('apply the fixed release');
+    expect(body.innerHTML).toContain('Appliance response');
+    expect(body.innerHTML).toContain('Remediate and investigate together.');
+    expect(body.innerHTML).toContain('Infrastructure · Incident response');
+    expect(body.innerHTML).not.toContain('Part 1 of 2');
+    expect(body.innerHTML).not.toContain('apply the fixed release');
     expect(body.innerHTML).not.toContain('assess compromise and record recovery');
-    await jest.advanceTimersByTimeAsync(13_000);
-    expect(body.innerHTML).toContain('Part 2 of 2');
-    expect(body.innerHTML).toContain('assess compromise and record recovery');
+    expect(document.getElementById('nbSections').innerHTML.match(/Appliance response/g)).toHaveLength(1);
     await jest.advanceTimersByTimeAsync(13_000);
     expect(body.innerHTML).toContain('Following topic');
     await jest.advanceTimersByTimeAsync(40_000);
     expect(body.innerHTML).not.toContain('Display error');
+    expect(body.innerHTML).not.toContain('Part 2 of 2');
   });
 
   test('ignores legacy hold preferences and reading input during automatic presentation', async () => {
@@ -832,7 +1099,7 @@ describe('Wall mounted playback and recovery', () => {
     await jest.advanceTimersByTimeAsync(0);
     document.getElementById('nbLoadReady').dispatch('click');
     const stamp = document.getElementById('nbBriefStamp').textContent;
-    expect(stamp).toBe('Briefing · Aug 30, 2026 · Older edition · AI-generated · Verify before acting');
+    expect(stamp).toBe('Briefing · Aug 30, 2026 · Older edition · AI-generated');
     expect(stamp).not.toContain('published');
     expect(document.getElementById('nbSlug').dataset.status).toBe('live');
     expect(document.getElementById('nbBriefStamp').dataset.status).toBe('warn');

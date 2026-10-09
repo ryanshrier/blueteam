@@ -15,9 +15,9 @@ import { navigate, resolveLocation, setPageTitle } from '../core/router.js';
 import { formatBriefLabel, formatBriefPublication, archivePublishedAt, formatEventTime } from '../core/brief-date.js';
 import { archiveLocation, archiveRoute, fetchArchivePage, archiveListHtml } from './brief-archive.js';
 import { fetchInputReceipt, enrichCitationTitles, openInputReceipt } from './brief-inputs.js';
-import { attachEditorialReview, openOriginalEdition } from './brief-review.js';
+import { attachEditorialReview, attachReaderLimits, openOriginalEdition, readerPresentation, editionNotice, editionNoticeHtml } from './brief-review.js';
 import { formatEditionIdentity } from '../core/brief-date.js';
-import { openDraftReview } from './brief-drafts.js';
+import { openDraftReview, draftPublicationLabel } from './brief-drafts.js';
 
 let initialized = false;
 let contentRenderToken = 0;
@@ -92,6 +92,10 @@ function leaveDocument(content) {
   stopRecentDevelopments = null;
   const overview = document.getElementById('briefOverview');
   if (overview) { overview.hidden = true; overview.innerHTML = ''; }
+  const record = document.getElementById('briefEditionRecord');
+  if (record) record.innerHTML = '';
+  const disclosure = document.getElementById('briefAiDisclosure');
+  if (disclosure) { disclosure.hidden = true; disclosure.innerHTML = ''; }
   const layout = document.querySelector?.('.briefing-layout');
   if (layout) layout.hidden = false;
   document.querySelector?.('.briefing-view')?.classList.toggle('briefing-view--overview', false);
@@ -132,6 +136,21 @@ function requestBriefGeneration() {
     if (tools) tools.open = false;
     emit('generate-brief');
   }
+}
+
+function reviewSavedDraft(id = '', opener) {
+  closeDraftReview?.();
+  closeDraftReview = openDraftReview({ id, opener,
+    onSaved: () => generationStatus?.refresh(),
+    onPublished: result => {
+      closeDraftReview = null;
+      loadHistoryDropdown({ force: true });
+      generationStatus?.refresh();
+      const warnings = (result.warnings || []).map(String);
+      showToast([draftPublicationLabel(result), ...warnings].join('. '), warnings.length ? 'info' : 'success', warnings.length ? 0 : 4000);
+      navigate(`/briefing/${encodeURIComponent(result.filename)}`);
+    },
+  });
 }
 
 /** Normalize the string and object forms accepted by the generation-error event. */
@@ -199,7 +218,7 @@ export function render(main) {
               <button class="btn-ghost brief-export-btn" id="briefExport" type="button" aria-label="Open print edition preview">Print edition</button>
             </div>
             <div id="briefInputManifest"></div>
-            <p id="briefReviewState" class="brief-tool-review"></p>
+            <p id="briefReviewState" class="brief-tool-review"><a href="#edition-record" data-open-edition-record>Edition record</a></p>
             </section>
             <div class="brief-generate-control">
               <button class="btn-primary" id="briefGenerate" type="button" aria-describedby="briefGenerateInput" disabled>Checking AI availability…</button>
@@ -215,10 +234,10 @@ export function render(main) {
         <button type="button" class="btn-ghost" id="briefOverviewMode" data-reading-mode="overview" aria-pressed="${readingMode === 'overview'}">Overview</button>
         <button type="button" class="btn-ghost" id="briefReadingMode" data-reading-mode="read" aria-pressed="${readingMode === 'read'}">Full report</button>
       </div>
-      <p class="brief-publication-state" id="briefPublicationState" hidden></p>
+      <div class="brief-publication-state" id="briefPublicationState" hidden></div>
+      <div id="briefAttemptSlot"><section class="brief-attempt-status" id="briefAttemptStatus" role="status" aria-live="polite" aria-label="Generation and draft tasks" hidden></section></div>
+      <div id="briefEditionRecord"></div>
       <section class="brief-overview" id="briefOverview" aria-label="Briefing overview" hidden></section>
-
-      <div id="briefAttemptSlot"><section class="brief-attempt-status" id="briefAttemptStatus" role="status" aria-live="polite" aria-label="Latest generation attempt" hidden></section></div>
       <div class="briefing-layout">
         <aside class="briefing-toc" id="briefToc" aria-label="Briefing sections"></aside>
         <article class="briefing-sheet">
@@ -226,12 +245,14 @@ export function render(main) {
           <div class="brief-content" id="briefContent"></div>
         </article>
       </div>
+      <p class="brief-ai-disclosure" id="briefAiDisclosure" hidden></p>
     </div>
   `;
 
   // Links retain native new-tab/context-menu behavior. Only an ordinary click
   // is routed in-app; save archive position before leaving a result list.
   main.addEventListener?.('click', handleBriefRouteLink);
+  main.addEventListener?.('click', handleEditionRecordClick);
 
   document.getElementById('briefHistory')?.addEventListener('change', (e) => {
     if (e.target.value) navigate(`/briefing/${encodeURIComponent(e.target.value)}`);
@@ -260,7 +281,7 @@ export function render(main) {
   document.getElementById('briefToolsClose')?.addEventListener('click', closeEditionTools);
   document.getElementById('briefGenerate')?.addEventListener('click', requestBriefGeneration);
   document.getElementById('briefDrafts')?.addEventListener('click', event => {
-    closeDraftReview?.(); closeDraftReview = openDraftReview({ opener: event.currentTarget });
+    reviewSavedDraft('', event.currentTarget);
   });
   document.getElementById('briefContent')?.addEventListener('click', handleCopyDecision);
   document.getElementById('briefContent')?.addEventListener('click', event => {
@@ -329,9 +350,10 @@ export function render(main) {
   generationStatus = mountGenerationStatus(document.getElementById('briefAttemptStatus'), {
     isGenerating: () => getState().isGenerating,
     getGenerationId: () => recoveryGenerationId,
+    onReviewDraft: reviewSavedDraft,
     onState: model => {
       const host = document.getElementById('briefAttemptStatus');
-      const destination = document.getElementById(model?.kind === 'complete' ? 'briefSuccessStatus' : 'briefAttemptSlot');
+      const destination = document.getElementById(model?.kind === 'complete' && !model.pendingDraft ? 'briefSuccessStatus' : 'briefAttemptSlot');
       if (host && destination && host.parentElement !== destination) destination.appendChild(host);
       reflectGenerationRecovery(model);
     },
@@ -513,7 +535,7 @@ function setupStoreListeners() {
     };
     setState({ lastGeneratedBrief: generatedBrief });
     loadHistoryDropdown({ force: true });
-    showToast('Briefing saved', 'success');
+    showToast(eligibleEdition(generatedBrief) ? 'Briefing published' : 'Briefing saved for review', 'success');
     const content = document.getElementById('briefContent');
     if (!content || !showingGeneration) return;
     contentRenderToken++;
@@ -566,6 +588,16 @@ function setupStoreListeners() {
       showToast(aiDisabled ? 'AI Briefing is off — add a key in Settings.' : msg, 'error');
       return;
     }
+    if (failure.draftArtifact && !streamLost && getState().currentBrief?.filename && eligibleEdition(getState().currentBrief)) {
+      // The failed new attempt must not displace the last published reading copy.
+      // Its durable recovery notice remains beside that copy after navigation.
+      showingGeneration = false;
+      recoveryGenerationId = null;
+      generationStatus?.refresh();
+      showToast('New draft saved · review it to publish. The current briefing is unchanged.');
+      navigate('/briefing?latest=1');
+      return;
+    }
     leaveDocument(content);
     content.removeAttribute('aria-busy');
     recoveryGenerationId = streamLost ? failure.generationId || null : null;
@@ -616,7 +648,7 @@ function setupStoreListeners() {
       `;
       document.getElementById('retryGen')?.addEventListener('click', () => emit('generate-brief'));
       document.getElementById('reviewDraft')?.addEventListener('click', event => {
-        closeDraftReview?.(); closeDraftReview = openDraftReview({ id: failure.draftArtifact.id, opener: event.currentTarget });
+        reviewSavedDraft(failure.draftArtifact.id, event.currentTarget);
       });
       return;
     }
@@ -691,7 +723,7 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
         return;
       }
       const originalWarnings = Array.isArray(briefData.meta?.warnings) ? briefData.meta.warnings : [];
-      const warnings = briefData.reviewedContent
+      const warnings = briefData.presentation?.schemaVersion === 1 ? briefData.presentation.currentChecks?.warnings || [] : briefData.reviewedContent
         ? briefData.readingChecks?.warnings || ['Checks for this corrected copy are unavailable. Original generation notes remain in the review record.']
         : Array.isArray(briefData.meta?.warnings) ? originalWarnings : null;
       const displayedContent = briefData.reviewedContent || briefData.content;
@@ -701,6 +733,7 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
         originalContent: briefData.content,
         review: briefData.review || null,
         readingChecks: briefData.readingChecks || null,
+        presentation: briefData.presentation || null,
         originalWarnings,
         disposition: briefData.disposition || null,
         sourceCheckStatus: briefData.sourceCheckStatus || 'unavailable',
@@ -788,11 +821,11 @@ function renderBriefContent(content, text, { hardFail = false, checkStructure = 
   content._validatedBriefContent = null;
   content.innerHTML = renderMarkdown(text);
   applySemanticStyling(content, { decisionControls: Boolean(getState().currentBrief?.filename) });
-  attachEditorialReview(content, getState().currentBrief);
-  const persistedWarnings = getState().currentBrief?.warnings;
-  const visibleWarnings = Array.isArray(persistedWarnings) && persistedWarnings.length
-    ? persistedWarnings : checkStructure ? structuralWarnings(content) : [];
-  if (visibleWarnings.length) renderValidationBanner(content, visibleWarnings, hardFail);
+  attachReaderLimits(content, getState().currentBrief);
+  attachEditorialReview(content, getState().currentBrief, {
+    recordHost: document.getElementById('briefEditionRecord'),
+    extraNotes: checkStructure && !getState().currentBrief?.presentation ? structuralWarnings(content) : [],
+  });
   content.querySelectorAll('.brief-judgment-card').forEach(card => {
     const number = card.querySelector('h3')?.id.match(/^judgment-(\d+)$/)?.[1];
     const tools = card.querySelector('.brief-judgment-tools');
@@ -804,7 +837,7 @@ function renderBriefContent(content, text, { hardFail = false, checkStructure = 
   if (overview) {
     const judgmentMetadata = [...content.querySelectorAll('.brief-judgment-card')].map(card => briefRenderer.briefAssessmentMetadata?.(card));
     const developingAnchor = [...content.querySelectorAll('h2[id]')].find(heading => /developing situations/i.test(heading.textContent))?.id || '';
-    overview.innerHTML = renderOverview({ ...getState().currentBrief, warnings: visibleWarnings }, { judgmentMetadata, developingAnchor });
+    overview.innerHTML = renderOverview(getState().currentBrief, { judgmentMetadata, developingAnchor });
     stopRecentDevelopments = mountRecentDevelopments(overview.querySelector('[data-overview-recent]'), briefingApi.fetchHeadlines);
   }
   const overviewTarget = /^#overview-judgment-\d+$/.test(location.hash) ? overview?.querySelector(location.hash) : null;
@@ -812,6 +845,7 @@ function renderBriefContent(content, text, { hardFail = false, checkStructure = 
   else if (new URLSearchParams(window.location.search || '').get('view') === 'report' || findBriefFragmentHeading(content, location.hash)) readingMode = 'read';
   applyReadingMode();
   buildTOC(content);
+  restoreEditionRecordFragment();
   if (overviewTarget) {
     const token = contentRenderToken;
     window.requestAnimationFrame?.(() => {
@@ -844,6 +878,55 @@ function closeEditionTools() {
   const restoreFocus = document.activeElement !== summary && tools.contains?.(document.activeElement);
   tools.open = false;
   if (restoreFocus) summary?.focus();
+}
+
+function editionRecordTarget(hash = location.hash) {
+  const record = document.getElementById('edition-record');
+  if (!record) return null;
+  try {
+    const id = decodeURIComponent(String(hash).replace(/^#/, ''));
+    if (['edition-record', 'editorial-review'].includes(id)) return record;
+    return [...record.querySelectorAll('[id]')].find(node => node.id === id) || null;
+  } catch { return null; }
+}
+
+function openEditionRecord(target = document.getElementById('edition-record')) {
+  const record = document.getElementById('edition-record');
+  if (!record || !target) return;
+  record.open = true;
+  for (let parent = target.parentElement; parent && parent !== record; parent = parent.parentElement) if (parent.tagName === 'DETAILS') parent.open = true;
+  closeEditionTools();
+  const focus = target === record ? record.querySelector('summary') : target;
+  if (target !== record) focus?.setAttribute('tabindex', '-1');
+  focus?.focus({ preventScroll: true });
+  target.scrollIntoView?.({ behavior: 'auto', block: 'start' });
+}
+
+function restoreEditionRecordFragment() {
+  const target = editionRecordTarget();
+  if (!target) return;
+  const token = contentRenderToken;
+  const activate = () => { if (token === contentRenderToken) openEditionRecord(target); };
+  if (window.requestAnimationFrame) window.requestAnimationFrame(activate); else activate();
+}
+
+function handleEditionRecordClick(event) {
+  if (event.defaultPrevented || event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const original = event.target.closest('[data-review-original]');
+  if (original && original.closest('#edition-record')) {
+    closeOriginalEdition?.(); closeOriginalEdition = openOriginalEdition(getState().currentBrief, original); return;
+  }
+  const link = event.target.closest('[data-open-edition-record], [data-record-passage]');
+  if (!link) return;
+  const hash = new URL(link.getAttribute('href'), location.href).hash;
+  event.preventDefault();
+  if (link.hasAttribute('data-open-edition-record')) openEditionRecord();
+  else {
+    const target = findBriefFragmentHeading(document.getElementById('briefContent'), hash);
+    if (!target) return;
+    selectReadingMode('read'); target.setAttribute('tabindex', '-1'); target.focus({ preventScroll: true }); target.scrollIntoView({ behavior: 'auto', block: 'start' });
+  }
+  history.replaceState(history.state, '', location.pathname + location.search + hash);
 }
 
 function selectReadingMode(mode) {
@@ -888,50 +971,9 @@ function renderStreamSnapshot(content, accumulated) {
   applySemanticStyling(documentRegion);
 }
 
-// Flag a structurally-incomplete briefing so a reader never silently receives
-// one missing its BLUF or a whole section. Warnings are server-computed.
-function renderValidationBanner(content, warnings, hardFail = false) {
-  const current = getState().currentBrief;
-  const issues = current?.readingChecks?.issues || [];
-  const sourceLines = String(current?.content || '').split('\n');
-  const items = warnings.map(warning => {
-    const issue = issues.find(item => item.message === warning);
-    const at = Math.max(0, (issue?.location?.line || 1) - 1);
-    const heading = sourceLines.slice(0, at + 1).findLast(line => /^#{2,3}\s/.test(line));
-    const signal = /^###\s+Signal\s+(\d+)\b/.exec(heading || '');
-    const label = (heading || '').replace(/^#{2,3}\s+/, '').replace(/\*\*/g, '').trim();
-    const target = signal ? content.querySelector(`#judgment-${signal[1]}`)
-      : [...content.querySelectorAll('h2, h3')].find(node => node.textContent.trim() === label);
-    if (target && !target.id) target.id = `review-location-${at + 1}`;
-    return `<li>${escapeHtml(warning)}${target ? ` <a href="#${escapeHtml(target.id)}">View passage</a>` : ''}${issue?.location?.excerpt ? `<p>${escapeHtml(issue.location.excerpt)}</p>` : ''}</li>`;
-  }).join('');
-  const banner = document.createElement(hardFail ? 'div' : 'details');
-  banner.className = 'brief-validation-warning' + (hardFail ? ' hard-fail' : '');
-  if (hardFail) {
-    banner.setAttribute('role', 'alert');
-    banner.innerHTML = `
-      <strong>This briefing is missing a required section.</strong>
-      <ul>${items}</ul>
-      <button class="btn-ghost" id="briefRetry">Regenerate</button>
-    `;
-  } else {
-    const editorial = warnings.filter(w => /^QA review:/i.test(w)).length;
-    const automatic = warnings.length - editorial;
-    const noteLabel = [automatic && `${automatic} automated ${automatic === 1 ? 'check' : 'checks'}`, editorial && `${editorial} later editorial ${editorial === 1 ? 'note' : 'notes'} (author/time not recorded)`].filter(Boolean).join(' · ');
-    banner.innerHTML = `
-      <summary><strong>Edition notes</strong><span>${noteLabel}</span></summary>
-      <ul>${items}</ul>
-    `;
-  }
-  content.prepend(banner);
-  if (hardFail) banner.querySelector('#briefRetry')?.addEventListener('click', () => emit('generate-brief'));
-}
-
-// A brief opened from History never carried its generation-time validation
-// warnings (they aren't persisted), so a brief that was incomplete at generation
-// re-rendered as a clean, authoritative memo. Re-derive a lightweight structural
-// check on load and re-flag it (soft — no Regenerate CTA on an archived brief) so
-// the surface never asserts a completeness it can't verify.
+// Older servers and archive files may lack a current-copy presentation record.
+// Keep missing-section observations in their edition record without rewriting
+// persisted findings or making them a new publication decision in the browser.
 function structuralWarnings(content) {
   const warnings = [];
   if (!content.querySelector('.bluf')) warnings.push('Missing the BLUF (bottom-line-up-front) section.');
@@ -1260,7 +1302,7 @@ export async function runSearch(query) {
             <a class="search-result" data-brief-route href="/briefing/${encodeURIComponent(r.filename)}">
               <span class="search-result-date">${escapeHtml(formatBriefLabel(r.filename))}</span>
               <span class="search-result-snippet">${sanitizeSearchSnippet(r.snippet)}</span>
-              ${r.snippetVersion === 'original-generated-edition' ? `<span class="archive-edition-review">Match in original generated edition · ${r.reviewStatus === 'editorially-corrected' ? 'opens corrected reading copy' : 'review could not be verified'}</span>` : ''}
+              ${['original-generated-edition', 'archived-published-copy'].includes(r.snippetVersion) ? `<span class="archive-edition-review">Match in archived published copy · ${r.reviewStatus === 'editorially-corrected' ? 'opens corrected reading copy' : 'review could not be verified'}</span>` : ''}
               <span class="archive-edition-meta">${escapeHtml([formatEventTime(r.generatedAt), Number.isFinite(r.wordCount) && `${Math.max(1, Math.round(r.wordCount / 220))} min read`].filter(Boolean).join(' · '))}</span>
               <span class="brief-search-open">Open edition →</span>
             </a>`).join('')}
@@ -1329,7 +1371,7 @@ export async function handleCopyDecision(event) {
   const editionUrl = `${location.origin}/briefing/${encodeURIComponent(currentBrief.filename)}${headingId ? `#${encodeURIComponent(headingId)}` : ''}`;
   const text = decisionCopyText({ ...decisionCardContent(card), editionUrl, editionLabel: formatBriefPublication(currentBrief),
     disposition: currentBrief.disposition, review: currentBrief.review, warnings: currentBrief.warnings,
-    sourceCheckStatus: currentBrief.sourceCheckStatus, editorialReviewStatus: currentBrief.editorialReviewStatus });
+    presentation: currentBrief.presentation, signal: Number(headingId?.match(/^judgment-(\d+)$/)?.[1]) || null, sourceContent: currentBrief.content });
   if (!text) return;
   button.disabled = true;
   try {
@@ -1367,9 +1409,11 @@ function handleExport(event) {
         currentBrief.content,
         currentBrief.wordCount,
       ),
-      // Carry the persisted validation warnings so the printable edition can
-      // note them in the colophon instead of silently stripping the on-screen banner.
+      // Structured current-copy findings take precedence; persisted warnings
+      // remain a fallback for editions without the presentation contract.
       warnings: currentBrief.warnings || [],
+      presentation: currentBrief.presentation,
+      disposition: currentBrief.disposition,
       review: currentBrief.review || null,
     });
   } catch {
@@ -1382,10 +1426,16 @@ function setMeta(text) {
   const host = document.getElementById('briefInputManifest');
   const brief = getState().currentBrief;
   if (el) el.textContent = brief?.content
-    ? `${brief.filename === latestFilename ? 'Latest saved assessment' : latestFilename ? 'Archived assessment' : 'Saved assessment'} · ${formatEditionIdentity(brief.filename)}`
+    ? `${brief.filename === latestFilename ? 'Current published briefing' : latestFilename ? 'Archived briefing' : 'Saved briefing'} · ${formatEditionIdentity(brief.filename)}`
     : text;
   const generationMeta = document.getElementById('briefGenerationMeta');
   if (generationMeta) { const previous = [brief?.model && formatModelLabel(brief.model), Number.isFinite(brief?.costUsd) && formatCost(brief.costUsd)].filter(Boolean).join(' · '); generationMeta.textContent = previous ? `Previous generation · ${previous}` : ''; }
+  const disclosure = document.getElementById('briefAiDisclosure');
+  if (disclosure) {
+    disclosure.hidden = !brief?.filename || !brief?.content;
+    const edited = ['operator-repaired', 'editorially-corrected'].includes(readerPresentation(brief || {}).copy?.kind);
+    disclosure.innerHTML = disclosure.hidden ? '' : `${edited ? 'AI-generated draft with subsequent edits' : 'AI-generated briefing'} · <a href="#edition-record" data-open-edition-record>Edition record</a>`;
+  }
   setPageTitle(brief?.filename ? `Briefing · ${formatBriefLabel(brief.filename)}` : 'Briefing');
   if (host) host.innerHTML = brief?.filename
     ? brief.inputManifest?.status === 'available'
@@ -1394,31 +1444,17 @@ function setMeta(text) {
     : '';
   const publicationState = document.getElementById('briefPublicationState');
   if (publicationState) {
-    publicationState.textContent = brief?.filename ? publicationStateLabel(brief) : '';
-    publicationState.hidden = !(brief?.filename && (!eligibleEdition(brief) || brief.editorialReviewStatus === 'review-required' || brief.review?.status === 'unavailable' || brief.sourceCheckStatus === 'findings'));
+    publicationState.innerHTML = brief?.filename ? editionNoticeHtml(brief) : '';
+    publicationState.hidden = !publicationState.innerHTML;
   }
   const reviewState = document.getElementById('briefReviewState');
-  if (reviewState) reviewState.textContent = brief?.filename ? publicationStateLabel(brief) : '';
-  const reviewDisclosure = document.getElementById('briefContent')?.querySelector('.brief-review-summary');
-  if (reviewDisclosure && brief?.review?.status === 'editorially-corrected' && !reviewDisclosure.querySelector('.brief-original-check-state')) {
-    const original = document.createElement('p');
-    original.className = 'brief-original-check-state';
-    original.textContent = `Original generation source checks: ${brief.sourceCheckStatus === 'passed-supported-checks' ? 'supported checks passed' : brief.sourceCheckStatus === 'findings' ? 'findings recorded' : 'record unavailable'}. These checks describe the original generation, not a new validation of the corrected reading copy.`;
-    reviewDisclosure.appendChild(original);
-  }
+  if (reviewState) reviewState.hidden = !brief?.filename;
 }
 
 export function publicationStateLabel(brief = {}) {
-  const checks = brief.sourceCheckStatus === 'passed-supported-checks' ? 'Supported source checks passed'
-    : brief.sourceCheckStatus === 'findings' ? 'Source checks have findings' : 'Source-check record unavailable';
-  const reviewed = brief.editorialReviewStatus === 'reviewed' || brief.disposition?.editorialReviewStatus === 'reviewed';
-  const editorial = brief.disposition?.status === 'superseded' ? 'Superseded edition'
-    : brief.disposition?.status === 'review-required' || brief.editorialReviewStatus === 'review-required' ? 'Editorial review required'
-      : brief.review?.status === 'editorially-corrected' ? 'Editorially corrected reading copy'
-        : brief.review?.status === 'unavailable' ? 'Editorial review could not be verified'
-          : reviewed ? 'Editorial review recorded' : 'Editorial review not recorded';
-  if (brief.review?.status === 'editorially-corrected' && brief.disposition?.eligibleForLatest === true) return `${editorial} · Eligible for latest edition`;
-  return `${editorial} · ${checks}${brief.review?.status === 'editorially-corrected' ? ' for the original generated revision' : ''}`;
+  const notice = editionNotice(brief);
+  if (notice) return notice.title;
+  return readerPresentation(brief).copy?.kind === 'editorially-corrected' ? 'Published briefing · corrected copy' : 'Published briefing';
 }
 
 export function eligibleEdition(brief) {

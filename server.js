@@ -53,6 +53,7 @@ import {
   waitForDailyBriefIdle,
   requestBriefGeneration,
   getDailyBriefScheduleStatus,
+  recordRepairedScheduledPublication,
 } from './lib/brief-scheduler.js';
 import { refreshKEV } from './lib/enrichment.js';
 import { setDomainPack, setEnrichers } from './lib/domain.js';
@@ -60,7 +61,7 @@ import { cyberPack } from './config/domains/cyber.js';
 import { cyberEnrichers } from './config/domains/cyber-enrichers.js';
 import { healthHandler, readinessHandler, livenessHandler } from './lib/health.js';
 import { createBriefRouter } from './routes/brief.js';
-import { createLandscapeRouter } from './routes/landscape.js';
+import { createLandscapeRouter, invalidateLandscapeMemo } from './routes/landscape.js';
 import { createSettingsRouter } from './routes/settings.js';
 import {
   loadUserSettings,
@@ -73,6 +74,7 @@ import { APP_VERSION } from './lib/version.js';
 import { PUBLIC_APP_NAME } from './lib/identity.js';
 import { normalizePublicBaseUrl } from './lib/public-url.js';
 import { closeOutboundDispatchers } from './lib/net.js';
+import { closeFeedXmlParser } from './lib/feed-xml.js';
 import { scheduledBriefFilename } from './lib/history.js';
 import {
   createBriefGenerationTracker,
@@ -409,6 +411,10 @@ app.use('/api', createBriefRouter({
   localPort: PORT,
   scheduledJobToken: SCHEDULED_JOB_TOKEN,
   trackGeneration: () => briefGenerationTracker.begin(),
+  onDraftPublished: publication => {
+    invalidateLandscapeMemo();
+    recordRepairedScheduledPublication(publication);
+  },
   loopback: IS_LOOPBACK,
 }));
 app.use('/api', createLandscapeRouter({ historyDir: HISTORY_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL, loopback: IS_LOOPBACK }));
@@ -556,7 +562,7 @@ async function runStartupSmoke() {
 let shutdownStarted = false;
 let shutdownExitCode = 0;
 const drainAndClose = createShutdownCoordinator({
-  stopWork: [stopConfigWatch, stopRefreshSchedule, stopDailyBriefSchedule],
+  stopWork: [stopConfigWatch, stopRefreshSchedule, stopDailyBriefSchedule, closeFeedXmlParser],
   requestDrains: [
     () => new Promise(resolve => {
       server.close(err => {
@@ -566,7 +572,7 @@ const drainAndClose = createShutdownCoordinator({
     }),
     () => briefGenerationTracker.waitForIdle(),
   ],
-  backgroundDrains: [() => bootKevWarmup, waitForRefreshIdle, waitForDailyBriefIdle],
+  backgroundDrains: [() => bootKevWarmup, waitForRefreshIdle, waitForDailyBriefIdle, closeFeedXmlParser],
   closeOutbound: closeOutboundDispatchers,
   closeStorage: closeDB,
   onError: err => log.warn('server', `Graceful shutdown cleanup failed: ${err.message}`),

@@ -1,6 +1,7 @@
-// Display composition preserves authored actions and uses only explicitly
-// reviewed summaries. Viewport measurement decides whether a response must split.
-import { executiveSummaryModel, actionDisplayModel, usableKevRecords, cleanSummary } from './wall-format.js';
+// Display composition preserves authored records and uses saved short copy.
+// The glance projection never turns a qualified procedure into an isolated task.
+import { executiveSummaryModel, executiveTargetModel, actionDisplayModel, usableKevRecords, cleanSummary } from './wall-format.js';
+import { formatDecisionWindow, judgmentCertainty } from '/vendor/brief-schema.js';
 
 export const DISPLAY_DEFAULTS = Object.freeze({ size: 'standard', margin: 'normal', speed: 'normal', playlist: 'balanced', feedSeconds: 90, holdSeconds: 0, dim: false, dimStart: 1, dimEnd: 5, maintenance: false, maintenanceHour: 4, fullscreen: true, awake: true });
 export const DISPLAY_STORAGE_KEY = 'bt-wall-display';
@@ -65,7 +66,23 @@ export function completeSourceExcerpt(value, fallback = '') {
   const sentences = typeof Intl.Segmenter === 'function'
     ? [...new Intl.Segmenter('en', { granularity: 'sentence' }).segment(text)].map(item => item.segment.trim())
     : text.split(/(?<=[.!?])\s+(?=[A-Z“"'])/);
-  return sentences.find(sentence => /[.!?][”"')\]]*$/.test(sentence) && !/(?:…|\.\.\.)[”"')\]]*$/.test(sentence)) || fallback;
+  let candidate = '';
+  for (const sentence of sentences) {
+    // Sentence segmenters can stop after "The U.S." or a person's initial.
+    // Retain those words with their continuation instead of publishing a stub.
+    if (/(?:…|\.\.\.)[”"')\]]*$/.test(sentence)) { candidate = ''; continue; }
+    candidate = [candidate, sentence].filter(Boolean).join(' ');
+    const end = candidate.replace(/[”"')\]]+$/, '');
+    const abbreviation = /(?:\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|No|Fig|Inc|Ltd|Co|Corp)\.|(?:^|\s)[A-Z]\.)$/i.test(end);
+    if (/[.!?][”"')\]]*$/.test(candidate) && !abbreviation) return candidate;
+  }
+  // An abbreviation can also legitimately end the final retained sentence.
+  // Reject only an obvious standalone abbreviation/initial stub here; do not
+  // discard "The campaign targeted organizations in the U.S." for its ending.
+  const unwrapped = candidate.replace(/^[“"'(\[]+|[”"')\]]+$/g, '');
+  const abbreviationStub = /^(?:(?:the|a|an)\s+)?(?:(?:[a-z]\.){2,}|(?:(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|No|Fig|Inc|Ltd|Co|Corp|[a-z])\.\s*)+)$/i.test(unwrapped);
+  if (/[.!?][”"')\]]*$/.test(candidate) && !abbreviationStub) return candidate;
+  return fallback;
 }
 
 export function storyActions(story) {
@@ -95,11 +112,109 @@ const articleIdentity = value => {
   catch { return ''; }
 };
 
+export function buildGlanceModel(page = {}) {
+  const text = value => typeof value === 'string' ? value : '';
+  const model = { label: text(page.block?.label) || 'Saved assessment', headline: text(page.topic),
+    summary: text(page.block?.text), summaryLabel: 'The takeaway', railLabel: 'At a glance', facts: [], related: [] };
+  const fact = (label, value) => { if (text(value).trim()) model.facts.push({ label, value: text(value).trim() }); };
+  const cve = value => /^CVE-\d{4}-\d{4,}$/i.test(text(value)) ? value.toUpperCase() : '';
+  const catalogFact = (includeEntries = true) => {
+    const ids = [...new Set([...(page.isKEV === true ? [cve(page.cve)] : []),
+      ...(includeEntries ? page.catalogEntries || [] : []).map(item => cve(item.cve))].filter(Boolean))];
+    if (ids.length) fact('CISA KEV', ids.join(' · '));
+    return ids;
+  };
+  switch (page.kind) {
+    case 'bluf':
+      model.label = 'Lead story';
+      model.headline = text(page.coverTitle) || model.headline;
+      model.summary = text(page.coverSummary) || model.summary;
+      model.railLabel = 'Also in this briefing';
+      model.related = (page.priorities || []).filter(value => text(value).trim());
+      break;
+    case 'judgment': {
+      model.label = 'Key judgment';
+      model.railLabel = 'Response brief';
+      const owners = [...new Set((page.actions || []).map(action => text(action.owner).trim()).filter(Boolean))];
+      fact('Response owners', owners.join(' · '));
+      if (text(page.decision).trim()) {
+        const window = formatDecisionWindow(page.decision);
+        fact('Decision window', `${window.display}${window.relative && text(page.editionDate) ? ` · from ${page.editionDate} briefing` : ''}`);
+      }
+      const certainty = judgmentCertainty(page.certainty);
+      fact(certainty.label, certainty.value);
+      const catalogIds = new Set(catalogFact());
+      const references = [...new Set((Array.isArray(page.cves) ? page.cves : []).map(cve)
+        .filter(id => id && !catalogIds.has(id)))];
+      fact(references.length === 1 ? 'Referenced CVE' : 'Referenced CVEs', references.join(' · '));
+      break;
+    }
+    case 'developing':
+      model.label = 'Developing situation';
+      model.summaryLabel = 'What we know';
+      model.railLabel = 'Tracking';
+      if (text(page.trajectory).trim().toLowerCase() !== 'uncertain') fact('Trajectory', page.trajectory);
+      break;
+    case 'convergence':
+      model.label = 'Analyst hypothesis';
+      model.summaryLabel = 'Possible connection';
+      model.summary = text(page.glimpseSummary) || model.summary;
+      break;
+    case 'kev':
+      model.label = 'Known exploitation';
+      model.headline = model.summary.trim() ? model.summary : text(page.productIdentity) || model.headline.replace(/: known exploitation$/, '');
+      model.summary = '';
+      model.summaryLabel = '';
+      model.railLabel = 'Catalog record';
+      fact('CVE', cve(page.cve));
+      fact('Catalog added', page.added);
+      fact('Federal civilian deadline', text(page.federalDue) ? `${page.federalDue} · FCEB scope` : '');
+      break;
+    case 'wire':
+      model.summary = page.sourceExcerpt !== undefined ? text(page.sourceExcerpt)
+        : /unavailable/i.test(text(page.block?.label)) || model.summary === 'A complete retained excerpt is unavailable.' ? '' : model.summary;
+      model.label = model.summary ? 'Source reporting' : 'Headline only';
+      model.summaryLabel = model.summary ? 'From the report' : '';
+      model.railLabel = 'Report context';
+      catalogFact(false);
+      break;
+    case 'watchlist': {
+      model.label = 'Watch for';
+      model.summaryLabel = 'Watch condition';
+      model.railLabel = 'Watch window';
+      fact('Watch validity', page.validity);
+      const normalized = model.summary.replace(/\s+/g, ' ').trim();
+      const trigger = completeSourceExcerpt(normalized);
+      // Promote only an intact opening sentence. Later qualifications remain
+      // visible, and excerpts that skip or rewrite the beginning cannot move.
+      if (trigger && wordCount(trigger) <= 40 && normalized.startsWith(trigger)) {
+        model.headline = trigger;
+        model.summary = normalized.slice(trigger.length).trim();
+        model.summaryLabel = model.summary ? 'Context' : '';
+      }
+      break;
+    }
+    case 'execsummary': {
+      model.label = 'Executive summary';
+      const target = executiveTargetModel(page.timing);
+      fact(target.label, target.value);
+      if (model.summary.trim() && wordCount(model.summary) <= 20) {
+        model.label = ['Executive summary', model.headline].filter(Boolean).join(' · ');
+        model.headline = model.summary;
+        model.summary = '';
+        model.summaryLabel = '';
+      }
+      break;
+    }
+  }
+  return model;
+}
+
 export function presentationReadingText(page) {
-  return [page.topic, page.coverTitle, ...(page.priorities || []), page.block?.text, page.condition, page.timing, page.federalDue,
-    ...(page.actions || []).flatMap(action => [action.owner, action.imperative || action.text, action.target,
-      action.condition, action.dependencies, action.initiationTrigger, action.evidence, action.completionCriterion, action.recoverySteps])]
-    .filter(Boolean).join(' ');
+  const model = buildGlanceModel(page);
+  return [model.label, model.headline, ...(model.summary ? [model.summaryLabel, model.summary] : []),
+    ...(model.facts.length > 1 || model.related.length ? [model.railLabel] : []),
+    ...model.facts.flatMap(item => [item.label, item.value]), ...model.related].filter(Boolean).join(' ');
 }
 
 // Called only after the complete topic has failed its actual viewport fit.
@@ -107,7 +222,7 @@ export function presentationReadingText(page) {
 export function splitResponsePage(page) {
   if (!page.actions || page.actions.length < 2) return [page];
   return page.actions.map((action, part) => ({ ...page, actions: [action], part, parts: page.actions.length,
-    block: { ...page.block, label: action.owner || 'Owned response' } }));
+    block: { ...page.block, label: 'Recommended response' } }));
 }
 export const pageKey = page => page.key || `${page.kind}:${page.idx ?? ''}:${page.part ?? ''}`;
 export const topicKey = page => page?.bundle || `${page?.kind}:${page?.idx ?? ''}`;
@@ -128,6 +243,34 @@ export function readerFragment(page, anchors = {}) {
   return id ? `#${id}` : '';
 }
 
+// Plain dated references have no saved URL. Move a complete terminal citation
+// run only; a mixed or ambiguous tail stays in the authored explanation.
+export function splitDevelopingSourceTail(value, citations = []) {
+  const text = String(value || '');
+  const saved = Array.isArray(citations) ? citations : [];
+  const reference = token => {
+    const plain = /^\[([^\[\],\r\n]{1,120}), (\d{4}-\d{2}-\d{2})\]$/.exec(token);
+    if (plain) {
+      const date = new Date(`${plain[2]}T00:00:00Z`);
+      if (/^[\p{L}\p{N}][\p{L}\p{N} &'’()./+:-]*$/u.test(plain[1])
+        && Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === plain[2]) {
+        return { label: `${plain[1]}, ${plain[2]}`, url: '' };
+      }
+      return null;
+    }
+    return saved.find(item => item.label === token) || null;
+  };
+  for (const boundary of text.matchAll(/[.!?]["'”’)]{0,2}\s+/g)) {
+    const start = boundary.index + boundary[0].length;
+    const sources = text.slice(start).trim().split(/\s+·\s+/).map(reference);
+    if (!sources.length || sources.some(item => !item)) continue;
+    const combined = [...sources, ...saved];
+    return { text: text.slice(0, start).trimEnd(), citations: combined.filter((item, index) =>
+      combined.findIndex(other => other.label === item.label && other.url === item.url) === index) };
+  }
+  return { text, citations: saved };
+}
+
 export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAULTS, { briefLoadError = false } = {}) {
   const pages = [];
   if (doc && !isEligibleWallEdition(doc)) { pages.push({ kind: 'briefexcluded' }); doc = null; }
@@ -139,8 +282,11 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
   const presentation = doc?.review?.presentation?.status === 'reviewed' ? doc.review.presentation : null;
   if (briefLoadError) pages.push({ kind: 'brieferror' });
   if (doc && settings.playlist !== 'updates') {
+    const lead = doc.stories?.[0];
+    const editedLead = presentation?.judgments?.find(item => item.index === 0 && item.originalTitle === lead?.title);
     add('bluf', 0, 'Shift assessment', [{ text: presentation?.bluf || doc.bluf }], {
-      coverTitle: presentation?.judgments?.find(item => item.index === 0 && item.originalTitle === doc.stories?.[0]?.title)?.title || doc.stories?.[0]?.title || 'Shift assessment',
+      coverTitle: editedLead?.title || lead?.title || 'Shift assessment',
+      coverSummary: editedLead?.summary || lead?.line || presentation?.bluf || doc.bluf,
       priorities: (doc.stories || []).slice(1, 4).map(story => story.title),
     });
     // The primary cycle features the complete judgment response. Executive
@@ -156,7 +302,7 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
       const edited = presentation?.judgments?.find(item => item.index === idx && item.originalTitle === story.title);
       const context = edited?.summary || story.line || story.assessment || '';
       pages.push({ kind: 'judgment', idx, topic: edited?.title || story.title, bundle: story.id || `judgment:${idx}`, part: 0, parts: 1,
-        block: { label: 'Assessment', text: context }, actions, actionCount: actions.length,
+        block: { label: 'Recommended response', text: context }, actions, actionCount: actions.length,
         decision: story.decision, editionDate: doc.date, certainty: story.confidence, citations: story.citations,
         isKEV: story.isKEV, cve: story.kevCVE, cves: topicCves(story),
         coveredReports: edited?.coveredReports || [],
@@ -165,6 +311,7 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
     (doc.convergence || []).forEach((item, idx) => {
       pages.push({ kind: 'convergence', idx, topic: item.title, bundle: `convergence:${idx}`, part: 0, parts: 1,
         block: { label: 'Hypothesis', text: item.cascade || item.intersection || '' }, condition: item.confirmation,
+        glimpseSummary: item.intersection || item.cascade || '',
         actions: item.move ? [{ owner: item.moveVerb || 'Recommended move', imperative: item.move, text: item.move }] : [], citations: item.citations,
       });
     });
@@ -172,13 +319,25 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
   if (doc && settings.playlist !== 'assessment') {
     (doc.developing || []).forEach((item, idx) => {
       const edited = presentation?.developing?.find(entry => entry.index === idx && entry.originalTitle === item.name);
+      const detail = String(item.trajectoryDetail || '');
+      const prefix = /^\s*([A-Za-z]+)\s*[—–]\s*/.exec(detail);
+      // Move only the repeated state into its labeled field. Keep the entire
+      // explanation, unrecognized prose, and any approved display summary.
+      const explanation = item.trajectory && prefix?.[1].toLowerCase() === item.trajectory.toLowerCase()
+        ? detail.slice(prefix[0].length).replace(/^(a|an|the)(?=\s)/, article => article[0].toUpperCase() + article.slice(1)) : detail;
+      const display = splitDevelopingSourceTail(explanation, item.citations);
       add('developing', idx, edited?.title || item.name, [
-        { label: item.trajectory || 'Tracking', text: edited?.summary || item.trajectoryDetail || item.watch },
-      ], { condition: edited?.condition || item.watch, citations: item.citations });
+        { label: 'Developing situation', text: edited?.summary || display.text || item.watch },
+      ], { trajectory: item.trajectory || '', condition: edited?.condition || item.watch, citations: display.citations });
     });
     // Watchlist conditions remain completely available inside Wall. They join
     // the unattended loop only in the explicitly selected updates playlist.
-    if (settings.playlist === 'updates') (doc.watchlist || []).forEach((text, idx) => add('watchlist', idx, 'Watch condition', [{ label: 'Escalation condition', text }], { validity: doc.watchlistMetadata?.validityText }));
+    if (settings.playlist === 'updates') {
+      const entries = doc.watchlistEntries?.length ? doc.watchlistEntries : (doc.watchlist || []).map(text => ({ text }));
+      entries.forEach((item, idx) => add('watchlist', idx, 'Watch condition', [{ label: 'Escalation condition', text: item.text }], {
+        validity: doc.watchlistMetadata?.validityText, citations: item.citations || [],
+      }));
+    }
   }
   // KEV and Wire remain in all playlists. Cadence below also interjects them
   // while a long assessment is being read; freshness is still a separate label.
@@ -195,10 +354,16 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
   const briefTime = Date.parse(doc?.generatedAt || doc?.date || '');
   const selectedKev = catalog.filter(item => !featuredCves.has(item.cve)
     || (Number.isFinite(briefTime) && Date.parse(item.dateAdded) > briefTime)).slice(0, 3);
-  selectedKev.forEach((item, idx) => add('kev', idx, `${item.product || item.vendor || 'Product'}: known exploitation`, [
-    { label: 'Exploitation confirmed by CISA', text: item.name || `${item.vendor || ''} ${item.product || ''}` },
-  ], { vendor: item.vendor, cve: item.cve, added: item.dateAdded, federalDue: item.dueDate,
-    condition: item.requiredAction || 'Check affected versions and deployment. Apply the vendor mitigation or fix where applicable.' }));
+  selectedKev.forEach((item, idx) => {
+    const vendor = String(item.vendor || '').trim(), product = String(item.product || '').trim();
+    const vendorPattern = vendor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const includesVendor = vendor && new RegExp(`(?:^|[^a-z0-9])${vendorPattern}(?:$|[^a-z0-9])`, 'i').test(product);
+    const identity = (includesVendor ? product : [vendor, product].filter(Boolean).join(' ')) || 'Product';
+    add('kev', idx, `${identity}: known exploitation`, [
+      { label: 'Exploitation confirmed by CISA', text: item.name || identity },
+    ], { productIdentity: identity, vendor: item.vendor, cve: item.cve, added: item.dateAdded, federalDue: item.dueDate,
+      condition: item.requiredAction || 'Check affected versions and deployment. Apply the vendor mitigation or fix where applicable.' });
+  });
   const catalogCves = new Set(selectedKev.map(item => item.cve));
   const seenArticles = new Set(), seenCves = new Set();
   const signals = (landscape?.signals || []).filter(item => {
@@ -220,8 +385,8 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
   signals.forEach((item, idx) => {
     const excerpt = completeSourceExcerpt(item.displayExcerpt || item.description);
     add('wire', idx, item.editorialContext?.title || item.title, [
-      { label: excerpt ? 'Retained reporting · excerpt' : 'Reporting headline · complete excerpt unavailable', text: excerpt || item.title },
-    ], { source: item.source, sourceUrl: item.link, sourceDate: item.date, cve: item.kevCVE, signalKey: item.link || item.title, isKEV: item.isKEV, selectionIndex: idx + 1, selectionCount: signals.length });
+      { label: excerpt ? 'Retained reporting · excerpt' : 'Reporting headline · complete excerpt unavailable', text: excerpt || 'A complete retained excerpt is unavailable.' },
+    ], { sourceExcerpt: excerpt, source: item.source, sourceUrl: item.link, sourceDate: item.date, cve: item.kevCVE, signalKey: item.link || item.title, isKEV: item.isKEV, selectionIndex: idx + 1, selectionCount: signals.length });
   });
   return pages.length ? pages : [{ kind: 'empty' }];
 }

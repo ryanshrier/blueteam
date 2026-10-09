@@ -154,6 +154,7 @@ export async function startGeneration() {
           model: data.model || null, costUsd: data.costUsd ?? null,
           inputManifest: data.inputManifest || null, warnings: data.validation?.warnings || [],
           disposition: data.disposition || null,
+          presentation: data.presentation || null,
           sourceCheckStatus: data.sourceCheckStatus || 'unavailable',
           editorialReviewStatus: data.editorialReviewStatus || 'not-reviewed',
           wordCount: text.trim().split(/\s+/).filter(Boolean).length,

@@ -83,7 +83,8 @@ describe('startGeneration completion boundary', () => {
     { disposition: { status: 'review-required', eligibleForLatest: false, reason: 'A material editorial finding remains.' },
       sourceCheckStatus: 'passed-supported-checks', editorialReviewStatus: 'not-reviewed' },
     { disposition: { status: 'eligible', eligibleForLatest: true, editorialReviewStatus: 'reviewed' },
-      sourceCheckStatus: 'unavailable', editorialReviewStatus: 'reviewed' },
+      sourceCheckStatus: 'unavailable', editorialReviewStatus: 'reviewed',
+      presentation: { schemaVersion:1, revision:'saved-copy', copy:{kind:'published',contentSha256:'current'}, currentChecks:{status:'checked',issues:[],warnings:[]}, history:[], approval:{status:'recorded',scope:'security-control-change'}, operationalNotes:[] } },
   ])('completion preserves $disposition.status and distinct source/editorial check states in store and event', async metadata => {
     const text = 'Saved briefing with an explicit publication disposition. '.repeat(4);
     const filename = 'brief-2026-09-06-02.md';

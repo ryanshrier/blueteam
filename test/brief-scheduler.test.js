@@ -47,6 +47,25 @@ describe('dailyBriefDelay', () => {
 });
 
 describe('startDailyBriefSchedule', () => {
+  test('a retained draft stops same-day retries across restart and permits the next daily edition', async () => {
+    const callbacks = [];
+    const state = stateHarness();
+    let clock = new Date('2026-09-05T08:00:00Z');
+    const generateBrief = jest.fn().mockResolvedValueOnce({ awaitingReview: true, draftId: 'saved-draft' }).mockResolvedValue({ filename: 'brief-2026-09-06-00.md' });
+    const options = { generateBrief, getScheduleConfig: () => ({ ...ENABLED, timezone: 'UTC' }), now: () => clock,
+      getState: state.getState, setState: state.setState, getLegacyLastSuccessDate: () => null, setLegacyLastSuccessDate: () => {},
+      setTimeoutFn: (fn, ms) => { callbacks.push({ fn, ms }); return callbacks.length; }, clearTimeoutFn: () => {}, logger: { info: jest.fn(), error: jest.fn() } };
+    startDailyBriefSchedule(options);
+    await callbacks[0].fn();
+    expect(state.state).toMatchObject({ outcome: 'awaiting-review', draftId: 'saved-draft', attempts: 1, nextEditionDate: '2026-09-06', nextAttemptAt: '2026-09-06T05:00:00.000Z' });
+    startDailyBriefSchedule(options);
+    expect(callbacks.at(-1).ms).toBe(21 * 60 * 60_000);
+    expect(generateBrief).toHaveBeenCalledTimes(1);
+    clock = new Date('2026-09-06T05:00:00Z');
+    await callbacks.at(-1).fn();
+    expect(generateBrief.mock.calls[1][0].editionDate).toBe('2026-09-06');
+    expect(state.state).toMatchObject({ outcome: 'success', draftId: null, lastSuccessDate: '2026-09-06' });
+  });
   test('shutdown drains the completed edition ledger and legacy marker without rearming timers', async () => {
     const callbacks = [];
     const state = stateHarness();
@@ -441,6 +460,11 @@ describe('startDailyBriefSchedule', () => {
 });
 
 describe('requestBriefGeneration', () => {
+  test('a retained review draft is a terminal unpaid-next-step result even when the stream contains a validation error', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue({ ok: true, status: 200,
+      text: async () => 'data: {"awaitingReview":true,"draftArtifact":{"id":"saved-draft"},"error":"Review needed"}\n\ndata: [DONE]\n\n' });
+    await expect(requestBriefGeneration({ baseUrl: 'http://local', fetchImpl })).resolves.toEqual({ awaitingReview: true, draftId: 'saved-draft' });
+  });
   test('requires the explicit SSE completion event and returns its filename', async () => {
     const fetchImpl = jest.fn().mockResolvedValue({
       ok: true,

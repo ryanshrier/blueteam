@@ -63,8 +63,8 @@ describe('reviewed source bindings against actual retained Magento evidence', ()
     expect(html).toContain('Reviewed judgment 7');
     expect(html).toContain('Cited in reviewed judgments only');
     expect(html).toContain('/briefing/brief-2026-09-06-02.md#judgment-7');
-    expect(html).toContain('Original generation bindings remain in the unchanged saved-input download');
-    expect(html).not.toContain('Original judgment 7');
+    expect(html).toContain('The archived published copy’s bindings remain in the saved-input download');
+    expect(html).not.toContain('Published judgment 7');
     expect(data.judgmentEvidence).toEqual([{ signal:1, sourceIds:['S11.1'] }]);
   });
 
@@ -96,10 +96,10 @@ describe('reviewed source bindings against actual retained Magento evidence', ()
     expect(JSON.stringify(data)).toBe(before);
   });
 
-  test('retains original binding semantics when the review has no mapping, and an explicit empty mapping stays empty', () => {
+  test('retains published-copy bindings when the review has no mapping, and an explicit empty mapping stays empty', () => {
     const data = { ...retained, judgmentEvidence:[{ signal:1, sourceIds:['S11.1'] }] };
     expect(receiptSources(data).find(item => item.id === 'S11.1').judgments).toEqual([1]);
-    expect(inputReceiptHtml(data)).toContain('Original judgment 1');
+    expect(inputReceiptHtml(data)).toContain('Published judgment 1');
     expect(receiptSources({ ...data, review:{ evidenceBindings:[] } }).every(item => item.judgments.length === 0)).toBe(true);
   });
 

@@ -5,6 +5,7 @@
 import { formatDecisionWindow, judgmentCertainty } from '/vendor/brief-schema.js';
 import { TIER_NAMES } from '../core/tiers.js';
 import { assessmentSources, renderAssessmentMeta } from '../core/assessment-meta.js';
+import { formatEventTime } from '../core/brief-date.js';
 import { structureExecutiveSummary } from './brief-executive.js';
 import { actionRoleHtml } from './brief-action.js';
 
@@ -34,24 +35,76 @@ export function judgmentTopic(text) {
   return String(text || '').replace(/^Signal\s+\d+\s*[—–-]\s*/i, '').replace(/^\[Horizon\s+\d+\]\s*/i, '').split(/:\s|\s[—–]\s/)[0].trim();
 }
 
+/** Identifies a generated finding, never an authored paragraph. The same
+ * message at a different source location remains a separate finding. */
+export function readerIssueIdentity(issue) {
+  return JSON.stringify([issue?.code || '', issue?.location?.scope || '', issue?.location?.line || null, issue?.message || '']);
+}
+
+/** Current material findings only. Publication consequence and reader relevance
+ * are separate; unknown/editorial diagnostics remain in the edition record. */
+export function readerPresentationIssues(presentation, { signal, sourceContent = '' } = {}) {
+  const issues = presentation?.currentChecks?.issues;
+  if (!Array.isArray(issues)) return [];
+  const lines = String(sourceContent).split('\n');
+  const selected = Number.isSafeInteger(signal) && signal > 0;
+  const seen = new Set();
+  return issues.filter(issue => {
+    if (!issue || !(issue.audience === 'reader' || ['block', 'review'].includes(issue.consequence))) return false;
+    if (selected && issue.location?.scope !== 'document') {
+      let locatedSignal = issue.signal;
+      const line = issue.location?.line;
+      if (sourceContent && Number.isSafeInteger(line) && line > 0 && line <= lines.length) {
+        const heading = lines.slice(0, line).findLast(value => /^#{2,3}\s/.test(value));
+        locatedSignal = Number(/^###\s+Signal\s+(\d+)\b/i.exec(heading || '')?.[1]) || null;
+      } else if (!locatedSignal) locatedSignal = Number(/\bSignal\s+(\d+)\b/i.exec(issue.message || '')?.[1]) || null;
+      if (locatedSignal !== signal) return false;
+    }
+    if (!issue.message) return false;
+    const key = readerIssueIdentity(issue);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map(issue => issue.code === 'SECURITY_CONTROL_CHANGE' ? { ...issue,
+    acknowledged: issue.acknowledged === true && presentation.approval?.status === 'recorded'
+      && presentation.approval.scope === 'security-control-change',
+  } : issue);
+}
+
+export function readerIssueText(issue) {
+  return issue.acknowledged && issue.code === 'SECURITY_CONTROL_CHANGE'
+    ? `Reviewed control exception: ${issue.location?.excerpt || issue.message}` : issue.message;
+}
+
+export function scopedApprovalText(presentation) {
+  const approval = presentation?.approval;
+  if (approval?.status !== 'recorded' || !['security-control-change', 'publication-disposition'].includes(approval.scope)) return '';
+  const label = approval.scope === 'security-control-change' ? 'Specific security-control change reviewed' : 'Publication disposition recorded';
+  return [label, approval.reviewer, approval.reviewedAt].filter(Boolean).join(' · ');
+}
+
 /** Plain-text handoff from a saved judgment. Keep the authored action intact:
  * its owner and target may be embedded in prose and must not be guessed. */
-export function decisionCopyText({ title = '', action = '', recommendations = [], decisionWindow = '', certainty = '', sources = [], editionUrl = '', editionLabel = '', disposition, review, warnings = [], sourceCheckStatus = '', editorialReviewStatus = '' } = {}) {
+export function decisionCopyText({ title = '', action = '', recommendations = [], decisionWindow = '', certainty = '', sources = [], editionUrl = '', editionLabel = '', disposition, review, presentation, signal, sourceContent = '' } = {}) {
   const actions = recommendations.filter(value => typeof value === 'string' && value.trim());
   if ((!String(action).trim() && !actions.length) || !/^https?:\/\//i.test(editionUrl)) return '';
   const lines = [title ? `Decision — ${title}` : 'Decision', ''];
-  if (disposition && ['review-required', 'superseded'].includes(disposition.status)) {
-    lines.push(disposition.status === 'superseded' ? 'WARNING: Superseded edition.' : 'WARNING: Editorial review required.');
+  if (disposition && (['review-required', 'superseded'].includes(disposition.status) || disposition.eligibleForLatest === false)) {
+    lines.push(disposition.status === 'superseded' ? 'Superseded edition.' : 'Publication held.');
     if (disposition.reason) lines.push(disposition.reason);
     if (disposition.replacementFilename) lines.push(`Replacement edition: ${disposition.replacementFilename}`);
   }
   if (review?.status === 'editorially-corrected') {
-    lines.push(`Editorially corrected reading copy${review.reviewer ? ` · ${review.reviewer}` : ''}${review.reviewedAt ? ` · ${review.reviewedAt}` : ''}.`);
-    if (review.scope) lines.push(review.scope);
+    lines.push(`Corrected${review.reviewedAt ? ` ${formatEventTime(review.reviewedAt)}` : ''} · See changes: ${editionUrl.split('#')[0]}#edition-record`);
   } else if (review) lines.push(`WARNING: ${review.message || 'Editorial review unavailable; original text displayed.'}`);
-  if (sourceCheckStatus) lines.push(`Source checks: ${sourceCheckStatus}.`);
-  if (editorialReviewStatus) lines.push(`Editorial review: ${editorialReviewStatus}.`);
-  if (Array.isArray(warnings) && warnings.length) lines.push('Source-check notes:', ...warnings.map(warning => `- ${typeof warning === 'string' ? warning : warning.message || 'Review required.'}`));
+  const findings = Number.isSafeInteger(signal) && signal > 0 ? readerPresentationIssues(presentation, { signal, sourceContent }) : [];
+  if (findings.length) lines.push('This assessment:', ...findings.map(issue => `- ${readerIssueText(issue)}`));
+  // A scoped control approval does not imply a review of every claim. Include
+  // it only when this copied judgment contains the acknowledged exception.
+  if (findings.some(issue => issue.code === 'SECURITY_CONTROL_CHANGE' && issue.acknowledged)) {
+    const approval = scopedApprovalText(presentation);
+    if (approval) lines.push(approval);
+  }
   if (lines.length > 2) lines.push('');
   if (action) lines.push(`Act now: ${action}`);
   if (actions.length) lines.push('Recommended actions:', ...actions.map(value => `- ${value}`));
@@ -65,7 +118,9 @@ export function decisionCopyText({ title = '', action = '', recommendations = []
   });
   if (cited.length) lines.push('', 'Cited sources:', ...cited.map(source => `${source.label || source.href}: ${source.href}`));
   lines.push('', editionLabel || 'Saved Briefing edition', editionUrl,
-    'AI-generated from sourced signals. Verify the cited evidence before acting.');
+    `Edition record: ${editionUrl.split('#')[0]}#edition-record`,
+    presentation?.copy?.kind === 'operator-repaired' || review?.status === 'editorially-corrected'
+      ? 'AI-generated draft with subsequent edits.' : 'AI-generated from sourced signals.');
   return lines.join('\n');
 }
 
@@ -388,14 +443,36 @@ export function applySemanticStyling(container, { decisionControls = false } = {
     }
   }
 
-  // 2. Horizon tags
-  container.querySelectorAll('p, h3, strong, li').forEach(el => {
-    if (el.innerHTML.includes('[Horizon')) {
-      el.innerHTML = el.innerHTML.replace(/\[Horizon (\d)\]/g, (_, n) =>
-        `<span class="c-chip h${n}" data-horizon="${n}" aria-label="Analytic tier ${n}: ${briefTierLabel(n)}">${briefTierLabel(n)}</span>`
-      );
+  // 2. Horizon tags. Only transform text nodes: rewriting serialized HTML also
+  // matches sanitized href/title values and breaks their attribute boundaries.
+  // Snapshot the nodes first so nested strong/li/p elements are processed once.
+  const doc = container.ownerDocument;
+  const walker = doc.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const horizonText = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.data.includes('[Horizon') && node.parentElement?.closest('p, h3, strong, li')
+      && !node.parentElement.closest('code, pre')) horizonText.push(node);
+  }
+  for (const node of horizonText) {
+    const matches = [...node.data.matchAll(/\[Horizon (\d)\]/g)];
+    if (!matches.length) continue;
+    const fragment = doc.createDocumentFragment();
+    let offset = 0;
+    for (const match of matches) {
+      fragment.append(doc.createTextNode(node.data.slice(offset, match.index)));
+      const chip = doc.createElement('span');
+      const tier = match[1];
+      chip.className = `c-chip h${tier}`;
+      chip.dataset.horizon = tier;
+      chip.setAttribute('aria-label', `Analytic tier ${tier}: ${briefTierLabel(tier)}`);
+      chip.textContent = briefTierLabel(tier);
+      fragment.append(chip);
+      offset = match.index + match[0].length;
     }
-  });
+    fragment.append(doc.createTextNode(node.data.slice(offset)));
+    node.replaceWith(fragment);
+  }
 
   // 2b. Judgment metadata bar — lift the Decision window into a
   // compact visual line under each signal heading. Legacy briefs may still carry

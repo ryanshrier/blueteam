@@ -42,6 +42,40 @@ The application sends no product telemetry. Outbound requests go to configured t
 
 **Custom (local module) is experimental; its contract may change.** `AI_PROVIDER_MODULE` loads trusted operator-supplied code into the server process. Modules run with the server account's permissions, receive its environment, and are not sandboxed. Their credentials are configured in the environment, never through the Settings key fields. Only install code you trust; the application's fetch protections do not restrict arbitrary module networking or file access. The optional health hook can perform module-defined work, although the application's status check never invokes generation.
 
+## AI-generated content and untrusted sources
+
+Feed and article text is untrusted data. Source fencing and provider instructions
+reduce prompt-injection risk but cannot eliminate it. The built-in generation
+clients have no model-controlled tools, shell, or file access; provider keys are
+transport credentials, not prompt content. Configured organization context is
+sent to the selected provider, so keep secrets out of that context.
+
+Generated live citations must match a captured complete HTTP(S) destination,
+including query parameters and fragments. Credentials and hidden control
+characters in source URLs are rejected. The lossy URL key used to group stories
+does not authorize links. HTML sanitization and draft-link removal remain
+separate output boundaries.
+
+Bounded checks flag explicit recommendations to weaken named security controls
+or remove audit evidence, including selected command forms. These editions are
+retained with `SECURITY_CONTROL_CHANGE` findings and require approval of the exact
+reading copy before default Latest, Wall, RSS, continuity, or completion-webhook
+eligibility. Approval does not erase findings or replay a completion webhook.
+This is a review tripwire, not a semantic safety check: paraphrases, other
+languages, and other harmful advice can escape it. Review recommendations against
+the original source and local conditions before taking action. Existing archives
+are not silently rewritten or comprehensively re-audited by an upgrade.
+
+RSS/Atom XML parsing runs in one isolated worker at a time with a five-second
+deadline, bounded queue, V8 heap limits, and structural limits. These constrain
+hostile-feed resource use; the heap limit is not a total process-memory limit.
+Parse failures retain the existing stale-cache/failure reporting behavior.
+
+`npm run check:security:render` exercises the actual sanitizer, Markdown renderer,
+and subsequent DOM transformations in a browser with external requests blocked.
+The regression corpus is bounded and does not establish that all XSS or prompt
+injection attacks are impossible.
+
 ## Scope
 
 Examples of issues that are in scope:
@@ -77,6 +111,12 @@ If the correct classification is unclear, report privately.
 - Monitor process logs and authenticated `/api/ready` details for persistent failures.
 
 Built-in provider keys saved through Settings are stored in plaintext at `data/settings.local.json`. They are masked in API responses and common credentials are redacted from logs, but those controls do not protect against local file access. Prefer environment or service-manager secret injection when disk access is in the threat model. Experimental Custom modules use environment credentials; keep secrets out of their errors, health responses, and generated text.
+
+Keep credentials out of troubleshooting snapshots and review artifacts. If an
+operator backup does not need to restore credentials, omit saved provider keys
+and re-enter them after restoration. Protect any backup that does contain keys
+with the same access restrictions as the live settings; gitignore is not an
+access-control mechanism. Rotate credentials if such a copy was exposed.
 
 On POSIX systems the application requests mode `0700` for state directories and `0600` for sensitive state files. Windows uses the service account's filesystem ACLs. These are defense-in-depth defaults, not encryption.
 

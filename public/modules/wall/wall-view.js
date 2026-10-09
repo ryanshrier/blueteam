@@ -28,9 +28,9 @@ import {
   executiveSummaryModel, executiveTargetModel,
 } from './wall-format.js';
 import { renderKevSection } from './wall-kev.js';
-import { buildPresentationPages, loadDisplaySettings, displayDwellMs, presentationReadingText, splitResponsePage, pageKey, topicKey, topicLabel, readerFragment, inDimWindow, storyActions, isEligibleWallEdition } from './wall-presentation.js';
+import { buildPresentationPages, buildGlanceModel, loadDisplaySettings, displayDwellMs, presentationReadingText, pageKey, topicKey, topicLabel, readerFragment, inDimWindow, storyActions, isEligibleWallEdition } from './wall-presentation.js';
 import { mountWallBrowser } from './wall-browser.js';
-import { mountWallActions, wallActionHtml } from './wall-actions.js';
+import { mountWallActions, wallActionHtml, wallEditionRecordHtml } from './wall-actions.js';
 // The broadsheet's terse region labels (its own editorial shortening — the pack's
 // entities.regions carry the longer "Russia-attributed" attribution form used in
 // the leaderboard). These stay authoritative for cyber's keys; the active pack's
@@ -81,7 +81,6 @@ let landscape = null;
 let newsPage = 0;
 let newsTimer = null;      // self-scheduling per-kind page-advance timer
 let newsPages = [];        // current rotation of broadsheet sections
-const measuredResponses = new Map();
 let paused = false;        // operator-held rotation (Space); auto-advance frozen while set
 let keyHandler = null;     // non-kiosk manual-advance/pause keydown, bound on mount, removed on unmount
 let briefDoc = null;       // { bluf, execSummary[], stories[], developing[], convergence[], watchlist[], date }
@@ -199,7 +198,6 @@ export function unmount() {
   lastBoardWord = '';   // re-announce board status fresh on a remount
   newsPage = 0;
   newsPages = [];
-  measuredResponses.clear();
   briefDoc = null;
   briefDocFile = null;
   briefCheckedAt = 0;
@@ -324,22 +322,36 @@ async function checkKioskSelfReload() {
 // bundle. Full reading controls exist only on the explicit reading route.
 // ══════════════════════════════════════════════════════════
 
-export function wallScaleForWidth(width) {
-  return Number.isFinite(width) && width >= 2200 ? width / 1920 : 1;
+export function wallScaleForViewport(width, height) {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return 1;
+  // A wide desktop is not a taller TV. Both dimensions must support a larger
+  // reading scale, otherwise ultrawides lose most of their usable line height.
+  return Math.max(1, Math.min(width / 1920, height / 1080));
 }
 
 function syncWallScale() {
   const wall = document.querySelector('.news-mode');
   if (wall) {
-    const scale = isPresentation() ? wallScaleForWidth(window.innerWidth) : 1;
+    const width = window.innerWidth || 1920;
+    const height = window.innerHeight || 1080;
+    const scale = isPresentation() ? wallScaleForViewport(width, height) : 1;
+    const layoutWidth = width / scale;
+    const layoutHeight = height / scale;
     wall.style.zoom = String(scale);
     wall.dataset.displaySize = displaySettings.size;
     wall.dataset.displayMargin = displaySettings.margin;
+    wall.dataset.displayDensity = layoutHeight <= 850 ? 'compact' : 'normal';
+    wall.dataset.displayLayout = layoutWidth <= 1000 ? 'narrow' : 'wide';
+    // Viewport units remain tied to the browser viewport under CSS zoom. Keep
+    // cover type at the logical TV reference size while the frame uses all of
+    // an ultrawide viewport's space inside the selected safe margins.
+    wall.style.setProperty?.('--nb-layout-width', `${Math.min(layoutWidth, 1920)}px`);
+    wall.style.setProperty?.('--nb-layout-height', `${layoutHeight}px`);
     const margin = { normal: .02, safe: .04, wide: .06 }[displaySettings.margin] || .02;
     // Resolve safe margins before CSS zoom so a 4% setting remains 4% of the
     // physical browser viewport at 1080p and native 4K alike.
-    wall.style.setProperty?.('--nb-safe-padding-x', `${(window.innerWidth || 1920) / scale * margin}px`);
-    wall.style.setProperty?.('--nb-safe-padding-y', `${(window.innerHeight || 1080) / scale * margin}px`);
+    wall.style.setProperty?.('--nb-safe-padding-x', `${layoutWidth * margin}px`);
+    wall.style.setProperty?.('--nb-safe-padding-y', `${layoutHeight * margin}px`);
   }
 }
 
@@ -399,7 +411,7 @@ function mountNews(layer) {
           </div>
           <span class="nb-controls-hint" id="nbControlsHint">←/→ continue · Space pause/resume · Esc exit</span>
         </nav>
-      </footer>` : `<footer class="nb-display-footer"><div class="nb-footer-source"><span id="nbTopicPosition"></span><span id="nbSource"></span></div><div class="nb-brief-stamp" id="nbBriefStamp"></div></footer>`}
+      </footer>` : `<footer class="nb-display-footer"><div class="nb-footer-source"><span id="nbTopicPosition"></span><span id="nbSource"></span></div><a id="nbOpen" class="nb-display-reader" href="/wire">Read full context →</a><div class="nb-brief-stamp" id="nbBriefStamp"></div></footer>`}
     </div>
   `;
 
@@ -588,12 +600,17 @@ function ensureBrief() {
     }
     briefExcluded = false;
     const readingCopy = d.reviewedContent || d.content || '';
-    const unchanged = hadThisEdition && priorDoc?.readingCopy === readingCopy && priorDoc?.review?.id === d.review?.id && priorDoc?.review?.status === d.review?.status
-      && priorDoc?.review?.presentation?.reviewedAt === d.review?.presentation?.reviewedAt;
+    const unchanged = hadThisEdition && priorDoc?.readingCopy === readingCopy;
     briefDoc = parseBrief(readingCopy, {
       verifiedKevCves: d.inputManifest?.verification?.selectedKevCves,
     });
-    briefDoc.warnings = Array.isArray(d.meta?.warnings) ? [...d.meta.warnings] : [];
+    const currentWarnings = d.presentation?.currentChecks?.warnings
+      ?? (d.review?.status === 'editorially-corrected' ? d.readingChecks?.warnings : d.meta?.warnings);
+    briefDoc.warnings = Array.isArray(currentWarnings) ? [...currentWarnings] : [];
+    briefDoc.originalWarnings = d.presentation
+      ? (d.presentation.history || []).filter(record => ['original-publication', 'original-generation'].includes(record.kind)).flatMap(record => record.warnings || [])
+      : d.review?.status === 'editorially-corrected' && Array.isArray(d.meta?.warnings) ? [...d.meta.warnings] : [];
+    briefDoc.presentation = d.presentation || null;
     briefDoc.readingCopy = readingCopy;
     briefDoc.anchors = briefSectionAnchors(d.reviewedContent || d.content || '');
     briefDoc.review = d.review || null;
@@ -604,6 +621,16 @@ function ensureBrief() {
     // Only persisted publication metadata proves a generation instant. The
     // archive's generatedAt fallback can be a copied legacy file's mtime.
     briefDoc.generatedAt = archivePublishedAt(d);
+    // Refresh the record for the exact held text without replacing the body,
+    // resetting scroll, or restarting its dwell. New text remains held until
+    // navigation; an ineligible edition was already removed above.
+    if (displayedPage?.briefFile === f && displayedPage.readingCopy === readingCopy) {
+      displayedPage.briefWarnings = [...briefDoc.warnings];
+      displayedPage.originalWarnings = [...briefDoc.originalWarnings];
+      displayedPage.review = briefDoc.review;
+      displayedPage.document = briefDoc;
+      reflectPageMetadata();
+    }
     availablePages = buildPages();
     briefingReady = !isPresentation() && !!displayedPage && (displayedPage.briefFile !== f || displayedPage.review?.id !== briefDoc.review?.id || displayedPage.review?.status !== briefDoc.review?.status
       || (BRIEF_KINDS.has(displayedPage.kind) && displayedPage.readingCopy !== readingCopy));
@@ -657,7 +684,7 @@ function buildPages() {
   if (isPresentation()) {
     const pages = buildPresentationPages(briefDoc, landscape, displaySettings, { briefLoadError });
     if (briefExcluded) pages.unshift({ kind: 'briefexcluded' });
-    return pages.flatMap(page => measuredResponses.get(topicKey(page)) === JSON.stringify(page) ? splitResponsePage(page) : [page]);
+    return pages;
   }
   const pages = buildPagesPure(briefDoc, landscape, { briefLoadError, judgMax: Infinity, convMax: Infinity });
   if (briefExcluded) pages.unshift({ kind: 'briefexcluded' });
@@ -721,6 +748,7 @@ function renderPageUnsafe(lastPart, preservePosition) {
     briefDate: briefDoc?.date, briefGeneratedAt: briefDoc?.generatedAt,
     briefFile: briefDoc?.filename,
     briefWarnings: [...(briefDoc?.warnings || [])],
+    originalWarnings: [...(briefDoc?.originalWarnings || [])],
     briefAnchors: Array.isArray(briefDoc?.anchors) ? briefDoc.anchors.map(item => ({ ...item })) : {},
     review: briefDoc?.review,
     readingCopy: briefDoc?.readingCopy,
@@ -747,15 +775,8 @@ function renderPageUnsafe(lastPart, preservePosition) {
   reflectPageMetadata();
   body.classList.remove('nb-tight');
   if (isPresentation() && body.clientHeight > 0 && body.scrollHeight > body.clientHeight + 2) body.classList.add('nb-tight');
-  // Try the complete topic first. Split only measured overflow, keeping each
-  // owner response intact. Word count never decides how many screens exist.
-  if (isPresentation() && page.block && page.actions?.length > 1 && body.clientHeight > 0 && body.scrollHeight > body.clientHeight + 2) {
-    const parts = splitResponsePage(page);
-    measuredResponses.set(topicKey(page), JSON.stringify(page));
-    newsPages.splice(newsPage, 1, ...parts);
-    renderPageUnsafe(lastPart, preservePosition);
-    return;
-  }
+  // TV cards project one takeaway per topic. Full action procedures remain in
+  // the linked reading copy; they must never create duplicate display cards.
   // While held, the pager carries the PAUSED affordance beside the folio count
   // so the state is legible at 10 ft; the .nb-paused class lets the styles freeze the
   // dwell bar and dim the live tempo without hiding the position in the rotation.
@@ -940,7 +961,6 @@ function refreshReadingStops(rearm = false) {
   // A changed viewport is a new composition opportunity, not a permanent split.
   if (rearm && isPresentation() && displayedPage) {
     const key = topicKey(displayedPage);
-    measuredResponses.clear();
     newsPages = buildPages();
     newsPage = Math.max(0, newsPages.findIndex(page => topicKey(page) === key));
     renderPage(false, true);
@@ -958,7 +978,13 @@ function refreshReadingStops(rearm = false) {
 
 function reflectPager() {
   if (!displayedPage) return;
-  const scrollTop = document.getElementById('nbBody')?.scrollTop || 0;
+  const body = document.getElementById('nbBody');
+  // Chrome/font layout can change the reachable end after measuring stops.
+  // Browsers clamp scrollTop, so an obsolete final offset must not leave the
+  // footer on Screen 1 when the last lines are already visible.
+  const end = Math.max(0, (body?.scrollHeight || 0) - (body?.clientHeight || 0));
+  if (body?.clientHeight > 0 && Math.abs((readingOffsets.at(-1) || 0) - end) > 2) readingOffsets = readingStops(body);
+  const scrollTop = body?.scrollTop || 0;
   const index = Math.max(0, readingOffsets.findLastIndex(offset => offset <= scrollTop + 2));
   const part = readingOffsets.length > 1 ? ` · Screen ${index + 1} of ${readingOffsets.length}` : '';
   if (isPresentation()) {
@@ -966,7 +992,9 @@ function reflectPager() {
     const position = Math.max(0, topics.indexOf(topicKey(displayedPage))) + 1;
     const continuation = displayedPage.parts > 1 ? ` · Response ${displayedPage.part + 1}/${displayedPage.parts}` : '';
     setText('nbTopicPosition', `Topic ${String(position).padStart(2, '0')} / ${topics.length}${continuation}${part}`);
-    if (readingOffsets.length > 1) setText('nbSlug', displayedPage.topic?.split(':')[0] || SECTION_LABELS[displayedPage.kind]);
+    // Keep the section identity while the headline is visible. On a scrolled
+    // continuation, move the full topic into the folio to preserve context.
+    setText('nbSlug', index > 0 ? displayedPage.topic || SECTION_LABELS[displayedPage.kind] : SECTION_LABELS[displayedPage.kind]);
   }
   const availableIndex = availablePages.findIndex(page => pageKey(page) === pageKey(displayedPage));
   const oldEdition = BRIEF_KINDS.has(displayedPage.kind) && displayedPage.briefFile !== briefDoc?.filename;
@@ -999,7 +1027,9 @@ function reflectPager() {
     const isBrief = BRIEF_KINDS.has(displayedPage.kind) && displayedFile;
     const fragment = readerFragment(displayedPage, displayedPage.briefAnchors);
     open.setAttribute('href', isBrief ? `/briefing/${encodeURIComponent(displayedFile)}${fragment}` : displayedPage.signalKey ? `/wire?signal=${encodeURIComponent(displayedPage.signalKey)}` : displayedPage.cve ? `/wire?q=${encodeURIComponent(displayedPage.cve)}` : '/wire');
-    open.textContent = isBrief ? 'Open Briefing' : 'Open in Wire';
+    open.textContent = isPresentation()
+      ? (isBrief ? 'Read full briefing →' : 'Explore in Wire →')
+      : (isBrief ? 'Open Briefing' : 'Open in Wire');
   }
 }
 
@@ -1081,20 +1111,13 @@ function reflectPageMetadata() {
   const reviewNode = document.getElementById('nbReview');
   if (reviewNode) {
     const review = briefKind ? displayedPage.review : null;
-    // Presentation has the reviewed state in its folio and complete provenance
-    // in All actions. Reserve this second row for actual review failures; the
-    // operator reading view keeps its inline disclosure.
-    reviewNode.hidden = !review || (isPresentation() && review.status === 'editorially-corrected' && isEligibleWallEdition(displayedPage.document));
-    if (review) {
-      const reviewIdentity = [review.reviewer || 'Editorial review', formatBriefPublishedAt(review.reviewedAt)].filter(Boolean).join(' · ');
-      const originalWarnings = displayedPage.briefWarnings || [];
-      const originalChecks = originalWarnings.length
-        ? `<details><summary>Original generation source-check notes (${originalWarnings.length})</summary><p>These findings belong to the unchanged original output. The reading copy and editorial scope are described above.</p><ul>${originalWarnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul></details>` : '';
-      const html = review.status === 'editorially-corrected'
-        ? `<details><summary>Editorially corrected reading copy · review details</summary><p>${escapeHtml(reviewIdentity)}</p><p>${escapeHtml(review.scope || '')}</p>${originalChecks}<a href="/briefing/${encodeURIComponent(displayedPage.briefFile)}#editorial-review">Review corrections and original in Briefing</a></details>`
-        : `<p role="alert">${escapeHtml(review.message || 'Editorial review unavailable. Original text displayed.')}</p>`;
-      if (reviewNode.dataset.reviewHtml !== html) { reviewNode.innerHTML = html; reviewNode.dataset.reviewHtml = html; }
-    }
+    const record = briefKind ? wallEditionRecordHtml(displayedPage.document) : '';
+    const failedReview = review && review.status !== 'editorially-corrected';
+    const html = failedReview ? `<p role="alert">${escapeHtml(review.message || 'Correction record unavailable. Original text displayed.')}</p>` : record;
+    // The passive display has a compact folio; its complete edition record is
+    // available in the reader. Routine notes never create another warning row.
+    reviewNode.hidden = !html || (isPresentation() && !failedReview);
+    if (reviewNode.dataset.reviewHtml !== html) { reviewNode.innerHTML = html; reviewNode.dataset.reviewHtml = html; }
   }
   const stamp = document.getElementById('nbBriefStamp');
   if (stamp) {
@@ -1103,19 +1126,19 @@ function reflectPageMetadata() {
     const feedStamp = ['wire', 'kev'].includes(displayedPage.kind)
       ? (feedTime ? `Feed snapshot ${feedTime}` : 'Feed snapshot time unavailable') : '';
     const reviewed = displayedPage.review?.status === 'editorially-corrected' && isEligibleWallEdition(displayedPage.document);
-    const currentWarnings = !reviewed ? displayedPage.briefWarnings || [] : [];
-    const reviewStamp = reviewed ? 'AI-generated · Editorially reviewed' : `AI-generated · Verify before acting${currentWarnings.length ? ` · ${currentWarnings.length} review ${currentWarnings.length === 1 ? 'note' : 'notes'}` : ''}`;
+    const currentWarnings = displayedPage.briefWarnings || [];
+    const reviewStamp = reviewed ? 'AI-generated · Corrected' : 'AI-generated';
     stamp.textContent = briefKind
       ? `${publication}${stale ? ' · Older edition' : ''}${briefLoadError ? ' · Refresh unavailable' : ''} · ${reviewStamp}`
       : [feedStamp, briefLoadError ? 'Briefing unavailable · Retrying automatically'
         : displayedPage.kind === 'brieferror' && briefDoc ? 'Briefing available · Resume or advance to read' : ''].filter(Boolean).join(' · ');
-    stamp.title = briefKind ? (reviewed ? 'Editorial scope, corrections and original generation findings are available in review details.' : currentWarnings.join('\n')) : '';
-    stamp.dataset.status = stale || briefLoadError || (briefKind && currentWarnings.length) ? 'warn' : 'live';
+    stamp.title = briefKind ? currentWarnings.join('\n') : '';
+    stamp.dataset.status = stale || briefLoadError ? 'warn' : 'live';
     if (isPresentation()) {
       const fullStamp = stamp.textContent;
       const time = briefKind ? formatBriefPublishedAt(displayedPage.briefGeneratedAt) : feedTime;
       const edition = briefKind ? `Briefing · ${time || displayedPage.briefDate || 'Time unavailable'}` : `Collection · ${time || 'Time unavailable'}`;
-      const state = briefKind ? (reviewed ? 'AI-generated · Editorially reviewed' : reviewStamp) : 'Source reporting · Local exposure unknown';
+      const state = briefKind ? reviewStamp : 'Source reporting · Local exposure unknown';
       const states = [...state.split(' · '), ...(stale ? ['Older edition'] : []), ...(briefLoadError ? ['Refresh unavailable'] : [])];
       stamp.innerHTML = `<span>${escapeHtml(edition)}</span><span class="nb-edition-state">${states.map(value => `<span>${escapeHtml(value)}</span>`).join('')}</span>`;
       stamp.title = fullStamp;
@@ -1126,7 +1149,8 @@ function reflectPageMetadata() {
 
 export function presentationSourceText(page) {
   const hosts = [...new Set((page.citations || []).filter(item => safeWallSource(item.url)).map(item => new URL(item.url).hostname.replace(/^www\./, '')))];
-  const source = page.kind === 'kev' ? 'CISA KEV · Federal civilian scope' : page.source || hosts.slice(0, 3).join(' · ');
+  const source = page.kind === 'developing' ? (page.citations || []).map(item => item.label || (safeWallSource(item.url) ? new URL(item.url).hostname.replace(/^www\./, '') : '')).filter(Boolean).join(' · ')
+    : page.kind === 'kev' ? 'CISA KEV catalog' : page.source || hosts.slice(0, 3).join(' · ');
   return [source, page.kind === 'wire' ? `Reported ${relAge(page.sourceDate) || 'at an unavailable time'}` : '',
     page.catalogEntries?.length ? `KEV · ${page.catalogEntries.length} ${page.catalogEntries.length === 1 ? 'CVE' : 'CVEs'}` : ''].filter(Boolean).join(' · ');
 }
@@ -1313,6 +1337,7 @@ function wallStateHtml(kicker, title, detail, tone = 'waiting') {
 }
 
 export function presentationHtml(page, { interactive = true } = {}) {
+  if (!interactive) return glanceHtml(page);
   const certainty = judgmentCertainty(page.certainty || '');
   const decision = formatDecisionWindow(page.decision || '');
   const decisionDate = decision.relative ? decisionBriefDateLabel(page.editionDate) : '';
@@ -1320,11 +1345,15 @@ export function presentationHtml(page, { interactive = true } = {}) {
     label: 'Recommended target',
     value: String(page.target || (!page.decision ? page.timing : '') || '').replace(/^(?:recommended\s+)?target\s*:?\s*/i, ''),
   };
-  const citations = (page.citations || []).filter(item => safeWallSource(item.url)).slice(0, 3);
+  const citations = page.kind === 'developing' ? (page.citations || []).filter(item => item.label || safeWallSource(item.url))
+    : (page.citations || []).filter(item => safeWallSource(item.url)).slice(0, 3);
   const provenance = page.source ? `Source: ${interactive && safeWallSource(page.sourceUrl) ? `<a href="${escapeHtml(page.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(page.source)}</a>` : escapeHtml(page.source)}`
-    : citations.map(item => interactive ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(new URL(item.url).hostname.replace(/^www\./, ''))}</a>` : escapeHtml(new URL(item.url).hostname.replace(/^www\./, ''))).join(' · ');
+    : citations.map(item => {
+      const label = page.kind === 'developing' && item.label ? item.label : new URL(item.url).hostname.replace(/^www\./, '');
+      return interactive && safeWallSource(item.url) ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>` : escapeHtml(label);
+    }).join(' · ');
   const showDecision = decision.display && !page.actions?.length;
-  const hasFacts = [page.cve, page.added, page.federalDue, page.validity, showDecision, target.value, certainty.value].some(Boolean);
+  const hasFacts = [page.cve, page.added, page.federalDue, page.validity, page.trajectory, showDecision, target.value, certainty.value].some(Boolean);
   // Composition changes type and measure, never the authored words. Long
   // unreviewed openings remain complete reading copy instead of a giant title.
   const openingWords = String(page.block.text || '').trim().split(/\s+/).filter(Boolean).length;
@@ -1341,6 +1370,7 @@ export function presentationHtml(page, { interactive = true } = {}) {
       ${page.added ? `<span>Catalog added · ${escapeHtml(page.added)} (UTC)</span>` : ''}
       ${page.federalDue ? `<span>Federal civilian deadline · ${escapeHtml(page.federalDue)} (FCEB scope)</span>` : ''}
       ${page.validity ? `<span>Watch validity · ${escapeHtml(page.validity)}</span>` : ''}
+      ${page.trajectory ? `<span>Trajectory · ${escapeHtml(page.trajectory)}</span>` : ''}
       ${showDecision ? `<span>Decision · ${escapeHtml(decision.display)}${decisionDate ? ` <small>(from ${escapeHtml(decisionDate)} Briefing)</small>` : ''}</span>` : ''}
       ${target.value ? `<span>${escapeHtml(target.label)} · ${escapeHtml(target.value)}</span>` : ''}
       ${certainty.value ? `<span>${escapeHtml(certainty.label)} · ${escapeHtml(certainty.value)}</span>` : ''}
@@ -1350,6 +1380,30 @@ export function presentationHtml(page, { interactive = true } = {}) {
     ${interactive && page.kind === 'kev' ? '<p class="nb-display-source">CISA Known Exploited Vulnerabilities catalog · Verify affected versions and local exposure.</p>' : ''}
     ${interactive && page.kind === 'wire' ? `<p class="nb-display-source">Wall selection · Signal ${page.selectionIndex || 1} of ${page.selectionCount || 1} · <a href="/wire">Full feed in Wire</a></p>` : ''}
     ${interactive && ['judgment', 'convergence', 'developing', 'watchlist'].includes(page.kind) ? `<p class="nb-display-source"><button type="button" data-wall-actions>All actions and source context</button>${page.actionCount ? ` · ${page.actionCount} authored ${page.actionCount === 1 ? 'action' : 'actions'} in this topic` : ''}</p>` : ''}
+  </section>`;
+}
+
+// A room display has a distinct composition from the complete reading view.
+// Both use the same authored records; this projection never edits the archive.
+function glanceHtml(page) {
+  const model = buildGlanceModel(page);
+  // A single datum belongs with the story; a column needs a distinct reading task.
+  const hasRail = model.facts.length > 1 || model.related.length > 0;
+  const factValue = fact => {
+    const dated = /^(.*?) (· from \d{4}-\d{2}-\d{2} briefing)$/.exec(fact.value);
+    return dated ? `${escapeHtml(dated[1])} <small class="nb-glance-fact-note">${escapeHtml(dated[2])}</small>` : escapeHtml(fact.value);
+  };
+  return `<section class="nb-display-card nb-glance${hasRail ? ' nb-glance-with-rail' : ''}" data-kind="${escapeHtml(page.kind)}" data-composition="glance">
+    <div class="nb-glance-main">
+      <p class="nb-display-kicker">${escapeHtml(model.label)}</p>
+      <h2 class="nb-glance-headline">${escapeHtml(model.headline)}</h2>
+      ${model.summary ? `<div class="nb-glance-takeaway">${model.summaryLabel ? `<p class="nb-glance-label">${escapeHtml(model.summaryLabel)}</p>` : ''}<p class="nb-glance-summary">${escapeHtml(model.summary)}</p></div>` : ''}
+      ${!hasRail && model.facts.length ? `<dl class="nb-glance-inline-facts">${model.facts.map(fact => `<div><dt>${escapeHtml(fact.label)}</dt><dd>${factValue(fact)}</dd></div>`).join('')}</dl>` : ''}
+    </div>
+    ${hasRail ? `<aside class="nb-glance-rail" aria-label="${escapeHtml(model.railLabel)}"><p class="nb-glance-label nb-glance-rail-title">${escapeHtml(model.railLabel)}</p>
+      ${model.related.length ? `<ol class="nb-glance-related">${model.related.map(title => `<li>${escapeHtml(title)}</li>`).join('')}</ol>` : ''}
+      ${model.facts.length ? `<dl class="nb-glance-facts">${model.facts.map(fact => `<div><dt>${escapeHtml(fact.label)}</dt><dd>${factValue(fact)}</dd></div>`).join('')}</dl>` : ''}
+    </aside>` : ''}
   </section>`;
 }
 
@@ -1368,7 +1422,7 @@ function developingHtml(d) {
           : '•';
   return `
     <div class="nb-dev">
-      <span class="nb-traj ${cls}">${glyph} ${escapeHtml(d.trajectory || 'Tracking')}</span>
+      <span class="nb-traj ${cls}"><small>Trajectory</small><br>${glyph} ${escapeHtml(d.trajectory || 'Tracking')}</span>
       <div class="nb-dev-body">
         <h3 class="nb-dev-name"><span class="nb-clamp nb-clamp-2">${escapeHtml(d.name)}</span></h3>
         ${d.trajectoryDetail && d.trajectoryDetail !== d.trajectory ? `<p class="nb-dev-context">${escapeHtml(d.trajectoryDetail)}</p>` : ''}
@@ -1619,8 +1673,8 @@ function setLiveWord(word, warn) {
 }
 
 // Liveness: a ticking clock, a mono date stamp, and a freshness / feed-health
-// readout that turns amber when data ages or feeds drop, so a frozen board can
-// never pass for live.
+// readout that turns amber when data ages or most feeds are unavailable, so a
+// frozen board can never pass for live. Smaller outages remain visible in detail.
 function startLiveline() {
   updateLiveline();
   timers.push(setInterval(updateLiveline, 1000));
@@ -1661,7 +1715,12 @@ function updateLiveline() {
   const total = landscape?.feeds?.total;
   const invalidFeeds = !Number.isFinite(ok) || !Number.isFinite(total) || total <= 0 || total < ok || ok < 0;
   const stale = ageSec !== null && ageSec > Math.max(2 * 60 * 60, staleAfterSec(landscape?.pipeline?.refreshMinutes));
-  const degraded = !invalidFeeds && ok < total;
+  const unavailable = invalidFeeds ? 0 : total - ok;
+  // Match /api/ready: only a majority outage degrades the overall feed service.
+  // A quiet, successfully fetched feed counts as available in both endpoints.
+  const degraded = !invalidFeeds && unavailable > total * 0.5;
+  el.title = (Array.isArray(landscape?.feeds?.statuses) ? landscape.feeds.statuses : [])
+    .filter(feed => feed.ok === false).map(feed => `${feed.source}: ${feed.status}`).join('; ');
   let word;
   if (sourceLoadError) {
     el.textContent = `Source refresh unavailable · Retrying${ago ? ` · Last refresh ${ago} ago` : ''}`;
@@ -1676,11 +1735,11 @@ function updateLiveline() {
     el.textContent = `Feed health unavailable · Refreshed ${ago} ago`;
     word = 'FEEDS UNKNOWN';
   } else {
-    el.textContent = `Feeds ${ok}/${total} · Refreshed ${ago} ago`;
+    el.textContent = `Feeds ${ok}/${total}${unavailable ? ` · ${unavailable} unavailable` : ''} · Refreshed ${ago} ago`;
     word = stale ? 'FEEDS STALE' : degraded ? 'FEEDS DEGRADED' : 'FEEDS CURRENT';
   }
   const warn = sourceLoadError || ageSec === null || invalidFeeds || stale || degraded;
-  el.hidden = isPresentation() && !warn;
+  el.hidden = isPresentation() && !warn && !unavailable;
   el.dataset.status = warn ? 'warn' : 'live';
   if (dot) dot.dataset.status = warn ? 'warn' : 'live';
   setLiveWord(word, warn);

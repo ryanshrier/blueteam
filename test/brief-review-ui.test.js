@@ -1,5 +1,5 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { attachEditorialReview } from '../public/modules/briefing/brief-review.js';
+import { attachEditorialReview, editionNotice, editionNoticeHtml, readerPresentation, readerEvidenceLimits } from '../public/modules/briefing/brief-review.js';
 
 function reader() {
   const targets = [
@@ -27,10 +27,11 @@ describe('one consolidated reader review disclosure', () => {
     const review = { status:'editorially-corrected', reviewer:'AI editorial review against captured evidence', reviewedAt:'2026-09-06T16:15:00Z', scope:'Corrected reading copy; original source checks preserved.', originalSha256:'original-digest', notes };
     attachEditorialReview(content, { review });
     expect(inserted).toHaveLength(1);
-    expect(inserted[0]).toMatchObject({ tagName:'DETAILS', id:'editorial-review', className:'brief-review-summary' });
+    expect(inserted[0]).toMatchObject({ tagName:'DETAILS', id:'edition-record', className:'brief-review-summary brief-edition-record' });
     const html = inserted[0].innerHTML;
-    expect(html.match(/Editorial review ·/g)).toHaveLength(1);
-    expect(html).toContain('Editorial review · 4 corrections');
+    expect(html.match(/<summary>Edition record<\/summary>/g)).toHaveLength(1);
+    expect(html).toContain('Correction record');
+    expect(html).toContain('id="editorial-review"');
     expect(html).toContain('href="#section-bluf"');
     expect(html).toContain('href="#section-0-executive-summary"');
     expect(html).toContain('href="#judgment-1"');
@@ -47,12 +48,35 @@ describe('one consolidated reader review disclosure', () => {
     expect(targets.every(target=>target.after.mock.calls.length === 0)).toBe(true);
   });
 
-  test('review-required disposition and unavailable-review errors remain visible outside a collapsed disclosure', () => {
+  test('one shared exception retains the precise reason and replacement independently of the record', () => {
+    const brief = { disposition:{ status:'review-required', reason:'Unresolved source claim.' }, review:{ status:'unavailable', message:'Review digest does not match; original displayed.' } };
+    expect(editionNoticeHtml(brief)).toContain('Review digest does not match; original displayed.');
+    expect(editionNoticeHtml(brief)).not.toContain('<details');
+    expect(editionNoticeHtml({ disposition:{ status:'superseded', reason:'Affected versions corrected.', replacementFilename:'brief-2026-09-06.md' } })).toContain('href="/briefing/brief-2026-09-06.md"');
+    expect(editionNotice({ disposition:{ status:'eligible', eligibleForLatest:true }, sourceCheckStatus:'findings', review:{ status:'editorially-corrected' } })).toBeNull();
+  });
+
+  test('current repaired checks win over raw legacy flags and history never links to current passages', () => {
     const { content, inserted } = reader();
-    attachEditorialReview(content, { disposition:{ status:'review-required', reason:'Unresolved source claim.' }, review:{ status:'unavailable', message:'Review digest does not match; original displayed.' } });
-    expect(inserted).toHaveLength(2);
-    expect(inserted.every(node=>node.tagName === 'ASIDE')).toBe(true);
-    expect(inserted.find(node=>node.className === 'brief-review-summary')).toMatchObject({ textContent:'Review digest does not match; original displayed.', attributes:{ role:'alert' } });
-    expect(inserted.find(node=>node.className === 'brief-disposition-notice').innerHTML).toContain('Unresolved source claim.');
+    const presentation = { schemaVersion:1, copy:{ kind:'operator-repaired', contentSha256:'current' }, currentChecks:{ status:'checked', issues:[], warnings:[] },
+      history:[{ kind:'original-generation', label:'Original generation', issues:[{ message:'Old unsupported claim.', location:{ line:3, excerpt:'Earlier text.' } }], warnings:['Old unsupported claim.'] }], approval:{ status:'recorded', scope:'security-control-change', reviewer:'Duty analyst', reason:'Scoped maintenance.' } };
+    attachEditorialReview(content, { content:'## BLUF\nold\n### Signal 1 — Current', sourceCheckStatus:'findings', presentation });
+    const html = inserted[0].innerHTML;
+    expect(html).toContain('Automated source checks recorded for this copy.');
+    expect(html).toContain('Original generation');
+    expect(html).not.toContain('data-record-passage');
+    expect(html).toContain('Specific security-control review');
+    expect(readerPresentation({ sourceCheckStatus:'checked-supported-forms' }).currentChecks.status).toBe('checked');
+    expect(readerPresentation({ sourceCheckStatus:'checked-supported-forms', inputManifest:{ integrity:'invalid', validation:{} } }).currentChecks.status).toBe('unavailable');
+  });
+
+  test('only explicitly reader-directed current findings enter the matching judgment', () => {
+    const brief = { content:'## KEY JUDGMENTS\n### Signal 1 — First\nAssessment\n### Signal 2 — Second\nAssessment', presentation:{ schemaVersion:1, currentChecks:{ issues:[
+      { message:'Current material limit.', audience:'reader', location:{ line:3 } },
+      { message:'Other judgment limit.', audience:'reader', location:{ line:5 } },
+      { message:'Routine formatting.', audience:'operator', location:{ line:3 } },
+      { message:'Unknown old check.', audience:'unclassified', location:{ line:3 } },
+    ] } } };
+    expect(readerEvidenceLimits(brief,1).map(issue=>issue.message)).toEqual(['Current material limit.']);
   });
 });

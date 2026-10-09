@@ -131,12 +131,12 @@ describe('concise executive decisions with complete canonical responses', () => 
     expect(summaryIssues(text)).toEqual([expect.objectContaining({ code: 'ACTION_SUMMARY_OWNER_CONFLICT', severity: 'trust' })]);
   });
 
-  test('the publication path surfaces invented summary ownership as a trust failure', () => {
+  test('the publication path retains summary ownership disagreements as editorial notes', () => {
     const text = draft(summary.replace('Infrastructure / Incident response', 'Human resources'));
     const checked = validateBrief(canonicalizeExecutiveActions(text), '2026-09-06', { publication: true, editorialStandard: 2 });
     const summaryFindings = checked.issues.filter(issue => issue.code === 'ACTION_SUMMARY_OWNER_CONFLICT');
     expect(summaryFindings).toHaveLength(1);
-    expect(hasTrustCriticalFailure(summaryFindings)).toBe(true);
+    expect(hasTrustCriticalFailure(summaryFindings)).toBe(false);
   });
 
   test('rejects a summary date absent from the complete response', () => {

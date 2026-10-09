@@ -29,6 +29,10 @@ For example, send `{}` as the body of `POST /api/brief` and `POST /api/refresh`.
 | `/api/refresh` | `POST` | Start a pipeline refresh |
 | `/api/brief` | `POST` | Generate a Briefing as a server-sent events stream |
 | `/api/brief/status` | `GET` | Durable status and usage checkpoints for the last 20 generation jobs; local or authenticated callers only |
+| `/api/brief/drafts` | `GET` | List unpublished recovery drafts and their publication-check summaries; local or authenticated callers only |
+| `/api/brief/drafts/:id` | `GET` | Read retained revisions, captured evidence, and current publication policy |
+| `/api/brief/drafts/:id/revalidate` | `POST` | Save and check a draft against captured inputs without publication or a provider call |
+| `/api/brief/drafts/:id/publish` | `POST` | Save, check, and publish the exact repaired revision without a provider call |
 | `/api/briefs` | `GET` | List Briefing history |
 | `/api/brief/:filename` | `GET` | Return a specific archived Briefing |
 | `/api/brief/:filename/manifest` | `GET` | Read and verify a saved generation input manifest; local or authenticated callers only |
@@ -54,6 +58,20 @@ A finite nonnegative `usage.cost_usd` reported by the provider overrides the tok
 Clients recovering a disconnected stream must match that `generationId` in `jobs`; an unrelated `latest` job is not the result of their request. A provider response requires its terminal event and stop reason before it can be recorded as complete. An incomplete stream retains recoverable output and reports unknown final usage. Scheduled replay verifies the reserved edition's receipt, completion flags, date, and timezone; inconsistent artifacts return 409 `E_SCHEDULE_INTEGRITY` without starting another generation.
 
 After a process restart, a job without a verified matching publication is `interrupted`, with `billing: "unknown-final-usage"` and `automaticRetry: false`. Token counts and costs are only the last recorded provider usage, not a final billing statement. A verified saved manifest can reconcile a publication even if the final ledger write failed. The scheduler cannot automatically repeat an ambiguous paid attempt for the same edition; review its status and provider usage before explicitly requesting another manual generation. Initial ledger failure stops generation before a provider call; later checkpoint failures stop further attempts and surface a storage error. This endpoint reports status; it does not replay the stream or resume a discarded draft.
+
+## Draft recovery and publication
+
+Draft endpoints require a local deployment or authenticated caller and return `Cache-Control: private, no-store`. Draft identifiers are UUIDs. Reads expose `publicationDecision` with `blockers`, `reviewIssues`, `notes`, `canPublish`, and `requiresReview`. A draft's current revision is `revisions.at(-1).number`; retained revision numbers can have gaps because the original plus the seven most recent edits are kept. `lastCheck` holds the most recent result bound to that revision and its content digest. Unchanged rechecks do not create a new revision.
+
+Save with `{ "content": "...", "baseRevision": 2 }` at `/revalidate`. The returned artifact stays unpublished even when checks pass. An explicit save protects operator work from automatic recovery expiry. Checking always uses captured inputs, never today's changed source catalog or watch profile.
+
+Publish with `{ "content": "...", "baseRevision": 2, "inputSha256": "<manifestSha256 from the draft>" }` at `/publish`. The server saves the submitted text, applies safe formatting repairs, and checks it again. A 422 `E_DRAFT_BLOCKED` returns the saved `artifact`, findings, and `publicationDecision`; edits are preserved even though publication did not occur. A 409 `E_DRAFT_CONFLICT` means the saved revision or input identity no longer matches. Reload before changing the request. Other technical failures cannot be bypassed with an approval.
+
+For a detected `SECURITY_CONTROL_CHANGE`, the operator can submit `securityControlReview: { reviewer, reason, contentSha256 }`, using the exact saved revision's digest after reviewing that copy and its captured evidence. Editing it invalidates that approval. An accepted review preserves the finding and records the specific exception; it does not claim the automatic check passed or approve other blockers.
+
+A successful publish returns `published: true`, `filename`, `isCurrent`, `replayed`, `publication`, and `warnings`. It preserves the edition/evidence date separately from publication time. Repeating the same request after a lost response returns the same verified edition. Older dates do not replace a newer current briefing. The permanent receipt retains the original failed/partial attempt and the repaired publication checks; publishing cannot resolve unknown provider usage or create new token charges. Post-publication accounting or indexing problems are separate warnings, not a failed publication. Configured notifications remain best effort; a publication replay does not resend them.
+
+A scheduled run that retains a draft reports `awaitingReview` and waits for operator action rather than buying repeated generations for that edition. Future scheduled days continue normally.
 
 ## AI provider settings
 
@@ -142,7 +160,22 @@ An explicit eligible disposition approves the exact current reading-copy hash. L
 
 New receipts retain NVD metric CVE, version, source, assessment type, and provisional status, plus applicability configuration conditions and version limits. A receipt is not a cryptographic signature. Exact prompts are represented by SHA-256 hashes rather than stored text; those hashes support identification, not complete historical replay. Rejected or interrupted output can be retained as a separate draft artifact with captured inputs and repair revisions; not every intermediate retry draft is retained. New publication writes the receipt before the Markdown completion marker. An unsuccessful publication does not emit `briefComplete` or send a Briefing webhook.
 
-`briefComplete` confirms archival completion, not editorial approval. An edition with material review findings can complete with an ineligible disposition. Briefing webhooks are sent only for editions eligible at completion, using their current reading copy; later approval or corrections do not resend delivery.
+`briefComplete` confirms publication, not human editorial approval. Routine editorial notes allow automatic publication. Serious unresolved findings produce a retained draft and no completion event. Historical editions can still have an ineligible disposition. Briefing webhooks are sent only for eligible publications, using their current reading copy; editing an existing disposition or correction does not resend delivery.
+
+Saved-edition responses and successful publication events include a read-only `presentation` projection (schema version 1). Consumers use `disposition` for eligibility; neither a warning count nor the presence of a review is a replacement for that decision.
+
+| Field | Meaning |
+|---|---|
+| `copy` | Displayed copy kind (`published`, `operator-repaired`, or `editorially-corrected`), its content hash, and the immutable archived copy hash |
+| `currentChecks` | Check availability, publication/corrected-copy basis, and findings for the displayed copy |
+| `history` | Separately labeled original publication, original generation before repair, and unmatched legacy metadata notes |
+| `approval` | Exact-copy approval status and scope, with the recorded reviewer, reason and time when available |
+| `operationalNotes` | Publication side effects such as unavailable indexing or accounting, separate from content findings |
+| `revision` | Stable fingerprint for meaningful record changes; replay timestamps alone do not change it |
+
+Current structured issues retain their code, message and location. `consequence` (`block`, `review`, or `note`) describes publication policy; `audience` (`reader`, `operator`, or `unclassified`) describes presentation. An advisory finding can still qualify a reader's decision. Unknown findings remain available in the edition record. `acknowledged` identifies a review finding covered by the exact-copy approval; approval never turns it into a passing check. A `security-control-change` approval covers the specified control exception, not a fact-check of the entire briefing.
+
+Compatibility warning fields remain available, but clients should use `presentation` to distinguish current findings from history. Receipt diagnostics remain available if optional database metadata is absent, empty, or unavailable. An explicitly unknown receipt cost remains `null` rather than falling back to a zero estimate.
 
 ## Feeds and public URLs
 

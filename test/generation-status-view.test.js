@@ -20,6 +20,32 @@ test('saved failed publication accounting presents the cost without publishing a
   expect(model.billing).toContain('$0.3776');
 });
 
+test('pending draft is actionable after remount without replacing or misidentifying a published briefing', async () => {
+  const pending = { id: 'pending-id', status: 'draft', editionDate: '2026-10-09' };
+  const data = { ...failed(), draftRecovery: { items: [pending], latest: pending, count: 1 } };
+  const model = generationStatusModel(data);
+  expect(model.pendingDraft).toEqual(pending);
+  const el = host();
+  const onReviewDraft = jest.fn();
+  const load = jest.fn().mockResolvedValueOnce(data).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ persistence: 'error' });
+  const ui = mountGenerationStatus(el, { load, onReviewDraft });
+  await ui.refresh();
+  expect(el.innerHTML).toContain('data-review-draft="pending-id"');
+  await ui.refresh();
+  expect(el.innerHTML).toContain('data-review-draft="pending-id"');
+  expect(el.innerHTML).toContain('Latest and Wall continue');
+  const trigger = { dataset: { reviewDraft: pending.id } };
+  const click = el.addEventListener.mock.calls.find(([type]) => type === 'click')[1];
+  click({ target: { closest: selector => selector === '[data-review-draft]' ? trigger : null } });
+  expect(onReviewDraft).toHaveBeenCalledWith(pending.id, trigger);
+  await ui.refresh();
+  expect(el.innerHTML).toContain('data-review-draft="pending-id"');
+  ui.stop();
+  const targeted = generationStatusModel({ ...data, latest: { id: 'other', status: 'failed' } }, 'other');
+  expect(targeted.pendingDraft).toBeUndefined();
+  expect(generationStatusModel({ ...data, latest: null }, pending.id).pendingDraft).toEqual(pending);
+});
+
 test('interrupted-attempt status resolves its exact durable ID, never an unrelated latest edition', () => {
   const target = { id: 'interrupted-id', status: 'complete', filename: 'brief-2026-09-04.md' };
   const latest = { id: 'other-id', status: 'complete', filename: 'brief-2026-09-05.md' };

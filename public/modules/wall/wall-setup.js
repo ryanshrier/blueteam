@@ -55,7 +55,7 @@ export function mountDisplaySetup({ onApply, onOpen, isPresentation }) {
         <label>Preferred feed interval<select name="feedSeconds">${options([[60, '60 seconds'], [90, '90 seconds'], [120, '2 minutes']], settings.feedSeconds)}</select></label>
         <label>Reading interaction holds playback<select name="holdSeconds">${options([[0, 'Until I resume'], [60, '1 minute'], [120, '2 minutes'], [300, '5 minutes']], settings.holdSeconds)}</select></label>
       </div>
-      <p class="wall-setup-hint">Feeds appear between complete topics; long responses can extend this interval. The primary cycle includes all judgment actions, with supporting context and the full watchlist in All actions. Timed holds wait while focus remains in the content; Pause holds until you resume.</p>
+      <p class="wall-setup-hint">Display pages show headlines, short takeaways, and owner and timing facts. Open reading view for complete assessments, all actions, and source context. Feeds appear between topics at the preferred interval. In reading view, timed holds wait while focus remains in the content; Pause holds until you resume.</p>
       </details>
       <label class="wall-setup-check"><input type="checkbox" name="fullscreen"${start ? ' checked' : ''}> Enter fullscreen</label>
       <label class="wall-setup-check"><input type="checkbox" name="awake"${settings.awake ? ' checked' : ''}> Request screen awake while presenting</label>

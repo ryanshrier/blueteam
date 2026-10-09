@@ -41,6 +41,17 @@ describe('buildSystemPrompt — pack-driven brief frame + persona', () => {
     expect(p).toContain('Never schedule a stated prerequisite after the task that depends on it.');
   });
 
+  test('separates boilerplate and capture mechanics from decision-changing qualifications', () => {
+    setDomainPack(cyberPack);
+    const p = buildSystemPrompt(cfg);
+    expect(p).toContain('Extraction failures, passage-selection mechanics and rejected article bodies belong in the edition record');
+    expect(p).toContain('Omit generic disclaimers');
+    expect(p).toContain('This does not remove an actual verification task');
+    expect(p).toContain('Preserve every condition or uncertainty that changes interpretation or action');
+    expect(p).toContain('Word targets never justify removing a necessary qualification');
+    expect(p).not.toContain('Zero disclaimers');
+  });
+
   test('the complete action template survives the field, bullet and canonical action parsers', () => {
     setDomainPack(cyberPack);
     const p = buildSystemPrompt(cfg);
@@ -141,7 +152,7 @@ describe('buildSystemPrompt — key-judgment fields', () => {
     expect(p).toContain("Cite the exact supplied authority for a metric in the same judgment's What happened field");
     expect(p).toContain('naming the authority in parentheses does not replace its exact source citation');
     expect(p).toContain('repeat each full identifier beside its own external deadline');
-    expect(p).toContain('When independent confirmation is not established, say so explicitly and attribute the claim to its original reporting source');
+    expect(p).toContain('Attribute the claim to its original reporting source; mention absent independent confirmation when it changes the interpretation');
   });
 
   test('does not emit the retired "Revises if" analytical scaffold', () => {

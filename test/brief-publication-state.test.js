@@ -17,11 +17,12 @@ const getFreshRun = jest.fn();
 const webhook = jest.fn(async () => {});
 const metadata = new Map();
 const completeScheduled = jest.fn();
+const getBriefMetadata = jest.fn(() => null);
 jest.unstable_mockModule('../lib/config.js', () => ({ getConfig: () => ({}), getConfigVersion: () => 1, getHorizonName: (_c, h) => `Tier ${h}` }));
 jest.unstable_mockModule('../lib/refresher.js', () => ({ getFreshRun, getLatestRun: () => null, getRunAgeMs: () => Infinity, refreshNow: jest.fn() }));
 jest.unstable_mockModule('../lib/db.js', () => ({
   getMeta: key => metadata.get(key), setMeta: (key, value) => metadata.set(key, value),
-  getBriefMeta: () => null, saveBriefMeta: jest.fn(), indexBrief: jest.fn(), searchBriefs: () => [],
+  getBriefMeta: getBriefMetadata, saveBriefMeta: jest.fn(), indexBrief: jest.fn(), searchBriefs: () => [],
   countKEVAddedToday: () => 0, getRecentKEV: () => [], getKEVSet: () => new Set(), getKEVDueDates: () => ({}), getKEVRecords: () => ({}),
   getScheduledBriefJob: () => null, completeScheduledBriefJob: completeScheduled,
 }));
@@ -36,6 +37,7 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'brief-publication-state-'));
   reviews = join(dir, 'reviews'); mkdirSync(reviews);
   metadata.clear(); getClient.mockReset().mockReturnValue(null); getFreshRun.mockReset(); webhook.mockClear(); completeScheduled.mockClear(); _resetLandscapeMemoForTests();
+  getBriefMetadata.mockReset().mockReturnValue(null);
 });
 afterEach(async () => {
   if (server) { await new Promise(resolve => server.close(resolve)); server = null; }
@@ -111,41 +113,66 @@ describe('one verified saved reading state', () => {
     expect(loadRecentBriefs(dir, 5, { reviewDirectory: reviews })[0].content).toBe(reader.reviewedContent);
   });
 
+  test('empty or unavailable SQLite metadata cannot suppress receipt findings or make unknown cost zero', async () => {
+    const filename = archive();
+    const path = join(dir, generationManifestFilename(filename));
+    const manifest = JSON.parse(readFileSync(path, 'utf8'));
+    const issue = { code: 'CITED_SOURCE_LIMITED', severity: 'review', message: 'Retained scope is limited.' };
+    manifest.publicationValidation.issues.push(issue); manifest.publicationValidation.warnings.push(issue.message);
+    manifest.costEstimate = { usd: null, status: 'unknown-final-usage' };
+    writeFileSync(path, JSON.stringify(manifest));
+    getBriefMetadata.mockReturnValue({ model_used: 'claude-sonnet-5', input_tokens: null, output_tokens: null, warnings: null, bluf: 'Summary', word_count: 20 });
+    const base = await serve();
+    const reader = await (await fetch(`${base}/brief/${filename}`)).json();
+    expect(reader.meta).toMatchObject({ estimated_cost_usd: null, warnings: expect.arrayContaining([issue.message]) });
+    expect(reader.presentation.currentChecks.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: issue.code, audience: 'reader' })]));
+    const list = await (await fetch(`${base}/briefs`)).json();
+    expect(list[0]).toMatchObject({ costUsd: null, presentation: reader.presentation });
+    getBriefMetadata.mockImplementation(() => { throw new Error('SQLite unavailable'); });
+    const fallback = await fetch(`${base}/brief/${filename}`);
+    expect(fallback.status).toBe(200);
+    const result = await fallback.json();
+    expect(result.generatedAt).toBe(manifest.generatedAt);
+    expect(result.presentation.currentChecks).toEqual(reader.presentation.currentChecks);
+    expect(result.presentation.operationalNotes).toEqual([expect.objectContaining({ code: 'EDITION_METADATA_UNAVAILABLE' })]);
+  });
+
   test('verified human approval can resolve material review, but not unavailable checks or trust failures', () => {
     const human = { status: 'eligible', eligibleForLatest: true, editorialReviewStatus: 'reviewed' };
     expect(readingDisposition(human, { coverage: { materialReviewRequired: true }, issues: [{ severity: 'review', code: 'CITED_SOURCE_LIMITED' }] })).toEqual(human);
     expect(readingDisposition(human, { status: 'unavailable' }).eligibleForLatest).toBe(false);
     expect(readingDisposition(human, { issues: [{ severity: 'trust' }] }).eligibleForLatest).toBe(false);
     expect(readingDisposition({ status: 'eligible', eligibleForLatest: true }, { issues: [{ severity: 'review', code: 'REVIEW' }], coverage: { materialReviewRequired: false } }).eligibleForLatest).toBe(true);
-    expect(readingDisposition({ status: 'eligible', eligibleForLatest: true }, { issues: [{ severity: 'review', code: 'CITED_SOURCE_LIMITED' }], coverage: { materialReviewRequired: false } }).eligibleForLatest).toBe(false);
+    expect(readingDisposition({ status: 'eligible', eligibleForLatest: true }, { issues: [{ severity: 'review', code: 'CITED_SOURCE_LIMITED' }], coverage: { materialReviewRequired: true } }).eligibleForLatest).toBe(true);
+    expect(readingDisposition({ status: 'eligible', eligibleForLatest: true }, { issues: [{ severity: 'review', code: 'SECURITY_CONTROL_CHANGE' }] }).eligibleForLatest).toBe(false);
     expect(readingDisposition({ ...human, originalSha256: 'original', readingSha256: 'approved' }, { contentSha256: 'later', issues: [] })).toMatchObject({ eligibleForLatest: true, editorialReviewStatus: 'not-reviewed' });
     expect(readingDisposition({ ...human, originalSha256: 'original' }, { contentSha256: 'original', issues: [] }).editorialReviewStatus).toBe('reviewed');
   });
 
   test('approval binds the corrected reading copy and cannot resolve findings introduced by a later correction', async () => {
     const filename = archive();
-    const sourceLine = original.split('\n').find(line => line.startsWith('- The vendor confirms exploitation'));
+    const sourceLine = original.split('\n').find(line => line.startsWith('- **Required decisions:**'));
     const writeCorrection = replacement => writeFileSync(join(reviews, filename.replace('.md', '.review.json')), JSON.stringify({
       schemaVersion: 1, originalSha256: sha256(original), reviewer: 'Synthetic reviewer', reviewedAt: '2026-09-06T12:00:00Z',
-      corrections: [{ id: 'watch', original: sourceLine, replacement, reason: 'Revise the watch condition.' }],
+      corrections: [{ id: 'action', original: sourceLine, replacement, reason: 'Review a proposed control exception.' }],
     }));
-    writeCorrection('- The vendor confirms exploitation in original reporting.');
+    writeCorrection(sourceLine.replace('identify applicable systems and review owners', 'disable MFA for affected accounts'));
     const before = loadBriefReadingState(dir, filename, { reviewDirectory: reviews });
-    expect(before.readingChecks.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'SUPPORTING_SECTION_PROVENANCE_REQUIRED' })]));
+    expect(before.readingChecks.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'SECURITY_CONTROL_CHANGE' })]));
     expect(before.disposition.eligibleForLatest).toBe(false);
     const base = await serve();
     const approve = () => fetch(`${base}/brief/${filename}/disposition`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'eligible', reviewer: 'Synthetic approver', reason: 'Reviewed this reading copy.', readingSha256: 'client-supplied-value-is-ignored' }) });
     const approved = await (await approve()).json();
     expect(approved.disposition).toMatchObject({ eligibleForLatest: true, readingSha256: sha256(before.content) });
-    writeCorrection('- The vendor confirms active exploitation in updated original reporting.');
+    writeCorrection(sourceLine.replace('identify applicable systems and review owners', 'disable EDR on affected endpoints'));
     const changed = loadBriefReadingState(dir, filename, { reviewDirectory: reviews });
     expect(changed.disposition).toMatchObject({ eligibleForLatest: false, editorialReviewStatus: 'review-required' });
     expect(changed.readingChecks.contentSha256).not.toBe(approved.disposition.readingSha256);
     expect((await (await approve()).json()).disposition).toMatchObject({ eligibleForLatest: true, readingSha256: sha256(changed.content) });
   });
 
-  test('mixed substantive and title-only citations retain material review across completion, archive and webhook delivery', async () => {
+  test('mixed substantive and title-only citations remain advisory across completion, archive and webhook delivery', async () => {
     const thin = { source: 'Thin Source', title: 'Gateway announcement', description: '', link: 'https://example.test/thin', date: '2026-09-04', horizon: 1 };
     getFreshRun.mockResolvedValue({ headlines: [...item.headlines, thin], stats: {} });
     const text = original.replace('[Synthetic Vendor, September 4, 2026](https://example.test/evaluation/vendor)', '[Synthetic Vendor, September 4, 2026](https://example.test/evaluation/vendor) [Thin Source, September 4, 2026](https://example.test/thin)');
@@ -158,12 +185,14 @@ describe('one verified saved reading state', () => {
     const base = await serve();
     const response = await (await fetch(`${base}/brief`, { method: 'POST' })).text();
     const complete = response.split('\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6))).find(event => event.briefComplete);
-    expect(complete).toMatchObject({ disposition: { eligibleForLatest: false } });
-    expect(webhook).not.toHaveBeenCalled();
+    expect(complete).toMatchObject({ disposition: { eligibleForLatest: true } });
+    expect(webhook).toHaveBeenCalledTimes(1);
     const reader = await (await fetch(`${base}/brief/${complete.filename}`)).json();
-    expect(reader.disposition.eligibleForLatest).toBe(false);
+    expect(reader.disposition.eligibleForLatest).toBe(true);
     expect(reader.inputManifest.validation.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'CITED_SOURCE_LIMITED' })]));
-    expect(listBriefEditions(dir, { eligibleOnly: true, reviewDirectory: reviews })).toHaveLength(0);
+    expect(reader.presentation).toEqual(complete.presentation);
+    expect(reader.sourceCheckStatus).toBe('findings');
+    expect(listBriefEditions(dir, { eligibleOnly: true, reviewDirectory: reviews })).toHaveLength(1);
   });
 
   test.each(['missing', 'invalid', 'mismatched'])('scheduled replay refuses a %s receipt without provider spend or changing the original', async kind => {

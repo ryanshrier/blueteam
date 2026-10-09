@@ -9,6 +9,7 @@ import { parseBluf, parseSignalTitles } from '../lib/brief-schema.js';
 import { getConfig, getConfigVersion, getHorizonName } from '../lib/config.js';
 import { getDomainPack, getBrief } from '../lib/domain.js';
 import { briefDateFromFilename, listBriefEditions } from '../lib/history.js';
+import { briefPresentation } from '../lib/brief-reading-checks.js';
 import { log } from '../lib/logger.js';
 import { PUBLIC_APP_NAME } from '../lib/identity.js';
 import { normalizePublicBaseUrl, requestBaseUrl } from '../lib/public-url.js';
@@ -96,15 +97,19 @@ function loadLatestBriefSummary(historyDir, reviewDirectory) {
     if (!edition) return null;
     const { filename } = edition;
     const { content, reviewed } = edition.reading;
+    let legacyWarnings = [];
+    try { const parsed = JSON.parse(edition.meta?.warnings || '[]'); if (Array.isArray(parsed)) legacyWarnings = parsed; } catch { /* invalid legacy metadata is not a check record */ }
+    const presentation = briefPresentation(edition.reading, { legacyWarnings });
     return {
       filename,
-      revision: createHash('sha256').update(content).update(JSON.stringify({ review: reviewed.review, disposition: edition.disposition })).digest('hex'),
+      revision: createHash('sha256').update(content).update(JSON.stringify({ review: reviewed.review, disposition: edition.disposition, presentation: presentation.revision })).digest('hex'),
       date: briefDateFromFilename(filename),
       generatedAt: edition.generatedAt,
       bluf: parseBluf(content),
       judgments: parseSignalTitles(content).slice(0, 6),
       review: reviewed.review || null,
       disposition: edition.disposition,
+      presentation,
     };
   } catch {
     return null;
@@ -182,10 +187,12 @@ function buildLandscapeMemoized(historyDir, reviewDirectory) {
   };
 }
 
-/** Test-only reset for the process-lifetime landscape memo. */
-export function _resetLandscapeMemoForTests() {
+/** Publication can change the current briefing before the memo TTL expires. */
+export function invalidateLandscapeMemo() {
   landscapeMemo = null;
 }
+
+export const _resetLandscapeMemoForTests = invalidateLandscapeMemo;
 
 export function createLandscapeRouter({ historyDir, reviewDir, cooldown, publicBaseUrl = null, loopback = false }) {
   const router = Router();

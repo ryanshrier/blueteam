@@ -19,11 +19,12 @@ import {
   scheduledBriefFilename,
   scheduledBriefJobKey,
 } from '../lib/history.js';
-import { validateBrief, countHorizons, hasHardFail, hasTrustCriticalFailure, captureKevTiming } from '../lib/validation.js';
+import { validateBrief, countHorizons, hasHardFail, hasTrustCriticalFailure, captureKevTiming, publicationDecision } from '../lib/validation.js';
 import { canonicalizeExecutiveActions, compareEditionInputs } from '../lib/brief-editorial.js';
 import { saveBriefDisposition } from '../lib/brief-review.js';
-import { briefReadingState, loadBriefReadingState } from '../lib/brief-reading-checks.js';
-import { listBriefDrafts, readBriefDraft, saveRejectedBrief, revalidateBriefDraft, summarizeBriefDraft, validationSourceFromManifest, validDraftId } from '../lib/brief-drafts.js';
+import { briefReadingState, loadBriefReadingState, briefPresentation, presentationSourceCheckStatus } from '../lib/brief-reading-checks.js';
+import { listBriefDrafts, readBriefDraft, saveRejectedBrief, revalidateBriefDraft, summarizeBriefDraft, validationSourceFromManifest, validDraftId, draftValidation, recordDraftPublication } from '../lib/brief-drafts.js';
+import { createPublicationLookup, verifyPublicationReplay, publishDraftEdition } from '../lib/brief-publication.js';
 import { normalizeConvergenceOpening } from '../lib/brief-schema.js';
 import { buildGroundingManifest, delinkUnallowlistedMarkdownUrls, visibleHeadlineEvidence } from '../lib/grounding.js';
 import {
@@ -60,8 +61,11 @@ export function supportsAdaptiveThinking(model) {
 }
 
 // First-party API list prices per million tokens. Unknown models have no estimate.
-function modelPrice(model) {
+function modelPrice(model, inputTokens = 0) {
   const id = String(model || '').toLowerCase();
+  if (/^gpt-6\.1-sol(?:$|-)/.test(id)) return inputTokens > 272000
+    ? { input: 4, cachedInput: 0.2, cacheWriteInput: 5, output: 15 }
+    : { input: 2, cachedInput: 0.1, cacheWriteInput: 2.5, output: 10 };
   if (/^gpt-5\.3-codex(?:$|-)/.test(id)) return { input: 1.75, cachedInput: 0.175, output: 14 };
   if (/claude-sonnet-5(?:$|-)/.test(id)) return { input: 2, output: 10 };
   if (/claude-haiku-4-5/.test(id)) return { input: 1, output: 5 };
@@ -70,11 +74,13 @@ function modelPrice(model) {
   return null;
 }
 
-export function estimateCostUsd(model, inputTokens, outputTokens, at = new Date(), cachedInputTokens = 0) {
-  const price = modelPrice(model, at);
+export function estimateCostUsd(model, inputTokens, outputTokens, at = new Date(), cachedInputTokens = 0, cacheWriteInputTokens = 0) {
+  const price = modelPrice(model, inputTokens);
   if (!price) return null;
   const cached = price.cachedInput == null ? 0 : Math.min(Math.max(0, cachedInputTokens || 0), inputTokens || 0);
-  return ((inputTokens || 0) - cached) / 1e6 * price.input + cached / 1e6 * (price.cachedInput || 0) + (outputTokens || 0) / 1e6 * price.output;
+  const written = price.cacheWriteInput == null ? 0 : Math.min(Math.max(0, cacheWriteInputTokens || 0), (inputTokens || 0) - cached);
+  return ((inputTokens || 0) - cached - written) / 1e6 * price.input + cached / 1e6 * (price.cachedInput || 0)
+    + written / 1e6 * (price.cacheWriteInput || 0) + (outputTokens || 0) / 1e6 * price.output;
 }
 
 /** Preserve the rates for each paid attempt; fallback models have different prices. */
@@ -82,7 +88,7 @@ export function estimateAttemptCosts(attempts) {
   if (!Array.isArray(attempts) || !attempts.length) return null;
   const costs = attempts.map(attempt => attempt.costUsd ?? estimateCostUsd(
     attempt.responseModel || attempt.model, attempt.usage?.inputTokens, attempt.usage?.outputTokens,
-    undefined, attempt.usage?.cachedInputTokens,
+    undefined, attempt.usage?.cachedInputTokens, attempt.usage?.cacheWriteInputTokens,
   ));
   return costs.some(cost => cost == null) ? null : costs.reduce((sum, cost) => sum + cost, 0);
 }
@@ -131,7 +137,10 @@ export function correctiveGuidance(issues = []) {
     rules.push('Convergence repair: the **The intersection:** paragraph itself must contain exact bracketed citations for both substantive sources, using their supplied publisher, Published date and URL. Naming publishers in prose or citing them only in another field does not meet this contract. Do not attach citations to a mechanism they do not establish. If two substantive citations cannot support the connection, replace the entries with the plain sentence "No supported intersection is established by the current retained evidence." under CONVERGENCE, with no entry heading or fields.');
   }
   if ([...codes].some(code => /CVSS/.test(code))) {
-    rules.push('Score repair: each numeric score needs the exact source citation that supplies that CVE and score in the same judgment\'s What happened field. An NVD-only score requires the supplied NVD citation; a catalog listing does not supply it. Preserve metric versions and per-record provisional status. Omit any score that the cited passage does not support.');
+    rules.push('Score repair: each numeric score needs the exact source citation that supplies that CVE and score in the same judgment\'s What happened field. Write one explicit pair per clause: "CVE-YYYY-NNNN: CVSS v3.1 score N.N" (use only captured values). Do not use an unassigned list of scores or "respectively". An NVD-only score requires the supplied NVD citation; a catalog listing does not supply it. Preserve metric versions and per-record provisional status. Omit any score that the cited passage does not support.');
+  }
+  if (codes.has('CVE_CITATION_MISMATCH') || codes.has('VERSION_UNSUPPORTED')) {
+    rules.push('Evidence repair: a source elsewhere in the input is not automatically cited support for this judgment. Add the exact supplied publisher/date/URL citation for the affected CVE or version to this judgment\'s What happened field. Use only the retained passage and captured lookup facts; a product name or article link alone does not establish an identifier or version. Remove unsupported detail rather than guessing it.');
   }
   if ([...codes].some(code => /KEV_DEADLINE/.test(code))) {
     rules.push('Deadline repair: copy the captured SYSTEM-DERIVED FACTS date for each named CVE exactly. Name the CVE explicitly beside its FCEB remediation date; do not infer a default two-week deadline or substitute a recommended internal target.');
@@ -279,6 +288,7 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
         usage.input_tokens = event.message.usage.input_tokens || 0;
         usage.output_tokens = event.message.usage.output_tokens || 0;
         if (event.message.usage.input_tokens_details) usage.cached_input_tokens = event.message.usage.input_tokens_details.cached_tokens || 0;
+        if (Number.isFinite(event.message.usage.input_tokens_details?.cache_write_tokens)) usage.cache_write_input_tokens = event.message.usage.input_tokens_details.cache_write_tokens;
         if (event.message.usage.output_tokens_details) usage.reasoning_tokens = event.message.usage.output_tokens_details.reasoning_tokens || 0;
       }
       if (event.type === 'message_start' && typeof event.message?.model === 'string') {
@@ -341,6 +351,18 @@ function parseWarnings(json) {
   try { const a = JSON.parse(json); return Array.isArray(a) ? a : []; }
   catch { return []; }
 }
+
+function editionCost(receipt, meta, at) {
+  // Explicit unknown provider accounting is evidence, not permission to infer
+  // a new cost from the repaired edition's empty token metadata.
+  if (receipt?.costEstimate) return receipt.costEstimate.usd ?? null;
+  if (!meta || (meta.input_tokens == null && meta.output_tokens == null)) return null;
+  return estimateCostUsd(meta.model_used, meta.input_tokens, meta.output_tokens, at);
+}
+
+const originalEditionWarnings = (receipt, meta) => [...new Set([
+  ...(receipt?.validation?.warnings || []), ...parseWarnings(meta?.warnings),
+])];
 
 const SCHEDULED_TOKEN_HEADER = 'x-blueteam-scheduled-token';
 
@@ -445,28 +467,32 @@ export function createBriefRouter({
   scheduledJobToken = '',
   loopback = true,
   trackGeneration = () => () => {},
+  onDraftPublished = () => {},
 }) {
   const router = Router();
   const outwardBaseUrl = normalizePublicBaseUrl(publicBaseUrl) || localhostBaseUrl(localPort);
-  const jobs = createGenerationJobs({
-    recoverPublished: job => {
-      if (!existsSync(historyDir)) return null;
-      for (const filename of readdirSync(historyDir).filter(name => validBriefFilename(name) && name.startsWith(`brief-${job.editionDate}`))) {
-        try {
-          const manifest = readGenerationManifest(historyDir, filename);
-          if (manifest?.generationId === job.id) return { filename, generatedAt: manifest.generatedAt, costUsd: manifest.costEstimate?.usd };
-        } catch { /* only a verified receipt can resolve an unknown paid attempt */ }
-      }
-      return null;
-    },
-  });
+  const publications = createPublicationLookup(historyDir);
+  const jobs = createGenerationJobs({ recoverPublished: publications.findGeneration });
   registerGenerationJobs(jobs);
+  const publicDraft = artifact => artifact ? { ...artifact, publicationDecision: publicationDecision(draftValidation(artifact)) } : null;
+  const reconcileDraft = artifact => {
+    if (!artifact) return null;
+    const found = publications.findDraft(artifact);
+    if (!found) return artifact;
+    const repaired = found.manifest.repairedDraft;
+    const publication = { revision: repaired.revision, contentSha256: repaired.contentSha256, inputSha256: repaired.inputSha256,
+      filename: found.filename, publishedAt: found.manifest.generatedAt };
+    try { return recordDraftPublication(historyDir, artifact.id, publication) || artifact; }
+    catch { return { ...artifact, status: 'published', publication }; }
+  };
+  const pendingDrafts = () => listBriefDrafts(historyDir).filter(item => !publications.findDraft(item));
 
   router.get('/brief/status', (req, res) => {
     res.setHeader('Cache-Control', 'private, no-store');
     if (!loopback && res.locals.authenticated !== true) return res.status(403).json({ code: 'E_EXPOSED', error: 'Generation status requires a local or authenticated connection.' });
     const status = jobs.status();
-    return res.status(status.persistence === 'error' ? 503 : 200).json({ ...status, draftRecovery: { url: '/api/brief/drafts', latest: listBriefDrafts(historyDir)[0] || null } });
+    const drafts = pendingDrafts();
+    return res.status(status.persistence === 'error' ? 503 : 200).json({ ...status, draftRecovery: { url: '/api/brief/drafts', latest: drafts[0] || null, count: drafts.length, items: drafts } });
   });
 
   const recoveryAccess = (req, res, next) => {
@@ -475,14 +501,14 @@ export function createBriefRouter({
     next();
   };
   router.get('/brief/drafts', recoveryAccess, (req, res) => {
-    try { res.json({ items: listBriefDrafts(historyDir) }); }
+    try { res.json({ items: pendingDrafts() }); }
     catch { res.status(503).json({ code: 'E_DRAFT_STORAGE', error: 'Retained drafts could not be read.' }); }
   });
   router.get('/brief/drafts/:id', recoveryAccess, (req, res) => {
     if (!validDraftId(req.params.id)) return res.status(400).json({ error: 'Invalid draft identifier' });
     try {
-      const artifact = readBriefDraft(historyDir, req.params.id);
-      return artifact ? res.json(artifact) : res.status(404).json({ code: 'E_DRAFT_UNAVAILABLE', error: 'Draft unavailable or outside the retention window.' });
+      const artifact = reconcileDraft(readBriefDraft(historyDir, req.params.id));
+      return artifact ? res.json(publicDraft(artifact)) : res.status(404).json({ code: 'E_DRAFT_UNAVAILABLE', error: 'Draft unavailable or outside the retention window.' });
     } catch { return res.status(409).json({ code: 'E_DRAFT_INTEGRITY', error: 'The retained draft or input digest could not be verified.' }); }
   });
   router.post('/brief/drafts/:id/revalidate', recoveryAccess, (req, res) => {
@@ -491,9 +517,11 @@ export function createBriefRouter({
       || (req.body.content !== undefined && typeof req.body.content !== 'string')
       || (req.body.baseRevision !== undefined && (!Number.isSafeInteger(req.body.baseRevision) || req.body.baseRevision < 1))) return res.status(400).json({ error: 'Invalid repair revision.' });
     try {
+      const existing = reconcileDraft(readBriefDraft(historyDir, req.params.id));
+      if (existing?.publication) return res.status(409).json({ code: 'E_DRAFT_PUBLISHED', error: 'This draft has already been published. Open the published edition.', artifact: publicDraft(existing) });
       const artifact = revalidateBriefDraft(historyDir, req.params.id, req.body,
         (content, manifest) => validateBrief(content, manifest.edition?.date, validationSourceFromManifest(manifest)));
-      return artifact ? res.json(artifact) : res.status(404).json({ code: 'E_DRAFT_UNAVAILABLE', error: 'Draft unavailable or outside the retention window.' });
+      return artifact ? res.json(publicDraft(artifact)) : res.status(404).json({ code: 'E_DRAFT_UNAVAILABLE', error: 'Draft unavailable or outside the retention window.' });
     } catch (error) { return res.status(error.code === 'E_DRAFT_CONFLICT' ? 409 : 400).json({ code: error.code || 'E_DRAFT_REVALIDATION', error: safeErrorMsg(error) }); }
   });
 
@@ -505,6 +533,83 @@ export function createBriefRouter({
   // so overlap is impossible regardless of timing; the cooldown separately
   // debounces requests started within 15 seconds, including early failures.
   let generating = false;
+
+  router.post('/brief/drafts/:id/publish', recoveryAccess, (req, res) => {
+    if (!validDraftId(req.params.id)) return res.status(400).json({ error: 'Invalid draft identifier' });
+    const request = req.body;
+    if (!request || typeof request !== 'object' || Array.isArray(request)
+      || !Number.isSafeInteger(request.baseRevision) || request.baseRevision < 1
+      || !/^[a-f\d]{64}$/.test(request.inputSha256 || '')
+      || (request.content !== undefined && typeof request.content !== 'string')) return res.status(400).json({ error: 'The draft revision and captured input identity are required.', code: 'E_DRAFT_REQUEST' });
+    let artifact;
+    let committed = null;
+    const warnings = [];
+    try {
+      artifact = readBriefDraft(historyDir, req.params.id);
+      if (!artifact) return res.status(404).json({ error: 'Draft unavailable.', code: 'E_DRAFT_UNAVAILABLE' });
+      if (request.inputSha256 !== artifact.manifestSha256) return res.status(409).json({ error: 'The captured inputs changed. Reload the draft.', code: 'E_DRAFT_CONFLICT' });
+      const found = publications.findDraft(artifact);
+      if (found) {
+        committed = { ...found, publication: verifyPublicationReplay(found, artifact, request), replayed: true, scheduled: found.manifest.edition.scheduled };
+      } else {
+        if (generating) return res.status(409).json({ error: 'Wait for the active generation before publishing this draft.', code: 'E_GENERATION_ACTIVE' });
+        let validation;
+        artifact = revalidateBriefDraft(historyDir, artifact.id, request, (content, manifest) => {
+          validation = validateBrief(content, manifest.edition?.date, validationSourceFromManifest(manifest));
+          return validation;
+        });
+        committed = { ...publishDraftEdition({ historyDir, reviewDir, artifact, validation, request }), replayed: false };
+      }
+      // The archive is already durable. These recoverable writes must never
+      // turn a successful publication into an instruction to regenerate.
+      try { artifact = recordDraftPublication(historyDir, artifact.id, committed.publication) || artifact; }
+      catch { warnings.push('Published successfully; the draft recovery pointer could not be updated. Retrying Publish will recover the same edition.'); }
+      const { filename, manifest, publication } = committed;
+      const jobStatus = jobs.status();
+      if (jobStatus.jobs.some(job => job.id === manifest.generationId)) {
+        try { jobs.finish(manifest.generationId, { status: 'complete', filename, code: 'OPERATOR_REPAIRED' }); }
+        catch { warnings.push('Published successfully; generation accounting needs reconciliation. Original provider usage is preserved.'); }
+      } else if (jobStatus.persistence === 'error') {
+        warnings.push('Published successfully; generation accounting could not be checked. Original provider usage is preserved.');
+      }
+      const content = readFileSync(join(historyDir, filename), 'utf8');
+      if (committed.scheduled) {
+        try { completeScheduledBriefJob({ jobKey: scheduledBriefJobKey(manifest.edition.date), editionDate: manifest.edition.date, timezone: manifest.edition.timezone, filename, completedAt: publication.publishedAt }); }
+        catch { warnings.push('Published successfully; scheduled-edition accounting needs reconciliation.'); }
+      }
+      try { onDraftPublished({ editionDate: manifest.edition.date, filename, publishedAt: publication.publishedAt, scheduled: committed.scheduled }); }
+      catch { warnings.push('Published successfully; current display or schedule metadata could not be refreshed.'); }
+      try { indexBrief(filename, content); }
+      catch { warnings.push('Published successfully; search indexing failed during publication. A later reindex can reconcile it.'); }
+      try {
+        saveBriefMeta({ filename, date: manifest.edition.date, bluf: extractBluf(content), model_used: manifest.modelUsed || null,
+          generation_time_ms: 0, headline_count: manifest.selectedEvidence?.length || 0, word_count: content.trim().split(/\s+/).length,
+          horizon_counts: countHorizons(content), input_tokens: null, output_tokens: null,
+          warnings: manifest.publicationValidation.warnings || [], generated_at: publication.publishedAt });
+      } catch { warnings.push('Published successfully; edition metadata could not be saved during publication.'); }
+      const reading = loadBriefReadingState(historyDir, filename, { reviewDirectory: reviewDir });
+      const presentation = briefPresentation(reading, { operationalNotes: warnings });
+      const isCurrent = listBriefEditions(historyDir, { getMeta: getBriefMeta, eligibleOnly: true, limit: 1, reviewDirectory: reviewDir })[0]?.filename === filename;
+      // Replayed HTTP requests never repeat external notifications. Delivery is
+      // best effort, independent of the archive's successful publication.
+      if (!committed.replayed && reading.disposition.eligibleForLatest) {
+        const config = getConfig();
+        dispatchBriefWebhook({ date: manifest.edition.date, bluf: extractBluf(content),
+          judgments: parseJudgments(content).map(j => ({ title: j.title, tier: getHorizonName(config, j.horizon), confidence: j.confidence })),
+          link: `${outwardBaseUrl}/briefing/${encodeURIComponent(filename)}`, warnings: manifest.publicationValidation.warnings || [] }, config)
+          .catch(error => log.warn('brief', `Published draft notification failed: ${safeErrorMsg(error)}`));
+      }
+      return res.json({ published: true, filename, publication: { ...publication, eligibleForLatest: reading.disposition.eligibleForLatest },
+        isCurrent, replayed: committed.replayed, warnings, presentation, artifact: publicDraft(artifact) });
+    } catch (error) {
+      if (committed) return res.json({ published: true, filename: committed.filename, publication: committed.publication,
+        replayed: committed.replayed, warnings: [...warnings, 'The edition was saved; some publication details could not be refreshed.'], artifact: publicDraft(artifact) });
+      if (error.code === 'E_DRAFT_BLOCKED') return res.status(422).json({ error: error.message, code: error.code,
+        artifact: publicDraft(artifact), validation: draftValidation(artifact), publicationDecision: error.decision, reviewableIssues: error.decision.reviewIssues });
+      return res.status(error.code === 'E_DRAFT_CONFLICT' || error.code === 'E_DRAFT_PUBLISHED' ? 409 : 400)
+        .json({ error: safeErrorMsg(error), code: error.code || 'E_DRAFT_PUBLICATION', ...(artifact ? { artifact: publicDraft(artifact) } : {}) });
+    }
+  });
 
   // ── POST /brief — generate, streaming via SSE ──
   router.post('/brief', async (req, res) => {
@@ -541,7 +646,23 @@ export function createBriefRouter({
             inputManifest: recovered.reading.receipt,
             disposition: recovered.reading.disposition,
             readingChecks: recovered.reading.readingChecks,
+            presentation: recovered.reading.presentation,
+            sourceCheckStatus: presentationSourceCheckStatus(recovered.reading.presentation),
+            editorialReviewStatus: recovered.reading.disposition.editorialReviewStatus,
           });
+          return;
+        }
+        // A retained scheduled draft is work awaiting the operator, not a
+        // reason to buy the same day's generation again after a restart.
+        const pendingDraft = listBriefDrafts(historyDir).find(item => {
+          if (item.editionDate !== scheduledJob.editionDate) return false;
+          return readBriefDraft(historyDir, item.id)?.manifest?.edition?.scheduled === true;
+        });
+        if (pendingDraft) {
+          res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+          res.setHeader('Cache-Control', 'private, no-store');
+          res.write(`data: ${JSON.stringify({ awaitingReview: true, draftArtifact: pendingDraft, code: 'E_DRAFT_REVIEW', error: 'The scheduled draft is saved and awaits review. No new generation was started.' })}\n\n`);
+          res.end('data: [DONE]\n\n');
           return;
         }
       } catch (err) {
@@ -754,7 +875,7 @@ export function createBriefRouter({
           onChunk,
           onUsage: (usage, responseModel) => jobs.usage(generationJobId, attempt.attempt, {
             inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, responseModel,
-            costUsd: usage.cost_usd ?? estimateCostUsd(responseModel || attempt.model, usage.input_tokens, usage.output_tokens, undefined, usage.cached_input_tokens),
+            costUsd: usage.cost_usd ?? estimateCostUsd(responseModel || attempt.model, usage.input_tokens, usage.output_tokens, undefined, usage.cached_input_tokens, usage.cache_write_input_tokens),
           }),
         });
         attempt.stopReason = outcome.stopReason || null;
@@ -764,11 +885,12 @@ export function createBriefRouter({
         if (outcome.error) attempt.failureReason = safeErrorMsg(outcome.error);
         attempt.usage = { inputTokens: outcome.usage?.input_tokens || 0, outputTokens: outcome.usage?.output_tokens || 0 };
         if (outcome.usage?.cached_input_tokens !== undefined) attempt.usage.cachedInputTokens = outcome.usage.cached_input_tokens;
+        if (outcome.usage?.cache_write_input_tokens !== undefined) attempt.usage.cacheWriteInputTokens = outcome.usage.cache_write_input_tokens;
         if (outcome.usage?.reasoning_tokens !== undefined) attempt.usage.reasoningTokens = outcome.usage.reasoning_tokens;
         const reportedCost = outcome.usage?.cost_usd;
         attempt.pricing = reportedCost !== undefined ? { currency: 'USD', basis: 'Provider-reported cost' }
-          : { asOf: '2026-09-05', currency: 'USD', perMillionTokens: modelPrice(attempt.responseModel || attempt.model), basis: 'Standard API list-rate estimate', ...client.pricing };
-        attempt.costUsd = reportedCost ?? estimateCostUsd(attempt.responseModel || attempt.model, attempt.usage.inputTokens, attempt.usage.outputTokens, undefined, attempt.usage.cachedInputTokens);
+          : { asOf: '2026-10-09', currency: 'USD', perMillionTokens: modelPrice(attempt.responseModel || attempt.model, attempt.usage.inputTokens), basis: 'Standard API list-rate estimate', ...client.pricing };
+        attempt.costUsd = reportedCost ?? estimateCostUsd(attempt.responseModel || attempt.model, attempt.usage.inputTokens, attempt.usage.outputTokens, undefined, attempt.usage.cachedInputTokens, attempt.usage.cacheWriteInputTokens);
         jobs.usage(generationJobId, attempt.attempt, { ...attempt.usage, responseModel: attempt.responseModel, costUsd: attempt.costUsd });
         jobs.finishAttempt(generationJobId, attempt.attempt, { stopReason: attempt.stopReason, failed: attempt.failed, timedOut: attempt.timedOut });
         return outcome;
@@ -998,7 +1120,8 @@ export function createBriefRouter({
       generationManifest.judgmentEvidence = validation.judgmentEvidence;
       generationManifest.publicationValidation = { valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial, coverage: validation.coverage, sourceCheckStatus: hardFail || trustFail ? 'findings' : 'passed-supported-checks', editorialReviewStatus: 'not-reviewed' };
       generationManifest.costEstimate = { usd: estimateAttemptCosts(generationManifest.providerAttempts), currency: 'USD', asOf: '2026-09-05', basis: 'Sum of per-attempt reported costs or API list-rate estimates' };
-      if (isPartial || hardFail || trustFail) {
+      const publishDecision = publicationDecision({ ...validation, partial: isPartial });
+      if (!publishDecision.canPublish) {
         const blocking = validation.issues.filter(issue => (
           hasHardFail([issue]) || hasTrustCriticalFailure([issue])
         )).map(issue => issue.message);
@@ -1007,29 +1130,35 @@ export function createBriefRouter({
           ? 'after one corrective retry'
           : 'and a corrective retry could not be completed';
         let code = 'E_VALIDATION';
-        let message = `Draft was not published because required validation still failed ${retryState}: ${blocking.join('; ')}. Correct the source input or draft structure, then generate again.`;
+        let message = `Draft was not published because required validation still failed ${retryState}: ${blocking.join('; ')}.`;
+        let recoveryAdvice = 'Correct the source input or draft structure before requesting another generation.';
         if (trustFail) {
           code = 'E006';
-          message = `Draft was not published because source verification still failed ${retryState}: ${blocking.join('; ')}. Refresh the landscape data or correct the source input, then generate again.`;
+          message = `Draft was not published because source verification still failed ${retryState}: ${blocking.join('; ')}.`;
+          recoveryAdvice = 'Refresh the landscape data or correct the source input before requesting another generation.';
         } else if (isPartial) {
           code = 'E_PARTIAL_GENERATION';
           message = outputLimitReached
-            ? 'Draft was not published because generation reached the configured output-token limit before completing the Briefing. Raise analysisSettings.maxTokens in config.json or reduce the Briefing scope, then generate again.'
+            ? 'Draft was not published because generation reached the configured output-token limit before completing the Briefing.'
             : result.timedOut
               ? 'Draft was not published because generation exceeded the end-to-end timeout.'
               : `Draft was not published because the provider stream was interrupted: ${safeErrorMsg(result.error)}`;
+          recoveryAdvice = outputLimitReached ? 'Raise analysisSettings.maxTokens in config.json or reduce the Briefing scope before requesting another generation.' : 'Check provider status before requesting another generation.';
+        } else if (publishDecision.requiresReview && !publishDecision.blockers.length) {
+          code = 'E_DRAFT_REVIEW';
+          message = 'The draft is saved for review of a proposed security control change. Review the exact action before publishing.';
         }
         if (result.error && trustFail) message += ` Provider failure: ${safeErrorMsg(result.error)}`;
         if (correctiveRetryFailure) message += ` Corrective retry failed: ${correctiveRetryFailure}`;
         let draftArtifact = null;
         try {
-          const artifact = saveRejectedBrief(historyDir, { id: generationManifest.generationId, content: fullBrief, manifest: generationManifest, validation, code });
+          const artifact = saveRejectedBrief(historyDir, { id: generationManifest.generationId, content: fullBrief, manifest: generationManifest, validation: { ...validation, partial: isPartial, hardFail, trustFail }, code });
           draftArtifact = summarizeBriefDraft(artifact);
           recordStorageOutcome('rejected-draft');
-          message += ' The draft and captured inputs were retained. Open the saved draft to repair or revalidate without another provider call.';
+          message += ' Open the saved draft, correct the findings, then Publish briefing; no new model call is needed.';
         } catch (error) {
           recordStorageOutcome('rejected-draft', error);
-          message += ' Draft recovery could not be saved; copy the visible draft before leaving this view.';
+          message += ` Draft recovery could not be saved; copy the visible draft before leaving this view. ${recoveryAdvice}`;
         }
         log.error('brief', message);
         finishJob({ status: 'failed', code });
@@ -1042,6 +1171,7 @@ export function createBriefRouter({
           costUsd,
           validation: { warnings, hardFail, trustFail, issues: validation.issues, coverage: validation.coverage },
           draftArtifact,
+          awaitingReview: Boolean(draftArtifact),
           sourceCheckStatus: 'findings', editorialReviewStatus: 'not-reviewed',
         });
         if (clientConnected) {
@@ -1092,6 +1222,11 @@ export function createBriefRouter({
       // surfaces in this brief's warnings instead of vanishing into a log line.
       try {
         indexBrief(filename, fullBrief);
+      } catch (dbErr) {
+        log.warn('brief', `Search indexing error (non-blocking): ${dbErr.message}`);
+        warnings.push('Search index failed during publication. A later reindex can reconcile it.');
+      }
+      try {
         saveBriefMeta({
           filename,
           date: genDate,
@@ -1107,8 +1242,8 @@ export function createBriefRouter({
           generated_at: generatedAt,
         });
       } catch (dbErr) {
-        log.warn('brief', `DB write error (non-blocking): ${dbErr.message}`);
-        warnings.push('Search index failed — this brief will not appear in search until the next reindex.');
+        log.warn('brief', `Edition metadata write error (non-blocking): ${dbErr.message}`);
+        warnings.push('Edition metadata could not be saved during publication. The verified archive remains readable.');
       }
 
       // Push the finished brief (BLUF + key judgments + link) to the configured
@@ -1117,6 +1252,7 @@ export function createBriefRouter({
       // The link must be absolute — safeSlackLink() rejects anything new URL()
       // can't parse, which silently drops a bare relative path.
       const publishedReading = briefReadingState(filename, fullBrief, { ...generationManifest, filename, outputSha256: sha256(fullBrief) }, { reviewDirectory: reviewDir });
+      const presentation = briefPresentation(publishedReading, { legacyWarnings: warnings });
       const judgments = parseJudgments(publishedReading.content).map(j => ({
         title: j.title, tier: getHorizonName(config, j.horizon), confidence: j.confidence,
       }));
@@ -1147,9 +1283,9 @@ export function createBriefRouter({
         ...(scheduledJob ? { jobKey: scheduledJob.jobKey } : {}),
         tokens: (result.usage?.input_tokens || 0) + (result.usage?.output_tokens || 0),
         costUsd,
-        validation: warnings.length ? { warnings, hardFail } : null,
+        validation: { warnings, hardFail, trustFail, issues: validation.issues, coverage: validation.coverage },
         inputManifest: { status: 'available', url: `/api/brief/${encodeURIComponent(filename)}/manifest`, verification: generationManifest.verification, costEstimate: generationManifest.costEstimate },
-        disposition: publishedReading.disposition, sourceCheckStatus: 'passed-supported-checks', editorialReviewStatus: publishedReading.disposition.editorialReviewStatus,
+        disposition: publishedReading.disposition, presentation, sourceCheckStatus: presentationSourceCheckStatus(presentation), editorialReviewStatus: publishedReading.disposition.editorialReviewStatus,
       });
       if (clientConnected) {
         try { res.write('data: [DONE]\n\n'); res.end(); } catch { /* client gone */ }
@@ -1172,8 +1308,8 @@ export function createBriefRouter({
       catch (ledgerError) { err = ledgerError; }
       log.error('brief', `Generation error: ${err.message}`);
       send({
-        error: safeErrorMsg(err),
-        ...(recoveredDraft ? { draft: retained, draftArtifact: recoveredDraft, sourceCheckStatus: 'findings', editorialReviewStatus: 'not-reviewed' } : {}),
+        error: `${safeErrorMsg(err)}${recoveredDraft ? ' Open the saved draft, correct the findings, then Publish briefing; no new model call is needed.' : ''}`,
+          ...(recoveredDraft ? { draft: retained, draftArtifact: recoveredDraft, awaitingReview: true, sourceCheckStatus: 'findings', editorialReviewStatus: 'not-reviewed' } : {}),
         ...(err?.code ? { code: err.code } : {}),
         ...(err?.details ? { details: err.details } : {}),
       });
@@ -1208,24 +1344,25 @@ export function createBriefRouter({
       const results = briefs.map(({ filename: f, date, generatedAt, meta, disposition, reading }) => {
         // Preserve captured per-attempt costs; legacy receipts use the model-rate estimate.
         const { receipt, reviewed, content: readingCopy } = reading;
+        const presentation = briefPresentation(reading, { legacyWarnings: parseWarnings(meta?.warnings) });
         const pricingDate = date ? new Date(`${date}T12:00:00Z`) : new Date();
         // Archive descriptions must match the verified reading copy. Original
         // metadata and the full-text search index remain immutable provenance.
         const reviewStatus = reviewed.review?.status || null;
         if (meta && meta.bluf != null && meta.word_count != null) {
           return {
-            filename: f, date, disposition,
+            filename: f, date, disposition, presentation,
             bluf: archiveBluf(reviewed.reviewedContent ? extractBluf(readingCopy) : meta.bluf),
             wordCount: reviewed.reviewedContent ? readingCopy.trim().split(/\s+/).length : meta.word_count,
             reviewStatus,
             model: meta.model_used || null,
-            costUsd: receipt.costEstimate?.usd ?? estimateCostUsd(meta.model_used, meta.input_tokens, meta.output_tokens, pricingDate),
-            warnings: parseWarnings(meta.warnings),
+            costUsd: editionCost(receipt, meta, pricingDate),
+            warnings: originalEditionWarnings(receipt, meta),
             generatedAt,
             inputManifest: receipt,
           };
         }
-        return { filename: f, date, disposition, bluf: archiveBluf(extractBluf(readingCopy)), wordCount: readingCopy.trim().split(/\s+/).length, reviewStatus, model: meta?.model_used || null, warnings: receipt.validation?.warnings || [], generatedAt, inputManifest: receipt };
+        return { filename: f, date, disposition, presentation, bluf: archiveBluf(extractBluf(readingCopy)), wordCount: readingCopy.trim().split(/\s+/).length, reviewStatus, model: meta?.model_used || null, costUsd: editionCost(receipt, meta, pricingDate), warnings: originalEditionWarnings(receipt, meta), generatedAt, inputManifest: receipt };
       });
       res.json(paginated ? { items: results, total, page, pageSize: requestedSize } : results);
     } catch {
@@ -1268,9 +1405,14 @@ export function createBriefRouter({
       return res.status(404).json({ error: 'Briefing not found' });
     }
     try {
-      const { original: content, reviewed, receipt, readingChecks, disposition } = loadBriefReadingState(historyDir, filename, { reviewDirectory: reviewDir });
-      const meta = getBriefMeta(filename);
-      const generatedAt = meta?.generated_at || statSync(filepath).mtime.toISOString();
+      const reading = loadBriefReadingState(historyDir, filename, { reviewDirectory: reviewDir });
+      const { original: content, reviewed, receipt, readingChecks, disposition } = reading;
+      let meta = null;
+      const operationalNotes = [];
+      try { meta = getBriefMeta(filename); }
+      catch { operationalNotes.push({ code: 'EDITION_METADATA_UNAVAILABLE', message: 'Edition metadata is unavailable; the verified archive remains readable.' }); }
+      const generatedAt = meta?.generated_at || reading.manifest?.generatedAt || statSync(filepath).mtime.toISOString();
+      const presentation = briefPresentation(reading, { legacyWarnings: parseWarnings(meta?.warnings), operationalNotes });
       const editionDate = briefDateFromFilename(filename);
       const pricingDate = editionDate ? new Date(`${editionDate}T12:00:00Z`) : new Date();
       res.json({
@@ -1279,15 +1421,16 @@ export function createBriefRouter({
         ...reviewed,
         readingChecks,
         disposition,
-        sourceCheckStatus: receipt.validation ? (receipt.validation.sourceCheckStatus || (receipt.validation.valid ? 'passed-supported-checks' : 'findings')) : 'unavailable',
+        presentation,
+        sourceCheckStatus: presentationSourceCheckStatus(presentation),
         editorialReviewStatus: disposition.editorialReviewStatus,
         generatedAt,
         inputManifest: receipt,
         meta: meta ? {
           ...meta,
-          estimated_cost_usd: receipt.costEstimate?.usd ?? estimateCostUsd(meta.model_used, meta.input_tokens, meta.output_tokens, pricingDate),
-          warnings: parseWarnings(meta.warnings),
-        } : receipt.validation ? { warnings: receipt.validation.warnings || [] } : null,
+          estimated_cost_usd: editionCost(receipt, meta, pricingDate),
+          warnings: originalEditionWarnings(receipt, meta),
+        } : receipt.validation ? { estimated_cost_usd: editionCost(receipt, meta, pricingDate), warnings: originalEditionWarnings(receipt, meta) } : null,
       });
     } catch {
       res.status(500).json({ error: 'Failed to read briefing' });
@@ -1329,8 +1472,8 @@ export function createBriefRouter({
       const matches = searchBriefs(terms.join(' '), 20, { sort: req.query.sort === 'newest' ? 'newest' : 'relevance' });
       res.json(matches.map(item => {
         if (!validBriefFilename(item.filename) || !existsSync(join(historyDir, item.filename))) return item;
-        const { reviewed, disposition } = loadBriefReadingState(historyDir, item.filename, { reviewDirectory: reviewDir });
-        return { ...item, disposition, ...(reviewed.review ? { reviewStatus: reviewed.review.status, snippetVersion: 'original-generated-edition' } : {}) };
+        const { reviewed, disposition, presentation } = loadBriefReadingState(historyDir, item.filename, { reviewDirectory: reviewDir });
+        return { ...item, disposition, presentation, ...(reviewed.review ? { reviewStatus: reviewed.review.status, snippetVersion: 'original-generated-edition' } : {}) };
       }));
     } catch (err) {
       log.warn('search', `FTS5 error: ${err.message}`);

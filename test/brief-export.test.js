@@ -6,6 +6,7 @@ import {
   bindEditionPrintShortcut,
   buildDocument,
   collectEditionWarnings,
+  renderedReaderIssueIds,
   exportBriefNewspaper,
   gatePrintUntilReady,
   formatGeneratedFreshness,
@@ -20,6 +21,7 @@ import {
   actionDeadlineSuffix,
   decisionWindowDuplicatesAction,
   partitionTheLineHtml,
+  readerIssueIdentity,
 } from '../public/modules/briefing/brief-renderer.js';
 
 describe('edition field normalization', () => {
@@ -331,7 +333,7 @@ describe('edition print contract', () => {
     await expect(printTopLevelDocument('<p>Edition</p>', () => null, 10)).resolves.toBe(false);
   });
 
-  test('carries escaped validation details into the standalone edition', () => {
+  test('prints current material qualifications and links routine diagnostics without inventing a distribution hold', () => {
     const html = buildDocument({
       bodyHtml: '<p>Sanitized briefing</p>',
       plateTitle: 'BlueTeam News',
@@ -341,39 +343,67 @@ describe('edition print contract', () => {
       freshness: 'Generated now',
       model: '',
       warnings: ['Missing Watchlist', '<script>not markup</script>'],
+      filename: 'brief-2026-07-24-01.md', editionUrl: 'https://desk.test/briefing/brief-2026-07-24-01.md',
+      disposition: { status: 'eligible', eligibleForLatest: true },
+      presentation: { currentChecks: { issues: [
+        { code: 'CITED_SOURCE_LIMITED', audience: 'reader', consequence: 'note', message: 'The cited report does not establish <affected versions>.' },
+        { code: 'CONFIDENCE_INVALID', audience: 'operator', consequence: 'note', message: 'Expected confidence format.' },
+      ] }, history: [{ warnings: ['Original count contradiction.'] }] },
     });
 
-    expect(html).toContain('Original publication notes — review before distribution');
-    expect(html).toContain('<li>Missing Watchlist</li>');
-    expect(html).toContain('&lt;script&gt;not markup&lt;/script&gt;');
-    expect(html).toContain('Original publication notes: 2 notes retained in the appendix');
-    expect(html).toContain('QA review are later editorial annotations');
-    expect(html.indexOf('<p>Sanitized briefing</p>')).toBeLessThan(html.indexOf('<li>Missing Watchlist</li>'));
+    expect(html).toContain('The cited report does not establish &lt;affected versions&gt;.');
+    expect(html).toContain('href="https://desk.test/briefing/brief-2026-07-24-01.md#edition-record"');
+    expect(html).not.toMatch(/review before distribution|Publication held|Missing Watchlist|not markup|Expected confidence format|Original count contradiction/);
+    expect(html).not.toMatch(/Internal ·|Verify before acting|Verify every CVE/);
+    expect(html.match(/AI-generated/g)).toHaveLength(1);
   });
 
-  test('corrected print copies lead with brief provenance and keep full historical notes after the intelligence', () => {
+  test('prints each generated finding once at its inline location, retaining unplaced and global findings', () => {
+    const inline = { code: 'CITED_SOURCE_LIMITED', audience: 'reader', consequence: 'note',
+      message: 'Affected builds remain uncertain.', location: { scope: 'paragraph', line: 8 } };
+    const sameWordsElsewhere = { ...inline, location: { scope: 'paragraph', line: 24 } };
+    const global = { code: 'VALIDATION_UNAVAILABLE', audience: 'reader', consequence: 'block',
+      message: 'The saved receipt cannot be verified.', location: { scope: 'document', line: 1 } };
+    const identity = readerIssueIdentity(inline);
+    const renderedIssueIds = renderedReaderIssueIds({ querySelectorAll: () => [
+      { dataset: { readerIssueId: identity } }, { dataset: { readerIssueId: identity } },
+    ] });
+    expect(renderedIssueIds).toEqual([identity]);
+    const bodyHtml = '<p>Authored assessment and its condition remain intact.</p><p class="brief-evidence-limit">Evidence limit: Affected builds remain uncertain.</p>';
+    const input = { bodyHtml, plateTitle: 'BlueTeam.News', plateSubtitle: 'Threat intelligence', longDate: 'September 5, 2026', readMins: 3,
+      freshness: 'Published September 5', renderedIssueIds };
+    const once = buildDocument({ ...input, presentation: { currentChecks: { issues: [inline] } } });
+    expect(once.match(/Affected builds remain uncertain\./g)).toHaveLength(1);
+    expect(once).not.toContain('id="npCurrentQualifications"');
+    const additional = buildDocument({ ...input, presentation: { currentChecks: { issues: [inline, sameWordsElsewhere, global] } } });
+    expect(additional).toContain(bodyHtml);
+    expect(additional.match(/Affected builds remain uncertain\./g)).toHaveLength(2);
+    expect(additional).toContain('<li>The saved receipt cannot be verified.</li>');
+  });
+
+  test('corrected print copies retain correction identity and meaningful annotations without printing historical failures', () => {
     const html = buildDocument({ bodyHtml: '<div class="bluf">Current corrected assessment.</div>', plateTitle: 'BlueTeam.News', plateSubtitle: 'Threat intelligence',
       longDate: 'September 5, 2026', readMins: 9, freshness: 'Published Sep 5, 2026, 21:56 UTC',
       warnings: ['QA review: A now-corrected historical count mismatch.'], review: { status: 'editorially-corrected', reviewer: 'Authorized editorial review', reviewedAt: '2026-09-06T03:30:00Z', scope: 'Review against retained passages.', originalSha256:'original-edition-digest' },
+      filename: 'brief-2026-09-05-02.md', editionUrl: 'https://desk.test/briefing/brief-2026-09-05-02.md',
       reviewNotesHtml:'<ul><li id="review-count">Retained correction explanation and <a href="https://example.test/report">source</a>.</li></ul>' });
     const assessment = html.indexOf('Current corrected assessment.');
-    expect(html.indexOf('Editorially corrected · Reviewed Sep 6, 2026, 03:30 UTC')).toBeLessThan(assessment);
-    expect(html.indexOf('Original publication notes (before later correction)')).toBeGreaterThan(assessment);
-    expect(html.indexOf('A now-corrected historical count mismatch.')).toBeGreaterThan(assessment);
+    expect(html.indexOf('Corrected reading copy · Sep 6, 2026, 03:30 UTC')).toBeLessThan(assessment);
+    expect(html).not.toContain('A now-corrected historical count mismatch.');
     expect(html.indexOf('Authorized editorial review')).toBeGreaterThan(assessment);
     expect(html.indexOf('Editorial corrections appendix')).toBeGreaterThan(html.indexOf('Authorized editorial review'));
-    expect(html).toContain('Original edition SHA-256: <code>original-edition-digest</code>');
+    expect(html).not.toContain('original-edition-digest');
     expect(html).toContain('id="review-count"');
     expect(html).toContain('href="https://example.test/report"');
     expect(html).toContain('style="break-inside:auto;page-break-inside:auto"');
-    expect(html).toContain('href="#npPublicationNotes"');
+    expect(html).toContain('#edition-record');
     expect(html).toContain('href="#npEditorialReview"');
   });
 
-  test('merges client-derived archive warnings before the live banner is stripped', () => {
+  test('prefers current structured messages over decorated DOM or historical strings, including a clean current copy', () => {
     const liveWarnings = [
-      { textContent: 'Missing the Key Judgments section.' },
-      { textContent: '  Unsupported source URL.  ' },
+      { dataset: { issueMessage: 'Missing the Key Judgments section.' }, textContent: 'Missing the Key Judgments section. View passage A quoted excerpt.' },
+      { dataset: { issueMessage: 'Unsupported source URL.' }, textContent: 'Unsupported source URL. View passage https://example.test' },
     ];
     const content = {
       querySelectorAll: selector => (
@@ -381,14 +411,29 @@ describe('edition print contract', () => {
       ),
     };
 
-    expect(collectEditionWarnings(content, [
+    const persisted = [
       'Unsupported source URL.',
       'Persisted generation warning.',
-    ])).toEqual([
-      'Unsupported source URL.',
-      'Persisted generation warning.',
-      'Missing the Key Judgments section.',
-    ]);
+    ];
+    expect(collectEditionWarnings(content, persisted)).toEqual(persisted);
+    expect(collectEditionWarnings(content, persisted, { currentChecks: { issues: [] } })).toEqual([]);
+    expect(collectEditionWarnings(content, persisted, { currentChecks: { issues: [
+      { message: 'Current issue.' }, { message: 'Current issue.' },
+    ] } })).toEqual(['Current issue.']);
+    expect(collectEditionWarnings(content)).toEqual(['Missing the Key Judgments section.', 'Unsupported source URL.']);
+  });
+
+  test('prints an authoritative hold and replacement before the article without inferring review from warning counts', () => {
+    const html = buildDocument({ bodyHtml: '<p>The complete authored assessment remains readable.</p>', plateTitle: 'BlueTeam.News',
+      plateSubtitle: 'Threat intelligence', longDate: 'September 5, 2026', readMins: 3, freshness: 'Published September 5',
+      editionUrl: 'https://desk.test/briefing/brief-2026-09-05-01.md',
+      disposition: { status: 'superseded', eligibleForLatest: false, reason: 'Incorrect affected versions.', replacementFilename: 'brief-2026-09-05-02.md' },
+      presentation: { approval: { status: 'recorded', scope: 'security-control-change', reviewer: 'Duty operator', reviewedAt: '2026-09-05T12:00:00Z' }, currentChecks: { issues: [] } } });
+    expect(html.indexOf('Superseded edition')).toBeLessThan(html.indexOf('The complete authored assessment'));
+    expect(html).toContain('Incorrect affected versions.');
+    expect(html).toContain('href="https://desk.test/briefing/brief-2026-09-05-02.md"');
+    expect(html).toContain('Specific security-control change reviewed · Duty operator');
+    expect(html).not.toMatch(/Editorially reviewed|review before distribution/);
   });
 
   test('keeps Print disabled until iframe load and fonts.ready settle', async () => {

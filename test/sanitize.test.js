@@ -9,7 +9,8 @@
 // needs a real DOM (window) to actually sanitize, and this repo runs
 // testEnvironment: 'node'. Covering sanitize() itself needs a per-file
 // `@jest-environment jsdom` docblock plus the `jest-environment-jsdom`
-// devDependency, which is not installed here.
+// devDependency, which is not installed here. The real-browser boundary,
+// including semantic post-processing, runs in `npm run check:security:render`.
 import { describe, test, expect } from '@jest/globals';
 import {
   DRAFT_SANITIZE_CONFIG, escapeHtml, SANITIZE_CONFIG, SEARCH_SNIPPET_CONFIG, cleanSearchExcerpt,

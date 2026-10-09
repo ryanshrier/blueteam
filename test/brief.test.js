@@ -363,6 +363,20 @@ describe('POST /api/brief — happy path SSE framing', () => {
     ]));
   });
 
+  test.each(['index', 'metadata'])('a %s failure retains publication and identifies only the failing processing step', async failure => {
+    (failure === 'index' ? indexBriefMock : saveBriefMetaMock).mockImplementationOnce(() => { throw new Error('Simulated database failure'); });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(textStream(GOOD_BRIEF)) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(complete).toBeTruthy();
+    expect(indexBriefMock).toHaveBeenCalledTimes(1);
+    expect(saveBriefMetaMock).toHaveBeenCalledTimes(1);
+    expect(complete.presentation.operationalNotes).toEqual([expect.objectContaining({ code: failure === 'index' ? 'SEARCH_INDEX_UNAVAILABLE' : 'EDITION_METADATA_UNAVAILABLE' })]);
+    expect(complete.presentation.currentChecks.issues.some(issue => /during publication/.test(issue.message))).toBe(false);
+    expect(complete.validation.warnings.join(' ')).not.toContain(failure === 'index' ? 'Edition metadata could not' : 'Search index failed');
+    expect(dispatchBriefWebhookMock).toHaveBeenCalledTimes(1);
+  });
+
   test('uses PUBLIC_BASE_URL for the completed-Briefing webhook deep link', async () => {
     ctx = await makeServer({
       getAnthropic: () => fakeAnthropic(textStream(GOOD_BRIEF)),
@@ -705,7 +719,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
-  test('publishes a corrective draft that explicitly disclaims independent corroboration', async () => {
+  test('publishes an independence finding as an editorial note without another paid attempt', async () => {
     const firstDraft = GOOD_BRIEF.replace(
       '**Confidence:** Moderate — reported by one source.',
       '**Confidence:** Moderate — independently corroborated reporting.',
@@ -720,14 +734,13 @@ describe('POST /api/brief — corrective retry recovery', () => {
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
     const complete = events.find(event => event.briefComplete);
 
-    expect(stream).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(stream.mock.calls[1][0].messages)).toContain('claims source independence that is not established');
+    expect(stream).toHaveBeenCalledTimes(1);
     expect(events.some(event => event.error)).toBe(false);
-    expect(complete).toMatchObject({ text: correctedDraft, tokens: 600 });
+    expect(complete).toMatchObject({ text: firstDraft, tokens: 300 });
     expect(saveBriefMock).toHaveBeenCalledTimes(1);
     expect(saveBriefMock).toHaveBeenCalledWith(
       '/fake/history',
-      correctedDraft,
+      firstDraft,
       expect.objectContaining({
         scheduled: false,
         manifest: expect.objectContaining({
@@ -922,6 +935,14 @@ describe('POST /api/brief — grounding publication gate', () => {
     expect(guidance).toContain('No supported intersection is established');
     expect(guidance).not.toContain('Score repair');
     expect(correctiveGuidance([])).toBe('');
+  });
+
+  test('evidence recovery distinguishes identity binding from missing source attribution', () => {
+    const guidance = correctiveGuidance([{ code: 'CVE_CVSS_AMBIGUOUS' }, { code: 'CVE_CITATION_MISMATCH' }]);
+    expect(guidance).toContain('one explicit pair per clause');
+    expect(guidance).toContain('An NVD-only score requires the supplied NVD citation');
+    expect(guidance).toContain('Add the exact supplied publisher/date/URL citation');
+    expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Remove unsupported detail rather than guessing it');
   });
 
   test('rejects an all-title-only collection before any provider or accounting mutation, even with catalog membership', async () => {
@@ -1487,9 +1508,9 @@ describe('OpenAI briefing generation', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
   const key = ['sk', 'proj', 'fixture-openai'].join('-');
-  function openaiResponse(text, { terminal = 'response.completed', reason, usage = { input_tokens: 100, output_tokens: 200, input_tokens_details: { cached_tokens: 20 }, output_tokens_details: { reasoning_tokens: 30 } } } = {}) {
+  function openaiResponse(text, { terminal = 'response.completed', reason, model = 'gpt-5.3-codex', usage = { input_tokens: 100, output_tokens: 200, input_tokens_details: { cached_tokens: 20 }, output_tokens_details: { reasoning_tokens: 30 } } } = {}) {
     const events = [{ type: 'response.output_text.delta', delta: text }];
-    if (terminal) events.push({ type: terminal, response: { model: 'gpt-5.3-codex', usage, ...(reason ? { incomplete_details: { reason } } : {}) } });
+    if (terminal) events.push({ type: terminal, response: { model, usage, ...(reason ? { incomplete_details: { reason } } : {}) } });
     return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'Content-Type': 'text/event-stream' } });
   }
 
@@ -1525,6 +1546,20 @@ describe('OpenAI briefing generation', () => {
     expect(events.some(event => event.briefComplete)).toBe(false);
     expect(saveBriefMock).not.toHaveBeenCalled();
     expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+  });
+
+  test.each([100, 300000])('GPT-6.1 Sol records cache writes and correct price tier at %s input tokens', async inputTokens => {
+    const model = 'gpt-6.1-sol';
+    const usage = { input_tokens: inputTokens, output_tokens: 200, input_tokens_details: { cached_tokens: 20, cache_write_tokens: 30 }, output_tokens_details: { reasoning_tokens: 50 } };
+    const fetchImpl = jest.fn(async () => openaiResponse(GOOD_BRIEF, { model, usage }));
+    ctx = await makeServer({ getAiClient: () => createOpenAiClient(key, model, fetchImpl) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const price = inputTokens > 272000 ? { input: 4, cachedInput: 0.2, cacheWriteInput: 5, output: 15 } : { input: 2, cachedInput: 0.1, cacheWriteInput: 2.5, output: 10 };
+    const cost = ((inputTokens - 50) * price.input + 20 * price.cachedInput + 30 * price.cacheWriteInput + 200 * price.output) / 1e6;
+    expect(events.find(event => event.briefComplete).costUsd).toBeCloseTo(cost, 9);
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toMatchObject({ model, reasoning: { effort: 'low' } });
+    const attempt = saveBriefMock.mock.calls[0][2].manifest.providerAttempts[0];
+    expect(attempt).toMatchObject({ model, responseModel: model, usage: { inputTokens, outputTokens: 200, cachedInputTokens: 20, cacheWriteInputTokens: 30, reasoningTokens: 50 }, pricing: { perMillionTokens: price } });
   });
 
   test('a complete-looking draft without a terminal provider event remains unpublished', async () => {
@@ -1587,6 +1622,12 @@ describe('safeErrorMsg — redaction', () => {
 });
 
 describe('estimateCostUsd / supportsAdaptiveThinking — pure units', () => {
+  test('GPT-6.1 Sol applies cache discounts and the full-request long-context tier above 272K', () => {
+    expect(estimateCostUsd('gpt-6.1-sol', 272000, 1000, undefined, 72000)).toBeCloseTo((200000 * 2 + 72000 * 0.1 + 1000 * 10) / 1e6, 9);
+    expect(estimateCostUsd('gpt-6.1-sol', 272001, 1000, undefined, 72000)).toBeCloseTo((200001 * 4 + 72000 * 0.2 + 1000 * 15) / 1e6, 9);
+    expect(estimateCostUsd('gpt-6.1-sol', 100, 200, undefined, 20, 30)).toBeCloseTo((50 * 2 + 20 * 0.1 + 30 * 2.5 + 200 * 10) / 1e6, 9);
+    expect(estimateCostUsd('gpt-6.1-sol', 100, 200, undefined, 500, 500)).toBeCloseTo((100 * 0.1 + 200 * 10) / 1e6, 9);
+  });
   test('keeps Sonnet 5 permanent pricing and uses exact current Haiku pricing', () => {
     expect(estimateCostUsd('claude-sonnet-5', 1_000_000, 1_000_000, new Date('2026-08-31T12:00:00Z'))).toBeCloseTo(12);
     expect(estimateCostUsd('claude-sonnet-5', 1_000_000, 1_000_000, new Date('2026-09-01T00:00:00Z'))).toBeCloseTo(12);
