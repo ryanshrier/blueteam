@@ -19,7 +19,7 @@ Wall and Wire work without API keys. Briefing generation may incur provider char
 Recommended: Node.js 24 with npm. See the full supported ranges in [Operations](docs/operations.md#runtime-support) and [Development](docs/development.md).
 
 ```bash
-git clone --branch v1.3.1 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.3.2 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start

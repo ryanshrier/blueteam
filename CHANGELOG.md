@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.2 — 2026-10-09
 
 - Preserve CVE/score associations across soft line wraps and explicit trailing CVE parentheses, while rejecting ambiguous objects and scores borrowed from adjacent vulnerabilities. Locate score blockers on the affected draft line and link their captured evidence.
 - Enforce normalized Custom provider completion reasons, retain usage reported at the end of a stream, and record how reasoning requests were configured for each attempt.
