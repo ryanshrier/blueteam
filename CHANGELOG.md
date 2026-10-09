@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.3.1 — 2026-10-09
+
+- Correct CVSS version/score parsing, parenthetical CVE associations, shortened CVE lists, and equivalent product-version wording. Preserve exact supporting citations, provenance, and actionable retry guidance while rejecting unsupported scores, deadlines, and exploitation claims.
+- Rework Wall views for quick reading at a distance, with full-width responsive layouts, complete vulnerability headlines, concise takeaways, and essential operational facts. Improve laptop, ultrawide, 1080p, and 4K layouts; retain meaningful uncertainty in the assessment text. Prevent wrapped continuation headings from trapping narrow-screen navigation.
+- Restore JPCERT feed ingestion and require more than half of feeds to be unavailable before showing degraded collection status, while retaining stale-data warnings.
+- Add budgeted OpenAI support to the separate live evaluation harness and recognize GPT-6.1 Sol reasoning and cost estimates.
+- Separate current-copy checks, scoped approvals, operational notices, and original findings across Briefing, Wall, copy, and print. Keep material exceptions actionable in both reading modes and routine checks in the optional edition record.
+- Remove repeated generic verification language from published outputs, preserve decision-changing qualifications and source references, and refresh Wall diagnostics without resetting held text.
+- Publish ordinary briefings with advisory notes; reserve recovery for serious evidence, integrity, incomplete-content, and security-control findings.
+- Complete draft recovery with separate Save draft and Publish briefing actions. Recheck captured inputs without another model call, preserve the original evidence date, prevent duplicate publication, and retain the current briefing while a draft needs attention.
+- Preserve deliberately saved drafts from automatic recovery cleanup, retain the original plus recent repair revisions, and make unchanged rechecks repeatable without consuming revisions.
+- Require complete captured citation URLs, including tracking parameters and fragments; reject URL credentials and hidden controls. Keep story-grouping normalization separate from citation authorization.
+- Require review of detected recommendations to weaken security controls or remove audit evidence before automatic publication eligibility. Keep the exact-copy approval and retained-finding behavior; bounded checks do not certify all generated advice.
+- Isolate RSS/Atom parsing in a worker with time, heap, queue, and structural limits, preserving large full-content feeds and stale-cache recovery.
+- Transform Horizon markers in text nodes only, and run an adversarial browser rendering corpus in CI with external requests blocked.
+
 ## 1.3.0 — 2026-10-09
 
 - Give Briefing Overview a news-style front page with a featured story, an edition summary, and supporting headlines. Keep complete assessments, response actions, qualifications, and citations in Full report, with direct links from each story.

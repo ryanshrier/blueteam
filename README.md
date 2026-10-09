@@ -19,7 +19,7 @@ Wall and Wire work without API keys. Briefing generation may incur provider char
 Recommended: Node.js 24 with npm. See the full supported ranges in [Operations](docs/operations.md#runtime-support) and [Development](docs/development.md).
 
 ```bash
-git clone --branch v1.3.0 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.3.1 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -62,7 +62,9 @@ Automatic generation is off by default. Enable it separately in Settings and cho
 
 **Wire** (`/wire`) exposes score components and filters for tier, urgency, KEV, and unread state. **Inspect evidence** shows retained passages and changes between observations. A watch profile explains literal matches to your technologies, sectors, and regions; local exposure remains unknown. Read state follows retained revisions, so changed evidence becomes unread again. Decisions and hidden/read preferences stay in this browser and update across its tabs. CSV and JSON exports cover current results; **Export all saved decisions (JSON)** also includes decisions for hidden, filtered, and older signals.
 
-**Briefing** (`/briefing`) opens saved editions in Overview or Full report. Overview presents featured and supporting stories as a news front page; Full report contains the complete analysis, actions, timing, and citations. **Edition tools** provides history, source inputs, drafts, copying, printing, and generation. New editions retain the evidence, configuration, provider/model attempts, and validation used to generate them. Historical editions may lack these receipts. Draft repair and reviewed copies preserve the original edition.
+**Briefing** (`/briefing`) opens published editions in Overview or Full report. Overview presents featured and supporting stories as a news front page; Full report contains the complete analysis, actions, timing, and citations. Ordinary generation publishes automatically, including routine editorial notes. Serious findings retain an unpublished draft while Latest and Wall keep the current briefing. In **Edition tools → Drafts**, **Save draft** preserves edits; **Publish briefing** checks and publishes them without another model call. New editions retain the evidence, configuration, provider/model attempts, and validation used to generate them. Historical editions may lack these receipts. Draft repair and reviewed copies preserve the original evidence and edition date.
+
+Published editions keep relevant conditions beside their assessments and collect checks, scoped approvals, and correction history in **Edition record**. Routine editorial notes do not create a distribution warning. Copied decisions and print preserve the applicable qualifications and sources, with a link back to the saved edition.
 
 Review generated claims against their cited reporting. Publication checks cover structure, citation identities and dates, incomplete provider output, and specified CVE, CVSS, version, and KEV claim forms. They do not verify every narrative claim or confirm your organization's exposure.
 

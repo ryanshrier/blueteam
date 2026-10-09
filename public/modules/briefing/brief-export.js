@@ -19,6 +19,10 @@ import { formatEditionIdentity, formatEventTime } from '../core/brief-date.js';
 import { structureExecutiveSummary } from './brief-executive.js';
 import {
   normalizePackedBriefFields,
+  readerPresentationIssues,
+  readerIssueText,
+  readerIssueIdentity,
+  scopedApprovalText,
   splitPackedBriefFieldHtml,
 } from './brief-renderer.js';
 
@@ -44,9 +48,9 @@ export const PRINT_DOCUMENT_CSP = [
 
 // Transient nodes the live brief may carry that have no place in the artifact.
 // .brief-judgment-link is in-app Wire navigation — a dead anchor on paper, so strip it.
-// .brief-validation-warning is rebuilt below as a static Edition notes block,
-// including the complete warning text rather than a count-only live-app reference.
-const STRIP_SELECTOR = '.streaming-cursor, .brief-validation-warning, .gen-progress, .error-message, .briefing-status, .brief-judgment-tools, .brief-copy-decision, .brief-judgment-link, .bjm-revises, [data-reader-metadata]';
+// Structured current findings and disposition are rendered separately. Routine
+// diagnostics belong to the permanent edition record, not the printed article.
+const STRIP_SELECTOR = '.streaming-cursor, .brief-validation-warning, .brief-disposition-notice, .gen-progress, .error-message, .briefing-status, .brief-judgment-tools, .brief-copy-decision, .brief-judgment-link, .bjm-revises, [data-reader-metadata]';
 
 // Field labels eligible for short-block pagination after shared normalization.
 const PAGINATION_FIELD_LABELS = new Set([
@@ -96,18 +100,22 @@ export function shouldKeepShortListTogether(itemCount, textLength) {
     && length <= ATOMIC_LIST_MAX_CHARS;
 }
 
-// Persisted warnings are the authoritative generation-time audit, but legacy or
-// manually edited archive files can acquire a client-derived structural warning
-// when rendered. Merge both sources before the live banner is stripped from the
-// clone so the Edition cannot print cleaner than the Briefing shown on screen.
-export function collectEditionWarnings(contentEl, persisted = []) {
-  const values = Array.isArray(persisted) ? [...persisted] : [];
-  if (contentEl?.querySelectorAll) {
-    contentEl.querySelectorAll('.brief-validation-warning li').forEach(li => {
-      values.push(li.textContent || '');
-    });
-  }
-
+// Prefer one authoritative source. A decorated DOM row may contain a passage,
+// navigation and the same message; merging its text with the structured record
+// manufactures duplicate findings. An explicitly empty current record is final.
+export function collectEditionWarnings(contentEl, persisted = [], presentation = null) {
+  let values;
+  if (presentation?.currentChecks) {
+    values = Array.isArray(presentation.currentChecks.issues)
+      ? presentation.currentChecks.issues.map(issue => issue.message)
+      : presentation.currentChecks.warnings || [];
+  } else if (Array.isArray(persisted) && persisted.length) values = persisted;
+  else values = [...(contentEl?.querySelectorAll?.('.brief-validation-warning li') || [])].map(li => {
+    if (li.dataset?.issueMessage !== undefined) return li.dataset.issueMessage;
+    const clone = li.cloneNode?.(true);
+    clone?.querySelectorAll?.('a, p, details').forEach(node => node.remove());
+    return clone?.textContent || li.textContent || '';
+  });
   const warnings = [];
   const seen = new Set();
   for (const value of values) {
@@ -117,6 +125,11 @@ export function collectEditionWarnings(contentEl, persisted = []) {
     warnings.push(warning);
   }
   return warnings;
+}
+
+export function renderedReaderIssueIds(root) {
+  return [...new Set([...(root?.querySelectorAll?.('[data-reader-issue-id]') || [])]
+    .map(node => node.dataset?.readerIssueId).filter(Boolean))];
 }
 
 // Operate only on the export clone. The reader groups corrections in its top
@@ -241,7 +254,8 @@ function protectUnbreakableTokens(root) {
  * @param {string}      metaText   the brief meta line (for model provenance)
  * @param {string|null} generatedAt machine-readable generation timestamp, when known
  * @param {number|string|null} readMins app-computed reading time; preferred over recounting the clone
- * @param {string[]}    warnings   persisted validation warnings, if any
+ * @param {object|null} presentation structured current findings and copy identity
+ * @param {object|null} disposition authoritative publication eligibility
  * @param {HTMLElement} opener     control that opened the edition, if known
  * @returns {Function} idempotent disposer; pass { restoreFocus: false } when navigating away
  */
@@ -252,14 +266,15 @@ export function exportBriefNewspaper({
   model = '',
   generatedAt = null,
   readMins = null,
-  warnings = [],
   opener = null,
   review = null,
+  presentation = null,
+  disposition = null,
 }) {
-  const editionWarnings = collectEditionWarnings(contentEl, warnings);
   const clone = contentEl.cloneNode(true);
   // Extract nested correction groups before removing their reader disclosure.
-  const reviewNotesHtml = extractPrintReviewNotes(clone);
+  const reviewNotesHtml = extractPrintReviewNotes(clone) || (review?.status === 'editorially-corrected' && review.notes?.length
+    ? `<ul>${review.notes.map(note => `<li id="${escapeHtml(note.id || '')}"><strong>${escapeHtml(note.label || 'Correction')}</strong> — ${escapeHtml(note.reason || '')}</li>`).join('')}</ul>` : '');
   clone.querySelectorAll(STRIP_SELECTOR).forEach(el => el.remove());
   clone.querySelectorAll('[data-review-original], .brief-review-summary, .brief-priority-index').forEach(el => el.remove());
   // Reader disclosures simplify scanning. The print artifact always includes
@@ -328,11 +343,13 @@ export function exportBriefNewspaper({
     readMins: resolvedReadMins,
     freshness,
     model: resolvedModel,
-    warnings: editionWarnings,
     filename,
     editionUrl: filename ? `${location.origin}/briefing/${encodeURIComponent(filename)}` : '',
     review,
     reviewNotesHtml,
+    presentation,
+    disposition,
+    renderedIssueIds: renderedReaderIssueIds(clone),
   });
 
   // Render the edition in an in-app preview (an isolated, same-origin iframe).
@@ -688,41 +705,40 @@ export function buildDocument({
   readMins,
   freshness,
   model,
-  warnings = [],
-  warningCount = 0,
   filename = null,
   editionUrl = '',
   review = null,
   reviewNotesHtml = '',
+  presentation = null,
+  disposition = null,
+  renderedIssueIds = [],
 }) {
   const identity = formatEditionIdentity(filename) || longDate;
   let safeEditionUrl = '';
   try { const url = new URL(editionUrl); if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) safeEditionUrl = url.href; } catch { /* unsaved edition */ }
   const modelNote = model ? ` Model: ${escapeHtml(formatModelLabel(model))}.` : '';
-  const safeWarnings = Array.isArray(warnings)
-    ? warnings.map(value => String(value || '').trim()).filter(Boolean)
-    : [];
-  const resolvedWarningCount = safeWarnings.length || Math.max(0, Number(warningCount) || 0);
   const corrected = review?.status === 'editorially-corrected';
-  const validationBlock = safeWarnings.length
-    ? `<aside class="np-validation" id="npPublicationNotes" aria-labelledby="npValidationTitle">
-        <strong id="npValidationTitle">Original publication notes${corrected ? ' (before later correction)' : ' — review before distribution'}</strong>
-        <p>These records describe the original publication. Notes prefixed QA review are later editorial annotations; their original author/time were not recorded.${corrected ? ' They precede the correction shown in this reading copy and are preserved as history.' : ''}</p>
-        <ul>${safeWarnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>
-      </aside>`
-    : '';
-  const validationNote = resolvedWarningCount > 0
-    ? `<span class="np-validation-note"> Original publication notes: ${resolvedWarningCount} ${resolvedWarningCount === 1 ? 'note' : 'notes'} retained${safeWarnings.length ? ' in the appendix' : ' in the live briefing'}.</span>`
-    : '';
-  const provenance = corrected || resolvedWarningCount > 0
-    ? `<p class="np-reading-provenance">${corrected ? `Editorially corrected · Reviewed ${escapeHtml(formatEventTime(review.reviewedAt))} · <a href="#npEditorialReview">Review provenance</a>` : 'Publication notes require review before distribution'}${resolvedWarningCount > 0 ? ` · ${resolvedWarningCount} original publication ${resolvedWarningCount === 1 ? 'note' : 'notes'}${safeWarnings.length ? ' · <a href="#npPublicationNotes">Notes at end</a>' : ' in live briefing'}` : ''}</p>`
-    : '';
+  // Inline findings stay beside their claim. Only material findings without a
+  // rendered placement need the appendix; authored prose is never deduplicated.
+  const placed = new Set(renderedIssueIds);
+  const currentIssues = readerPresentationIssues(presentation).filter(issue => !placed.has(readerIssueIdentity(issue)));
+  const validationBlock = currentIssues.length
+    ? `<aside class="np-validation" id="npCurrentQualifications"><strong>Current qualifications</strong><ul>${currentIssues.map(issue => `<li>${escapeHtml(readerIssueText(issue))}</li>`).join('')}</ul></aside>` : '';
+  const superseded = disposition?.status === 'superseded';
+  const held = disposition?.status === 'review-required' || disposition?.eligibleForLatest === false;
+  const replacement = /^brief-\d{4}-\d{2}-\d{2}(?:-\d+)?\.md$/.test(disposition?.replacementFilename || '') ? disposition.replacementFilename : '';
+  const dispositionBlock = superseded || held
+    ? `<aside class="np-validation np-publication-hold"><strong>${superseded ? 'Superseded edition' : 'Publication held'}</strong><p>${escapeHtml(disposition.reason || 'This edition is excluded from current publication.')}</p>${replacement ? `<p>Replacement edition: ${safeEditionUrl ? `<a href="${escapeHtml(new URL(`/briefing/${encodeURIComponent(replacement)}`, safeEditionUrl).href)}">${escapeHtml(formatEditionIdentity(replacement) || replacement)}</a>` : escapeHtml(replacement)}</p>` : ''}</aside>` : '';
+  const provenance = corrected
+    ? `<p class="np-reading-provenance">Corrected reading copy · ${escapeHtml(formatEventTime(review.reviewedAt))} · <a href="#npEditorialReview">Correction record</a></p>` : '';
   const reviewBlock = corrected
-    ? `<aside class="np-validation" id="npEditorialReview"><strong>Editorial review provenance</strong><p>${escapeHtml(review.reviewer)} · ${escapeHtml(formatEventTime(review.reviewedAt))}. ${escapeHtml(review.scope)}</p>${review.originalSha256 ? `<p>Original edition SHA-256: <code>${escapeHtml(review.originalSha256)}</code></p>` : ''}</aside>`
+    ? `<aside class="np-validation" id="npEditorialReview"><strong>Correction record</strong><p>${escapeHtml(review.reviewer)} · ${escapeHtml(formatEventTime(review.reviewedAt))}. ${escapeHtml(review.scope)}</p></aside>`
     : '';
   const correctionBlock = reviewNotesHtml
-    ? `<aside class="np-validation np-editorial-corrections" id="npEditorialCorrections" aria-labelledby="npEditorialCorrectionsTitle" style="break-inside:auto;page-break-inside:auto"><strong id="npEditorialCorrectionsTitle">Editorial corrections appendix</strong><p>Complete correction notes for this reading copy. The original generated edition and its captured inputs are preserved; these annotations are separate from its original source checks.</p>${reviewNotesHtml}</aside>`
+    ? `<aside class="np-validation np-editorial-corrections" id="npEditorialCorrections" aria-labelledby="npEditorialCorrectionsTitle" style="break-inside:auto;page-break-inside:auto"><strong id="npEditorialCorrectionsTitle">Editorial corrections appendix</strong>${reviewNotesHtml}</aside>`
     : '';
+  const approval = scopedApprovalText(presentation);
+  const recordUrl = safeEditionUrl ? `${safeEditionUrl.split('#')[0]}#edition-record` : '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -737,7 +753,6 @@ ${NEWSPAPER_CSS}
 </head>
 <body>
   <div class="paper">
-    <div class="np-handling">Internal · For situational awareness · Verify before acting</div>
     <header class="np-masthead">
       <div class="np-plate">
         <div class="np-ear np-ear-left">${escapeHtml(plateSubtitle)}</div>
@@ -746,11 +761,12 @@ ${NEWSPAPER_CSS}
       </div>
       <div class="np-folio">
         <span class="np-folio-date">${escapeHtml(identity)}</span>
-        <span class="np-folio-end">${escapeHtml(freshness)} · AI-generated</span>
+        <span class="np-folio-end">${escapeHtml(freshness)}</span>
       </div>
     </header>
 
     ${provenance}
+    ${dispositionBlock}
 
     <div class="np-body brief-content">
       ${bodyHtml}
@@ -761,12 +777,10 @@ ${NEWSPAPER_CSS}
     ${correctionBlock}
 
     <footer class="np-colophon">
-      ${escapeHtml(plateTitle)} · AI-generated synthesis from sourced signals.${modelNote}
-      Verify every CVE ID, vendor name, date, and link before acting.
-      ${validationNote}
-      ${safeEditionUrl ? `<p>Permanent edition: <a href="${escapeHtml(safeEditionUrl)}">${escapeHtml(identity)}</a><br>${escapeHtml(safeEditionUrl)} · ${escapeHtml(freshness)}</p>` : ''}
+      ${escapeHtml(plateTitle)} · ${corrected || presentation?.copy?.kind === 'operator-repaired' ? 'AI-generated draft with subsequent edits.' : 'AI-generated synthesis from sourced signals.'}${modelNote}
+      ${approval ? `<p>${escapeHtml(approval)}</p>` : ''}
+      ${safeEditionUrl ? `<p>Permanent edition: <a href="${escapeHtml(safeEditionUrl)}">${escapeHtml(identity)}</a> · <a href="${escapeHtml(recordUrl)}">Edition record and sources</a><br>${escapeHtml(safeEditionUrl)}</p>` : ''}
     </footer>
-    <div class="np-handling np-handling-foot">Internal · For situational awareness · Verify before acting</div>
   </div>
 </body>
 </html>`;

@@ -1,6 +1,6 @@
 {
   "name": "blueteam-news",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "description": "BlueTeam.News — an open-source, self-hosted threat-intelligence desk for cyber defense teams.",
   "author": "Ryan Shrier",
@@ -42,6 +42,9 @@
     "check:landing": "node scripts/check-landing-page.mjs",
     "check:landing:render": "node scripts/check-landing-render.mjs",
     "check:evidence:render": "node scripts/check-evidence-render.mjs",
+    "check:security:render": "node scripts/check-security-render.mjs",
+    "check:draft:render": "node scripts/check-draft-render.mjs",
+    "check:reader:render": "node scripts/check-reader-state-render.mjs",
     "check:design:render": "node scripts/check-design-render.mjs",
     "check:theme:render": "node scripts/check-theme-render.mjs",
     "check:handoff:render": "node scripts/check-handoff-render.mjs",

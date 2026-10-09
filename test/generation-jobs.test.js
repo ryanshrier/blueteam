@@ -46,6 +46,20 @@ describe('durable generation accounting', () => {
     expect(createGenerationJobs({ ...db, sessionId: 'process-2' }).status().latest).toMatchObject({ status: 'complete', costUsd: 0.0012, attempts: [{ usageComplete: true, pricing: attempt.pricing }] });
   });
 
+  test('a failed job repaired before its ledger update recovers publication without resolving unknown billing', () => {
+    const db = storage();
+    const jobs = createGenerationJobs({ ...db, sessionId: 'original' });
+    start(jobs); jobs.startAttempt('generation-1', attempt);
+    jobs.usage('generation-1', 1, { inputTokens: 100, outputTokens: 40, costUsd: 0.0006 });
+    jobs.finishAttempt('generation-1', 1, { failed: true });
+    jobs.finish('generation-1', { status: 'failed', code: 'E_PROVIDER_INCOMPLETE' });
+    const recoverPublished = () => ({ operatorRepaired: true, filename: 'brief-2026-09-05-02.md', generatedAt: '2026-09-06T12:00:00Z', costUsd: 99 });
+    const restarted = createGenerationJobs({ ...db, recoverPublished });
+    expect(restarted.status().latest).toMatchObject({ status: 'complete', code: 'OPERATOR_REPAIRED', filename: 'brief-2026-09-05-02.md',
+      costUsd: 0.0006, billing: 'unknown-final-usage', attempts: [{ status: 'failed', usageComplete: false, usage: { inputTokens: 100, outputTokens: 40 } }] });
+    expect(createGenerationJobs({ ...db, recoverPublished: () => ({ filename: 'brief-2026-09-05-01.md' }) }).status().latest.status).toBe('failed');
+  });
+
   test('initial write failure rejects work and later failures never erase the last saved checkpoint', () => {
     const db = storage();
     const jobs = createGenerationJobs({ ...db, sessionId: 'process-1' });

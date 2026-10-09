@@ -143,7 +143,7 @@ describe('saved overview identity and authored meaning', () => {
     expect(model.judgments[0].certainty.label).toBe('Likelihood');
     expect(model.judgments[0].certainty.text).toContain('independent deployment evidence remains unavailable');
     const html = renderOverview(SAVED_BRIEF);
-    expect(html).toContain('Likelihood</dt>');
+    expect(html).toContain('<span>Likelihood</span>');
     expect(html).toContain('Likely (55–80%) — the vendor confirms the build; independent deployment evidence remains unavailable.');
     expect(html).toContain('High for the existence of separate records; Moderate for response impact — impact has not been measured.');
     expect(html).toContain('Synthetic exercise. The exposure and ownership questions remain unresolved.');
@@ -151,13 +151,15 @@ describe('saved overview identity and authored meaning', () => {
     const mixed = assessmentCards(html)[1];
     expect(mixed.indexOf('High for the existence of separate records; Moderate for response impact — impact has not been measured.'))
       .toBeLessThan(mixed.indexOf('<details'));
-    expect(mixed).toContain('Confidence by claim');
+    expect(mixed.match(/High for the existence of separate records; Moderate for response impact — impact has not been measured\./g)).toHaveLength(1);
+    const single = assessmentCards(html)[0];
+    expect(single.indexOf('independent deployment evidence remains unavailable')).toBeLessThan(single.indexOf('<details'));
   });
 
   test('keeps missing confidence explicit without filling unavailable metadata from dated sources', () => {
     const brief = { ...SAVED_BRIEF, content: SAVED_BRIEF.content.replace(/^\*\*Confidence:\*\*[^\n]*\n/gm, '') };
     const html = renderOverview(brief);
-    expect(html).toContain('Assessment confidence</dt><dd class="assessment-meta__value">Not assessed');
+    expect(html).toContain('<span>Confidence</span> Not assessed');
     expect(html).not.toContain('data-field="severity"');
     expect(html).not.toContain('data-field="time"');
     expect(html).not.toContain('data-level="danger"');
@@ -352,7 +354,7 @@ The [later source note](https://saved.example/later) qualifies its scope.
         .replace('https://saved.example/gateway', 'https://name:secret@saved.example/gateway') };
     const html = renderOverview(brief);
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
-    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).not.toContain('alert(1)&lt;/script&gt;'); // edition diagnostics belong to the shared record
     expect(html).not.toMatch(/<(?:img|script|svg)\b/i);
     expect(html).not.toContain('name:secret');
     const recent = renderRecentDevelopments(recentDevelopmentsModel(reporting({ headlines: [{

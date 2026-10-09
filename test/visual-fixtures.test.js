@@ -8,6 +8,7 @@ import { sha256 } from '../lib/generation-manifest.js';
 import { APP_SCENARIOS, WALL_KINDS, buildAppFixture } from './visual/app-fixtures.js';
 import { parseBrief } from '../lib/brief-schema.js';
 import { buildPages, executiveSummaryModel } from '../public/modules/wall/wall-format.js';
+import { buildPresentationPages } from '../public/modules/wall/wall-presentation.js';
 import { createFixtureApp } from '../scripts/serve-visual-fixtures.mjs';
 
 describe('visual fixture manifest', () => {
@@ -62,6 +63,20 @@ describe('production-shell synthetic fixtures', () => {
     const brief = parseBrief(data.brief.content);
     const kinds = new Set(buildPages(brief, data.landscape).map(page => page.kind));
     expect([...kinds]).toEqual(WALL_KINDS);
+  });
+
+  test('summary fixture reaches executive presentation when there are no key judgments', () => {
+    const data = buildAppFixture('summary', now);
+    const brief = parseBrief(data.brief.content);
+    const pages = buildPresentationPages(brief, data.landscape);
+    expect(APP_SCENARIOS).toContain('summary');
+    expect(data.landscape.brief.filename).toBe('brief-2026-07-24-summary.md');
+    expect(brief.stories).toEqual([]);
+    expect(pages.some(page => page.kind === 'judgment')).toBe(false);
+    expect(pages.filter(page => page.kind === 'execsummary').map(page => page.block.text)).toEqual([
+      'One fictional gateway requires review.', 'verify its build',
+    ]);
+    expect(pages.some(page => page.kind === 'developing')).toBe(true);
   });
 
   test('long fixture retains complete action and escalation endings after parsing', () => {

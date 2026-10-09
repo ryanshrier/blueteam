@@ -15,16 +15,16 @@ describe('independent handoff acceptance readers', () => {
     expect(() => parseCsv(text)).toThrow();
   });
 
-  const footer = 'Verify every CVE ID, vendor name, date, and link before acting.';
+  const footer = 'AI-generated synthesis from sourced signals. Edition record and sources.';
   const text = `A complete synthetic assessment crosses the page\nBlueTeam.News · Print edition\nPage 1 of 2\fboundary without losing its final action or retained source evidence.\n${footer}\nBlueTeam.News · Print edition\nPage 2 of 2\f`;
   const passage = 'A complete synthetic assessment crosses the page boundary without losing its final action or retained source evidence.';
   test('PDF reader accepts a paragraph across pages with running folios', () => {
     expect(inspectPdfText(text, [passage, footer])).toMatchObject({ pageCount: 2, checkedPassages: 2 });
   });
-  test('PDF reader rejects a lost final action, blank page, or omitted verification footer', () => {
+  test('PDF reader rejects a lost final action, blank page, or omitted edition-record footer', () => {
     expect(() => inspectPdfText(text.replace('retained source evidence', 'nothing'), [passage])).toThrow(/lost text/);
     expect(() => inspectPdfText(text + 'BlueTeam.News · Print edition\nPage 3 of 3\f', [])).toThrow(/body content/);
-    expect(() => inspectPdfText(text.replace(footer, ''), [])).toThrow(/verification colophon/);
+    expect(() => inspectPdfText(text.replace(footer, ''), [])).toThrow(/edition-record colophon/);
   });
   test('PDF reader checks physical text coordinates independently of text presence', () => {
     const bbox = '<html><body><doc><page width="612" height="792"><word xMin="40" yMin="50" xMax="300" yMax="65">Synthetic</word></page></doc></body></html>';
@@ -63,13 +63,17 @@ describe('independent handoff acceptance readers', () => {
     const reversed = pdf(line('Second complete paragraph', 40, 50) + line('First complete paragraph', 40, 100));
     expect(() => matchPdfPassages(pdfTextRegions(reversed), ['First complete paragraph', 'Second complete paragraph'])).toThrow(/changed order/);
   });
-  test('handoff fixture includes all horizons, adverse CSV cells, and persisted edition warnings', () => {
+  test('handoff fixture includes all horizons, adverse CSV cells, and distinct current and historical findings', () => {
     const fixture = buildAppFixture('handoff');
     expect(fixture.headlines.headlines.map(row => row.horizon)).toEqual([1, 1, 2, 3]);
     expect(fixture.headlines.headlines[0].title).toBe('=SUM(1,2) — synthetic, "gateway" test');
     expect(fixture.headlines.headlines[0].description).toContain('\n');
     expect(fixture.headlines.headlines[1].description).toMatch(/^\t/);
-    expect(fixture.brief.meta.warnings).toHaveLength(2);
+    expect(fixture.brief.presentation.currentChecks.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ audience: 'reader', message: 'Synthetic qualification: local exposure remains unverified.' }),
+      expect.objectContaining({ audience: 'operator', message: 'Synthetic editorial note: normalize the confidence field.' }),
+    ]));
+    expect(fixture.brief.presentation.history.length).toBeGreaterThan(0);
     expect(fixture.briefs[0].filename).not.toBe(buildAppFixture('long').briefs[0].filename);
     expect(fixture.brief.content).toContain('retain the decision record for workstream 7');
     expect(fixture.brief.content).toContain('neither has been approved yet');

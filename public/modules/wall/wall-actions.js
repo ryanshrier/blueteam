@@ -25,12 +25,31 @@ function sources(citations = []) {
   }).map(item => `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.label || new URL(item.url).hostname)}</a>`).join(' · ');
 }
 
+export function wallEditionRecordHtml(doc = {}) {
+  const current = doc.presentation?.currentChecks?.warnings ?? doc.warnings ?? [];
+  const history = doc.presentation?.history ?? (doc.originalWarnings?.length
+    ? [{ label: 'Original publication notes', warnings: doc.originalWarnings }] : []);
+  const approval = doc.presentation?.approval;
+  const reviewed = approval?.status === 'recorded';
+  const corrected = doc.review?.status === 'editorially-corrected';
+  const list = values => `<ul>${[...new Set(values)].map(value => `<li>${escapeHtml(value)}</li>`).join('')}</ul>`;
+  if (!current.length && !history.some(record => record.warnings?.length) && !reviewed && !corrected) return '';
+  const correctionIdentity = corrected ? [doc.review.reviewer, formatBriefPublishedAt(doc.review.reviewedAt)].filter(Boolean).join(' · ') : '';
+  return `<details><summary>Edition record</summary>
+    ${corrected ? `<p>Corrected reading copy${correctionIdentity ? ` · ${escapeHtml(correctionIdentity)}` : ''}</p>${doc.review.scope ? `<p>${escapeHtml(doc.review.scope)}</p>` : ''}` : ''}
+    ${reviewed ? `<p>${approval.scope === 'security-control-change' ? 'Control exception reviewed' : 'Publication decision recorded'}${approval.reviewer ? ` · ${escapeHtml(approval.reviewer)}` : ''}${approval.reviewedAt ? ` · ${escapeHtml(formatBriefPublishedAt(approval.reviewedAt))}` : ''}</p>${approval.reason ? `<p>${escapeHtml(approval.reason)}</p>` : ''}` : ''}
+    ${current.length ? `<p>Current copy notes</p>${list(current)}` : ''}
+    ${history.filter(record => record.warnings?.length).map(record => `<details><summary>${escapeHtml(record.label || 'Earlier edition notes')}</summary>${list(record.warnings)}</details>`).join('')}
+    ${doc.review?.originalSha256 ? `<p>Original edition SHA-256: <code>${escapeHtml(doc.review.originalSha256)}</code></p>` : ''}
+    ${doc.filename ? `<a href="/briefing/${encodeURIComponent(doc.filename)}#edition-record">Open edition record</a>` : ''}
+  </details>`;
+}
+
 export function wallDocumentHtml(doc = {}) {
   const stories = doc.stories || [];
-  const reviewIdentity = doc.review ? [doc.review.reviewer || 'Editorial review', formatBriefPublishedAt(doc.review.reviewedAt)].filter(Boolean).join(' · ') : '';
   return `<p class="nb-actions-edition">${escapeHtml(formatBriefPublication(doc))} · Complete authored actions and supporting context</p>
-    ${doc.review?.status === 'editorially-corrected' ? `<p>Editorially corrected reading copy · ${escapeHtml(reviewIdentity)}${doc.filename ? ` · <a href="/briefing/${encodeURIComponent(doc.filename)}#editorial-review">Review corrections and original</a>` : ''}</p>` : ''}
-    ${doc.review?.status === 'editorially-corrected' ? `<details><summary>Editorial scope and original generation findings</summary>${doc.review.scope ? `<p>${escapeHtml(doc.review.scope)}</p>` : ''}${doc.review.originalSha256 ? `<p>Original output SHA-256: <code>${escapeHtml(doc.review.originalSha256)}</code></p>` : ''}${doc.warnings?.length ? `<p>These source-check notes belong to the unchanged original output:</p><ul>${doc.warnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>` : ''}</details>` : ''}
+    ${doc.review?.status === 'editorially-corrected' ? `<p>Corrected reading copy${doc.filename ? ` · <a href="/briefing/${encodeURIComponent(doc.filename)}#editorial-review">See changes</a>` : ''}</p>` : ''}
+    ${wallEditionRecordHtml(doc)}
     <nav aria-label="Action topics">${stories.map((story, idx) => { const count = storyActions(story).length; return `<a href="#wall-action-topic-${idx}">${escapeHtml(story.title)} · ${count} ${count === 1 ? 'action' : 'actions'}</a>`; }).join('')}</nav>
     ${stories.map((story, idx) => `<section id="wall-action-topic-${idx}" tabindex="-1"><h3>${escapeHtml(story.title)}</h3>
       ${story.decision ? `<p>Decision window · ${escapeHtml(story.decision)} · as of ${escapeHtml(doc.date || 'the saved edition')}</p>` : ''}

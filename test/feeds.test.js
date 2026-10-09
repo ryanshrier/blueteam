@@ -480,6 +480,31 @@ describe('fetchNewsContext — feed ingest front door', () => {
     expect(results[0].link).toBe('https://example.com/blog/b');
   });
 
+  test('parses RSS 1.0 RDF sibling items and retains Dublin Core dates and identity', async () => {
+    const recentDate = new Date().toISOString();
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue(`<?xml version="1.0"?>
+<rdf:RDF xmlns="http://purl.org/rss/1.0/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel rdf:about="https://example.com/jpcert.rdf"><title>RSS 1.0 advisory feed</title></channel>
+  <item rdf:about="https://example.com/advisory"><title>注意喚起: Current advisory</title><link>https://example.com/advisory</link><dc:identifier>advisory-42</dc:identifier><dc:date>${recentDate}</dc:date></item>
+  <item rdf:about="https://example.com/old"><title>Old advisory</title><dc:date>2000-01-01T12:00:00+09:00</dc:date></item>
+</rdf:RDF>`);
+    const [item, ...remaining] = await fetchNewsContext([{ url: 'https://example.com/jpcert.rdf', source: 'RDF advisory fixture', horizon: 1 }]);
+    expect(remaining).toEqual([]);
+    expect(item).toMatchObject({ title: '注意喚起: Current advisory', link: 'https://example.com/advisory',
+      sourceIdentifier: 'advisory-42', originalDate: recentDate, dateUnknown: false, passage: '' });
+    expect(getFeedHealth().feeds['RDF advisory fixture']).toBe('ok');
+    expect(setFeedCacheMock.mock.calls[0][3][0]).toMatchObject({ sourceIdentifier: 'advisory-42', originalDate: recentDate });
+  });
+
+  test('does not accept RDF channel/item shapes without the RSS 1.0 namespace', async () => {
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue('<rdf:RDF xmlns="https://example.com/not-rss" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><channel><title>Not an RSS feed</title></channel><item><title>Unrelated data</title></item></rdf:RDF>');
+    const feed = { url: 'https://example.com/non-feed.rdf', source: 'Non-feed RDF fixture', horizon: 1 };
+    expect(await fetchNewsContext([feed])).toEqual([]);
+    expect(getFeedHealth().feeds[feed.source]).toBe('parse-error');
+  });
+
   test('malformed XML on one feed reports a parse-error status and does not sink other feeds', async () => {
     safeFetchMock.mockResolvedValue(fakeResponse());
     // readCapped resolves per-URL: the "bad" feed gets truncated/invalid XML,
@@ -512,6 +537,24 @@ describe('fetchNewsContext — feed ingest front door', () => {
     const results = await fetchNewsContext(feeds, {});
     expect(results.length).toBe(0);
     expect(getFeedHealth().feeds['No Title Feed']).toBe('empty');
+  });
+
+  test('oversized XML structure retains cached evidence and leaves another feed usable', async () => {
+    const cachedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    getFeedCacheMock.mockImplementation(url => url.includes('dense-xml') ? {
+      cached_at: cachedAt,
+      items_json: JSON.stringify([{ title: 'Retained advisory', passage: 'Previously collected evidence', date: new Date().toISOString() }]),
+    } : undefined);
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValueOnce(`<rss><channel>${'<x/>'.repeat(25_000)}</channel></rss>`).mockResolvedValueOnce(RSS_FIXTURE);
+    const results = await fetchNewsContext([
+      { url: 'https://example.com/dense-xml', source: 'Dense XML fixture', horizon: 1 },
+      { url: 'https://example.com/normal-after-dense', source: 'Normal XML fixture', horizon: 1 },
+    ]);
+    expect(results.find(item => item.source === 'Dense XML fixture')).toMatchObject({ passage: 'Previously collected evidence', collectionStale: true });
+    expect(results.some(item => item.source === 'Normal XML fixture')).toBe(true);
+    expect(getFeedHealth().feeds['Dense XML fixture']).toBe('ok (stale)');
+    expect(getFeedHealth().feeds['Normal XML fixture']).toBe('ok');
   });
 
   test('an item with a missing/unparseable date is admitted and tagged dateUnknown', async () => {
@@ -947,7 +990,11 @@ describe('feed shape and discovery freshness regressions', () => {
     expect(retained[0].collectionStale).toBe(true);
     expect(getFeedHealth().feeds[feed.source]).toBe('ok (stale)');
   });
-  test.each(['<rss><channel><title>Empty RSS</title></channel></rss>', '<feed xmlns="http://www.w3.org/2005/Atom"><title>Empty Atom</title></feed>'])('accepts a recognized empty feed: %s', async xml => {
+  test.each([
+    '<rss><channel><title>Empty RSS</title></channel></rss>',
+    '<feed xmlns="http://www.w3.org/2005/Atom"><title>Empty Atom</title></feed>',
+    '<rdf:RDF xmlns="http://purl.org/rss/1.0/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><channel><title>Empty RSS 1.0</title></channel></rdf:RDF>',
+  ])('accepts a recognized empty feed: %s', async xml => {
     safeFetchMock.mockResolvedValue(fakeResponse());
     readCappedMock.mockResolvedValue(xml);
     const feed = { url: 'https://example.test/empty-shape', source: 'Empty shape fixture', horizon: 2 };

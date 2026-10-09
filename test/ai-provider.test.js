@@ -59,14 +59,14 @@ describe('live AI provider configuration', () => {
 });
 
 describe('provider verification', () => {
-  test('checks an unsaved OpenAI key and model with a minimal Responses request', async () => {
+  test.each(['gpt-5.3-codex', 'gpt-6.1-sol'])('checks an unsaved OpenAI key with model %s', async model => {
     const fetchImpl = jest.fn().mockResolvedValue(jsonResponse({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } }));
     const manager = createAiProvider({ getSettings: () => ({}), env: {}, fetchImpl });
-    await expect(manager.verifyKey(openaiKey, 'openai', 'gpt-5.3-codex')).resolves.toEqual({ valid: true });
+    await expect(manager.verifyKey(openaiKey, 'openai', model)).resolves.toEqual({ valid: true });
     const [url, options] = fetchImpl.mock.calls[0];
     expect(url).toBe('https://api.openai.com/v1/responses');
     expect(options).toMatchObject({ method: 'POST', redirect: 'error', headers: { Authorization: `Bearer ${openaiKey}` }, signal: expect.any(AbortSignal) });
-    expect(JSON.parse(options.body)).toMatchObject({ model: DEFAULT_OPENAI_MODEL, store: false, stream: false, max_output_tokens: 16 });
+    expect(JSON.parse(options.body)).toMatchObject({ model, store: false, stream: false, max_output_tokens: 16, reasoning: { effort: 'low' } });
     expect(manager.getStatus().enabled).toBe(false);
   });
 
@@ -157,11 +157,19 @@ describe('local provider module', () => {
 });
 
 describe('OpenAI Responses streaming', () => {
+  test.each(['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('configures GPT-6.1 Sol reasoning effort %s', effort => {
+    const client = createOpenAiClient(openaiKey, 'gpt-6.1-sol');
+    const request = { model: 'gpt-6.1-sol', thinking: {}, output_config: {} };
+    client.configureRequest(request, { effort });
+    expect(request).toEqual({ model: 'gpt-6.1-sol', reasoning: { effort: ['off', 'none', 'minimal'].includes(effort) ? 'low' : effort } });
+  });
   test('configures its own reasoning parameters without generator provider checks', () => {
     const client = createOpenAiClient(openaiKey);
     const request = { model: DEFAULT_OPENAI_MODEL, thinking: {}, output_config: {} };
     client.configureRequest(request, { effort: 'off' });
     expect(request).toEqual({ model: DEFAULT_OPENAI_MODEL, reasoning: { effort: 'low' } });
+    client.configureRequest(request, { effort: 'none' });
+    expect(request.reasoning).toEqual({ effort: 'none' });
     request.model = 'gpt-4.1';
     client.configureRequest(request, { effort: 'high' });
     expect(request).toEqual({ model: 'gpt-4.1' });

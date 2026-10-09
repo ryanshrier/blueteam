@@ -142,7 +142,7 @@ export function inspectPdfText(text, expectedPassages, bboxHtml = '') {
     for (const passage of expectedPassages) assert(normalized.includes(normalizedPdfText(passage)), `PDF lost text: ${passage.slice(0, 150)}`);
     matches = { checkedPassages: expectedPassages.length, matchedByRegion: 0 };
   }
-  assert(normalizedPdfText(bodyPages.at(-1)).includes(normalizedPdfText('Verify every CVE ID, vendor name, date, and link before acting.')), 'Final PDF page retains the verification colophon');
+  assert(normalizedPdfText(bodyPages.at(-1)).includes(normalizedPdfText('Edition record and sources')), 'Final PDF page retains the edition-record colophon');
   return { pageCount: pages.length, charactersPerPage: bodyPages.map(page => normalizedPdfText(page).length), ...matches };
 }
 

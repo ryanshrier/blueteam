@@ -19,6 +19,24 @@ describe('captured fact ledger',()=>{
  test('missing captured timing stays unknown even for verified membership',()=>{
    expect(facts(buildBriefFactLedger({members:records},{},true))[0]).toMatchObject({kev:'listed',fcebDue:null});
  });
+ test('uses captured structured metrics and preserves their provenance and provisional status',()=>{
+   const nvd={...records[1],evidenceText:`${other}: CVSS 3.1 base score 9.8`,cvssMetrics:[
+     {cve:other,score:9.8,version:'3.1',source:'vendor@example.com',type:'Secondary',provisional:true,selected:true},
+     {cve:other,score:9.3,version:'4.0',source:'nvd@nist.gov',type:'Primary',provisional:false,selected:false},
+   ]};
+   const row=facts(buildBriefFactLedger({members:[nvd]}))[0];
+   expect(row.nvdMetrics).toEqual([
+     {score:9.8,version:'3.1',source:'vendor@example.com',type:'Secondary',provisional:true,selected:true},
+     {score:9.3,version:'4.0',source:'nvd@nist.gov',type:'Primary',provisional:false,selected:false},
+   ]);
+   expect(row).not.toHaveProperty('nvdScore');
+ });
+ test('legacy version-prefixed prose supplies the score, not the metric version',()=>{
+   const nvd={...records[1],evidenceText:`${other}: CVSS 3.1 base score 9.8 (provisional)`};
+   expect(facts(buildBriefFactLedger({members:[nvd]}))[0]).toMatchObject({
+     nvdScore:9.8,nvdMetrics:[{score:9.8,version:'3.1',provisional:true}],
+   });
+ });
  test('repair retains the offending passage and editorial findings',()=>{
    expect(repairFindingContext([{code:'FACT_PRODUCT_COUNT_MISMATCH',severity:'review',message:'Wrong count',location:{line:12,excerpt:'Five products: A, B, C and D'}}])[0]).toMatchObject({line:12,passage:'Five products: A, B, C and D',severity:'review'});
  });

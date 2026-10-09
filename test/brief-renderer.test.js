@@ -11,18 +11,59 @@ import { canonicalizeExecutiveActions } from '../lib/brief-editorial.js';
 import { parseBrief } from '../lib/brief-schema.js';
 
 describe('complete document decision presentation', () => {
-  test('decision handoff retains disposition, review identity, and source-check warnings before the actions', () => {
+  test('decision handoff retains concrete disposition, correction identity, and relevant current findings before the actions', () => {
     const text = decisionCopyText({ action: 'Verify exposure.', editionUrl: 'https://desk.test/briefing/brief-2026-09-01.md',
       disposition: { status: 'superseded', reason: 'Incorrect affected versions.', replacementFilename: 'brief-2026-09-02.md' },
       review: { status: 'editorially-corrected', reviewer: 'Duty analyst', reviewedAt: '2026-09-02T12:00:00Z', scope: 'Corrected version scope.' },
-      warnings: ['Affected versions require review.'], sourceCheckStatus: 'findings', editorialReviewStatus: 'reviewed' });
-    expect(text).toContain('WARNING: Superseded edition.');
+      signal: 1, presentation: { currentChecks: { issues: [
+        { code: 'VERSION_UNSUPPORTED', audience: 'reader', consequence: 'block', signal: 1, message: 'Affected versions require review.' },
+      ] } } });
+    expect(text).toContain('Superseded edition.');
     expect(text).toContain('Incorrect affected versions.');
     expect(text).toContain('brief-2026-09-02.md');
-    expect(text).toContain('Duty analyst');
-    expect(text).toContain('Corrected version scope.');
+    expect(text).toContain('Corrected Sep 2, 2026, 12:00 UTC · See changes:');
+    expect(text).not.toContain('Duty analyst');
     expect(text).toContain('Affected versions require review.');
-    expect(text.indexOf('WARNING:')).toBeLessThan(text.indexOf('Act now:'));
+    expect(text.indexOf('Superseded edition.')).toBeLessThan(text.indexOf('Act now:'));
+  });
+  test('copies only current material findings located in the selected judgment, preserving its complete qualification', () => {
+    const sourceContent = '## KEY JUDGMENTS\n### Signal 1 — Gateway\nFirst judgment.\n### Signal 2 — Identity\nSecond judgment.';
+    const text = decisionCopyText({ action: 'If this version is deployed, isolate the gateway after approval.',
+      certainty: 'Moderate — affected versions remain unconfirmed; the first step is to establish applicability.',
+      signal: 1, sourceContent, editionUrl: 'https://desk.test/briefing/brief-2026-09-01.md#judgment-1',
+      warnings: ['Unrelated legacy finding'], sourceCheckStatus: 'checked-supported-forms', editorialReviewStatus: 'reviewed',
+      presentation: { currentChecks: { issues: [
+        { code: 'APPLICABILITY_ACTION_UNCONDITIONAL', audience: 'reader', consequence: 'note', message: 'Local applicability remains unverified.', location: { line: 3 } },
+        { code: 'VERSION_UNSUPPORTED', audience: 'reader', consequence: 'block', message: 'Other judgment version conflict.', location: { line: 5 } },
+        { code: 'CONFIDENCE_INVALID', audience: 'operator', consequence: 'note', message: 'Use the expected field format.', location: { line: 3 } },
+        { code: 'UNKNOWN_NOTE', audience: 'unclassified', consequence: 'note', message: 'Unclassified diagnostic.', location: { line: 3 } },
+        { code: 'VALIDATION_UNAVAILABLE', audience: 'reader', consequence: 'block', message: 'The edition receipt cannot be verified.', location: { scope: 'document', line: 1 } },
+        { code: 'UNKNOWN_CRITICAL', audience: 'unclassified', consequence: 'block', message: 'A current edition-wide safety check failed.', location: { scope: 'document', line: 1 } },
+      ] }, history: [{ warnings: ['Old failure on this same judgment.'] }] } });
+    expect(text).toContain('Local applicability remains unverified.');
+    expect(text).toContain('The edition receipt cannot be verified.');
+    expect(text).toContain('A current edition-wide safety check failed.');
+    expect(text).toContain('Moderate — affected versions remain unconfirmed; the first step is to establish applicability.');
+    expect(text).not.toMatch(/Other judgment|Unrelated legacy|field format|Unclassified diagnostic|Old failure|checked-supported-forms|Editorial review:|Verify the cited/);
+    expect(text).toContain('#edition-record');
+    expect(text.match(/AI-generated/g)).toHaveLength(1);
+  });
+  test('names a reviewed control exception without implying review of the whole brief', () => {
+    const presentation = { approval: { status: 'recorded', scope: 'security-control-change', reviewer: 'Duty operator', reviewedAt: '2026-10-09T12:00:00Z' },
+      currentChecks: { issues: [{ code: 'SECURITY_CONTROL_CHANGE', audience: 'reader', consequence: 'review', acknowledged: true,
+        signal: 2, message: 'Review the control change.', location: { excerpt: 'Suspend one test sensor for ten minutes with rollback.' } }] } };
+    const request = { action: 'Apply the scoped test exception.', editionUrl: 'https://desk.test/briefing/brief-2026-10-09.md', presentation };
+    const text = decisionCopyText({ ...request, signal: 2 });
+    expect(text).toContain('Specific security-control change reviewed · Duty operator');
+    expect(text).toContain('Reviewed control exception: Suspend one test sensor for ten minutes with rollback.');
+    expect(text).not.toMatch(/Editorially reviewed|Editorial review:|Review the control change/);
+    expect(decisionCopyText({ ...request, signal: 1 })).not.toContain('Duty operator');
+    expect(decisionCopyText({ ...request, signal: 2, presentation: { ...presentation, approval: { ...presentation.approval, status: 'stale' } } })).not.toContain('Duty operator');
+  });
+  test('retains a concrete publication hold when eligibility is false without a legacy status enum', () => {
+    const text = decisionCopyText({ action: 'Read the source.', editionUrl: 'https://desk.test/briefing/brief-2026-10-09.md',
+      disposition: { eligibleForLatest: false, reason: 'Captured receipt could not be verified.' } });
+    expect(text).toContain('Publication held.\nCaptured receipt could not be verified.');
   });
   const items = [
     { lead: 'Threat:', tail: 'Active exploitation.' },

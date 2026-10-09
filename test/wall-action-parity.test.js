@@ -1,9 +1,10 @@
 import { describe, expect, test } from '@jest/globals';
 import fs from 'node:fs';
 import { parseBrief, parseRecommendedActions } from '../lib/brief-schema.js';
-import { buildPresentationPages, normalizeDisplaySettings, splitDisplayText, completeSourceExcerpt, topicKey } from '../public/modules/wall/wall-presentation.js';
+import { buildPresentationPages, buildGlanceModel, normalizeDisplaySettings, splitDisplayText, completeSourceExcerpt, topicKey } from '../public/modules/wall/wall-presentation.js';
 import { wallDocumentHtml, wallActionHtml } from '../public/modules/wall/wall-actions.js';
 import { judgmentHtml, presentationHtml } from '../public/modules/wall/wall-view.js';
+import { escapeHtml } from '../public/modules/core/sanitize.js';
 
 // Immutable retained publication: renderer parity does not endorse its analysis.
 const retained = JSON.parse(fs.readFileSync(new URL('./fixtures/retained-briefing-2026-09-06.json', import.meta.url), 'utf8'));
@@ -22,7 +23,7 @@ describe('retained September 6 action parity', () => {
     expect(doc.actions[3].imperative).toBe('review appliance logs for pre-patch admin/API access; re-image if compromise indicators found');
     expect(doc.stories.flatMap(story => story.actions)).toEqual(doc.actions);
   });
-  test('all actions and their necessary authored conditions remain in every TV text size', () => {
+  test('all authored action data remains available behind one display topic at every text size', () => {
     for (const size of ['standard', 'large', 'largest']) {
       const pages = buildPresentationPages(doc, {}, normalizeDisplaySettings({ size }));
       const featured = pages.filter(page => page.kind === 'judgment');
@@ -55,22 +56,39 @@ describe('retained September 6 action parity', () => {
     expect(html).toContain(' · 1 action</a>');
     expect(html).not.toContain(' · 1 actions</a>');
     expect(wallDocumentHtml({ ...doc, review: { status: 'editorially-corrected', reviewer: 'Editorial review' } })).not.toMatch(/·\s*·/);
-    const reviewed = wallDocumentHtml({ ...doc, warnings: ['Original generation finding.'], review: { status: 'editorially-corrected', reviewer: 'AI-assisted editorial review', scope: 'Retained sources only; no local deployment knowledge.', originalSha256: 'original-digest' } });
-    expect(reviewed).toContain('Editorial scope and original generation findings');
+    const reviewed = wallDocumentHtml({ ...doc, originalWarnings: ['Original generation finding.'], review: { status: 'editorially-corrected', reviewer: 'AI-assisted editorial review', scope: 'Retained sources only; no local deployment knowledge.', originalSha256: 'original-digest' } });
+    expect(reviewed).toContain('Edition record');
+    expect(reviewed).toContain('Original publication notes');
     expect(reviewed).toContain('Retained sources only; no local deployment knowledge.');
     expect(reviewed).toContain('original-digest');
     expect(reviewed).toContain('Original generation finding.');
   });
-  test('operator and presentation HTML actually render every retained action identity', () => {
+  test('reading renders every action while display renders the headline, takeaway and selected facts', () => {
     const operator = doc.stories.map(story => judgmentHtml(story, doc.date)).join('');
-    const television = buildPresentationPages(doc, {}).map(presentationHtml).join('');
+    const pages = buildPresentationPages(doc, {});
+    const originalPages = JSON.stringify(pages);
+    const television = pages.map(page => presentationHtml(page, { interactive: false })).join('');
     for (const action of doc.actions) {
       expect(operator).toContain(`data-action-id="${action.id}"`);
-      expect(television).toContain(`data-action-id="${action.id}"`);
-      expect(operator).toContain(action.imperative);
-      expect(television).toContain(action.imperative);
+      expect(operator).toContain(escapeHtml(action.imperative));
+      expect(television).not.toContain(`data-action-id="${action.id}"`);
+      expect(television).not.toContain(escapeHtml(action.imperative));
     }
-    expect(television).toContain('All actions and source context');
+    for (const page of pages.filter(page => page.kind === 'judgment')) {
+      const glance = buildGlanceModel(page);
+      const html = presentationHtml(page, { interactive: false });
+      const visible = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      expect(glance.headline).toBe(doc.stories[page.idx].title);
+      expect(html).toContain(escapeHtml(glance.headline));
+      if (glance.summary) expect(html).toContain(escapeHtml(glance.summary));
+      for (const fact of glance.facts) {
+        expect(visible).toContain(escapeHtml(fact.label));
+        expect(visible).toContain(escapeHtml(fact.value));
+      }
+    }
+    expect(JSON.stringify(pages)).toBe(originalPages);
+    expect(television).not.toContain('nb-response-context');
+    expect(television).not.toContain('All actions and source context');
   });
   test('known-bad and superseded editions never enter the automatic composition', () => {
     for (const disposition of [{ status: 'review-required' }, { status: 'superseded' }, { eligibleForLatest: false }]) {
@@ -79,7 +97,7 @@ describe('retained September 6 action parity', () => {
     }
     expect(buildPresentationPages({ ...doc, disposition: { status: 'eligible', editorialReviewStatus: 'not-reviewed' } }, {}).some(page => page.kind === 'judgment')).toBe(true);
   });
-  test('the reviewed September 6 release copy retains all eleven actions and its complete recovery branch', () => {
+  test('reviewed procedures remain complete in reading while the TV omits detailed instructions', () => {
     const reviewed = parseBrief(fs.readFileSync(new URL('./fixtures/retained-reviewed-brief-2026-09-06.md', import.meta.url), 'utf8'));
     expect(reviewed.actions).toHaveLength(11);
     expect(reviewed.actions.every(action => action.owner && action.imperative && action.target)).toBe(true);
@@ -98,16 +116,31 @@ describe('retained September 6 action parity', () => {
     expect(recovery.condition).toBe('affected, potentially exposed appliances');
     expect(recovery.recoverySteps).toContain('reimage hardware or redeploy virtual appliances, change all user/admin passwords and reset TOTP tokens');
     expect(recovery.completionCriterion).toContain('keep unfinished investigation open');
+    const reading = wallDocumentHtml(reviewed);
+    const operator = reviewed.stories.map(story => judgmentHtml(story, reviewed.date)).join('');
+    for (const action of reviewed.actions) {
+      expect(reading).toContain(`data-action-id="${action.id}"`);
+      expect(operator).toContain(`data-action-id="${action.id}"`);
+      for (const field of ['imperative', 'condition', 'dependencies', 'initiationTrigger', 'evidence', 'completionCriterion', 'recoverySteps']) {
+        if (!action[field]) continue;
+        expect(reading).toContain(escapeHtml(action[field]));
+        expect(operator).toContain(escapeHtml(action[field]));
+      }
+    }
     for (const size of ['standard', 'large', 'largest']) {
       const pages = buildPresentationPages(reviewed, {}, normalizeDisplaySettings({ size }));
       const featured = pages.filter(page => page.kind === 'judgment').flatMap(page => page.actions);
       expect(featured.map(action => action.id)).toEqual(reviewed.actions.map(action => action.id));
-      expect(pages.map(presentationHtml).join('')).toContain(recovery.recoverySteps);
       const passive = pages.map(page => presentationHtml(page, { interactive: false })).join('');
       expect(passive).not.toMatch(/<(?:a|button|select|nav)\b/);
       expect(passive).not.toContain('All actions and source context');
-      for (const action of reviewed.actions) expect(passive).toContain(`data-action-id="${action.id}"`);
-      expect(passive).toContain(recovery.recoverySteps);
+      expect(passive).not.toContain('data-action-id=');
+      expect(passive).not.toContain(escapeHtml(recovery.recoverySteps));
+      expect(passive).not.toContain(escapeHtml(reviewed.actions[2].dependencies));
+      for (const story of reviewed.stories) {
+        expect(passive).toContain(escapeHtml(story.title));
+        expect(passive).toContain(escapeHtml(story.line));
+      }
     }
   });
   test('identities survive reordering while authored optional action context stays exact', () => {
@@ -145,6 +178,22 @@ describe('retained September 6 action parity', () => {
     expect(completeSourceExcerpt('Clipped without punctuation…', 'Original title')).toBe('Original title');
     const headlineOnly = buildPresentationPages(null, { signals: [{ title: receipt.selectedEvidence[0].title, description: 'Clipped without punctuation…' }] })[0];
     expect(headlineOnly.block.label).toBe('Reporting headline · complete excerpt unavailable');
-    expect(headlineOnly.block.text).toBe(receipt.selectedEvidence[0].title);
+    expect(headlineOnly.topic).toBe(receipt.selectedEvidence[0].title);
+    expect(headlineOnly.block.text).toBe('A complete retained excerpt is unavailable.');
+    expect(headlineOnly.block.text).not.toContain(headlineOnly.topic);
+  });
+  test.each([
+    ['The U.S. Cybersecurity and Infrastructure Security Agency added five vulnerabilities. Another report follows.', 'The U.S. Cybersecurity and Infrastructure Security Agency added five vulnerabilities.'],
+    ['Dr. J. R. Smith confirmed the affected release. The advisory follows.', 'Dr. J. R. Smith confirmed the affected release.'],
+    ['Version 3.2.1 fixes the flaw in v3.2.0. Administrators should verify deployment.', 'Version 3.2.1 fixes the flaw in v3.2.0.'],
+    ['The U.S. agency warned of exposure without a retained ending…', ''],
+    ['The U.S.', ''],
+    ['Dr. J. R.', ''],
+    ['“The U.S.”', ''],
+    ['The campaign targeted organizations in the U.S.', 'The campaign targeted organizations in the U.S.'],
+    ['A vulnerability affects Example Inc.', 'A vulnerability affects Example Inc.'],
+    ['“The campaign targeted organizations in the U.S.”', '“The campaign targeted organizations in the U.S.”'],
+  ])('keeps abbreviation and version context intact in %s', (passage, expected) => {
+    expect(completeSourceExcerpt(passage)).toBe(expected);
   });
 });

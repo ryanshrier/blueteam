@@ -58,11 +58,40 @@ describe('publisher calendar dates shared by prompting and validation', () => {
 });
 
 describe('per-source CVE and CVSS association', () => {
+  test('source slash shorthand grounds both full CVE identities while preserving the captured passage', () => {
+    const source = { ...vendor, description: 'CVE-2026-1234/5678 affect the gateway. Update affected installations.' };
+    const grounding = buildGroundingManifest({ headlines: [source] });
+    expect([...grounding.members[0].cves]).toEqual(['CVE-2026-1234', 'CVE-2026-5678']);
+    expect([...grounding.cves]).toEqual(['CVE-2026-1234', 'CVE-2026-5678']);
+    expect(grounding.members[0].passage).toBe(source.description);
+    expect(grounding.members[0].evidenceText).toBe(`${source.title} ${source.description}`);
+    expect(hasTrustCriticalFailure(auditClaim('CVE-2026-5678 affects the gateway.', [source]).issues)).toBe(false);
+  });
+
+  test('source CVE expansion never borrows a year across other words or a version slash', () => {
+    const source = { ...vendor, description: 'CVE-2026-1234 affects gateway versions 12.4/12.5 and builds 5678/9012.' };
+    const grounding = buildGroundingManifest({ headlines: [source] });
+    expect([...grounding.members[0].cves]).toEqual(['CVE-2026-1234']);
+    expect([...grounding.cves]).toEqual(['CVE-2026-1234']);
+    expect(auditClaim('CVE-2026-5678 affects the gateway.', [source]).issues.map(issue => issue.code)).toContain('CVE_CITATION_MISMATCH');
+    const extra = buildGroundingManifest({ extraSourceText: 'CVE-2026-4321/8765; version 12.4/12.5.' });
+    expect([...extra.cves]).toEqual(['CVE-2026-4321', 'CVE-2026-8765']);
+  });
+
   test('accepts a sentence-final version while rejecting a longer version or suffix', () => {
     const claim = 'Manager version 2.1.';
     expect(auditClaim(claim, [{ ...vendor, description: 'Manager version 2.1.' }]).issues.map(issue => issue.code)).not.toContain('VERSION_UNSUPPORTED');
     for (const version of ['2.1.7', '2.1-beta']) {
       expect(auditClaim(claim, [{ ...vendor, description: `Manager version ${version}.` }]).issues.map(issue => issue.code)).toContain('VERSION_UNSUPPORTED');
+    }
+  });
+  test('accepts the conventional v prefix without borrowing another release identifier', () => {
+    const claim = 'Manager version 1.4.7.';
+    for (const version of ['v1.4.7', 'V1.4.7']) {
+      expect(auditClaim(claim, [{ ...vendor, description: `Manager ${version} fixes the vulnerability.` }]).issues.map(issue => issue.code)).not.toContain('VERSION_UNSUPPORTED');
+    }
+    for (const version of ['v1.4.70', 'v1.4.7.1', 'v1.4.7-beta', 'rev1.4.7']) {
+      expect(auditClaim(claim, [{ ...vendor, description: `Manager ${version} fixes the vulnerability.` }]).issues.map(issue => issue.code)).toContain('VERSION_UNSUPPORTED');
     }
   });
 

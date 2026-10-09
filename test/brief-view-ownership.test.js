@@ -26,6 +26,7 @@ jest.unstable_mockModule('../public/modules/core/markdown.js', () => ({
 jest.unstable_mockModule('../public/modules/briefing/brief-renderer.js', () => ({
   applySemanticStyling: jest.fn(), extractSections,
   decisionCardContent: () => ({}), decisionCopyText: () => '',
+  readerIssueIdentity: issue => JSON.stringify([issue.code, issue.location?.scope, issue.location?.line, issue.message]),
 }));
 jest.unstable_mockModule('../public/modules/briefing/brief-export.js', () => ({ exportBriefNewspaper }));
 const { render, unmount, runSearch } = await import('../public/modules/briefing/briefing-view.js');
@@ -105,7 +106,7 @@ test('bare Briefing route restores persisted review notes with the selected save
   render(element());
   await flush();
   expect(elements.get('briefContent').innerHTML).toContain('Check this vendor claim.');
-  expect(elements.get('briefContent').innerHTML).toContain('1 automated check');
+  expect(elements.get('briefContent').innerHTML).toContain('Edition record');
   expect(elements.get('briefContent')._validatedBriefContent).toBe(oldBrief().content);
 });
 
@@ -390,7 +391,7 @@ The gateway exposure remains unverified.
   expect(location.hash).toBe('#overview-judgment-1');
 });
 
-test('legacy structural warnings appear once in both views without changing persisted warning provenance', async () => {
+test('legacy structural notes remain in the shared record without being copied into Overview or persisted warnings', async () => {
   const { overview } = readingUi();
   elements.get('briefContent').querySelectorAll = () => [];
   fetchBrief.mockResolvedValueOnce({ content: 'Legacy report without key judgments', meta: {} });
@@ -398,8 +399,9 @@ test('legacy structural warnings appear once in both views without changing pers
   await flush();
   listener('briefOverviewMode')();
   expect(overview.hidden).toBe(false);
-  expect(overview.innerHTML.match(/Missing the Key Judgments section\./g)).toHaveLength(1);
-  expect(elements.get('briefContent').innerHTML.match(/Missing the Key Judgments section\./g)).toHaveLength(1);
+  expect(overview.innerHTML).not.toContain('Missing the Key Judgments section.');
+  expect(elements.get('briefContent').innerHTML).toContain('Display notes');
+  expect(elements.get('briefContent').innerHTML.match(/>Missing the Key Judgments section\.</g)).toHaveLength(1);
   expect(getState().currentBrief.warnings).toBeNull();
 });
 
@@ -567,6 +569,25 @@ test('a publication failure replaces the stale generating screen-reader announce
   expect(elements.get('genStatus').textContent).toBe('');
 });
 
+test('a recoverable new draft returns to the published briefing with a persistent review action', async () => {
+  render(element());
+  await flush();
+  setState({ isGenerating: true });
+  route('/briefing/new', { action: 'generate' });
+  emit('brief-streaming', { accumulated: 'Unpublished draft text', chunk: 'Unpublished draft text' });
+  const draft = { id: 'failed-new', status: 'draft', editionDate: '2026-09-05' };
+  fetchStatus.mockResolvedValue({ ok: true, json: async () => ({ persistence: 'ok', active: false,
+    latest: { id: draft.id, status: 'failed' }, draftRecovery: { items: [draft], latest: draft, count: 1 } }) });
+  setState({ isGenerating: false });
+  emit('generation-error', { code: 'E006', message: 'A captured source needs repair.', draftArtifact: draft });
+  await flush();
+  expect(navigate).toHaveBeenCalledWith('/briefing?latest=1');
+  expect(getState().currentBrief.filename).toBe(oldBrief().filename);
+  expect(elements.get('briefAttemptStatus').innerHTML).toContain('New draft awaiting review');
+  expect(elements.get('briefAttemptStatus').innerHTML).toContain('data-review-draft="failed-new"');
+  expect(showToast).toHaveBeenCalledWith('New draft saved · review it to publish. The current briefing is unchanged.');
+});
+
 test('stream, progress, completion and failure cannot repaint a selected historical edition', async () => {
   render(element());
   setState({ isGenerating: true });
@@ -586,7 +607,7 @@ test('stream, progress, completion and failure cannot repaint a selected histori
   expect(getState().currentBrief.filename).toBe(oldBrief().filename);
   expect(getState().lastGeneratedBrief.filename).toBe(completed().filename);
   expect(elements.get('briefCopyLink').disabled).toBe(false);
-  expect(showToast).toHaveBeenCalledWith('Briefing saved', 'success');
+  expect(showToast).toHaveBeenCalledWith('Briefing published', 'success');
 });
 
 test('completion in the generation route selects the result and fixes its durable URL', async () => {

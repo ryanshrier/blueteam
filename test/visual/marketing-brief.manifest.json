@@ -4,15 +4,17 @@
   "capturedAt": "2026-07-24T12:00:00Z",
   "application": {
     "name": "blueteam-news",
-    "version": "1.3.0",
+    "version": "1.3.1",
     "implementationSha256": {
-      "prompts": "78babd3d745f23a6aec1b872e4a64ca52192c8c01f8c78d6bc8f133192ec582e",
-      "grounding": "fb552605f306c13e084d8ff0baaf68ed4f2fa556f40a78c9f0774e0eed3f6a67",
-      "validation": "cece5f91be0ebb1f6ea9397b062f7c974d439562b27bfa3793f84ab5ce026368",
+      "prompts": "6af521220bf0dccce28df641264c9967ec2d8fcc300df4d0b4b27b710d27cfcb",
+      "grounding": "d45305f40a34b06f37761e358a759e01123a5c6ded401e5000738d8f0a678724",
+      "validation": "fa6568b14648282978d1d3a8e45dd2aad37d851fc5751edcbd9d5798b0717137",
       "scoring": "825b3a8bb288f5157697af4a9d2cb80b46a2cd5ab37ae84e4871d1e479ab922c",
-      "evidence-quality": "e35a168bcdd7253dd24795e6a43d1e52ddc94c38d35b780759bcce2525babf97",
+      "evidence-quality": "1fdc59c13d9d105294b945940b7d26e7784c1fdd38d2348fc81401e1b30f8faf",
       "claim-checks": "843a57849edd9632805edfe29e155cf7468c05133c78fd8bc44d12fbf3c43f6f",
-      "cvss": "f104cbdea01da3737d7595d9e3df802939a6679e54baf3a5620b7c30651cf3c6"
+      "cvss": "a8f4579377841d2dcbfbcbbae7d6ead77aa0fe6b2972a63ef903db6e1b9d90b5",
+      "cve-identities": "165ad931857a69851f60a277118ee1d55c7f9450cbd530e3d72b223d6ac6959e",
+      "brief-action-security": "9200fe647dd9ceb9fc5b9f75bf32a84849de41f895cfb406de1d48356786476c"
     }
   },
   "edition": {
@@ -344,7 +346,7 @@
   ],
   "generatedAt": "2026-07-24T12:00:00Z",
   "synthetic": true,
-  "syntheticRegeneratedAt": "2026-10-09T13:45:04.918Z",
+  "syntheticRegeneratedAt": "2026-10-09T16:23:24.958Z",
   "syntheticNote": "Authored fictional demonstration; no provider was called. Edition, source, collection, capturedAt, and generatedAt dates describe the July 24, 2026 scenario, not a real collection or generation. syntheticRegeneratedAt records when this sample receipt was rebuilt and checked against the recorded application implementation. Passing supported checks does not verify real-world events or complete analyst review.",
   "filename": "brief-2026-07-24-01.md",
   "outputSha256": "7e6d0cbf6133fc131b0d8513192f2809c3696f467cd35d00631179cecb11c7d3",

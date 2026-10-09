@@ -36,6 +36,34 @@ describe('entity-bound metric contract', () => {
     expect(codes(audit(`CVSS 9.8 for ${a} and CVSS 5.0 for ${b}.`, [roundup]))).toContain('CVE_CVSS_MISMATCH');
     expect(codes(audit(`CVSS 5.0 for ${a} and ${b}.`, [roundup]))).toContain('CVE_CVSS_AMBIGUOUS');
   });
+  test('parenthetical semicolons retain each named CVE instead of borrowing the next identity', () => {
+    const claim = `${a} (pre-auth SSRF, gateway interface; CVSS 5.0, Vendor) and ${b} (OS command injection, management console; CVSS 9.8, Vendor).`;
+    const result = audit(claim, [roundup], `**Assessment:** ${claim}`);
+    expect(codes(result).filter(code => /CVSS/.test(code))).toEqual([]);
+    const swapped = claim.replace('CVSS 5.0', 'CVSS 9.8').replace('console; CVSS 9.8', 'console; CVSS 5.0');
+    expect(audit(swapped, [roundup]).issues.filter(issue => issue.code === 'CVE_CVSS_MISMATCH')).toHaveLength(2);
+    expect(codes(audit(`${a} and ${b} (gateway issues; CVSS 9.8).`, [roundup]))).toContain('CVE_CVSS_AMBIGUOUS');
+  });
+  test('explicit attribution pronouns retain one antecedent only within the same sentence', () => {
+    expect(codes(audit(`${a} affects the gateway; NVD lists it at CVSS 5.0. ${b} affects the console; NVD lists it at CVSS 9.8.`, [roundup])))
+      .not.toContain('CVE_CVSS_AMBIGUOUS');
+    expect(audit(`${a} affects the gateway; NVD lists it at CVSS 9.8. ${b}: CVSS 9.8.`, [roundup]).issues)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'CVE_CVSS_MISMATCH', message: expect.stringContaining(a) })]));
+    for (const claim of [
+      `${a} and ${b} affect the gateway; NVD lists it at CVSS 9.8.`,
+      `${a} affects the gateway. NVD lists it at CVSS 9.8. ${b} affects the console.`,
+      `${a} affects the gateway; another issue carries CVSS 9.8. ${b} affects the console.`,
+    ]) expect(codes(audit(claim, [roundup]))).toContain('CVE_CVSS_AMBIGUOUS');
+  });
+  test.each(['3.0', '3.1', '4.0'])('colon-delimited CVSS %s retains version and score', version => {
+    const headline = source(`${a}: CVSS ${version}: 9.8. An update fixes the gateway.`);
+    expect(codes(audit(`${a}: CVSS v${version} 9.8.`, [headline])).filter(code => /CVSS/.test(code))).toEqual([]);
+    expect(codes(audit(`${a}: CVSS ${version}: 9.8.`, [headline])).filter(code => /CVSS/.test(code))).toEqual([]);
+    expect(codes(audit(`${a}: CVSS ${version}: 9.7.`, [headline]))).toContain('CVE_CVSS_MISMATCH');
+    const otherVersion = version === '4.0' ? '3.1' : '4.0';
+    expect(codes(audit(`${a}: CVSS ${otherVersion}: 9.8.`, [headline]))).toContain('CVE_CVSS_MISMATCH');
+    expect(codes(audit(`${a}: CVSS ${version}.`, [headline]))).toContain('CVSS_UNSUPPORTED');
+  });
   test('another CVEs score does not contradict an honest missing-score statement', () => {
     const headline = source(`${a} has no known score. ${b}: CVSS 9.8. The vendor provides an update for both vulnerabilities.`);
     const result = audit(`${a} has no known score.`, [headline], `**Assessment:** ${a}: no CVSS available.`);
@@ -85,7 +113,7 @@ describe('authored content and publication coverage', () => {
     const result = audit(`${a}: CVSS 5.0.`, [source(`${a}: CVSS 5.0. An update is available.`)], `\n## ${section}\n- Review [Wrong publisher, 2020-01-01](https://vendor.example/advisory).`);
     expect(codes(result)).toContain('CITATION_IDENTITY_INVALID');
   });
-  test('mixed title-only citations require material review while cosmetic warnings stay advisory', () => {
+  test('mixed title-only citations and cosmetic warnings stay advisory', () => {
     const item = BRIEF_EVALUATION_CASES[0];
     const limited = { title: 'Additional announcement', source: 'Limited', date: '2026-09-04', link: 'https://vendor.example/limited', description: '' };
     // Cite the supplied vendor in the watch conditions to avoid unrelated missing-provenance findings.
@@ -93,7 +121,7 @@ describe('authored content and publication coverage', () => {
     const mixed = base.replace('**What happened:**', '**What happened:** [Limited, September 4, 2026](https://vendor.example/limited)');
     const checked = validateBrief(mixed, '2026-09-05', { publication: true, editorialStandard: 2, headlines: [...item.headlines, limited], kevSet: new Set() });
     expect(codes(checked)).toContain('CITED_SOURCE_LIMITED');
-    expect(checked.coverage.materialReviewRequired).toBe(true);
+    expect(checked.coverage.materialReviewRequired).toBe(false);
     expect(isMaterialReviewIssue({ code: 'REVIEW', severity: 'review', message: 'BLUF is two sentences' })).toBe(false);
   });
   test('a known loaded catalog with no selected KEVs replays faithfully', () => {

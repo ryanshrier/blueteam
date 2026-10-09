@@ -22,7 +22,7 @@
       },
     } });
   }
-  const scenarios = ['normal', 'sample', 'long', 'handoff', 'sparse', 'stale', 'loading', 'sourceerror', 'brieferror', 'empty', 'changed', 'evidence', 'source-revision', 'evidence-unavailable', 'health-healthy', 'health-degraded', 'health-unavailable', 'health-loading', 'health-minimal', 'no-key', 'settings-loading', 'settings-unavailable'];
+  const scenarios = ['normal', 'sample', 'long', 'handoff', 'sparse', 'summary', 'stale', 'loading', 'sourceerror', 'brieferror', 'empty', 'changed', 'evidence', 'source-revision', 'evidence-unavailable', 'health-healthy', 'health-degraded', 'health-unavailable', 'health-loading', 'health-minimal', 'no-key', 'settings-loading', 'settings-unavailable'];
   let scenario = scenarios.includes(params.get('scenario')) ? params.get('scenario') : 'normal';
   let offset = 0;
   const NativeDate = Date;
@@ -44,6 +44,12 @@
   };
   if (['light', 'dark'].includes(params.get('theme'))) localStorage.setItem('bt-theme', params.get('theme'));
   if (/^#[0-9a-f]{6}$/i.test(params.get('accent') || '')) localStorage.setItem('bt-accent', params.get('accent'));
+  if (['balanced', 'assessment', 'updates'].includes(params.get('playlist'))) {
+    // This script runs only on the isolated fixture origin, never the live app.
+    let display = {};
+    try { display = JSON.parse(localStorage.getItem('bt-wall-display') || '{}') || {}; } catch {}
+    localStorage.setItem('bt-wall-display', JSON.stringify({ ...display, playlist: params.get('playlist') }));
+  }
   if (params.has('reducedMotion')) {
     const nativeMatchMedia = window.matchMedia.bind(window);
     window.matchMedia = query => {
@@ -131,7 +137,7 @@
       pager: document.getElementById('nbPager')?.textContent, status: document.getElementById('nbIntegrity')?.textContent,
       playback: document.getElementById('nbLiveWord')?.textContent, body: document.getElementById('nbBody')?.textContent };
   }
-  const labels = { bluf: 'BLUF', execsummary: 'EXECUTIVE SUMMARY', judgment: 'KEY JUDGMENT', developing: 'DEVELOPING', convergence: 'CONVERGENCE', kev: 'KEV', wire: 'THE WIRE' };
+  const labels = { bluf: 'BLUF', execsummary: 'EXECUTIVE SUMMARY', judgment: 'KEY JUDGMENT', developing: 'DEVELOPING', convergence: 'CONVERGENCE', watchlist: 'WATCHLIST', kev: 'KEV', wire: 'THE WIRE' };
   async function selectKind(kind) {
     const label = labels[kind];
     if (!label) throw new Error('Unknown Wall content kind');
@@ -139,13 +145,14 @@
     await waitForData();
     // Wait for both landscape and saved Briefing before pausing: holding an early
     // KEV/Wire render intentionally defers the arriving Briefing in production.
-    // Pause without advancing so a requested current BLUF remains at its top.
+    // Staffed reading exposes pause; presentation keeps its unattended timer.
     if (!document.querySelector('.news-mode.nb-paused')) document.getElementById('nbPause')?.click();
-    // Use the same keyboard event path as a person; selecting a page pauses.
+    // Use the same keyboard event path as a person to select the requested kind.
     const key = key => document.dispatchEvent(new KeyboardEvent('keydown', { key, code: key === ' ' ? 'Space' : key, bubbles: true }));
     let visited = 0;
     do {
-      if (document.getElementById('nbSlug')?.textContent.toUpperCase().includes(label)) {
+      const presentationKind = document.querySelector('#nbBody .nb-display-card[data-kind]')?.dataset.kind;
+      if (presentationKind ? presentationKind === kind : document.getElementById('nbSlug')?.textContent.toUpperCase().includes(label)) {
         await document.fonts?.ready;
         await settle();
         document.body.dataset.fixtureReady = 'true';

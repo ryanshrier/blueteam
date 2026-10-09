@@ -1,6 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 import { archiveLocation, archiveRoute, archiveListHtml } from '../public/modules/briefing/brief-archive.js';
-import { inputReceiptHtml, safeSourceUrl } from '../public/modules/briefing/brief-inputs.js';
+import { inputReceiptHtml, safeSourceUrl, receiptSources } from '../public/modules/briefing/brief-inputs.js';
 
 describe('shareable archive navigation', () => {
   test('round trips queries with punctuation and a non-default page', () => {
@@ -57,7 +57,7 @@ describe('readable saved inputs', () => {
     const html = inputReceiptHtml({ filename: 'brief-2026-09-05-02.md', grounding: { sources: [{ id: 'src-retained', title: 'Retained report', evidenceText: 'Reported claim.' }] },
       judgmentEvidence: [{ signal: 6, sourceIds: ['src-retained'] }, { signal: '<img>', sourceIds: ['src-retained'] }],
       review: { notes: [{ original: '### Signal 6 — AI claim', replacement: '', anchor: 'section-2-developing-situations' }] } });
-    expect(html).toContain('Original judgment 6 (moved to Developing)');
+    expect(html).toContain('Published judgment 6 (moved to Developing)');
     expect(html).toContain('/briefing/brief-2026-09-05-02.md#section-2-developing-situations');
     expect(html).not.toContain('#judgment-6');
     expect(html).not.toContain('<img>');
@@ -70,5 +70,16 @@ describe('readable saved inputs', () => {
     expect(html).toContain('75 unchanged');
     expect(html).toContain('do not by themselves establish a new threat development');
     expect(inputReceiptHtml({})).toContain('This legacy receipt does not record an input comparison');
+  });
+
+  test('a repaired publication labels and binds the published judgments without adopting original generation bindings', () => {
+    const data = { filename:'brief-2026-10-09.md', repairedDraft:{ originalGeneration:{ judgmentEvidence:[{signal:1,sourceIds:['old']}] } },
+      grounding:{ sources:[{id:'old',title:'Old source',evidenceText:'Original captured evidence.'},{id:'current',title:'Current source',evidenceText:'Retained evidence for the published repair.'}] },
+      judgmentEvidence:[{signal:1,sourceIds:['current']}] };
+    expect(receiptSources(data).map(item=>[item.id,item.judgments])).toEqual([['old',[]],['current',[1]]]);
+    const html=inputReceiptHtml(data);
+    expect(html).toContain('Published judgment 1');
+    expect(html).toContain('Citation bindings refer to the archived published judgments');
+    expect(html).not.toContain('original generated judgments');
   });
 });

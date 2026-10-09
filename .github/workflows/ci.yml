@@ -69,6 +69,15 @@ jobs:
       - name: Verify production evidence and Settings fixtures in Chromium
         run: npm run check:evidence:render
 
+      - name: Verify untrusted HTML and Markdown through the production renderer
+        run: npm run check:security:render
+
+      - name: Verify draft save, recovery, and publication in Chromium
+        run: npm run check:draft:render
+
+      - name: Verify published reader states in Chromium
+        run: npm run check:reader:render
+
       - name: Verify reader, Wall, and theme layouts
         run: |
           npm run check:design:render

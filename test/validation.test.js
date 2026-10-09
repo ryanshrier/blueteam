@@ -74,7 +74,7 @@ describe('validateBrief', () => {
     expect(result.warnings.join(' ')).toMatch(/chars/);
   });
 
-  test('an underfilled Watchlist hard-fails as a truncated required section', () => {
+  test('an underfilled Watchlist is advisory without a provider truncation signal', () => {
     const brief = makeBrief().replace(
       /## WATCHLIST[^\n]*\n[\s\S]*$/,
       '## WATCHLIST — NEXT 72 HOURS\n\n'
@@ -87,7 +87,7 @@ describe('validateBrief', () => {
     expect(result.warnings).toContain(
       `Watchlist has 3 item(s) — expected at least ${WATCHLIST_MIN_ITEMS}`
     );
-    expect(hasHardFail(result.warnings)).toBe(true);
+    expect(hasHardFail(result.warnings)).toBe(false);
   });
 
   test('accepts the minimum number of concise Watchlist bullets without terminal punctuation', () => {
@@ -448,10 +448,10 @@ describe('validateBrief — cited link grounding', () => {
     expect(r.warnings.join(' ')).toMatch(/fabricated-slug/);
   });
 
-  test('the exact source path with a tracking query dropped is NOT flagged', () => {
+  test('dropping a captured tracking query changes the authorized citation', () => {
     const brief = makeBrief() + '\n\nSee [Source, 2026-07-01](https://example.com/article-a) for detail.';
     const r = validateBrief(brief, null, { headlines: [{ title: 'x', link: 'https://example.com/article-a?utm_source=feed' }] });
-    expect(r.warnings.join(' ')).not.toMatch(/Unverifiable source link/);
+    expect(r.warnings.join(' ')).toMatch(/Unverifiable source link/);
   });
 
   test('a same-origin parent or root path cannot ground a different source path', () => {
@@ -460,10 +460,10 @@ describe('validateBrief — cited link grounding', () => {
     expect(r.warnings.join(' ')).toMatch(/Unverifiable source link/);
   });
 
-  test('tracking-query and fragment differences on the exact source path remain grounded', () => {
+  test('tracking-query and fragment differences cannot authorize a citation', () => {
     const brief = makeBrief() + '\n\nSee [Source](https://example.com/real-article#details) for detail.';
     const r = validateBrief(brief, null, { headlines: [{ title: 'x', link: 'https://example.com/real-article?utm_source=feed' }] });
-    expect(r.warnings.join(' ')).not.toMatch(/Unverifiable source link/);
+    expect(r.warnings.join(' ')).toMatch(/Unverifiable source link/);
   });
 
   test('a meaningful query identifier must match exactly', () => {

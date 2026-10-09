@@ -212,6 +212,20 @@ describe('healthHandler', () => {
     expect(body.status).toBe('degraded');
   });
 
+  test.each([[40, 41, 200], [20, 40, 200], [19, 40, 503]])(
+    'only a majority feed outage degrades readiness (%i of %i available)', async (ok, total, expectedStatus) => {
+      const feeds = Object.fromEntries(Array.from({ length: total }, (_, index) => [`source-${index}`, index < ok ? 'ok' : 'failed']));
+      getFeedHealthMock.mockReturnValue({ feeds, search: {} });
+      writeFileSync(join(dir, 'watchfloor.db'), 'x');
+      ctx = await makeServer({ dataDir: dir });
+      const response = await fetch(`${ctx.base}/api/ready`);
+      const body = await response.json();
+      expect(response.status).toBe(expectedStatus);
+      expect(body.status).toBe(expectedStatus === 200 ? 'ok' : 'degraded');
+      expect(body.feeds).toMatchObject({ ok, total, health: feeds });
+    },
+  );
+
   test('status is degraded when the database is missing', async () => {
     getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
     // dataDir has no watchfloor.db written into it → getDatabaseStats reports 'missing'

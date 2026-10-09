@@ -4,7 +4,7 @@ import { MARKETING_BRIEF } from './marketing-brief.js';
 import { buildFixtureData } from './fixture-cases.js';
 
 export const APP_SCENARIOS = Object.freeze([
-  'normal', 'sample', 'long', 'handoff', 'sparse', 'stale', 'loading', 'sourceerror',
+  'normal', 'sample', 'long', 'handoff', 'sparse', 'summary', 'stale', 'loading', 'sourceerror',
   'brieferror', 'empty', 'changed', 'evidence', 'source-revision', 'evidence-unavailable',
   'health-healthy', 'health-degraded', 'health-unavailable', 'health-loading', 'health-minimal',
   'no-key', 'settings-loading', 'settings-unavailable',
@@ -53,6 +53,8 @@ Synthetic drill: verify the example gateway.
 **The move:** Assign one owner before release.
 `;
 
+const SUMMARY_BRIEF = SPARSE_BRIEF.replace(/\n## KEY JUDGMENTS\n[\s\S]*?(?=\n## DEVELOPING SITUATIONS\n)/, '');
+
 // Deliberately changes both edition identity and rotation shape. Apply it while
 // paused on a later page to verify content, slug, date, and pager remain aligned.
 export const CHANGED_BRIEF = `# BlueTeam.News
@@ -81,14 +83,14 @@ export function buildAppFixture(scenario = 'normal', now = new Date()) {
   const fixture = buildFixtureData(now);
   const changed = scenario === 'changed';
   const empty = scenario === 'empty';
-  const sparse = scenario === 'sparse';
+  const sparse = scenario === 'sparse' || scenario === 'summary';
   const long = scenario === 'long' || scenario === 'handoff';
   const evidence = scenario === 'evidence';
   const stale = scenario === 'stale' || scenario === 'health-degraded';
   const date = evidence ? '2026-09-04' : changed ? '2026-07-25' : '2026-07-24';
   // Error editions need a distinct filename so api.js's good-content cache
   // cannot mask the intentional failure when changed during an active session.
-  const filename = `brief-${date}-${scenario === 'sample' ? '01' : scenario === 'handoff' ? 'handoff' : ['source-revision', 'evidence-unavailable'].includes(scenario) ? 'evidence-inputs' : scenario === 'brieferror' ? 'unavailable' : changed ? 'revised' : long ? 'long' : sparse ? 'sparse' : 'demo'}.md`;
+  const filename = `brief-${date}-${scenario === 'sample' ? '01' : scenario === 'handoff' ? 'handoff' : ['source-revision', 'evidence-unavailable'].includes(scenario) ? 'evidence-inputs' : scenario === 'brieferror' ? 'unavailable' : changed ? 'revised' : long ? 'long' : scenario === 'summary' ? 'summary' : sparse ? 'sparse' : 'demo'}.md`;
   const generatedAt = empty ? null : new Date(now.getTime() - (stale ? 7_200_000 : 60_000)).toISOString();
   let signals = fixture['wall-wire-four'].signals.map((signal, i) => ({
     ...signal, id: `synthetic-${i}`, score: 94 - i * 16, link: `https://example.test/synthetic-${i}`,
@@ -122,7 +124,17 @@ export function buildAppFixture(scenario = 'normal', now = new Date()) {
     ...item, product: `${item.product} and Enterprise Remote Operations Supervisory Management Gateway`,
     name: `${item.name}; this synthetic advisory requires checking inherited appliance configurations and validating the final remediation evidence.`,
   })) };
-  const content = evidence ? EVIDENCE_BRIEF : long ? LONG_BRIEF : sparse ? SPARSE_BRIEF : changed ? CHANGED_BRIEF : MARKETING_BRIEF;
+  const content = evidence ? EVIDENCE_BRIEF : long ? LONG_BRIEF : scenario === 'summary' ? SUMMARY_BRIEF : sparse ? SPARSE_BRIEF : changed ? CHANGED_BRIEF : MARKETING_BRIEF;
+  const signalLine = content.split('\n').findIndex(line => /^### Signal 1\b/.test(line)) + 2;
+  const presentation = scenario === 'handoff' ? { schemaVersion: 1, revision: 'synthetic-handoff-record',
+    copy: { kind: 'published', contentSha256: 'a'.repeat(64), originalSha256: 'a'.repeat(64) },
+    currentChecks: { status: 'checked', basis: 'publication', issues: [
+      { code: 'APPLICABILITY_ACTION_UNCONDITIONAL', audience: 'reader', consequence: 'note', message: 'Synthetic qualification: local exposure remains unverified.', location: { line: signalLine }, acknowledged: false },
+      { code: 'CONFIDENCE_INVALID', audience: 'operator', consequence: 'note', message: 'Synthetic editorial note: normalize the confidence field.', location: { line: signalLine }, acknowledged: false },
+    ], warnings: ['Synthetic qualification: local exposure remains unverified.', 'Synthetic editorial note: normalize the confidence field.'] },
+    history: [{ kind: 'legacy-metadata', label: 'Earlier publication notes', warnings: ['Synthetic review note: verify the fictional gateway deadline before distribution.'], issues: [] }],
+    approval: { status: 'not-recorded' }, operationalNotes: [],
+  } : null;
   const brief = empty ? null : { filename, date, generatedAt: `${date}T12:00:00Z` };
   return {
     ready: scenario === 'health-minimal' ? { status: 'ok' } : {
@@ -144,7 +156,7 @@ export function buildAppFixture(scenario = 'normal', now = new Date()) {
     },
     headlines: { headlines: signals, total: signals.length, generatedAt, ageSeconds: stale ? 7200 : 60 },
     briefs: brief ? [brief] : [],
-    brief: { content, generatedAt: `${date}T12:00:00Z`, inputManifest: { status: retainedEvidence || scenario === 'sample' ? 'available' : 'unavailable', url: retainedEvidence || scenario === 'sample' ? `/api/brief/${filename}/manifest` : null }, meta: { generated_at: `${date}T12:00:00Z`, model_used: 'synthetic-fixture', warnings: scenario === 'handoff' ? ['Synthetic review note: verify the fictional gateway deadline before distribution.', 'Synthetic review note: local exposure remains unverified.'] : [], word_count: content.split(/\s+/).length } },
+    brief: { content, generatedAt: `${date}T12:00:00Z`, ...(presentation ? { presentation, disposition: { status: 'eligible', eligibleForLatest: true } } : {}), inputManifest: { status: retainedEvidence || scenario === 'sample' ? 'available' : 'unavailable', url: retainedEvidence || scenario === 'sample' ? `/api/brief/${filename}/manifest` : null }, meta: { generated_at: `${date}T12:00:00Z`, model_used: 'synthetic-fixture', warnings: scenario === 'handoff' ? ['Synthetic review note: verify the fictional gateway deadline before distribution.', 'Synthetic review note: local exposure remains unverified.'] : [], word_count: content.split(/\s+/).length } },
     evidence: {
       sourceId: 'src_' + 'a'.repeat(64), canonicalUrl: 'https://example.test/synthetic-advisory', source: 'Synthetic vendor',
       firstObservedAt: '2026-09-03T12:00:00Z', lastObservedAt: '2026-09-04T12:00:00Z', latestRevisionId: 'rev_' + 'b'.repeat(64),

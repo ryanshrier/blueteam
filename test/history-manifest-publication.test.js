@@ -39,4 +39,20 @@ describe('manifest publication ordering and failure recovery', () => {
     const filename = saveBrief(dir, 'recovered scheduled assessment', { date: '2026-09-05', scheduled: true, manifest });
     expect(readGenerationManifest(dir, filename).generationId).toBe('fixture-generation');
   });
+
+  test('rolls back a durable review when committing the archive fails, then safely retries', () => {
+    const approval = join(dir, 'approval.json');
+    const beforeCommit = jest.fn(() => {
+      fs.writeFileSync(approval, '{"approved":true}');
+      return () => fs.unlinkSync(approval);
+    });
+    failTarget = '.md';
+    expect(() => saveBrief(dir, 'assessment', { date: '2026-09-05', manifest, beforeCommit })).toThrow('Simulated disk failure');
+    expect(fs.readdirSync(dir)).toEqual([]);
+    failTarget = null;
+    const filename = saveBrief(dir, 'assessment', { date: '2026-09-05', manifest, beforeCommit });
+    expect(readGenerationManifest(dir, filename)).toBeTruthy();
+    expect(fs.existsSync(approval)).toBe(true);
+    expect(beforeCommit).toHaveBeenCalledTimes(2);
+  });
 });

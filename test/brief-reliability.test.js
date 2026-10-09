@@ -4,10 +4,50 @@ import { wholeDocumentReliability, expandBriefCves } from '../lib/brief-reliabil
 import { validateBrief } from '../lib/validation.js';
 import { validationSourceFromManifest } from '../lib/brief-drafts.js';
 import { sha256 } from '../lib/generation-manifest.js';
+import { buildGroundingManifest } from '../lib/grounding.js';
 
 const replay = JSON.parse(readFileSync(new URL('./fixtures/retained-briefing-2026-09-06.json', import.meta.url),'utf8'));
 const secondOpening = JSON.parse(readFileSync(new URL('./fixtures/retained-briefing-2026-09-06-02-opening.json', import.meta.url),'utf8'));
 const audit = content => validateBrief(content, '2026-09-06', validationSourceFromManifest(replay.manifest));
+
+describe('one citation contract for judgment and whole-document metric checks', () => {
+  const id = 'CVE-2026-1234';
+  const source = { source: 'Vendor', title: `${id} gateway advisory`, date: '2026-09-04',
+    description: `${id} has CVSS v3.1 score 9.8. The gateway update addresses the affected access control.`,
+    link: 'https://vendor.example/advisory?id=123&utm_source=feed' };
+  const check = (citation, headline = source, assessment = `${id} has CVSS v3.1 score 9.8.`) => {
+    const text = `## KEY JUDGMENTS\n### Signal 1 — [Horizon 1] Verify affected gateways\n**Assessment:** ${assessment}\n**What happened:** ${id} affects the gateway. ${citation}\n**Decision window:** 72 hours\n`;
+    return validateBrief(text, '2026-09-05', { publication: true,
+      groundingManifest: buildGroundingManifest({ headlines: [headline] }), kevSet: new Set() }).issues;
+  };
+  const metricFindings = issues => issues.filter(issue => issue.code === 'FACT_CVSS_UNSUPPORTED');
+
+  test('accepts a complete captured citation with HTML-escaped query delimiters', () => {
+    const issues = check('[Vendor, September 4, 2026](https://vendor.example/advisory?id=123&amp;utm_source=feed)');
+    expect(metricFindings(issues)).toEqual([]);
+    expect(issues.map(issue => issue.code)).not.toContain('CITATION_IDENTITY_INVALID');
+  });
+
+  test('accepts the explicit URL-unavailable fallback for an otherwise substantive source', () => {
+    expect(metricFindings(check('[Vendor, September 4, 2026]', { ...source, link: '' }))).toEqual([]);
+  });
+
+  test.each([
+    '[Other publisher, September 4, 2026](https://vendor.example/advisory?id=123&utm_source=feed)',
+    '[Vendor, September 3, 2026](https://vendor.example/advisory?id=123&utm_source=feed)',
+    '[Vendor, September 4, 2026](https://vendor.example/advisory?id=999)',
+    '[Vendor, September 4, 2026](https://vendor.example/advisory?id=123)',
+    '`[Vendor, September 4, 2026](https://vendor.example/advisory?id=123&utm_source=feed)`',
+    '[Vendor, September 4, 2026]',
+  ])('does not treat malformed or different-source citations as metric evidence: %s', citation => {
+    expect(metricFindings(check(citation))).toHaveLength(1);
+  });
+
+  test('a canonical citation still cannot establish a different score', () => {
+    expect(metricFindings(check('[Vendor, September 4, 2026](https://vendor.example/advisory?id=123&utm_source=feed)', source,
+      `${id} has CVSS v3.1 score 9.9.`))).toHaveLength(1);
+  });
+});
 
 test('source-count disclaimers do not become independence claims or hide later claims', () => {
   const check = text => wholeDocumentReliability(text).issues.filter(issue => issue.code === 'SOURCE_INDEPENDENCE_UNESTABLISHED');

@@ -5,7 +5,9 @@
 Run `npm run check:brief-eval` for the offline evaluation. It exercises the real
 generation route, prompt construction, validation, corrective retry, receipt,
 and attempt accounting against six authored collections. Provider responses are
-scripted; no API key or network request is needed. The suite also runs in CI.
+scripted; no API key or provider network request is needed. The suite also runs in
+CI and exercises both the Anthropic event contract and the real OpenAI Responses
+stream adapter with scripted HTTP responses.
 
 The collections cover tactical, operational, and strategic evidence, conflicting
 reports about two CVEs, a promotional article opening with a useful feed excerpt,
@@ -15,9 +17,8 @@ and accounts for both attempts.
 
 ## Optional live evaluation
 
-The optional live evaluation currently supports Anthropic only, even when the
-application is configured for OpenAI Codex. It sends synthetic collections to
-Anthropic. It does not read
+The optional live evaluation supports Anthropic (the default) and OpenAI. It
+sends synthetic collections to the explicitly selected provider. It does not read
 the operator collection, publish to the application archive, update settings, or
 send webhooks. It requires an explicit cost reservation and output directory:
 
@@ -25,22 +26,61 @@ send webhooks. It requires an explicit cost reservation and output directory:
 npm run check:brief-eval -- --live --budget-usd 2 --output .internal/evaluation
 ```
 
-Provide `ANTHROPIC_API_KEY` in the process environment, or add
-`--key-file data/settings.local.json` to use an existing protected local key file.
+For OpenAI, use `--provider openai`. Its default model is the application's
+`gpt-5.3-codex`; `--model` can select an OpenAI model with a known price in the
+application's cost estimator, including `gpt-6.1-sol`. Unknown model prices stop the evaluation before
+any provider call. Model access still depends on the API account.
+
+These PowerShell commands prompt for the key without putting it in command
+history, use a unique private output directory, and restore any prior process
+key afterward:
+
+```powershell
+# Run from the repository root.
+npm run check:brief-eval -- --provider openai --model gpt-6.1-sol
+
+$evaluationOutput = Join-Path '.internal' ('evaluation-openai-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$previousOpenAiKey = $env:OPENAI_API_KEY
+$evaluationKey = Read-Host 'OpenAI API key' -AsSecureString
+try {
+    $env:OPENAI_API_KEY = [System.Net.NetworkCredential]::new('', $evaluationKey).Password
+    npm run check:brief-eval -- --live --provider openai --model gpt-6.1-sol --budget-usd 2 --output $evaluationOutput
+} finally {
+    $env:OPENAI_API_KEY = $previousOpenAiKey
+    $evaluationKey.Dispose()
+    Remove-Variable previousOpenAiKey, evaluationKey
+}
+
+$evaluation = Get-Content -LiteralPath (Join-Path $evaluationOutput 'evaluation.json') -Raw | ConvertFrom-Json
+$evaluation.cases | Select-Object id, published, code, providerAttempts, costUsd | Format-Table -AutoSize
+$evaluation.cases | ForEach-Object {
+    $caseId = $_.id
+    $_.issues | Select-Object @{Name='case'; Expression={$caseId}}, code, severity, message
+} | Format-List
+```
+
+Provide `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in the process environment, or add
+`--key-file data/settings.local.json` to read the selected provider's key from an
+existing protected local key file (`openaiKey` or `anthropicKey`). Application
+provider/model settings and `.env` are not loaded by this harness.
 Do not put the key itself in a command, fixture, report, or issue. The key-file
 option is read only in explicit live mode. Treat the output directory as private.
 
-This harness fixes the model and output limit, runs sequentially, disables SDK
+This harness fixes the selected model and an 8,000-token output limit, runs sequentially, disables SDK
 retries, and allows at most two provider attempts per collection. Before each
 attempt it reserves a conservative input-byte allowance and the full output
-limit against standard token rates. Reservations are never refunded during a
+limit against the same model-specific standard token rates used by the application.
+OpenAI reasoning tokens share the output allowance. Reservations use uncached
+input prices plus applicable cache-write and long-context premiums; usage estimates apply known cached-input discounts without adding
+reasoning tokens a second time. Reservations are never refunded during a
 run; the maximum accepted CLI budget is $5. This is a local reservation policy,
 not a provider billing limit. The final report separates actual returned token
 usage estimates, incomplete usage, and requests rejected locally before spend.
 Review the configured model and documented pricing before a future live run.
 
-The report preserves accepted provider attempts, final generated drafts,
-publication outcomes, available receipts, citation coverage across horizons,
+The report preserves provider/model selection, accepted provider attempts, final
+generated drafts, publication outcomes, receipts for published and rejected drafts,
+citation coverage across horizons,
 priority CVEs, and required conflicting-source citations. The command fails on
 unexpected publication outcomes, authored coverage gaps, incomplete usage, or
 local policy rejections. A failed run is evidence to inspect; do not repeat paid
