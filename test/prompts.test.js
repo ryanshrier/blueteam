@@ -62,11 +62,39 @@ describe('buildSystemPrompt — pack-driven brief frame + persona', () => {
     expect(actionLines).toHaveLength(1);
     expect(actionLines[0]).toMatch(/^Act now: Operations — .+ — recommended target September 8, 2026\.$/);
     expect(actionLines[0]).toContain('Initiation: start the inventory and exposure check this shift');
-    expect(actionLines[0]).toContain('Completion criterion: record verified applicability and the response outcome');
+    expect(actionLines[0]).toContain('Completion criterion: record verified applicability and tested containment');
     const records = parseRecommendedActions(block);
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ owner:'Operations', target:'September 8, 2026', targetType:'recommended' });
-    expect(records[0].text).toContain('Condition: if affected, begin the documented response');
+    expect(records[0].text).toContain('Condition: if affected, apply the supported containment');
+  });
+
+  test('requires separate response deliverables and a shorter report without losing qualifications', () => {
+    setDomainPack(cyberPack);
+    const p = buildSystemPrompt(cfg);
+    expect(p).toContain('Aim for 1,200–1,800 words');
+    expect(p).toContain('This is an editorial budget, not a cap');
+    expect(p).toContain('Use separate bullets for containment/remediation, investigation, and recovery');
+    expect(p).toContain('one accountable function, its own observable completion criterion, and a feasible recommended target');
+    expect(p).toContain('Do not promise completed investigation or restoration by the containment deadline without a basis');
+    expect(p).toContain('Keep actual restoration open');
+    expect(p).toContain('Different targets require separate clauses and action references');
+    expect(p).toContain('Remove repeated explanations and optional metrics first');
+    expect(p).toContain('Word targets never justify removing a necessary qualification');
+  });
+
+  test('phase examples remain separately assignable through the existing action parser', () => {
+    setDomainPack(cyberPack);
+    const p = buildSystemPrompt(cfg);
+    const investigation = p.match(/^- Incident response — investigate affected deployments[^\n]+$/m)?.[0];
+    const recovery = p.match(/^- Operations — prepare conditional recovery[^\n]+$/m)?.[0];
+    const block = `**Recommended actions:**\n\n${investigation}\n${recovery}\n\n**Decision window:** Current shift`.replaceAll('{Month D, YYYY}', 'October 10, 2026');
+    const records = parseRecommendedActions(block);
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({ owner: 'Incident response', target: 'October 10, 2026', initiationTrigger: 'preserve available evidence this shift' });
+    expect(records[0].completionCriterion).toContain('open investigation scope');
+    expect(records[1]).toMatchObject({ owner: 'Operations', target: 'October 10, 2026', dependencies: 'Incident response findings and verified safe recovery material' });
+    expect(records[1].completionCriterion).toContain('feasible restoration target');
   });
 
   test('a CTI specialization flips the frame + persona by configuration alone', () => {
@@ -198,8 +226,9 @@ describe('buildSystemPrompt / buildUserPrompt - immutable edition clock', () => 
     });
     expect(system).toContain('MODE: MONDAY BRIEFING');
     expect(user).toContain('for 2026-07-06 (Monday)');
-    expect(system).toContain('a citation date must never be later than the briefing');
-    expect(user).toContain('No source citation may carry a date after 2026-07-06');
+    expect(system).toContain('only a captured, already-observed publication timestamp');
+    expect(user).toContain('in Pacific/Kiritimati');
+    expect(user).toContain('Use the provided Published date exactly');
   });
 });
 
@@ -333,5 +362,62 @@ describe('buildUserPrompt — current-source grounding contract', () => {
     });
     expect(p).toContain(`CISA KEV catalog URL: ${CISA_KEV_CATALOG_URL}`);
     expect(isAllowedSourceUrl(CISA_KEV_CATALOG_URL, groundingManifest)).toBe(true);
+  });
+
+  test('does not assert an earlier KEV flag when captured membership no longer supports it', () => {
+    const headline = {
+      source: 'Vendor', title: 'Gateway CVE-2026-12345', horizon: 1,
+      description: 'CVE-2026-12345 affects the gateway and the vendor released a patch.',
+      isKEV: true, kevCVE: 'CVE-2026-12345',
+    };
+    for (const kevSet of [new Set(), new Set(['CVE-2026-99999'])]) {
+      const groundingManifest = buildGroundingManifest({ headlines: [headline], kevSet });
+      const p = buildUserPrompt({ headlines: [headline], config: cfg, groundingManifest });
+      expect(p).not.toContain('System verification:');
+    }
+  });
+
+  test('shows captured KEV membership even when the collection flag was false', () => {
+    const headline = {
+      source: 'Vendor', title: 'Gateway CVE-2026-12345', horizon: 1,
+      description: 'CVE-2026-12345 affects the gateway and the vendor released a patch.',
+      isKEV: false, kevCVE: null,
+    };
+    const groundingManifest = buildGroundingManifest({ headlines: [headline], kevSet: new Set(['CVE-2026-12345']) });
+    const p = buildUserPrompt({ headlines: [headline], config: cfg, groundingManifest });
+    expect(p).toContain('System verification: CVE-2026-12345 is on the CISA KEV catalog');
+  });
+
+  test('binds grouped and lookup identities to their own captured membership', () => {
+    const headlines = [{
+      source: 'Vendor A', title: 'Gateway CVE-2026-11111', horizon: 1,
+      description: 'CVE-2026-11111 affects the gateway and the vendor released a patch.',
+      isKEV: true, kevCVE: 'CVE-2026-11111',
+      cveData: 'CVE-2026-22222: CVSS 9.8',
+      sourceMembers: [{
+        source: 'Vendor B', title: 'Related CVE-2026-33333',
+        description: 'CVE-2026-33333 affects a related component and a patch is available.',
+      }],
+    }, {
+      source: 'Vendor C', title: 'Separate CVE-2026-44444', horizon: 1,
+      description: 'CVE-2026-44444 affects another product and a patch is available.',
+    }];
+    const kevSet = new Set(['CVE-2026-22222', 'CVE-2026-33333', 'CVE-2026-44444']);
+    const groundingManifest = buildGroundingManifest({ headlines, kevSet });
+    const p = buildUserPrompt({ headlines, config: cfg, groundingManifest });
+    const firstGroup = p.split('• Evidence ID: S2.1')[0];
+    expect(firstGroup).toContain('System verification: CVE-2026-22222 is on the CISA KEV catalog');
+    expect(firstGroup).toContain('System verification: CVE-2026-33333 is on the CISA KEV catalog');
+    expect(firstGroup).not.toContain('System verification: CVE-2026-11111');
+    expect(firstGroup).not.toContain('System verification: CVE-2026-44444');
+    expect(p.split('• Evidence ID: S2.1')[1]).toContain('System verification: CVE-2026-44444 is on the CISA KEV catalog');
+    expect(p.match(/System verification:/g)).toHaveLength(3);
+  });
+
+  test('preserves standalone prompt generation from legacy KEV enrichment', () => {
+    const headlines = [{ source: 'Vendor', title: 'Known exploited issue', horizon: 1,
+      isKEV: true, kevCVE: 'CVE-2026-10520' }];
+    const p = buildUserPrompt({ headlines, config: cfg });
+    expect(p).toContain('System verification: CVE-2026-10520 is on the CISA KEV catalog');
   });
 });

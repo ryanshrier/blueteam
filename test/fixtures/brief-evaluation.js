@@ -29,6 +29,12 @@ conflict[0].sourceMembers = [{ ...conflict[0] }, source('Observer', 1, 'Independ
 const contaminated = clone(baseline);
 contaminated[0].articleBody = 'Sponsored content. Register now for the SANS training webinar. Save your seat and download our free guide. Subscribe to our newsletter for exclusive offers. Advertisement. ' .repeat(6);
 const sparse = baseline.map(h => ({ ...h, description: '' }));
+const complementary = clone(baseline);
+complementary[0].description = 'The vendor reports that CVE-2026-12345 is an authentication bypass in Gateway. Local deployment is unknown.';
+complementary[0].articleBody = 'Gateway versions 1.0 through 1.2 are affected. Gateway version 1.3 fixes the authentication bypass. The advisory provides no evidence about exploitation timing or victim numbers.';
+complementary[0].retrievedAt = '2026-09-04T12:01:00Z';
+complementary[0].articleRetrievedAt = '2026-09-04T12:03:00Z';
+complementary[0].articleRetrievalStatus = 'fetched';
 export const BRIEF_EVALUATION_CASES = [
   scenario('tactical', 'Concrete vulnerability and version reporting with all three horizons available.', clone(baseline)),
   scenario('operational', 'Operational reporting leads the input order; tactics and policy remain available.', [clone(baseline[1]), clone(baseline[0]), ...clone(baseline.slice(2))], [1, 0, 2]),
@@ -38,6 +44,10 @@ export const BRIEF_EVALUATION_CASES = [
     requiredSourceUrls: [conflict[0].link, conflict[0].sourceMembers[1].link],
   } },
   scenario('contaminated-opening', 'Same-publisher feed evidence remains useful when an article opening is promotional.', contaminated),
+  { ...scenario('complementary-captures', 'A feed supplies the CVE and a separate article capture supplies the supported affected and fixed versions.', complementary),
+    expected: { publishable: true, horizons: [1, 2, 3], priorityCves: ['CVE-2026-12345'],
+      requiredDetails: ['versions 1.0 through 1.2', 'version 1.3 fixes the authentication bypass'] },
+    capturedClaims: { 0: `${complementary[0].description} ${complementary[0].articleBody}` } },
   { ...scenario('sparse-title-only', 'Headlines alone cannot establish a full factual assessment.', sparse), expected: { publishable: false, horizons: [], priorityCves: [] } },
 ];
 
@@ -47,7 +57,7 @@ export function referenceBrief(item) {
     return `### Signal ${i + 1} — [Horizon ${h.horizon}] ${h.title}
 **Assessment:** The supplied reporting warrants an applicability review. It does not establish local compromise or justify assuming the reported conditions exist in this organization.
 **Confidence:** Moderate — the stated facts come from the cited source; this is a limited assessment, not independent verification.
-**What happened:** ${h.description || h.title} [${h.source}, September 4, 2026](${h.link})${item.id === 'conflicting-multi-cve' && index === 0 ? ` The independent observer disputes the vendor's Gateway fix claim and reports version 1.3 remains affected by CVE-2026-12345; this contradiction is unresolved, and the observer does not establish the Manager issue. [Synthetic Observer, September 4, 2026](${h.sourceMembers[1].link})` : ''}
+**What happened:** ${item.capturedClaims?.[index] || h.description || h.title} [${h.source}, September 4, 2026](${h.link})${item.id === 'conflicting-multi-cve' && index === 0 ? ` The independent observer disputes the vendor's Gateway fix claim and reports version 1.3 remains affected by CVE-2026-12345; this contradiction is unresolved, and the observer does not establish the Manager issue. [Synthetic Observer, September 4, 2026](${h.sourceMembers[1].link})` : ''}
 **Defender impact:** The relevant team should compare this reporting with local inventory, permissions, and operating procedures before deciding whether a change is needed. Missing local evidence is an unresolved question.
 **Recommended actions:**
 - Operations — document applicability and identify the owner of the follow-up — recommended target September 8, 2026.

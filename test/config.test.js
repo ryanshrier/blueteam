@@ -10,7 +10,8 @@ import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { initConfig, getConfig, getConfigVersion, getLastReloadError, stopConfigWatch, _resetForTests } from '../lib/config.js';
+import { EventEmitter } from 'node:events';
+import { initConfig, getConfig, getConfigVersion, getLastReloadError, getConfigWatchStatus, stopConfigWatch, _resetForTests } from '../lib/config.js';
 
 function validConfigJSON(overrides = {}) {
   return JSON.stringify({
@@ -44,6 +45,26 @@ describe('config — last-known-good on rejected reload', () => {
     expect(config.analysisSettings.webhook).toEqual({ url: '', format: 'slack', events: 'alerts' });
     expect(config.organization.profile).toBe('Enterprise cyber defense team');
     expect(getLastReloadError()).toBeNull();
+  });
+
+  test('watcher errors remain visible until a watch is successfully rearmed', () => {
+    writeFileSync(configPath, validConfigJSON());
+    const watcher = new EventEmitter();
+    watcher.close = () => {};
+    initConfig(configPath, { watchImpl: () => watcher });
+    expect(getConfigWatchStatus().status).toBe('watching');
+    watcher.emit('error', Object.assign(new Error('Synthetic watch failure'), { code: 'EPERM' }));
+    expect(getConfigWatchStatus()).toMatchObject({ status: 'error', errorCode: 'EPERM' });
+    expect(getConfig().trustedFeeds).toHaveLength(1);
+    initConfig(configPath);
+    expect(getConfigWatchStatus().status).toBe('watching');
+  });
+
+  test('an initial watch failure is visible without discarding valid configuration', () => {
+    writeFileSync(configPath, validConfigJSON());
+    initConfig(configPath, { watchImpl: () => { throw Object.assign(new Error('Synthetic watch limit'), { code: 'ENOSPC' }); } });
+    expect(getConfigWatchStatus()).toMatchObject({ status: 'error', errorCode: 'ENOSPC' });
+    expect(getConfig().trustedFeeds).toHaveLength(1);
   });
 
   test('preserves a configured EPSS lookup budget instead of stripping the manifest key', () => {

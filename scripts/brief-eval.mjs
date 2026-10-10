@@ -43,13 +43,15 @@ child.on('exit', (code, signal) => {
     const coverageGaps = report.cases.filter(row => row.expected.publishable && (
       !row.expected.horizons.every(h => row.citedHorizons.includes(h))
       || row.priorityCoverage.some(item => !item.mentioned)
+      || row.detailCoverage?.some(item => !item.retained)
       || row.sourceCoverage.some(item => !item.cited)
     ));
     console.log(`${report.cases.length} cases; ${report.cases.filter(row => row.published).length} published; ${unexpected.length} unexpected publication outcomes.`);
     if (values.live) {
       console.log(`Usage-based standard-rate estimate: ${report.estimatedProviderCostUsd === null ? 'incomplete' : '$' + report.estimatedProviderCostUsd.toFixed(6)}; conservative reservations: $${report.conservativeReservationUsd.toFixed(6)}.`);
       console.log(`Authored coverage gaps: ${coverageGaps.map(row => row.id).join(', ') || 'none'}. General semantic correctness still requires review.`);
-      if (unexpected.length || coverageGaps.length || report.cases.length !== 6 || report.estimatedProviderCostUsd === null
+      if (unexpected.length || coverageGaps.length || !Number.isSafeInteger(report.authoredCollectionCount)
+        || report.cases.length !== report.authoredCollectionCount || report.estimatedProviderCostUsd === null
         || report.cases.some(row => row.localPolicyRejections.length || row.issues.some(issue => ['structure', 'trust'].includes(issue.severity)))) process.exitCode = 1;
     }
     console.log(`Evidence: ${resolve(values.output, 'evaluation.json')}`);

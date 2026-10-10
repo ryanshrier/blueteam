@@ -9,6 +9,22 @@ const start = jobs => jobs.start({ id: 'generation-1', editionDate: '2026-09-05'
 const attempt = { model: 'claude-sonnet-5', systemPromptSha256: 'a'.repeat(64), messagesSha256: 'b'.repeat(64), pricing: { asOf: '2026-09-05', perMillionTokens: { input: 2, output: 10 } }, system: 'private prompt sk-ant-secret', messages: [{ role: 'user', content: 'private sources' }] };
 
 describe('durable generation accounting', () => {
+  test('pre-provider work exposes its phase and a restart never invents unknown provider usage', () => {
+    const db = storage();
+    const first = createGenerationJobs({ ...db, sessionId: 'first' });
+    first.start({ id: 'collecting-1', editionDate: '2026-09-05', scheduledJobKey: 'daily-brief:2026-09-05', phase: 'collecting' });
+    expect(first.status()).toMatchObject({ active: true, latest: { phase: 'collecting', billing: 'no-provider-attempt-recorded' } });
+    first.setPhase('collecting-1', 'preparing');
+    const restarted = createGenerationJobs({ ...db, sessionId: 'second' });
+    expect(restarted.status()).toMatchObject({ active: false, latest: { status: 'interrupted', phase: 'preparing',
+      attempts: [], costUsd: 0, billing: 'no-provider-attempt-recorded' } });
+    expect(() => restarted.start({ id: 'retry-collection', editionDate: '2026-09-05', scheduledJobKey: 'daily-brief:2026-09-05' })).not.toThrow();
+    restarted.startAttempt('retry-collection', attempt);
+    expect(restarted.status().latest).toMatchObject({ phase: 'generating', billing: 'unknown-final-usage' });
+    expect(() => restarted.setPhase('retry-collection', 'private prompt sk-ant-secret')).toThrow('Invalid generation phase');
+    expect(JSON.stringify(restarted.status())).not.toContain('private prompt');
+  });
+
   test('a finished timeout blocks the same scheduled purchase after restart but allows an explicit manual run', () => {
     const db = storage();
     const first = createGenerationJobs({ ...db, sessionId: 'process-1' });

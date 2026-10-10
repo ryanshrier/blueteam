@@ -67,6 +67,6 @@ describe('alert delivery through the pinned network dispatcher', () => {
     expect(fetchMock.mock.calls[0][1].dispatcher).toEqual(expect.objectContaining({
       dispatch: expect.any(Function),
     }));
-    expect(JSON.parse(getMeta('alert_sent_keys'))).toHaveLength(1);
+    expect(JSON.parse(getMeta('webhook_outbox_v1')).receipts).toHaveLength(1);
   });
 });

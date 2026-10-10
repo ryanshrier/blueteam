@@ -183,7 +183,8 @@ describe('Wall Key Judgment timing', () => {
   test('keeps KEV and its intact identity separate from readable source counts', () => {
     const html = wirePageHtml([{ title: 'Synthetic signal', horizon: 2,
       isKEV: true, kevCVE: 'CVE-2026-123456', source: 'Vendor <advisory>', corroboration: 3 }]);
-    expect(html).toContain('<span class="nb-badge kev">KEV</span>');
+    expect(html).toContain('KEV · retained</span>');
+    expect(html).toContain('Current catalog membership is unverified.');
     expect(html).toContain('<span class="nb-badge nb-cve kev">CVE-2026-123456</span>');
     expect(html).toContain('3 sources</span>');
     expect(html).toContain('Source: Vendor &lt;advisory&gt;</span>');
@@ -246,7 +247,7 @@ describe('Wall Key Judgment timing', () => {
     }));
 
     expect(html).toContain('class="nb-jevidence"');
-    expect(html).toContain('class="nb-evidence-kev">KEV · CVE-2026-50522</span>');
+    expect(html).toContain('class="nb-evidence-kev">Retained KEV · CVE-2026-50522</span>');
     const rail = html.slice(html.indexOf('class="nb-jhead-aside"'), html.indexOf('</div>', html.indexOf('class="nb-jhead-aside"')));
     expect(rail).not.toContain('CVE-2026-50522');
   });
@@ -398,6 +399,27 @@ describe('Wall mounted playback and recovery', () => {
     window.innerWidth = 960;
     resize();
     expect(wall.dataset.displayLayout).toBe('narrow');
+  });
+
+  test('cross-tab display changes apply while mounted and listeners leave with the Wall', async () => {
+    let stored = JSON.stringify({ size: 'standard', margin: 'normal', fullscreen: false, awake: false });
+    Object.defineProperty(global, 'localStorage', { configurable: true, value: { getItem: () => stored } });
+    mount(document.getElementById('wallLayer'));
+    await jest.advanceTimersByTimeAsync(0);
+    const wall = document.querySelector('.news-mode');
+    const onStorage = window.addEventListener.mock.calls.find(([event]) => event === 'storage')[1];
+    expect(wall.dataset.displaySize).toBe('standard');
+    stored = JSON.stringify({ size: 'largest', margin: 'safe', fullscreen: false, awake: false });
+    onStorage({ type: 'storage', key: 'wire.decisions.v1' });
+    expect(wall.dataset.displaySize).toBe('standard');
+    onStorage({ type: 'storage', key: 'bt-wall-display' });
+    expect(wall.dataset).toMatchObject({ displaySize: 'largest', displayMargin: 'safe' });
+    stored = null;
+    onStorage({ type: 'storage', key: null });
+    expect(wall.dataset).toMatchObject({ displaySize: 'standard', displayMargin: 'normal' });
+    unmount();
+    expect(window.removeEventListener).toHaveBeenCalledWith('storage', onStorage);
+    expect(window.removeEventListener).toHaveBeenCalledWith('wall-display-settings-changed', onStorage);
   });
 
   test('presentation pager follows the reachable end when browser layout clamps a continuation', async () => {

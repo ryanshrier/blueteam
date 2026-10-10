@@ -130,7 +130,7 @@ describe('Wire Hidden recovery', () => {
     expect(get('wireList').innerHTML).toContain('Saved while this tab was in Settings');
     const createObjectURL = jest.spyOn(URL, 'createObjectURL').mockReturnValue('blob:decisions');
     jest.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    get('wireExportDecisions').dispatch('click');
+    get('wireExportBrowserDecisions').dispatch('click');
     const records = JSON.parse(await createObjectURL.mock.calls[0][0].text());
     expect(records).toHaveLength(2);
     expect(records.find(record => record.signal === expired).decision.note).toBe('Retain this investigation');
@@ -388,7 +388,7 @@ describe('Wire Hidden recovery', () => {
     fetchLandscape.mockResolvedValueOnce({ convergence: [], feeds: { ok: 0, total: 41 } });
     await start();
     expect(get('wireMeta').textContent).toBe('Snapshot processed just now');
-    expect(get('wireCollectionHealth').textContent).toBe('0/41 sources reachable · collection needs attention');
+    expect(get('wireCollectionHealth').textContent).toBe('0/41 sources reachable · collection needs attention · Briefing readiness unknown');
     expect(get('wireCollectionHealth').classList.contains('is-degraded')).toBe(true);
   });
 

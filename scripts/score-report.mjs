@@ -1,5 +1,5 @@
 // Measurement harness for the score model. Ranks a small labeled GOLD fixture
-// spanning the evidence space, prints the ranking with each item's evidence
+// covering selected synthetic scenarios, prints each item's evidence
 // ledger + axis bars, and asserts the model's invariants (bounded score, [0,1]
 // axes, the exploitation-evidence collapse) plus the expected band ordering —
 // so a weight or model edit can't silently degrade ranking quality.
@@ -7,7 +7,7 @@
 //   node scripts/score-report.mjs      (also runnable as `npm run check:scoring`)
 //
 // `band` = the expected rough rank tier (1 should rank at the top, 3 at the
-// bottom). The model must preserve the band ordering by MEAN score; exact
+// bottom). Every cross-band pair must preserve the authored ordering; exact
 // positions inside a band may shift as the model is tuned.
 
 import { scoreHeadline } from '../lib/scoring.js';
@@ -49,6 +49,16 @@ for (const h of ranked) {
 }
 
 const fails = [];
+let pairwiseComparisons = 0;
+for (const higher of GOLD) {
+  for (const lower of GOLD) {
+    if (higher.band >= lower.band) continue;
+    pairwiseComparisons++;
+    if (higher.score <= lower.score) {
+      fails.push(`cross-band inversion: "${higher.title}" (${higher.score}) must outrank "${lower.title}" (${lower.score})`);
+    }
+  }
+}
 for (const h of GOLD) {
   if (!(h.score >= 0 && h.score <= 100)) fails.push(`score out of [0,100]: "${h.title}" = ${h.score}`);
   for (const [k, v] of Object.entries(h.scoreComponents)) {
@@ -72,6 +82,7 @@ if (!(mean(1) > mean(2) && mean(2) > mean(3))) {
 
 console.log('-'.repeat(74));
 console.log(`band means: 1=${mean(1).toFixed(0)}  2=${mean(2).toFixed(0)}  3=${mean(3).toFixed(0)}   (must strictly decrease)`);
+console.log(`${pairwiseComparisons} authored cross-band comparisons; this small synthetic fixture does not measure production ranking quality.`);
 if (fails.length) {
   console.error('\n[X] Score-model regression:\n' + fails.map(f => '  ' + f).join('\n'));
   process.exit(1);

@@ -5,20 +5,19 @@ import { cyberEnrichers } from '../config/domains/cyber-enrichers.js';
 
 // The pipeline iterates the active edition's enricher list by
 // stage instead of calling KEV/CVE/MITRE by name. These guard that the cyber
-// sequence is preserved EXACTLY (same order, stages, failure-keys, limits as the
-// old hardcoded calls) and that the stage runner's mechanics match the old code:
+// sequence makes captured article identities available to lookups, preserves
+// limits, and that the stage runner's mechanics match the old code:
 // in-order, by-stage, awaited, failures recorded only when a failureKey is set.
 
 afterAll(() => setEnrichers(cyberEnrichers));   // restore the default for later suites
 
 describe('cyber enricher manifest', () => {
-  test('declares the exact ordered sequence + stages the pipeline used to hardcode', () => {
-    // EPSS runs after CVE (reusing its extracted IDs). Article extraction then
-    // precedes MITRE so body-only techniques are visible; IOC extraction remains
+  test('captures article identities before the bounded CVE and EPSS lookups', () => {
+    // Article evidence is available to lookups and MITRE. IOC extraction remains
     // last because it consumes that same article body.
-    expect(cyberEnrichers.map(e => e.name)).toEqual(['kev', 'entities', 'cached-cve', 'cached-epss', 'cve', 'epss', 'article', 'mitre', 'iocs']);
+    expect(cyberEnrichers.map(e => e.name)).toEqual(['kev', 'entities', 'cached-cve', 'cached-epss', 'article', 'article-kev', 'cve', 'epss', 'mitre', 'iocs']);
     expect(cyberEnrichers.filter(e => e.stage === 'pre').map(e => e.name)).toEqual(['kev', 'entities', 'cached-cve', 'cached-epss']);
-    expect(cyberEnrichers.filter(e => e.stage === 'post').map(e => e.name)).toEqual(['cve', 'epss', 'article', 'mitre', 'iocs']);
+    expect(cyberEnrichers.filter(e => e.stage === 'post').map(e => e.name)).toEqual(['article', 'article-kev', 'cve', 'epss', 'mitre', 'iocs']);
   });
 
   test('preserves failure-keys and limits (KEV/CVE/article reported; entities/mitre/epss/iocs silent)', () => {

@@ -19,7 +19,7 @@ Wall and Wire work without API keys. Briefing generation may incur provider char
 Recommended: Node.js 24 with npm. See the full supported ranges in [Operations](docs/operations.md#runtime-support) and [Development](docs/development.md).
 
 ```bash
-git clone --branch v1.3.2 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.0 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -52,7 +52,7 @@ ANTHROPIC_API_KEY=
 
 Enter your key after `=`. Environment keys override saved keys for the same provider. OpenAI generation calls the Responses API directly; it requires an OpenAI API key and does not use a Codex CLI or ChatGPT subscription login. See [Configuration](docs/configuration.md) for provider selection, model settings, and precedence.
 
-Open **Briefing → Edition tools → Generate briefing**. Generation waits for enough fresh source evidence. Wire searches, filters, and hidden items do not change its input selection.
+Open **Briefing → Generate briefing** beside the reader controls. Generation waits for enough fresh source evidence and reports progress from collection through publication across open Briefing tabs. Wire searches, filters, and hidden items do not change its input selection.
 
 Automatic generation is off by default. Enable it separately in Settings and choose a time, timezone, and retry policy. Manual and scheduled runs use the selected provider and the same validation and storage pipeline. Retries can add cost; application limits are not a provider spending cap.
 
@@ -60,9 +60,9 @@ Automatic generation is off by default. Enable it separately in Settings and cho
 
 **Wall** (`/wall`) rotates through signals, KEV changes, and the latest eligible saved Briefing. Press `G`, then `L` to enter and `Esc` to leave. Settings controls size, margins, playback, fullscreen, and supported screen-awake behavior. Feed freshness and Briefing publication time are shown separately.
 
-**Wire** (`/wire`) exposes score components and filters for tier, urgency, KEV, and unread state. **Inspect evidence** shows retained passages and changes between observations. A watch profile explains literal matches to your technologies, sectors, and regions; local exposure remains unknown. Read state follows retained revisions, so changed evidence becomes unread again. Decisions and hidden/read preferences stay in this browser and update across its tabs. CSV and JSON exports cover current results; **Export all saved decisions (JSON)** also includes decisions for hidden, filtered, and older signals.
+**Wire** (`/wire`) exposes score components and filters for tier, urgency, KEV, and unread state. **Inspect evidence** shows retained passages and changes between observations. A watch profile explains literal matches to your technologies, sectors, and regions; local exposure remains unknown. Read state follows retained revisions, so changed evidence becomes unread again. Decisions are saved on this server with revision checks, retained evidence, and edit history; hidden/read preferences remain in the browser. Existing browser decisions can be imported without overwriting conflicting server records. CSV and JSON exports cover current results; **Export server decisions (JSON)** also includes decisions for hidden, filtered, and older signals. This remains a single-operator application without named accounts or team permissions.
 
-**Briefing** (`/briefing`) opens published editions in Overview or Full report. Overview presents featured and supporting stories as a news front page; Full report contains the complete analysis, actions, timing, and citations. Ordinary generation publishes automatically, including routine editorial notes. Serious findings retain an unpublished draft while Latest and Wall keep the current briefing. In **Edition tools → Drafts**, **Save draft** preserves edits; **Publish briefing** checks and publishes them without another model call. New editions retain the evidence, configuration, provider/model attempts, and validation used to generate them. Historical editions may lack these receipts. Draft repair and reviewed copies preserve the original evidence and edition date.
+**Briefing** (`/briefing`) opens published editions in Overview or Full report. Overview presents featured and supporting stories as a news front page; Full report contains the complete analysis, actions, timing, and citations. Ordinary generation publishes automatically, including routine editorial notes. Serious findings retain an unpublished draft while Latest and Wall keep the current briefing. Open **Review drafts** beside **Generate briefing**; **Save draft** preserves edits and **Publish briefing** checks and publishes them without another model call. New editions retain the evidence, configuration, provider/model attempts, and validation used to generate them. Historical editions may lack these receipts. Draft repair and reviewed copies preserve the original evidence and edition date.
 
 Published editions keep relevant conditions beside their assessments and collect checks, scoped approvals, and correction history in **Edition record**. Routine editorial notes do not create a distribution warning. Copied decisions and print preserve the applicable qualifications and sources, with a link back to the saved edition.
 
@@ -83,6 +83,8 @@ See [Evidence and relevance](docs/evidence-and-relevance.md) for retention rules
 The server binds to `127.0.0.1` by default. Remote interactive access requires a strong `API_SECRET` and an authenticating TLS reverse proxy that injects the bearer token upstream. See [Operations and deployment](docs/operations.md).
 
 Local state lives in `data/watchfloor.db`, saved assessments and input receipts in `briefs/`, editorial corrections and publication decisions in `reviews/`, and operator settings in the gitignored `data/settings.local.json`. Back up these together. Saved API keys are masked in responses but stored in plaintext. Protect the host account and backups.
+
+Upgrading from v1.3.2 to v1.4.0 migrates SQLite from schema 9 to 11 and initializes a saved-edition receipt inventory. Follow the [upgrade notes](docs/operations.md#from-v132-to-v140) before the first start, including the stopped-process backup and optional browser-decision import. Rollback requires the matching pre-upgrade state backup.
 
 There is no product telemetry. Outbound requests go to configured feeds and enrichment sources, the selected AI provider during verification or generation, and an optional configured webhook. Generation sends selected source evidence and configured organization context. The [network boundary](docs/operations.md#network-behavior) lists the supplied data.
 

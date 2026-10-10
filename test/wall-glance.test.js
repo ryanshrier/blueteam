@@ -19,7 +19,7 @@ describe('Wall glance projection', () => {
         { label: 'Response owners', value: 'Infrastructure · Incident response' },
         { label: 'Decision window', value: 'This shift · from 2026-10-09 briefing' },
         { label: 'Confidence', value: 'High' },
-        { label: 'CISA KEV', value: 'CVE-2026-12345' },
+        { label: 'Retained CISA KEV', value: 'CVE-2026-12345 · capture time unavailable' },
       ], related: [],
     });
     for (const action of actions) expect(JSON.stringify(model)).not.toContain(action.imperative);
@@ -49,11 +49,11 @@ describe('Wall glance projection', () => {
     const page = { kind: 'judgment', isKEV: true, cve: 'CVE-2026-12345', catalogEntries: [{ cve: 'CVE-2026-67890' }],
       cves: ['cve-2026-12345', 'CVE-2026-67890', 'CVE-2026-99999', 'CVE-2026-99999'] };
     expect(buildGlanceModel(page).facts).toEqual([
-      { label: 'CISA KEV', value: 'CVE-2026-12345 · CVE-2026-67890' },
+      { label: 'Retained CISA KEV', value: 'CVE-2026-12345 · CVE-2026-67890 · capture time unavailable' },
       { label: 'Referenced CVE', value: 'CVE-2026-99999' },
     ]);
     expect(buildGlanceModel({ ...page, cves: ['CVE-2026-12345', 'CVE-2026-67890'] }).facts).toEqual([
-      { label: 'CISA KEV', value: 'CVE-2026-12345 · CVE-2026-67890' },
+      { label: 'Retained CISA KEV', value: 'CVE-2026-12345 · CVE-2026-67890 · capture time unavailable' },
     ]);
   });
 
@@ -121,6 +121,7 @@ describe('Wall glance projection', () => {
     expect(buildGlanceModel(page)).toMatchObject({ label: 'Known exploitation', headline: 'Gateway command injection', summary: '', summaryLabel: '',
       railLabel: 'Catalog record', facts: [
         { label: 'CVE', value: 'CVE-2026-12345' },
+        { label: 'Catalog evidence', value: 'Retained catalog; current membership unverified · capture time unavailable' },
         { label: 'Catalog added', value: '2026-10-08' },
         { label: 'Federal civilian deadline', value: '2026-10-29 · FCEB scope' },
       ] });
@@ -139,7 +140,7 @@ describe('Wall glance projection', () => {
       cve: 'CVE-2026-12345', isKEV: false, catalogEntries: [{ cve: 'CVE-2026-12345' }] };
     expect(buildGlanceModel(page)).toMatchObject({ label: 'Source reporting', summary: excerpt,
       facts: [] });
-    expect(buildGlanceModel({ ...page, isKEV: true }).facts).toContainEqual({ label: 'CISA KEV', value: 'CVE-2026-12345' });
+    expect(buildGlanceModel({ ...page, isKEV: true }).facts).toContainEqual({ label: 'Retained CISA KEV', value: 'CVE-2026-12345 · capture time unavailable' });
     expect(buildGlanceModel({ ...page, isKEV: true, cve: '' }).facts).toEqual([]);
     expect(page.source).toBe('The Publisher');
     expect(presentationReadingText({ ...page, isKEV: true })).not.toContain('Report context');

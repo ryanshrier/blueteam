@@ -4,8 +4,9 @@
 
 BlueTeam.News helps a single analyst or security lead follow public threat
 reporting, inspect supporting passages, record a local decision, and review an
-assessment. The next priority is durable situation tracking and shared handoff
-acknowledgment beyond the current browser-local decision records.
+assessment. Decision records now persist on the server. The next priority is
+durable situation tracking and shared handoff acknowledgment beyond individual
+signal assessments.
 
 These are proposed directions, not delivery commitments. Scope and order may
 change; there is no promised release date or maintenance schedule. See
@@ -18,7 +19,9 @@ change; there is no promised release date or maintenance schedule. See
 - Wire retains bounded source excerpts and their observation history, preserves
   publisher attribution, and shows changes between retained revisions.
 - Wire decision records save an assessment, owner, next review date, basis, and
-  evidence reference in this browser, with those records included in exports.
+  evidence reference on the server, with revision-checked updates, retained
+  evidence copies, immutable edit history, and exports. Named actor identity is
+  not recorded; server persistence does not add multi-user permissions.
 - Briefing uses the latest collection selection and records the supplied
   evidence, configuration, provider attempts, and validation results beside
   each new edition. Older editions can lack these receipts.
@@ -38,7 +41,7 @@ retention rules, and verification limits.
 
 | Priority | Improvement | What successful use would make possible |
 |---|---|---|
-| 1 | Persistent situations beyond browser-local decisions | Track an issue across collections with its changing evidence, unresolved applicability questions, owner, and next action intact. |
+| 1 | Persistent situations beyond individual signal decisions | Track an issue across collections with its changing evidence, unresolved applicability questions, owner, and next action intact. |
 | 2 | Explicit Briefing input selection | Choose a focused evidence set, review that selection, and know exactly which sources will be supplied before generation. |
 | 3 | Shared handoffs and completion records | Build on separate draft and review states to record recipient acknowledgment and the evidence needed to close an action. |
 | 4 | Broader evidence and ranking evaluation | Extend existing offline checks and retained-case regressions with a larger reviewed corpus, measured decision usefulness, and visible limits. |

@@ -78,6 +78,9 @@ jobs:
       - name: Verify published reader states in Chromium
         run: npm run check:reader:render
 
+      - name: Verify real server persistence, security middleware, and browser workflows
+        run: npm run check:production:render
+
       - name: Verify reader, Wall, and theme layouts
         run: |
           npm run check:design:render
@@ -139,6 +142,8 @@ jobs:
           - os: windows-latest
             node-version: '22.19'
           - os: windows-latest
+            node-version: '24'
+          - os: windows-latest
             node-version: '26'
           - os: macos-26
             node-version: '26'
@@ -164,6 +169,7 @@ jobs:
         run: npm start
         env:
           BLUETEAM_STARTUP_SMOKE: '1'
+          BLUETEAM_DISABLE_COLLECTION: '1'
           HOST: '127.0.0.1'
           PORT: '3000'
           NODE_ENV: test

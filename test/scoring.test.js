@@ -315,8 +315,8 @@ describe('getEffectiveAlertRules', () => {
     const rules = getEffectiveAlertRules(config);
     expect(rules).toEqual([
       { pattern: 'zero.?day', boost: 5 },
-      { pattern: 'Fortinet', boost: 4 },
-      { pattern: 'C\\+\\+', boost: 4 },
+      { pattern: '(?<![\\p{L}\\p{N}_])Fortinet(?![\\p{L}\\p{N}_])', boost: 4, literalWatch: true },
+      { pattern: '(?<![\\p{L}\\p{N}_])C\\+\\+(?![\\p{L}\\p{N}_])', boost: 4, literalWatch: true },
     ]);
   });
 

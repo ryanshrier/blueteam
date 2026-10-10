@@ -9,7 +9,7 @@ BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and
 ## Start, stop, and restart
 
 ```bash
-git clone --branch v1.3.2 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.0 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -20,6 +20,8 @@ Open `http://127.0.0.1:3000`. The first feed refresh begins after startup; later
 Stop an interactive process with `Ctrl+C`. On `SIGINT` or `SIGTERM`, the server stops schedules and new HTTP work immediately. Shutdown normally retains a 30-second guard; if a Briefing is already generating, it keeps SQLite and outbound pools available for the supported generation maximum (up to 600 seconds) plus a bounded three-minute completion-cleanup margin. Restart it with `npm start`.
 
 Only run one process against a repository's `data/` directory. Concurrent server processes are not a supported clustering model.
+
+`BLUETEAM_STATE_DIR` optionally relocates `data/`, `briefs/`, and `reviews/` together; `BLUETEAM_CONFIG_PATH` selects the configuration file. Relative paths resolve from the working directory. Keep backups and filesystem permissions aligned with these paths. The `BLUETEAM_DISABLE_COLLECTION=1` switch is honored only with `NODE_ENV=test` and disables collection, scheduled generation, and webhook retries for isolated tests; it is not a production operating mode.
 
 ### Wall display
 
@@ -58,11 +60,13 @@ Manual and automatic requests share the same generation route, cooldown, rate li
 
 The default generation settings use `thinkingEffort: "low"`, a 16,000-token output cap, and a 300-second generation deadline. Explicit operator configuration remains authoritative.
 
+Malformed persisted settings, including an invalid enabled schedule, disable automatic generation and mark settings health as failed. Failed saves retain the previous effective values and remain visible in diagnostics until a successful save. Correct the reported values and save the schedule explicitly before relying on unattended generation again.
+
 If the provider stops at the configured output-token limit, BlueTeam.News uses its one-retry allowance without raising the cap. Anthropic recovery lowers thinking effort, disabling it when the original setting was low. Codex uses its lowest supported effort, `low`. If the retry also exhausts the limit, the app returns the recoverable draft without publishing it. Raise `analysisSettings.maxTokens` in `config.json` or reduce the Briefing scope before trying again.
 
 Completed Briefings report the model, token counts, and cost when available. A finite nonnegative `cost_usd` reported by the provider takes precedence over the application's token-rate estimate for that attempt. The total includes all attempts and retries. If any attempt has neither a reported cost nor a known model rate, the total is unavailable (`null`), not zero; an experimental Custom module can report cost even for an unknown model. Receipts identify provider-reported amounts separately from list-rate estimates. Both can differ from the invoice; OpenAI reasoning tokens are included in output usage rather than charged twice.
 
-New editions require the provider's terminal event and a completed stop reason, then save a JSON input manifest before publishing their Markdown. A publication error prevents completion and webhook delivery. The generation ledger records paid attempts, usage checkpoints, and outcomes; after a restart it reconciles verified publications and marks unfinished jobs interrupted. Ambiguous paid attempts are not automatically repeated. Inspect **Settings → System health**, `/api/brief/status`, and provider usage before requesting another generation. Usage checkpoints can be incomplete and discarded output cannot be resumed. See [Generation stream](api.md#generation-stream).
+New editions require the provider's terminal event and a completed stop reason, then save a JSON input manifest before publishing their Markdown. A publication error prevents completion and webhook delivery. The generation ledger starts before collection and reports collecting, preparing, generating, validating, and publishing phases, together with paid attempts, usage checkpoints, and outcomes. After a restart it reconciles verified publications and marks unfinished jobs interrupted. A job interrupted before a provider attempt records no provider attempt; an ambiguous paid attempt is not automatically repeated. Inspect **Settings → System health**, `/api/brief/status`, and provider usage before requesting another generation. Usage checkpoints can be incomplete and discarded output cannot be resumed. See [Generation stream](api.md#generation-stream).
 
 After a browser connection fails, use **Check generation status** before starting another attempt. Recovery follows the generation ID announced for that request; an unrelated recent edition is not proof it completed. If the connection failed before an ID arrived, inspect generation status and History. Status checks make no provider call.
 
@@ -76,8 +80,8 @@ Back up these paths:
 
 | Path | Contents |
 |---|---|
-| `data/` | SQLite database, WAL/SHM sidecars, source observations/revisions, schedule and alert state, feed caches, and local Settings/watch profile |
-| `briefs/` | Saved Briefing Markdown and matching `*.manifest.json` generation inputs |
+| `data/` | SQLite database, WAL/SHM sidecars, source observations/revisions, decision records/history/evidence copies, schedule and alert state, feed caches, local Settings/watch profile, and bounded ranking benchmark captures |
+| `briefs/` | Saved Briefing Markdown, matching `*.manifest.json` generation inputs, and the hidden `.receipt-policy.json` legacy inventory |
 | `reviews/` | Editorial corrections, publication dispositions, and approvals bound to saved editions |
 | `config.json` | Feeds, scoring, organization/watch-profile defaults, models, and webhooks |
 | `.env` or service environment | Optional secrets and server configuration |
@@ -102,9 +106,15 @@ To restore:
 
 Never replace a live SQLite database. Copying only `watchfloor.db` while the process is running can omit committed data still represented by its WAL file.
 
+The archive identity migration (schema v10) retains existing rows and their first-observed snapshots; it cannot reconstruct incidents already collapsed by the previous title-prefix key. Schema v11 adds server decision records and immutable edit/evidence history. Migrations run in transactions. Roll back the application and a matching pre-upgrade database backup together. An older release refuses a newer schema.
+
+On the first upgrade, `.receipt-policy.json` records hashes of pre-existing editions without manifests, excluding known modern publications in the generation ledger. Later missing manifests are required receipts, so those editions stay outside Latest, Wall, RSS, and continuity. A modified legacy copy loses its exemption. Keep the hidden inventory and SQLite initialization marker together in backups; a missing inventory after initialization prevents startup. The bounded generation ledger cannot classify every receipt lost before the upgrade, so verify remaining manifest-free editions before that first start.
+
 Keep each Briefing and its manifest together. Manifest reads verify the exact Markdown hash; changing the Markdown outside the application causes a verification failure. Old editions legitimately have no manifest, and restoration does not reconstruct inputs that were never saved. Protect manifests like local Settings because they include organizational interests and selected source excerpts, even though provider credentials and raw configuration are excluded.
 
-Keep `reviews/` with those editions. Losing it loses corrections, approvals, and supersession or review-required decisions. An approval is tied to the exact current reading copy and does not transfer to later corrections. Wire decisions live in browser storage; use **Export all saved decisions (JSON)** separately because a server backup does not include them.
+Keep `reviews/` with those editions. Losing it loses corrections, approvals, and supersession or review-required decisions. An approval is tied to the exact current reading copy and does not transfer to later corrections. Saved Wire decisions, their edit history, and retained evidence copies now live in SQLite and are included in a complete server backup. Legacy browser records remain outside that backup until imported; keep their JSON export until the import has been verified.
+
+Wire decision saves require the expected server revision. Conflicts or connection failures preserve unsaved edits for review; a retry of an uncertain save uses the same request identifier. Additive imports report conflicts rather than replacing existing server records. Limits of 20,000 decisions and 1,000 revisions per decision stop new writes without evicting authored records. The server records edit history but cannot attribute edits to a named person through its shared API secret. Named accounts, permissions, and team approval workflows remain outside this single-operator deployment.
 
 ### Evidence retention and redistribution
 
@@ -117,6 +127,58 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 ## Upgrade and rollback
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
+
+### From v1.3.2 to v1.4.0
+
+The October 9, 2026 release migrates SQLite from schema 9 to 11 at startup.
+Schema 10 changes archive identity from a clipped title to source identity,
+preserving existing rows and first-observation snapshots; it cannot reconstruct
+incidents already collapsed by the old key. Schema 11 adds server-side Wire
+decisions with edit history and retained evidence copies. Each migration runs
+in a transaction.
+
+Before the first v1.4.0 start:
+
+1. Stop v1.3.2 and back up `data/`, `briefs/` (including hidden files), `reviews/`,
+   `config.json`, and the protected secret configuration together. Preserve local
+   code/configuration changes and record the exact old version.
+2. Check saved editions that lack a `*.manifest.json`. Restore any known lost
+   modern receipts before startup: the first-start legacy inventory records
+   hashes of existing manifest-free editions, except modern publications known
+   to the bounded generation ledger. It cannot identify every older receipt loss.
+3. Preserve legacy browser decisions with a JSON export from each browser that
+   holds them. They are not yet included in the server backup.
+
+After installing v1.4.0, verify health, a completed collection, retained source
+evidence, saved editions and their review records. Confirm
+`briefs/.receipt-policy.json` is included in subsequent backups with SQLite's
+initialization marker. Missing or corrupt inventories must be restored; deleting
+the inventory does not safely reset receipt policy. Newly missing required
+receipts exclude an edition from Latest, Wall, RSS, and continuity.
+
+In Wire, use **Copy browser decisions to server** when offered, or **Import saved
+decisions (JSON)** for an export. Review the import report: existing conflicting
+server records stay unchanged, and imported evidence copies may be unverified on
+this server. Keep the original exports until you have checked the records,
+history, and a new server export. Browser read/hidden preferences remain local.
+
+New Briefings assess bounded distinct-event coverage and require review for
+material overflow, unresolved priority evidence, or detected bundled response
+phases. Older receipt policies keep their captured coverage contract. Dated
+same-source context does not refresh evidence or establish new current facts.
+These checks and offline replay do not verify every narrative claim, prove
+ranking quality, or confirm local exposure; review the cited reporting before
+acting. See [Briefing evaluation](brief-evaluation.md).
+
+This remains a single-operator release. Named accounts, team permissions, and
+team approval workflows are deferred.
+
+To roll back, stop v1.4.0 and restore v1.3.2 code **and its complete pre-upgrade
+state/configuration backup** together. Keep a separate protected copy of any
+newer state for recovery; it is not compatible rollback input. Do not lower
+`user_version`, remove the receipt inventory, or mix newer database files and
+edition records into the old backup. Decisions and editions created after the
+backup will not appear in the restored service.
 
 ### From v1.0.3 to v1.1.0
 
@@ -280,6 +342,40 @@ Feed, article, and enrichment requests use the default User-Agent `BlueTeam.News
 
 Webhook payloads contain the configured event's fields. Signal alerts include matched titles, links, sources, tier and score metadata, and KEV status. Briefing notifications include the edition date, BLUF, judgment titles and confidence, an optional link, and—when present—the total review-warning count plus bounded warning text. They use the current reading copy and require eligibility when generation completes; an edition retained for material review sends no notification, and later corrections or approval do not resend it. Webhook failure is logged and does not block refreshes or Briefing storage.
 
+Webhook payloads are persisted before sending. A 60-second worker retries transient failures with exponential backoff, at most eight attempts and seven days, within a 100-job/2 MB outbox. Redirects and permanent client errors fail visibly; a redirected login page cannot count as delivery. Each destination and material alert state has a separate identity, allowing a newly exploited or newly KEV-listed item to alert again. Existing legacy sent-title records are adopted as a baseline, without replaying past alerts.
+
+Changing the destination or disabling its event type pauses queued jobs; they are never forwarded to a different URL. Briefing retries also require the same eligible reading-copy hash. An interrupted send, uncertain transport failure, or failed success-receipt write has an ambiguous outcome and is not automatically repeated. Automatic retries are limited to proven connection-setup failures and retryable HTTP responses. Delivery is still not exactly once: a recipient can accept work before returning an error response, so recipients should deduplicate the stable `Idempotency-Key` header. Inspect **Settings → System health** for retrying, paused, failed, or ambiguous work and check the recipient before any manual resend. Outbox storage errors block new sends and require storage recovery; they do not erase queued payloads.
+
+`npm run check:production:render` runs the real application and Chromium against synthetic temporary state, with collection and scheduled jobs disabled and no inherited provider credentials. It checks CSP/authentication, settings persistence, cross-tab decision conflict handling, saved-draft publication, and reader navigation without a model call. CI runs it alongside the narrower rendering fixtures.
+
 On POSIX systems, startup requests mode `0700` for `data/` and `briefs/` and mode `0600` for sensitive settings, Briefing, SQLite, WAL, and SHM files. New generation manifests are written with mode `0600`. Windows retains the account's ACL behavior. Local state is not encrypted; protect the operating-system account, filesystem, and backups.
 
 See [Configuration](configuration.md) for environment variables and [SECURITY.md](../SECURITY.md) for the deployment security model.
+
+## Configured pattern isolation
+
+Configurable domain, promotion, severity, and urgency patterns are compiled and matched in worker threads. A collection batch has a two-second deadline, a 24 MB input bound, a 20,000-item bound, a bounded queue, and a 96 MiB worker heap limit. Invalid patterns fail configuration admission; a timeout or evaluation failure is an error, never a successful no-match result. Configuration admission has a separate bounded synchronous worker wait.
+
+Collection failures retain the previous successful collection in memory and SQLite. Readiness becomes degraded and **Settings → System health** reports the failed attempt; `/live` remains a process-liveness check. Inspect the collection error and correct the relevant patterns before retrying. HTTP rendering and alert delivery use the assessment saved with the collection. Older cached records without that assessment need a successful refresh to regain classification.
+
+## Ranking evaluation captures
+
+Normal collection can retain at most one complete ranking capture per hour in `data/ranking-benchmark/`, with limits of 48 captures, 14 days, 64 MiB total, and 8 MiB per capture. Oversized captures are rejected visibly rather than sampled or truncated. Capture failure does not stop collection; the health details expose capture availability separately. Captures include private watch-profile and source material and belong with protected server data, not public fixtures.
+
+The offline `npm run benchmark:ranking -- --help` workflow exports blinded review material and computes metrics from independent completed reviews. Copy a dataset into a protected review directory before annotation so rolling retention cannot change it during review. The tooling does not supply expert judgments or establish ranking quality on its own. See [Briefing evaluation](brief-evaluation.md) for annotation, adjudication, split, and reporting requirements.
+
+## Briefing completion and delivery diagnostics
+
+The configured generation timeout bounds model work after collection and
+preflight. Collection has its own wait cap of 180 seconds, or the configured
+generation timeout when smaller. Collection, preflight, provider and validation
+durations are captured in new receipts. A corrective paid attempt requires at
+least 30 seconds of remaining model time; otherwise the original draft and
+inputs remain available for recovery. NVD observations persist in the local
+external cache for up to 24 hours without renewing their age on restart.
+
+Health reports distinguish scheduled publication from process liveness. A
+scheduled draft awaiting review, failed or overdue attempt, or unresolved
+publication reconciliation needs attention even while `/live` stays healthy.
+Publication status does not establish delivery to an external notification
+destination. These checks do not send or retry notifications.

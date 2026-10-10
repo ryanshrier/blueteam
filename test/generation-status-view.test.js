@@ -67,6 +67,17 @@ test('unknown final usage never appears as a final complete cost or automaticall
   expect(generationStatusModel(data).billing).not.toContain('$0');
 });
 
+test('a pre-provider interruption does not contradict the recorded no-attempt accounting', () => {
+  const data = failed();
+  data.latest.status = 'interrupted';
+  data.latest.costUsd = 0;
+  data.latest.billing = 'no-provider-attempt-recorded';
+  const model = generationStatusModel(data);
+  expect(model.message).toContain('before a provider attempt was recorded');
+  expect(model.message).not.toContain('final usage is unknown');
+  expect(model.billing).toBe('No provider attempt recorded.');
+});
+
 test('remounting independently reloads and retains the failed attempt while repeated checks keep disclosure DOM intact', async () => {
   const load = jest.fn().mockResolvedValue(failed());
   const first = host();
@@ -196,4 +207,45 @@ test('status fetch accepts structured accounting failure and rejects an unrelate
     expect(globalThis.fetch).toHaveBeenCalledWith('/api/brief/status', expect.objectContaining({ cache: 'no-store' }));
     await expect(fetchGenerationStatus()).rejects.toThrow('Generation status unavailable');
   } finally { globalThis.fetch = original; }
+});
+
+test('an active lock never masquerades as the previous publication and named phases remain read-only status', () => {
+  const previous = { id: 'previous', status: 'complete', filename: 'brief-2026-09-05.md' };
+  expect(generationStatusModel({ persistence: 'ok', active: true, latest: previous })).toMatchObject({ kind: 'running', active: true, poll: true });
+  expect(generationStatusModel({ persistence: 'ok', active: true, latest: previous }).filename).toBeUndefined();
+  const running = { id: 'next', status: 'running', phase: 'collecting' };
+  const model = generationStatusModel({ persistence: 'ok', active: true, latest: previous, jobs: [previous, running] });
+  expect(model).toMatchObject({ kind: 'running', jobId: 'next', phase: 'collecting', message: 'Collecting current source evidence…' });
+  expect(model.filename).toBe('');
+});
+
+test('visible idle monitoring discovers another tab job, follows completion, and stops work while hidden or unmounted', async () => {
+  jest.useFakeTimers();
+  const visibility = { visibilityState: 'visible', addEventListener: jest.fn(), removeEventListener: jest.fn() };
+  const focusTarget = { addEventListener: jest.fn(), removeEventListener: jest.fn() };
+  const previous = { persistence: 'ok', active: false, latest: { id: 'old', status: 'complete', filename: 'old.md' } };
+  const running = { persistence: 'ok', active: true, latest: { id: 'new', status: 'running', phase: 'preparing' } };
+  const complete = { persistence: 'ok', active: false, latest: { id: 'new', status: 'complete', filename: 'new.md' } };
+  const load = jest.fn().mockResolvedValueOnce(previous).mockResolvedValueOnce(running).mockResolvedValue(complete);
+  const onState = jest.fn();
+  const ui = mountGenerationStatus(host(), { load, onState, watchIdle: true, visibility, focusTarget });
+  await ui.refresh();
+  await jest.advanceTimersByTimeAsync(30_000);
+  expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'running', jobId: 'new' }), running);
+  await jest.advanceTimersByTimeAsync(10_000);
+  expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'complete', filename: 'new.md' }), complete);
+  const resume = visibility.addEventListener.mock.calls[0][1];
+  visibility.visibilityState = 'hidden';
+  resume();
+  await jest.advanceTimersByTimeAsync(120_000);
+  expect(load).toHaveBeenCalledTimes(3);
+  visibility.visibilityState = 'visible';
+  resume();
+  await Promise.resolve(); await Promise.resolve();
+  expect(load).toHaveBeenCalledTimes(4);
+  ui.stop();
+  await jest.advanceTimersByTimeAsync(120_000);
+  expect(load).toHaveBeenCalledTimes(4);
+  expect(visibility.removeEventListener).toHaveBeenCalledWith('visibilitychange', resume);
+  expect(focusTarget.removeEventListener).toHaveBeenCalledWith('focus', resume);
 });

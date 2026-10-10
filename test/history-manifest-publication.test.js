@@ -20,14 +20,14 @@ describe('manifest publication ordering and failure recovery', () => {
 
   test('publishes the input receipt before the completed archive marker', () => {
     const filename = saveBrief(dir, 'assessment', { date: '2026-09-05', manifest });
-    expect(publications.map(path => path.slice(dir.length + 1))).toEqual(['brief-2026-09-05-01.manifest.json', filename]);
+    expect(publications.map(path => path.slice(dir.length + 1))).toEqual(['.receipt-policy.json', 'brief-2026-09-05-01.manifest.json', filename]);
     expect(readGenerationManifest(dir, filename).generationId).toBe('fixture-generation');
   });
 
   test.each(['.manifest.json', '.md'])('a failure publishing %s leaves no completed edition, orphan receipt, or temporary files', suffix => {
     failTarget = suffix;
     expect(() => saveBrief(dir, 'assessment', { date: '2026-09-05', manifest })).toThrow('Simulated disk failure');
-    expect(fs.readdirSync(dir)).toEqual([]);
+    expect(fs.readdirSync(dir)).toEqual(['.receipt-policy.json']);
     failTarget = null;
     const filename = saveBrief(dir, 'recovered', { date: '2026-09-05', manifest });
     expect(filename).toBe('brief-2026-09-05-01.md');
@@ -48,7 +48,7 @@ describe('manifest publication ordering and failure recovery', () => {
     });
     failTarget = '.md';
     expect(() => saveBrief(dir, 'assessment', { date: '2026-09-05', manifest, beforeCommit })).toThrow('Simulated disk failure');
-    expect(fs.readdirSync(dir)).toEqual([]);
+    expect(fs.readdirSync(dir)).toEqual(['.receipt-policy.json']);
     failTarget = null;
     const filename = saveBrief(dir, 'assessment', { date: '2026-09-05', manifest, beforeCommit });
     expect(readGenerationManifest(dir, filename)).toBeTruthy();

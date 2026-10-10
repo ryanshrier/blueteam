@@ -262,6 +262,20 @@ describe('loadRecentBriefs — per-day dedup', () => {
     writeFileSync(join(dir, 'brief-2026-06-23-01.md'), 'x');
     expect(loadRecentBriefs(dir, 0)).toEqual([]);
   });
+
+  test('page and Latest reads skip receipts from unrelated dates', () => {
+    for (let day = 1; day <= 20; day++) {
+      writeFileSync(join(dir, `brief-2026-06-${String(day).padStart(2, '0')}-01.md`), `Day ${day}`);
+    }
+    const inspected = [];
+    const getMeta = filename => { inspected.push(filename); return null; };
+    expect(listBriefEditions(dir, { getMeta, limit: 1 })[0].date).toBe('2026-06-20');
+    expect(inspected).toHaveLength(1);
+    inspected.length = 0;
+    expect(listBriefEditions(dir, { getMeta, offset: 8, limit: 3 }).map(edition => edition.date))
+      .toEqual(['2026-06-12', '2026-06-11', '2026-06-10']);
+    expect(inspected).toHaveLength(3);
+  });
 });
 
 // Date extraction must strip the optional -NN disambiguator WITHOUT eating the

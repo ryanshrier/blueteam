@@ -66,12 +66,20 @@ function assessmentDate(brief, now) {
   const published = formatBriefPublishedAt(timestamp);
   const edition = formatBriefLabel(brief.filename || brief.date);
   const label = published || edition;
-  const day = published ? new Date(timestamp).toISOString().slice(0, 10)
-    : edition ? String(brief.filename || brief.date).match(/\d{4}-\d{2}-\d{2}/)?.[0] : '';
   const current = new Date(now);
-  const days = day && Number.isFinite(current.getTime())
-    ? Math.round((Date.parse(current.toISOString().slice(0, 10)) - Date.parse(day)) / 86_400_000) : NaN;
-  const age = days >= 0 ? `<span class="brief-overview-age">${days === 0 ? 'Dated today (UTC)' : `${days} ${days === 1 ? 'day' : 'days'} old`}</span>` : '';
+  const elapsed = published ? current.getTime() - Date.parse(timestamp) : NaN;
+  let ageLabel = '';
+  if (elapsed >= 0) {
+    const hours = Math.floor(elapsed / 3_600_000);
+    const days = Math.floor(hours / 24);
+    ageLabel = hours === 0 ? 'Less than 1 hour old' : days > 0 ? `${days} ${days === 1 ? 'day' : 'days'} old` : `${hours} ${hours === 1 ? 'hour' : 'hours'} old`;
+  } else if (!published && edition && Number.isFinite(current.getTime())) {
+    // Date-only editions do not imply a midnight publication timestamp.
+    const day = String(brief.filename || brief.date).match(/\d{4}-\d{2}-\d{2}/)?.[0];
+    const days = day ? Math.round((Date.parse(current.toISOString().slice(0, 10)) - Date.parse(day)) / 86_400_000) : NaN;
+    if (days >= 0) ageLabel = days === 0 ? 'Edition dated today (UTC)' : `Edition dated ${days} ${days === 1 ? 'day' : 'days'} ago (UTC)`;
+  }
+  const age = ageLabel ? `<span class="brief-overview-age">${ageLabel}</span>` : '';
   return `<p class="brief-overview-assessment-date">${label ? `Assessment from ${escapeHtml(label)}` : 'Assessment date unavailable'}${age}</p>`;
 }
 

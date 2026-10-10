@@ -161,10 +161,10 @@ test('source evidence and grouped references survive an actual database restart'
     initDB(path);
     // Simulate an existing v7 database, retaining its unrelated local records.
     setMeta('existing-v7-setting', 'preserve this');
-    getDB().exec('DROP TABLE evidence_aliases; DROP TABLE evidence_revisions; DROP TABLE evidence_sources; ALTER TABLE headline_archive DROP COLUMN first_snapshot_json; PRAGMA user_version = 7;');
+    getDB().exec('DROP TABLE decision_evidence; DROP TABLE decision_revisions; DROP TABLE decisions; DROP TABLE evidence_aliases; DROP TABLE evidence_revisions; DROP TABLE evidence_sources; ALTER TABLE headline_archive DROP COLUMN first_snapshot_json; DROP INDEX idx_archive_identity; ALTER TABLE headline_archive DROP COLUMN archive_key; DROP INDEX idx_archive_title_key; CREATE UNIQUE INDEX idx_archive_title_key ON headline_archive(title_key); PRAGMA user_version = 7;');
     closeDB();
     initDB(path);
-    expect(getDB().pragma('user_version', { simple: true })).toBe(9);
+    expect(getDB().pragma('user_version', { simple: true })).toBe(11);
     expect(getMeta('existing-v7-setting')).toBe('preserve this');
     const input = sample();
     const [ref] = observeSources([input], { observedAt: DAY1 });

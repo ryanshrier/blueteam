@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, test } from '@jest/globals';
-import { validateBrief, hasHardFail, hasTrustCriticalFailure } from '../lib/validation.js';
+import { validateBrief, hasHardFail, hasTrustCriticalFailure, publicationDecision } from '../lib/validation.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { briefReadingState, readingDisposition } from '../lib/brief-reading-checks.js';
 import { saveBriefDisposition } from '../lib/brief-review.js';
@@ -84,6 +84,26 @@ test('checks multiline actions, executive decisions and developing triage', () =
   expect(findings(executive)[0].message).toMatch(/Executive/);
   const developing = baseline + '\n## DEVELOPING SITUATIONS\n### A lead\n**Initial triage:**\n- SOC — disable audit logging — recommended target September 8, 2026.\n';
   expect(findings(developing)[0].message).toMatch(/Developing/);
+});
+
+test.each([
+  ['Act — disable EDR on all endpoints and clear security logs.', false],
+  ['Act — do not disable EDR; preserve security logs for investigation.', true],
+])('Convergence actions use the same publication review gate: %s', (move, canPublish) => {
+  const convergence = `## CONVERGENCE
+### Intersection 1 — Access controls
+**The intersection:** The gateway advisory and remote support research describe access controls. [Synthetic Vendor, September 4, 2026](https://example.test/evaluation/vendor) [Synthetic Research, September 4, 2026](https://example.test/evaluation/research)
+**The cascade:** Analytical hypothesis: misconfigured remote support permits unauthorized administration.
+**The move:** ${move}
+**Confirmation:** Confirm whether external support sessions exist in the retained logs.
+**Action rationale:** Inspect administrative access controls to establish applicability.
+`;
+  const text = baseline.replace(/## CONVERGENCE[\s\S]*?(?=## WATCHLIST)/, convergence);
+  const decision = publicationDecision(checked(text));
+  expect(decision.canPublish).toBe(canPublish);
+  expect(decision.blockers).toEqual([]);
+  expect(decision.reviewIssues).toHaveLength(canPublish ? 0 : 1);
+  if (!canPublish) expect(decision.reviewIssues[0]).toMatchObject({ code: 'SECURITY_CONTROL_CHANGE', message: expect.stringContaining('Convergence 1') });
 });
 
 test('security-control exceptions stay outside default publication until the exact copy is approved', () => {

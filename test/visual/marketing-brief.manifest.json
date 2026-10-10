@@ -4,17 +4,39 @@
   "capturedAt": "2026-07-24T12:00:00Z",
   "application": {
     "name": "blueteam-news",
-    "version": "1.3.2",
+    "version": "1.4.0",
     "implementationSha256": {
-      "prompts": "6af521220bf0dccce28df641264c9967ec2d8fcc300df4d0b4b27b710d27cfcb",
-      "grounding": "d45305f40a34b06f37761e358a759e01123a5c6ded401e5000738d8f0a678724",
-      "validation": "016dfa6c766cc00d85f997cb1eccca7ba57d040bededf3d55922dd6af34b7472",
-      "scoring": "825b3a8bb288f5157697af4a9d2cb80b46a2cd5ab37ae84e4871d1e479ab922c",
-      "evidence-quality": "1fdc59c13d9d105294b945940b7d26e7784c1fdd38d2348fc81401e1b30f8faf",
+      "prompts": "ccc57e240a91698b391eebaacd07d1a2d994ff878c0020fe17141a734f36af4e",
+      "grounding": "d773acd74d4b05bef20ee21d38d540ae7ba8f644444b5a4b012a7125a8a95db5",
+      "validation": "f38c3ea2901acfbe2501de2c5ccc00ca0ca3ca4dbb2743c7dbe021a8279de837",
+      "scoring": "08c904e08b64e3a859b6fbc90fa0b1d5eb8f3319a724ed6e59c99f8ef7f16b37",
+      "evidence-quality": "8d8a4684612b199409cb9a95156a474c64af93d80e3b9489819f298a4c8d2d8e",
       "claim-checks": "843a57849edd9632805edfe29e155cf7468c05133c78fd8bc44d12fbf3c43f6f",
-      "cvss": "42066e3bb891ca9b2dcdb8e50365f77c4915ada37e350b7daddd8fcfcad239e9",
+      "cvss": "4421c4699979933ba4f36fd419ba10e9dbecbb597e1d45476c22cd46442a7880",
       "cve-identities": "165ad931857a69851f60a277118ee1d55c7f9450cbd530e3d72b223d6ac6959e",
-      "brief-action-security": "9200fe647dd9ceb9fc5b9f75bf32a84849de41f895cfb406de1d48356786476c"
+      "brief-action-security": "bb022304197d204466b26939588faaba05c74dd5920159b5fc7bfcb2dcc3ce6f",
+      "brief-recovery": "39920aac979e881f89c2a6e8bda7967d4c9547850ab55585875a057db8bcf485",
+      "brief-fact-ledger": "60e5324b9a2f663887e462829b6e2c1af50baa4554773c200a27370c5eed1a78",
+      "brief-editorial": "77c5bd0179a05f0479df40b4be5187f4f4df13f10a62731d712441185bc9521c",
+      "brief-reliability": "ff04b91690f951fea65afa565b35c9a2643b29c87070dfc66eacfd91b8b6fb54",
+      "brief-coverage": "f9fe8b3d2f5b0949b55db456ecee01bdd3344df4b06d3c1a93d9a3bc41ee2417",
+      "brief-metadata": "a8f49acd0ca9b3b2395fe376a43383b682361e7a0255dc8edbf21f353c524416",
+      "kev-status": "ac7f55c54a47c88bbce4a12b086e7373dbeee8ce3c4ea3b64aad2ade463fa5da",
+      "nvd-applicability": "c4f006974b3ceed3384f269587f7dd4acc695e99c7cd2c961c684c1fe4c8cc93",
+      "enrichment": "52ac92a2afe29967620c9bfd17d2d7d8b6be69325e5ec95f12d2bcdd03aece32",
+      "source-passages": "8f94781e3a21f40b43b596cc6dd13ee5d1141271bc83ff21dfa92e7abb154215",
+      "feeds": "861983197d811129c59d8fc08ac16c46e0b3db4e28e4bf1c091be9f4eb1ff66b",
+      "evidence-events": "4c73be6f091eebe46bc675c4928594e2fa4aa50bcc862841cb379bece0843e54",
+      "evidence-continuity": "3e4b9cf5a2828ae57b6d517e2e4b6a84b0d5bdf428b27c5ba3a7295f84b504dd",
+      "feed-revisions": "c124df8bb25eaa0196f4cb29135beb866b2b322d224bfe0e226e85ac0c89b6e8",
+      "investigation-budget": "86fccdb8f351d69b1c99d4185f1c8639e7c3585ab5a175047af95c80db3c6c50",
+      "intelligence-context": "ac090be59ed20cf34659178bb0ec936abdbc3d5360fa85d1b57a63a67591f9ce",
+      "watch-profile": "55f475d063dd959ca4dc0226d429c2e453b62d5ae62962f3a19f33a2964f01a5",
+      "evidence-freshness": "2f37c7df40482ef0d6f665a2e6932201e951305a2fa2f3b11ff82a1e0d5b40fa",
+      "configured-regex": "1c6776462a40cd08f8d919aaac6b950ac1cbfb28a2282e02d176fc6db43f0118",
+      "configured-regex-engine": "111e88ee772872a912da2dd1bd4f9df77388a864396c43f1bb97748f99976760",
+      "configured-regex-worker": "555cef360fe567da48db9a22ffe4a0e7b04f92a2aa32d930e8973fe385c17107",
+      "claims": "368958ab37e2f9b18d8e096db130bb0fa7a7e1a92987b35c2bf09ac200825c67"
     }
   },
   "edition": {
@@ -28,6 +50,9 @@
     "scoringConfiguration": null,
     "configurationStatus": "unavailable",
     "enrichmentFailures": [],
+    "coverage": null,
+    "lastCollectionAttempt": null,
+    "selection": null,
     "evidenceRetentionStatus": "not-reported-failed"
   },
   "promptWatchProfile": null,
@@ -80,6 +105,7 @@
         "kind": "feed-excerpt",
         "text": "In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory.",
         "quality": {
+          "policyVersion": 2,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -87,6 +113,28 @@
           ]
         }
       },
+      "sourceParts": [
+        {
+          "kind": "feed-excerpt",
+          "passage": "In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory.",
+          "passageSha256": "c906c105a57a6bf67acce620bf667af5d02ed1d66b231fef8807e23d3143358d",
+          "publishedAt": "2026-07-24",
+          "retrievedAt": "",
+          "retrievalStatus": "feed-capture",
+          "feedPassageField": "",
+          "quality": {
+            "policyVersion": 2,
+            "status": "substantive",
+            "substantive": true,
+            "reasons": [
+              "retained-body-detail"
+            ]
+          },
+          "cves": [],
+          "sourceRevisions": []
+        }
+      ],
+      "retrievedAt": "",
       "sourceRevisions": [],
       "groupMembers": [],
       "revisionStatus": "unavailable",
@@ -109,12 +157,15 @@
         "cvssSeverityText": "",
         "cvssMetrics": [],
         "cveConfigurations": [],
+        "cveObservations": [],
         "isKEV": null,
         "kevCVE": "",
         "kevDateAdded": "",
         "epss": null,
         "urgency": "",
         "articleStale": false,
+        "articleRetrievedAt": "",
+        "articleRetrievalStatus": "",
         "mitre": [],
         "actors": [],
         "vendors": []
@@ -131,6 +182,7 @@
         "kind": "feed-excerpt",
         "text": "The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification.",
         "quality": {
+          "policyVersion": 2,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -138,6 +190,28 @@
           ]
         }
       },
+      "sourceParts": [
+        {
+          "kind": "feed-excerpt",
+          "passage": "The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification.",
+          "passageSha256": "9d44df512ca8636f65bb52a14001e5e9c9c65200e0d31fcc9d50fffbaa193afa",
+          "publishedAt": "2026-07-23",
+          "retrievedAt": "",
+          "retrievalStatus": "feed-capture",
+          "feedPassageField": "",
+          "quality": {
+            "policyVersion": 2,
+            "status": "substantive",
+            "substantive": true,
+            "reasons": [
+              "retained-body-detail"
+            ]
+          },
+          "cves": [],
+          "sourceRevisions": []
+        }
+      ],
+      "retrievedAt": "",
       "sourceRevisions": [],
       "groupMembers": [],
       "revisionStatus": "unavailable",
@@ -160,12 +234,15 @@
         "cvssSeverityText": "",
         "cvssMetrics": [],
         "cveConfigurations": [],
+        "cveObservations": [],
         "isKEV": null,
         "kevCVE": "",
         "kevDateAdded": "",
         "epss": null,
         "urgency": "",
         "articleStale": false,
+        "articleRetrievedAt": "",
+        "articleRetrievalStatus": "",
         "mitre": [],
         "actors": [],
         "vendors": []
@@ -182,6 +259,7 @@
         "kind": "feed-excerpt",
         "text": "The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet.",
         "quality": {
+          "policyVersion": 2,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -189,6 +267,28 @@
           ]
         }
       },
+      "sourceParts": [
+        {
+          "kind": "feed-excerpt",
+          "passage": "The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet.",
+          "passageSha256": "0304da347b0c4b21a34b092a18970e731ff7b71f4b23a2eed5f24d06b603ba7d",
+          "publishedAt": "2026-07-24",
+          "retrievedAt": "",
+          "retrievalStatus": "feed-capture",
+          "feedPassageField": "",
+          "quality": {
+            "policyVersion": 2,
+            "status": "substantive",
+            "substantive": true,
+            "reasons": [
+              "retained-body-detail"
+            ]
+          },
+          "cves": [],
+          "sourceRevisions": []
+        }
+      ],
+      "retrievedAt": "",
       "sourceRevisions": [],
       "groupMembers": [],
       "revisionStatus": "unavailable",
@@ -211,12 +311,15 @@
         "cvssSeverityText": "",
         "cvssMetrics": [],
         "cveConfigurations": [],
+        "cveObservations": [],
         "isKEV": null,
         "kevCVE": "",
         "kevDateAdded": "",
         "epss": null,
         "urgency": "",
         "articleStale": false,
+        "articleRetrievedAt": "",
+        "articleRetrievalStatus": "",
         "mitre": [],
         "actors": [],
         "vendors": []
@@ -241,7 +344,29 @@
         "collectionStale": false,
         "passage": "In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory.",
         "passageKind": "feed-excerpt",
+        "sourceParts": [
+          {
+            "kind": "feed-excerpt",
+            "passage": "In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory.",
+            "passageSha256": "c906c105a57a6bf67acce620bf667af5d02ed1d66b231fef8807e23d3143358d",
+            "publishedAt": "2026-07-24",
+            "retrievedAt": "",
+            "retrievalStatus": "feed-capture",
+            "feedPassageField": "",
+            "quality": {
+              "policyVersion": 2,
+              "status": "substantive",
+              "substantive": true,
+              "reasons": [
+                "retained-body-detail"
+              ]
+            },
+            "cves": [],
+            "sourceRevisions": []
+          }
+        ],
         "quality": {
+          "policyVersion": 2,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -249,6 +374,10 @@
           ]
         },
         "cvssMetrics": [],
+        "configurations": [],
+        "applicabilityPassage": "",
+        "applicabilityComplete": true,
+        "configurationCaptures": [],
         "cves": [],
         "sourceRevisions": []
       },
@@ -265,7 +394,29 @@
         "collectionStale": false,
         "passage": "The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification.",
         "passageKind": "feed-excerpt",
+        "sourceParts": [
+          {
+            "kind": "feed-excerpt",
+            "passage": "The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification.",
+            "passageSha256": "9d44df512ca8636f65bb52a14001e5e9c9c65200e0d31fcc9d50fffbaa193afa",
+            "publishedAt": "2026-07-23",
+            "retrievedAt": "",
+            "retrievalStatus": "feed-capture",
+            "feedPassageField": "",
+            "quality": {
+              "policyVersion": 2,
+              "status": "substantive",
+              "substantive": true,
+              "reasons": [
+                "retained-body-detail"
+              ]
+            },
+            "cves": [],
+            "sourceRevisions": []
+          }
+        ],
         "quality": {
+          "policyVersion": 2,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -273,6 +424,10 @@
           ]
         },
         "cvssMetrics": [],
+        "configurations": [],
+        "applicabilityPassage": "",
+        "applicabilityComplete": true,
+        "configurationCaptures": [],
         "cves": [],
         "sourceRevisions": []
       },
@@ -289,7 +444,29 @@
         "collectionStale": false,
         "passage": "The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet.",
         "passageKind": "feed-excerpt",
+        "sourceParts": [
+          {
+            "kind": "feed-excerpt",
+            "passage": "The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet.",
+            "passageSha256": "0304da347b0c4b21a34b092a18970e731ff7b71f4b23a2eed5f24d06b603ba7d",
+            "publishedAt": "2026-07-24",
+            "retrievedAt": "",
+            "retrievalStatus": "feed-capture",
+            "feedPassageField": "",
+            "quality": {
+              "policyVersion": 2,
+              "status": "substantive",
+              "substantive": true,
+              "reasons": [
+                "retained-body-detail"
+              ]
+            },
+            "cves": [],
+            "sourceRevisions": []
+          }
+        ],
         "quality": {
+          "policyVersion": 2,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -297,6 +474,10 @@
           ]
         },
         "cvssMetrics": [],
+        "configurations": [],
+        "applicabilityPassage": "",
+        "applicabilityComplete": true,
+        "configurationCaptures": [],
         "cves": [],
         "sourceRevisions": []
       }
@@ -346,7 +527,7 @@
   ],
   "generatedAt": "2026-07-24T12:00:00Z",
   "synthetic": true,
-  "syntheticRegeneratedAt": "2026-10-09T18:09:24.760Z",
+  "syntheticRegeneratedAt": "2026-10-10T02:21:04.908Z",
   "syntheticNote": "Authored fictional demonstration; no provider was called. Edition, source, collection, capturedAt, and generatedAt dates describe the July 24, 2026 scenario, not a real collection or generation. syntheticRegeneratedAt records when this sample receipt was rebuilt and checked against the recorded application implementation. Passing supported checks does not verify real-world events or complete analyst review.",
   "filename": "brief-2026-07-24-01.md",
   "outputSha256": "7e6d0cbf6133fc131b0d8513192f2809c3696f467cd35d00631179cecb11c7d3",

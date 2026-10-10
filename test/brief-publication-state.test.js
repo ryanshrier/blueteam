@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { saveBrief, listBriefEditions, loadRecentBriefs } from '../lib/history.js';
 import { buildGenerationManifest, generationManifestFilename, sha256 } from '../lib/generation-manifest.js';
 import { loadBriefReadingState, readingDisposition } from '../lib/brief-reading-checks.js';
+import { initializeBriefReceiptPolicy } from '../lib/brief-receipts.js';
 import { saveBriefDisposition } from '../lib/brief-review.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { validateBrief } from '../lib/validation.js';
@@ -18,6 +19,7 @@ const webhook = jest.fn(async () => {});
 const metadata = new Map();
 const completeScheduled = jest.fn();
 const getBriefMetadata = jest.fn(() => null);
+const logError = jest.fn();
 jest.unstable_mockModule('../lib/config.js', () => ({ getConfig: () => ({}), getConfigVersion: () => 1, getHorizonName: (_c, h) => `Tier ${h}` }));
 jest.unstable_mockModule('../lib/refresher.js', () => ({ getFreshRun, getLatestRun: () => null, getRunAgeMs: () => Infinity, refreshNow: jest.fn() }));
 jest.unstable_mockModule('../lib/db.js', () => ({
@@ -27,8 +29,8 @@ jest.unstable_mockModule('../lib/db.js', () => ({
   getScheduledBriefJob: () => null, completeScheduledBriefJob: completeScheduled,
 }));
 jest.unstable_mockModule('../lib/alerts.js', () => ({ dispatchBriefWebhook: webhook }));
-jest.unstable_mockModule('../lib/logger.js', () => ({ log: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }));
-jest.unstable_mockModule('../lib/landscape.js', () => ({ buildLandscape: (_run, brief) => ({ brief }), pipelineStaleAfterMs: () => 1200000 }));
+jest.unstable_mockModule('../lib/logger.js', () => ({ log: { info: jest.fn(), warn: jest.fn(), error: logError, debug: jest.fn() } }));
+jest.unstable_mockModule('../lib/landscape.js', () => ({ buildLandscape: (_run, brief) => ({ brief }), pipelineStaleAfterMs: () => 1200000, currentKevCatalogStatus: () => ({ status: 'unknown', retrievedAt: null }) }));
 const { createBriefRouter, streamWithRecovery } = await import('../routes/brief.js');
 const { createLandscapeRouter, _resetLandscapeMemoForTests } = await import('../routes/landscape.js');
 
@@ -69,6 +71,8 @@ function correct(filename, replacement) {
 
 describe('one verified saved reading state', () => {
   test.each(['invalid JSON', 'mismatched output'])('a %s receipt cannot restore automatic eligibility or be overridden by human eligibility', kind => {
+    const legacy = saveBrief(dir, '## BLUF\nLegacy topic.', { date: '2026-09-04' });
+    initializeBriefReceiptPolicy(dir, { adoptLegacy: true });
     const filename = archive({ material: true });
     const path = join(dir, generationManifestFilename(filename));
     if (kind === 'invalid JSON') writeFileSync(path, '{');
@@ -77,14 +81,14 @@ describe('one verified saved reading state', () => {
     const reading = loadBriefReadingState(dir, filename, { reviewDirectory: reviews });
     expect(reading.receipt.integrity).toBe('invalid');
     expect(reading.disposition).toMatchObject({ status: 'review-required', eligibleForLatest: false });
-    const legacy = saveBrief(dir, '## BLUF\nLegacy topic.', { date: '2026-09-04' });
     expect(listBriefEditions(dir, { eligibleOnly: true, reviewDirectory: reviews }).map(row => row.filename)).toEqual([legacy]);
   });
 
   test('unsafe corrections are excluded consistently from list, reader, Wall, RSS, and continuity', async () => {
+    const legacy = saveBrief(dir, '## BLUF\nEarlier eligible topic.', { date: '2026-09-04' });
+    initializeBriefReceiptPolicy(dir, { adoptLegacy: true });
     const filename = archive();
     correct(filename, 'CVE-2026-99999 is actively exploited.');
-    const legacy = saveBrief(dir, '## BLUF\nEarlier eligible topic.', { date: '2026-09-04' });
     const base = await serve();
     const list = await (await fetch(`${base}/briefs`)).json();
     const reader = await (await fetch(`${base}/brief/${filename}`)).json();
@@ -185,6 +189,7 @@ describe('one verified saved reading state', () => {
     const base = await serve();
     const response = await (await fetch(`${base}/brief`, { method: 'POST' })).text();
     const complete = response.split('\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6))).find(event => event.briefComplete);
+    if (!complete) throw new Error(`Publication did not complete: ${JSON.stringify(logError.mock.calls)}`);
     expect(complete).toMatchObject({ disposition: { eligibleForLatest: true } });
     expect(webhook).toHaveBeenCalledTimes(1);
     const reader = await (await fetch(`${base}/brief/${complete.filename}`)).json();

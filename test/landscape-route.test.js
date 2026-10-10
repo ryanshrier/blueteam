@@ -56,6 +56,7 @@ jest.unstable_mockModule('../lib/domain.js', () => ({
 jest.unstable_mockModule('../lib/landscape.js', () => ({
   buildLandscape: buildLandscapeMock,
   pipelineStaleAfterMs: (minutes = 10) => Math.max(20, Number(minutes || 10) * 2) * 60_000,
+  currentKevCatalogStatus: () => ({ status: 'unknown', retrievedAt: null }),
 }));
 
 const { createLandscapeRouter, _resetLandscapeMemoForTests } = await import('../routes/landscape.js');
@@ -105,6 +106,19 @@ describe('headlines — evidence references and private applicability', () => {
     getConfigMock.mockReturnValue({ watchProfile: { technologies: ['Unrelated product'] } });
     const second = await (await fetch(`${ctx.base}/api/headlines`)).json();
     expect(second.headlines[0].applicability.state).toBe('unknown');
+  });
+  test('carries metric attribution and actual lookup observations separately from run freshness', async () => {
+    const retrievedAt = new Date().toISOString();
+    const metric = { cve: 'CVE-2026-0001', score: 7.5, version: '3.1', source: 'vendor.test', type: 'Primary', provisional: true, selected: true };
+    const evidence = [{ sourceId: 'src_exact', revisionId: 'rev_exact' }];
+    getLatestRunMock.mockReturnValue({ headlines: [{ ...SAMPLE_HEADLINES[0], description: 'The vendor advises customers to apply the security update to affected gateways.',
+      retrievedAt, cvssMetrics: [metric], cveObservations: [{ cve: metric.cve, retrievedAt: '2026-09-01T12:00:00Z' }], evidence }],
+      generatedAt: retrievedAt, generatedAtMs: Date.now(), stats: { collection: { configuredSources: 1, freshSources: 1 } } });
+    ctx = await makeServer();
+    const response = await (await fetch(`${ctx.base}/api/headlines`)).json();
+    expect(response).toMatchObject({ briefingReadiness: { status: 'limited', canGenerate: true } });
+    expect(response.headlines[0]).toMatchObject({ retrievedAt, cvssMetrics: [metric], cveObservations: [{ cve: metric.cve, retrievedAt: '2026-09-01T12:00:00Z' }], evidence,
+      kevCatalogStatus: { status: 'unknown' } });
   });
 });
 
@@ -388,7 +402,7 @@ describe('routes/landscape.js — memo invalidation', () => {
       now.mockReturnValue(startedAt + 35 * 60_000);
       getRunAgeMsMock.mockReturnValue(35 * 60_000);
       const later = await (await fetch(`${ctx.base}/api/landscape`)).json();
-      expect(later).toMatchObject({ stale: true, generatedAt: observedAt,
+      expect(later).toMatchObject({ stale: false, generatedAt: observedAt, briefingReadiness: { status: 'blocked', code: 'stale' },
         evidence: { freshHeadlines: 0, retainedHeadlines: 5, observedAt }, pipeline: { ageMinutes: 35 } });
       expect(buildLandscapeMock).toHaveBeenCalledTimes(1);
     } finally {

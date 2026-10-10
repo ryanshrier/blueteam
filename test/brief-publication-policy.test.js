@@ -1,6 +1,8 @@
 import { expect, test } from '@jest/globals';
 import { publicationDecision, hasHardFail, hasTrustCriticalFailure, isMaterialReviewIssue } from '../lib/validation.js';
 import { readingDisposition } from '../lib/brief-reading-checks.js';
+import { editorialIssues } from '../lib/brief-editorial.js';
+import { BRIEF_EVALUATION_CASES, referenceBrief } from './fixtures/brief-evaluation.js';
 
 test.each([
   ['CITATION_IDENTITY_INVALID', 'trust'], ['CVE_CITATION_MISMATCH', 'trust'],
@@ -8,6 +10,9 @@ test.each([
   ['VERSION_UNSUPPORTED', 'trust'], ['KEV_DEADLINE_MISMATCH', 'trust'],
   ['JUDGMENT_CITATION_MISSING', 'trust'], ['JUDGMENT_EVIDENCE_WEAK', 'trust'],
   ['ACTION_DEPENDENCY_CONFLICT', 'trust'], ['UNKNOWN_FUTURE_CHECK', 'trust'],
+  ['ACTION_SUMMARY_CONFLICT', 'trust'],
+  ['ENUMERATED_COUNT_MISMATCH', 'trust'], ['FACT_CVE_COUNT_MISMATCH', 'trust'],
+  ['FACT_CVE_WINDOW_MISMATCH', 'trust'],
   ['UNKNOWN_REQUIRED_STRUCTURE', 'structure'],
 ])('keeps concrete or unknown severe failures blocking: %s', (code, severity) => {
   const issue = { code, severity, message: 'Captured evidence or required structure failed.' };
@@ -25,8 +30,8 @@ test.each([
   ['CONVERGENCE_FORMAT_INVALID', 'structure'], ['FORECAST_UNRESOLVABLE', 'structure'],
   ['JUDGMENT_ACTION_INVALID', 'structure'], ['JUDGMENT_HORIZON_INVALID', 'structure'],
   ['APPLICABILITY_ACTION_UNCONDITIONAL', 'trust'], ['INDEPENDENCE_UNESTABLISHED', 'trust'],
-  ['ACTION_SUMMARY_CONFLICT', 'trust'], ['FACT_CVE_COUNT_MISMATCH', 'trust'],
-  ['FACT_CVE_WINDOW_MISMATCH', 'trust'], ['FACT_EVENT_TIMELINE_UNSUPPORTED', 'trust'],
+  ['ACTION_SUMMARY_OWNER_CONFLICT', 'trust'],
+  ['FACT_CVE_WINDOW_UNVERIFIED', 'trust'], ['FACT_EVENT_TIMELINE_UNSUPPORTED', 'trust'],
 ])('retains routine findings as notes without retrying or holding: %s', (code, severity) => {
   const issue = { code, severity, message: 'Editorial concern.' };
   const result = publicationDecision({ valid: false, hardFail: true, trustFail: true,
@@ -84,4 +89,14 @@ test('missing core judgment content blocks but optional fields remain notes', ()
   for (const field of ['Assessment', 'What happened']) expect(publicationDecision({ issues: [issue(field)] }).canPublish).toBe(false);
   for (const field of ['Confidence', 'The line', 'Decision window']) expect(publicationDecision({ issues: [issue(field)] }).canPublish).toBe(true);
   expect(publicationDecision({ issues: [issue('Unknown future core field')] }).canPublish).toBe(false);
+});
+
+test('executive targets compare calendar dates rather than equivalent display formats', () => {
+  const text = referenceBrief(BRIEF_EVALUATION_CASES[0]);
+  const changed = text.replace('identify applicable systems and review owners — recommended target September 8, 2026',
+    'identify applicable systems and review owners — recommended target 2026-09-08');
+  expect(editorialIssues(changed, []).filter(issue => issue.code.startsWith('ACTION_SUMMARY'))).toEqual([]);
+  const contradiction = changed.replace('recommended target 2026-09-08', 'recommended target 2026-09-09');
+  expect(publicationDecision({ issues: editorialIssues(contradiction, []) }).blockers)
+    .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'ACTION_SUMMARY_CONFLICT' })]));
 });

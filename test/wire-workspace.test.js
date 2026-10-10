@@ -48,6 +48,47 @@ describe('Wire workspace review state', () => {
     expect(result.persisted).toBe(false);
     expect(exportDecisionRecords(mergeDecisions(result.decisions, storage))[0].decision.note).toBe('cannot lose this');
   });
+  test('a stale form cannot replace the same decision after a cross-tab storage refresh', () => {
+    let raw = '{}';
+    const storage = { getItem: () => raw, setItem: (_key, value) => { raw = value; } };
+    const initial = saveDecisionRecord(storage, new Map(), chrome.link, { state: 'investigate', note: 'Old basis', recordedAt: '2026-09-03T00:00:00Z' });
+    const base = initial.decisions.get(chrome.link);
+    const latest = saveDecisionRecord(storage, readDecisions(storage), chrome.link, { state: 'affected', owner: 'Response team', note: 'Affected build confirmed', recordedAt: base.recordedAt });
+    const mine = { state: 'unaffected', note: 'My unsaved investigation', recordedAt: '2026-09-03T00:01:00Z' };
+    // The storage listener can refresh the map without updating the form's baseline.
+    const refreshed = mergeDecisions(initial.decisions, storage);
+    const conflict = saveDecisionRecord(storage, refreshed, chrome.link, mine, base);
+    expect(conflict).toMatchObject({ persisted: false, conflict: true, existing: latest.decisions.get(chrome.link) });
+    expect(readDecisions(storage).get(chrome.link).note).toBe('Affected build confirmed');
+    const html = decisionForm(chrome, mine, { conflict: conflict.existing });
+    expect(html).toContain('My unsaved investigation');
+    expect(html).toContain('Affected build confirmed');
+    expect(html).toContain('data-decision-draft-export');
+    expect(html).toContain('class="btn-primary" disabled');
+    const reviewed = saveDecisionRecord(storage, conflict.decisions, chrome.link, { ...mine, note: 'Reviewed and merged both investigations' }, conflict.existing);
+    expect(reviewed.persisted).toBe(true);
+    expect(readDecisions(storage).get(chrome.link).note).toBe('Reviewed and merged both investigations');
+  });
+  test('the 2001st decision cannot evict an unresolved assessment and existing records remain editable', () => {
+    let raw = JSON.stringify(Object.fromEntries(Array.from({ length: 2000 }, (_, index) => [`signal-${index}`, normalizeDecision({ state: 'investigate', note: `Assessment ${index}`, recordedAt: '2026-09-03T00:00:00Z' })])));
+    const storage = { getItem: () => raw, setItem: (_key, value) => { raw = value; } };
+    const before = raw;
+    const full = saveDecisionRecord(storage, readDecisions(storage), 'signal-2000', { note: 'New draft' });
+    expect(full).toMatchObject({ persisted: false, limitReached: true });
+    expect(raw).toBe(before);
+    expect(full.decisions.size).toBe(2000);
+    expect(exportDecisionRecords(full.decisions)).toHaveLength(2000);
+    expect(decisionForm(chrome, { note: 'New draft' }, full)).toContain('No saved assessment was removed');
+    expect(decisionForm(chrome, { note: 'New draft' }, full)).toContain('data-decision-export-all');
+    expect(saveDecisionRecord(storage, full.decisions, 'signal-0', { state: 'mitigated' }).persisted).toBe(true);
+    expect(readDecisions(storage).get('signal-0').state).toBe('mitigated');
+  });
+  test('reading previously oversized local storage preserves all authored records for export', () => {
+    const records = Object.fromEntries(Array.from({ length: 2001 }, (_, index) => [`signal-${index}`, { note: `Record ${index}` }]));
+    const decisions = readDecisions({ getItem: () => JSON.stringify(records) });
+    expect(decisions.size).toBe(2001);
+    expect(exportDecisionRecords(decisions)[0].decision.note).toBe('Record 0');
+  });
   test('compact facts retain the scored CVE once, including enrichment-only and later identifiers', () => {
     const facts = scanFacts({ title: 'CVE-2026-1000 and CVE-2026-1001 advisory', cveDetails: ['CVE-2026-1002 · CVSS 9.8 (Critical)'] });
     expect(facts.cves).toEqual(['CVE-2026-1002', 'CVE-2026-1000']);
@@ -58,9 +99,9 @@ describe('Wire workspace review state', () => {
 
   test('severity stays scoped to the scored CVE in multi-CVE reporting', () => {
     expect(signalSeverity({ cveData: 'CVE-2026-1000: no score · CVE-2026-1001: CVSS 9.8 (Critical) · CVE-2026-1002: CVSS 5.3 (Medium)' }))
-      .toEqual({ label: 'Highest CVSS severity', value: '9.8 Critical', scope: 'CVE-2026-1001', level: 'critical' });
-    expect(signalSeverity({ cveData: 'CVE-2026-1000: CVSS 4.0 9.3 (Critical)' })).toMatchObject({ value: '9.3 Critical', scope: 'CVE-2026-1000' });
-    expect(signalSeverity({ cveDetails: ['CVE-2026-1000: CVSS 0.0 (None)'] })).toMatchObject({ value: '0.0 None' });
+      .toMatchObject({ label: 'Highest CVSS severity', value: '9.8 Critical · version not recorded · authority not recorded', scope: 'CVE-2026-1001', level: 'critical' });
+    expect(signalSeverity({ cveData: 'CVE-2026-1000: CVSS 4.0 9.3 (Critical)' })).toMatchObject({ value: '9.3 Critical · v4.0 · authority not recorded', scope: 'CVE-2026-1000' });
+    expect(signalSeverity({ cveDetails: ['CVE-2026-1000: CVSS 0.0 (None)'] })).toMatchObject({ value: '0.0 None · version not recorded · authority not recorded' });
   });
   test('ranking, source count and collection times cannot manufacture severity, confidence or publication dates', () => {
     const headline = { source: 'Publisher', link: 'https://example.test/report', score: 98, corroboration: 5, isKEV: true,

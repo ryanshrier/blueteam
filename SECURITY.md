@@ -71,6 +71,19 @@ deadline, bounded queue, V8 heap limits, and structural limits. These constrain
 hostile-feed resource use; the heap limit is not a total process-memory limit.
 Parse failures retain the existing stale-cache/failure reporting behavior.
 
+Configurable regular expressions also compile and execute in bounded workers.
+Collection matching has a two-second deadline, bounded input and queue sizes,
+and a worker heap limit. Timeout or worker failure rejects that collection and
+preserves the last good snapshot; it never counts as a successful no-match.
+HTTP presentation and alert delivery consume the captured assessment. These
+workers constrain computation; they do not sandbox trusted local domain modules.
+
+Wire decisions, revision history, and copied evidence are private SQLite state.
+Revision checks prevent stale overwrites, but the shared deployment credential
+does not identify individual editors. Ranking captures are bounded local files
+that include watch-profile and source material; protect them and their exports
+with the same filesystem and backup controls as other operator state.
+
 `npm run check:security:render` exercises the actual sanitizer, Markdown renderer,
 and subsequent DOM transformations in a browser with external requests blocked.
 The regression corpus is bounded and does not establish that all XSS or prompt

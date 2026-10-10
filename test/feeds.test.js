@@ -449,24 +449,99 @@ describe('fetchNewsContext — feed ingest front door', () => {
     expect(item.passage).toBe(passage);
     expect(item.sourceIdentifier).toBe('advisory-42');
     expect(item.feedUrl).toBe('https://example.com/evidence-feed');
+    expect(item.feedPassageField).toBe('description');
     expect(Number.isFinite(Date.parse(item.retrievedAt))).toBe(true);
     expect(setFeedCacheMock.mock.calls[0][3][0].passage).toBe(passage);
+  });
+
+  test('retains richer same-item RSS content while keeping the short display description', async () => {
+    const summary = 'The vendor has released a gateway update.';
+    const content = `${'The advisory describes the affected gateway configuration. '.repeat(8)}CVE-2026-12345 is fixed in version 14.1-43.56.`;
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue(`<rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item>
+      <title>Gateway update</title><guid>gateway-update-1</guid><link>https://example.com/gateway</link>
+      <description>${summary}</description><content:encoded><![CDATA[<p>${content}</p><script>CVE-2099-99999</script>]]></content:encoded>
+    </item><item><title>Separate advisory</title><description>Another product is affected by CVE-2026-99999.</description></item></channel></rss>`);
+    const items = await fetchNewsContext([{ url: 'https://example.com/rich-rss', source: 'Publisher RSS', horizon: 1 }]);
+    expect(items[0]).toMatchObject({ description: summary, passage: content, passageTruncated: false,
+      feedPassageField: 'content:encoded', sourceIdentifier: 'gateway-update-1', source: 'Publisher RSS', link: 'https://example.com/gateway' });
+    expect(items[0].passage).not.toMatch(/2099-99999|2026-99999|<p>|<script>/);
+    expect(items[1].passage).not.toContain('14.1-43.56');
+    expect(setFeedCacheMock.mock.calls[0][3][0]).toMatchObject({ passage: content, feedPassageField: 'content:encoded' });
+    expect(deduplicateWithCorroboration([items[0]])[0].sourceMembers[0]).toMatchObject({
+      source: 'Publisher RSS', link: 'https://example.com/gateway', passage: content, feedPassageField: 'content:encoded',
+    });
+  });
+
+  test('retains inline Atom XHTML content and its field identity beside a short summary', async () => {
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue(`<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Gateway advisory</title>
+      <summary type="html">&lt;p&gt;The vendor released a fix.&lt;/p&gt;</summary>
+      <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>CVE-2026-12345 affects gateway versions before 14.1-43.56.</p><p>Install the fixed release and review authentication logs.</p><style>Unrelated promotion</style></div></content>
+      <link href="https://example.com/atom-advisory"/><id>atom-advisory-1</id></entry></feed>`);
+    const [item] = await fetchNewsContext([{ url: 'https://example.com/rich-atom', source: 'Publisher Atom', horizon: 1 }]);
+    expect(item).toMatchObject({ description: 'The vendor released a fix.', feedPassageField: 'content', sourceIdentifier: 'atom-advisory-1',
+      passage: 'CVE-2026-12345 affects gateway versions before 14.1-43.56. Install the fixed release and review authentication logs.' });
+  });
+
+  test.each([
+    '<content:encoded><![CDATA[<p> </p><script>CVE-2099-99999 is exploited.</script>]]></content:encoded>',
+    `<content:encoded><![CDATA[<p>${'Subscribe to our newsletter for exclusive offers. '.repeat(30)}</p>]]></content:encoded>`,
+    '<content type="html"/>',
+    '<content type="image/png">image-bytes</content>',
+    '<content type="text" src="https://another.example/body"/>',
+  ])('keeps a substantive summary when the alternate field is empty or unusable: %s', async alternate => {
+    const summary = 'CVE-2026-12345 is fixed in gateway version 14.1-43.56.';
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue(`<feed xmlns="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/"><entry>
+      <title>Gateway fix</title><summary>${summary}</summary>${alternate}</entry></feed>`);
+    const [item] = await fetchNewsContext([{ url: 'https://example.com/unusable-content', source: 'Usable summary', horizon: 1 }]);
+    expect(item).toMatchObject({ description: summary, passage: summary, feedPassageField: 'summary' });
+    expect(item.passage).not.toContain('[object Object]');
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('an empty marked-up description falls back to useful full content for display and evidence', async () => {
+    const content = `CVE-2026-12345 is fixed in version 14.1-43.56. ${'The vendor recommends reviewing gateway logs. '.repeat(12)}`.trim();
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue(`<rss><channel><item><title>Gateway fix</title>
+      <description>&lt;p&gt; &lt;/p&gt;</description><content:encoded><![CDATA[<p>${content}</p>]]></content:encoded>
+      </item></channel></rss>`);
+    const [item] = await fetchNewsContext([{ url: 'https://example.com/empty-summary', source: 'Empty summary', horizon: 1 }]);
+    expect(item).toMatchObject({ passage: content, feedPassageField: 'content:encoded' });
+    expect(item.description.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.description);
+    expect(item.description).toContain('14.1-43.56');
+  });
+
+  test('bounds rich content before sanitizing and records when its captured passage is truncated', async () => {
+    const content = `CVE-2026-12345 affects the gateway. ${'Retained advisory detail. '.repeat(1000)}CVE-2099-99999`;
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue(`<rss><channel><item><title>Gateway advisory</title><description>A fix is available.</description>
+      <content:encoded><![CDATA[${content}]]></content:encoded></item></channel></rss>`);
+    const [item] = await fetchNewsContext([{ url: 'https://example.com/bounded-content', source: 'Bounded content', horizon: 1 }]);
+    expect(item).toMatchObject({ description: 'A fix is available.', passageTruncated: true, feedPassageField: 'content:encoded' });
+    expect(item.passage.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.descriptionRaw);
+    expect(item.passage).not.toContain('CVE-2099-99999');
+    expect(setFeedCacheMock.mock.calls[0][3][0]).toMatchObject({ passage: item.passage, passageTruncated: true, feedPassageField: 'content:encoded' });
   });
 
   test('stale fallback preserves passage/retrieval time; 304 advances the confirmed observation', async () => {
     const retrievedAt = new Date(Date.now() - 3600000).toISOString();
     const cachedAt = retrievedAt.replace('T', ' ').slice(0, 19);
     getFeedCacheMock.mockReturnValue({ etag: 'v1', cached_at: cachedAt, items_json: JSON.stringify([
-      { title: 'Cached vendor update', description: 'Display excerpt', passage: 'Exact previously collected passage', retrievedAt, sourceIdentifier: 'id-1' },
+      { title: 'Cached vendor update', description: 'Display excerpt', passage: 'Exact previously collected passage', feedPassageField: 'content:encoded', retrievedAt, sourceIdentifier: 'id-1' },
     ]) });
     const feeds = [{ url: 'https://example.com/evidence-cache', source: 'Evidence cache', horizon: 1 }];
     safeFetchMock.mockResolvedValueOnce(fakeResponse({ status: 503 }));
     const [stale] = await fetchNewsContext(feeds);
     expect(stale.passage).toBe('Exact previously collected passage');
+    expect(stale.feedPassageField).toBe('content:encoded');
+    expect(stale.collectionStale).toBe(true);
     expect(stale.retrievedAt).toBe(retrievedAt);
     safeFetchMock.mockResolvedValueOnce(fakeResponse({ status: 304 }));
     const [confirmed] = await fetchNewsContext(feeds);
     expect(confirmed.passage).toBe(stale.passage);
+    expect(confirmed.feedPassageField).toBe(stale.feedPassageField);
     expect(Date.parse(confirmed.retrievedAt)).toBeGreaterThan(Date.parse(retrievedAt));
   });
 
@@ -833,6 +908,24 @@ describe('fetchNewsContext — feed ingest front door', () => {
     expect(results[0].description.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.description);
     expect(results[0].source).toBe('Bounded Cache Feed');
     expect(results[0].link).toBe('');
+    expect(results[0].passage).toBeUndefined();
+    expect(results[0].feedPassageField).toBeUndefined();
+  });
+
+  test('bounds cached passages and ignores unrecognized field provenance without recapturing it', async () => {
+    const retrievedAt = new Date(Date.now() - 3600000).toISOString();
+    getFeedCacheMock.mockReturnValue({ cached_at: retrievedAt.replace('T', ' ').slice(0, 19), items_json: JSON.stringify([
+      { title: 'Cached gateway notice', description: 'A fix is available.',
+        passage: `<p>CVE-2026-12345 is fixed.</p><script>invented assertion</script>${'Captured detail. '.repeat(1000)}`,
+        feedPassageField: 'unrelated-publisher', retrievedAt },
+    ]) });
+    safeFetchMock.mockResolvedValue(fakeResponse({ status: 503 }));
+    const [item] = await fetchNewsContext([{ url: 'https://example.com/legacy-passage', source: 'Legacy passage', horizon: 1 }]);
+    expect(item).toMatchObject({ collectionStale: true, retrievedAt, passageTruncated: true });
+    expect(item.passage).toContain('CVE-2026-12345 is fixed.');
+    expect(item.passage).not.toMatch(/<p>|<script>|invented assertion/);
+    expect(item.passage.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.descriptionRaw);
+    expect(item.feedPassageField).toBeUndefined();
   });
 
   test('a 304 with still-fresh cached items bumps cached_at via setFeedCache', async () => {

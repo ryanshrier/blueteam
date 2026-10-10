@@ -111,7 +111,7 @@ describe('toCsv', () => {
     ]));
     const row = {
       score: 91, title: 'Ivanti Connect Secure RCE', description: 'Actively exploited auth bypass',
-      cveData: 'CVE-2026-0002 · CVSS 9.1 (Critical)', kevDueDate: '2026-07-10', kevOverdue: false,
+      cveData: 'CVE-2026-0002 · CVSS 9.1 (Critical)', isKEV: true, kevCVE: 'CVE-2026-0002', kevDueDate: '2026-07-10', kevOverdue: false,
       vendors: [{ name: 'Ivanti' }], actors: [{ name: 'APT-X', basis: 'title' }],
     };
     const csv = toCsv([row], CSV_COLUMNS);

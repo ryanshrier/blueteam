@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "origin": "Retained briefing 4569ba54-805e-4665-9944-58abdc3251c6, October 9, 2026",
+  "records": [
+    {
+      "id": "S2.1",
+      "index": 1,
+      "memberIndex": 0,
+      "label": "CISA Advisories",
+      "title": "Chinese Government-linked Cyber Threat Actors Combine Automated and Hands-on Hacking Tools to Steal Sensitive Data",
+      "url": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa26-281a",
+      "publishedAt": "Thu, 08 Oct 26 12:00:00 +0000",
+      "evidenceText": "Chinese Government-linked Cyber Threat Actors Combine Automated and Hands-on Hacking Tools to Steal Sensitive Data [feed-excerpt capture]\nAdvisory at a Glance Title Chinese Government-linked Cyber Threat Actors Combine Automated and Hands-on Hacking Tools to Steal Sensitive Data Original Publication October 8, 2026 Executive Summary Chinese government-linked cyber threat actors, enabled by the Integrity Technology Group, are combining automated scanning tools, large-scale botnets, and hands-on exploitation techniques to target and steal sensitive data from organizations worldwide, including US critical infrastructure sectors. These actors exploit vulnerabilities by using scanning tools, cross-site scripting attacks, and password spraying on Microsoft Exchange servers, while establishing persistence through VPN software and exfiltrating emails and credentials using scripts. To help mitigate against this activity, organizations should prioritize disabling unused services and ports, sanitizing web application inputs to prevent injection attacks, implementing multifactor authentication for all services, and applying timely patches to reduce risks of compromise. Affected Products CVE-2014-6278 CVE-2015-3306 CVE-2015-5477 CVE-2016-3081 CVE-2019-11510 CVE-2021-22205 CVE-2021-3199 CVE-2023-22894 Key Actions Disable unused services and ports, such as automatic configuration, remote access, or file sharing protocols. Sanitize user input in web applications to prevent possible cross-site scripting (XSS) payload injection. Implement identity, credential, and access management (ICAM) policies, and then require multifactor authentication (MFA) for services (to the extent possible). Indicators of Compromise For a downloadable copy of indicators of compromise, see: AA26-281A STIX XML AA26-281A STIX JSON Intended Audience Organizations: Government; Federal Civilian Executive Branch (FCEB); State, Local, Tribal, and Territorial (SLTT); Critical Infrastructure. Sectors: Government Services and Facilities, Critical Manufacturing, Healthcare and Public Health, and Information Technology.\n\n[article-excerpts capture]\nSep 08, 2026 Cybersecurity Advisory | AA26-251A China-Based Artificial Intelligence Companies Conducting Industrial-Scale Distillation Campaigns Against U.S. AI Companies",
+      "retrievedAt": "2026-10-10T00:34:42.361Z",
+      "collectionStale": false,
+      "passage": "Advisory at a Glance Title Chinese Government-linked Cyber Threat Actors Combine Automated and Hands-on Hacking Tools to Steal Sensitive Data Original Publication October 8, 2026 Executive Summary Chinese government-linked cyber threat actors, enabled by the Integrity Technology Group, are combining automated scanning tools, large-scale botnets, and hands-on exploitation techniques to target and steal sensitive data from organizations worldwide, including US critical infrastructure sectors. These actors exploit vulnerabilities by using scanning tools, cross-site scripting attacks, and password spraying on Microsoft Exchange servers, while establishing persistence through VPN software and exfiltrating emails and credentials using scripts. To help mitigate against this activity, organizations should prioritize disabling unused services and ports, sanitizing web application inputs to prevent injection attacks, implementing multifactor authentication for all services, and applying timely patches to reduce risks of compromise. Affected Products CVE-2014-6278 CVE-2015-3306 CVE-2015-5477 CVE-2016-3081 CVE-2019-11510 CVE-2021-22205 CVE-2021-3199 CVE-2023-22894 Key Actions Disable unused services and ports, such as automatic configuration, remote access, or file sharing protocols. Sanitize user input in web applications to prevent possible cross-site scripting (XSS) payload injection. Implement identity, credential, and access management (ICAM) policies, and then require multifactor authentication (MFA) for services (to the extent possible). Indicators of Compromise For a downloadable copy of indicators of compromise, see: AA26-281A STIX XML AA26-281A STIX JSON Intended Audience Organizations: Government; Federal Civilian Executive Branch (FCEB); State, Local, Tribal, and Territorial (SLTT); Critical Infrastructure. Sectors: Government Services and Facilities, Critical Manufacturing, Healthcare and Public Health, and Information Technology.",
+      "passageKind": "feed-excerpt",
+      "sourceParts": [
+        {
+          "kind": "feed-excerpt",
+          "passage": "Advisory at a Glance Title Chinese Government-linked Cyber Threat Actors Combine Automated and Hands-on Hacking Tools to Steal Sensitive Data Original Publication October 8, 2026 Executive Summary Chinese government-linked cyber threat actors, enabled by the Integrity Technology Group, are combining automated scanning tools, large-scale botnets, and hands-on exploitation techniques to target and steal sensitive data from organizations worldwide, including US critical infrastructure sectors. These actors exploit vulnerabilities by using scanning tools, cross-site scripting attacks, and password spraying on Microsoft Exchange servers, while establishing persistence through VPN software and exfiltrating emails and credentials using scripts. To help mitigate against this activity, organizations should prioritize disabling unused services and ports, sanitizing web application inputs to prevent injection attacks, implementing multifactor authentication for all services, and applying timely patches to reduce risks of compromise. Affected Products CVE-2014-6278 CVE-2015-3306 CVE-2015-5477 CVE-2016-3081 CVE-2019-11510 CVE-2021-22205 CVE-2021-3199 CVE-2023-22894 Key Actions Disable unused services and ports, such as automatic configuration, remote access, or file sharing protocols. Sanitize user input in web applications to prevent possible cross-site scripting (XSS) payload injection. Implement identity, credential, and access management (ICAM) policies, and then require multifactor authentication (MFA) for services (to the extent possible). Indicators of Compromise For a downloadable copy of indicators of compromise, see: AA26-281A STIX XML AA26-281A STIX JSON Intended Audience Organizations: Government; Federal Civilian Executive Branch (FCEB); State, Local, Tribal, and Territorial (SLTT); Critical Infrastructure. Sectors: Government Services and Facilities, Critical Manufacturing, Healthcare and Public Health, and Information Technology.",
+          "passageSha256": "64c43e8e20059f9abf4f3b58e155fe0a16f3de1c30b50fa6f702ec1edf1f3c8a",
+          "publishedAt": "2026-10-08T12:00:00Z",
+          "retrievedAt": "2026-10-10T00:34:42.361Z",
+          "retrievalStatus": "feed-capture",
+          "feedPassageField": "description",
+          "quality": {
+            "status": "substantive",
+            "substantive": true,
+            "reasons": [
+              "retained-body-detail"
+            ]
+          },
+          "cves": [
+            "CVE-2014-6278",
+            "CVE-2015-3306",
+            "CVE-2015-5477",
+            "CVE-2016-3081",
+            "CVE-2019-11510",
+            "CVE-2021-22205",
+            "CVE-2021-3199",
+            "CVE-2023-22894"
+          ],
+          "sourceRevisions": [
+            {
+              "sourceId": "src_3f06b1cefaeeff24cbca94f6c8ab2ba4bd1d74fadd7f7bdde9d3b4a51d734e55",
+              "revisionId": "rev_244725c0537c3fb351f03f345ecb71d432863fa658b167980f9c62af6ceee588",
+              "contentHash": "6ce9f2a23653391e5c90af2042e5eb134cbf314008266ab3e1001e93133c4225",
+              "source": "CISA Advisories",
+              "title": "Chinese Government-linked Cyber Threat Actors Combine Automated and Hands-on Hacking Tools to Steal Sensitive Data",
+              "canonicalUrl": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa26-281a",
+              "passageKind": "feed-excerpt",
+              "changed": false,
+              "publishedAt": "2026-10-08T12:00:00Z",
+              "retrievedAt": "2026-10-09T01:29:45.908Z",
+              "firstObservedAt": "2026-10-09T01:29:45.908Z",
+              "lastObservedAt": "2026-10-10T00:34:42.361Z"
+            }
+          ]
+        },
+        {
+          "kind": "article-excerpts",
+          "passage": "Sep 08, 2026 Cybersecurity Advisory | AA26-251A China-Based Artificial Intelligence Companies Conducting Industrial-Scale Distillation Campaigns Against U.S. AI Companies",
+          "passageSha256": "3299eb397cd547e9c7c82df566b06d5a9c93ef1b21c1276d126c27538a0a09fd",
+          "publishedAt": "",
+          "retrievedAt": "2026-10-09T13:33:56.353Z",
+          "retrievalStatus": "cached",
+          "feedPassageField": "",
+          "quality": {
+            "status": "substantive",
+            "substantive": true,
+            "reasons": [
+              "retained-body-detail"
+            ]
+          },
+          "cves": [],
+          "sourceRevisions": []
+        }
+      ],
+      "quality": {
+        "status": "substantive",
+        "substantive": true,
+        "reasons": [
+          "retained-body-detail"
+        ]
+      },
+      "cvssMetrics": [],
+      "configurations": [],
+      "applicabilityPassage": "",
+      "applicabilityComplete": true,
+      "configurationCaptures": [],
+      "cves": [
+        "CVE-2014-6278",
+        "CVE-2015-3306",
+        "CVE-2015-5477",
+        "CVE-2016-3081",
+        "CVE-2019-11510",
+        "CVE-2021-22205",
+        "CVE-2021-3199",
+        "CVE-2023-22894"
+      ],
+      "sourceRevisions": [
+        {
+          "sourceId": "src_3f06b1cefaeeff24cbca94f6c8ab2ba4bd1d74fadd7f7bdde9d3b4a51d734e55",
+          "revisionId": "rev_244725c0537c3fb351f03f345ecb71d432863fa658b167980f9c62af6ceee588",
+          "contentHash": "6ce9f2a23653391e5c90af2042e5eb134cbf314008266ab3e1001e93133c4225",
+          "source": "CISA Advisories",
+          "title": "Chinese Government-linked Cyber Threat Actors Combine Automated and Hands-on Hacking Tools to Steal Sensitive Data",
+          "canonicalUrl": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa26-281a",
+          "passageKind": "feed-excerpt",
+          "changed": false,
+          "publishedAt": "2026-10-08T12:00:00Z",
+          "retrievedAt": "2026-10-09T01:29:45.908Z",
+          "firstObservedAt": "2026-10-09T01:29:45.908Z",
+          "lastObservedAt": "2026-10-10T00:34:42.361Z"
+        }
+      ]
+    },
+    {
+      "id": "S5.1",
+      "index": 4,
+      "memberIndex": 0,
+      "label": "The Hacker News",
+      "title": "Flax Typhoon Exploits Five Flaws as CISA Sets October 11 Deadline for Federal Agencies",
+      "url": "https://thehackernews.com/2026/10/flax-typhoon-exploits-five-flaws-as.html",
+      "publishedAt": "Fri, 09 Oct 2026 17:51:51 +0530",
+      "evidenceText": "Flax Typhoon Exploits Five Flaws as CISA Sets October 11 Deadline for Federal Agencies [feed-excerpt capture]\nThe U.S. Cybersecurity and Infrastructure Security Agency (CISA) on Thursday added five security flaws to its Known Exploited Vulnerabilities (KEV) catalog, following their abuse by a China-linked threat actor known as Flax Typhoon. The vulnerabilities in question are listed below - CVE-2015-3306 (CVSS score: 10.0) - An improper access control vulnerability in ProFTPD that could allow\n\n[article-excerpts capture]\nYou Secure the Apps. Now the Apps Have LLMs in Them. Find SANS training for app sec and cloud teams who inherited GenAI risk, from RAG pipelines to AI agents.",
+      "retrievedAt": "2026-10-09T12:43:39.745Z",
+      "collectionStale": false,
+      "passage": "You Secure the Apps. Now the Apps Have LLMs in Them. Find SANS training for app sec and cloud teams who inherited GenAI risk, from RAG pipelines to AI agents.",
+      "passageKind": "article-excerpts",
+      "sourceParts": [
+        {
+          "kind": "feed-excerpt",
+          "passage": "The U.S. Cybersecurity and Infrastructure Security Agency (CISA) on Thursday added five security flaws to its Known Exploited Vulnerabilities (KEV) catalog, following their abuse by a China-linked threat actor known as Flax Typhoon. The vulnerabilities in question are listed below - CVE-2015-3306 (CVSS score: 10.0) - An improper access control vulnerability in ProFTPD that could allow",
+          "passageSha256": "5f29e5722ccfd67b2d3828fb455f70f18f2fe510135bf99f68c0a9b4d71c4306",
+          "publishedAt": "2026-10-09T12:21:51Z",
+          "retrievedAt": "2026-10-10T00:34:42.663Z",
+          "retrievalStatus": "feed-capture",
+          "feedPassageField": "description",
+          "quality": {
+            "status": "substantive",
+            "substantive": true,
+            "reasons": [
+              "retained-body-detail"
+            ]
+          },
+          "cves": [
+            "CVE-2015-3306"
+          ],
+          "sourceRevisions": [
+            {
+              "sourceId": "src_961acab9c4877a4ddba9729bc0c082176fb8badb0d52c675cedf1ed5326db5a3",
+              "revisionId": "rev_8c575a33b1187612a56fae3c4cc946d1eb75ea5429c62c6780f03fa746ec31f4",
+              "contentHash": "730298f417b4c50d98ee9af04e2983795b9684d18b0d7183cfca10d910ce842a",
+              "source": "The Hacker News",
+              "title": "Flax Typhoon Exploits Five Flaws as CISA Sets October 11 Deadline for Federal Agencies",
+              "canonicalUrl": "https://thehackernews.com/2026/10/flax-typhoon-exploits-five-flaws-as.html",
+              "passageKind": "feed-excerpt",
+              "changed": false,
+              "publishedAt": "2026-10-09T12:21:51Z",
+              "retrievedAt": "2026-10-09T12:43:37.645Z",
+              "firstObservedAt": "2026-10-09T12:43:37.645Z",
+              "lastObservedAt": "2026-10-10T00:34:42.663Z"
+            }
+          ]
+        },
+        {
+          "kind": "article-excerpts",
+          "passage": "You Secure the Apps. Now the Apps Have LLMs in Them. Find SANS training for app sec and cloud teams who inherited GenAI risk, from RAG pipelines to AI agents.",
+          "passageSha256": "9158d8867db139acf8fdf1c0b8269227768469de4b3eddfb3864adb78d9722b7",
+          "publishedAt": "",
+          "retrievedAt": "2026-10-09T12:43:39.745Z",
+          "retrievalStatus": "cached",
+          "feedPassageField": "",
+          "quality": {
+            "status": "substantive",
+            "substantive": true,
+            "reasons": [
+              "retained-body-detail"
+            ]
+          },
+          "cves": [],
+          "sourceRevisions": []
+        }
+      ],
+      "quality": {
+        "status": "substantive",
+        "substantive": true,
+        "reasons": [
+          "retained-body-detail"
+        ]
+      },
+      "cvssMetrics": [],
+      "configurations": [],
+      "applicabilityPassage": "",
+      "applicabilityComplete": true,
+      "configurationCaptures": [],
+      "cves": [
+        "CVE-2015-3306"
+      ],
+      "sourceRevisions": []
+    }
+  ]
+}

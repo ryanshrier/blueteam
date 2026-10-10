@@ -230,7 +230,7 @@
 .wire-view .wire-command-row { grid-template-columns: minmax(100px, 1fr) auto auto; }
 .wire-view .wire-search-wrap, .wire-view .wire-filter-panel, .wire-view .wire-view-tools { grid-row: 1; grid-column: auto; }
 .wire-view-tools:not([open]) > .wire-view-tools-content { display: none; }
-.wire-view-tools-content { position: absolute; z-index: 30; top: calc(100% + 4px); right: 0; width: min(310px, 100%); box-sizing: border-box; padding: 16px; border: 1px solid var(--border); background: var(--bg-elevated); box-shadow: var(--shadow-sm); }
+.wire-view-tools-content { position: absolute; z-index: 30; top: calc(100% + 4px); right: 0; width: min(310px, 100%); max-height: min(70dvh, 640px); overflow-y: auto; box-sizing: border-box; padding: 16px; border: 1px solid var(--border); background: var(--bg-elevated); box-shadow: var(--shadow-sm); }
 .wire-view-tools-content #wireSortHost { display: block; }
 .wire-view-tools-content :is(.wire-sort, .wire-density) { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 0 0 12px; font: 14px/1.4 var(--font-sans); }
 .wire-view-tools-content .wire-sort-label, .wire-view-tools-content .wire-density > span { display: block; color: var(--text-secondary); font: inherit; }
@@ -238,6 +238,7 @@
 .wire-view-tools-content .wire-export { display: block; position: static; }
 .wire-view-tools-content .wire-export-menu { position: static; width: 100%; box-sizing: border-box; margin-top: 8px; box-shadow: none; }
 .wire-view-tools-content .wire-export-menu button { min-height: 44px; }
+.wire-view-tools-content > button, .wire-decision-notice button { min-height: 44px; }
 .wire-view-tools > summary { min-height: 44px; }
 .wire-view-tools > summary::-webkit-details-marker { display: none; }
 .wire-view :is(button, input, select, .wire-filter-content, .wire-view-tools-content, .wire-filters, .wire-export-trigger, .wire-export-menu),

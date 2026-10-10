@@ -4,16 +4,37 @@
 
 Run `npm run check:brief-eval` for the offline evaluation. It exercises the real
 generation route, prompt construction, validation, corrective retry, receipt,
-and attempt accounting against six authored collections. Provider responses are
+and attempt accounting against seven authored collections. Provider responses are
 scripted; no API key or provider network request is needed. The suite also runs in
 CI and exercises both the Anthropic event contract and the real OpenAI Responses
 stream adapter with scripted HTTP responses.
 
 The collections cover tactical, operational, and strategic evidence, conflicting
 reports about two CVEs, a promotional article opening with a useful feed excerpt,
-and title-only inputs. The last case must stop before contacting the provider.
+complementary feed/article details, and title-only inputs. The last case must stop
+before contacting the provider. The complementary case requires preserving the
+CVE, affected range, and fixed release through generation and frozen replay.
 A separate case requires a malformed first draft to receive one corrective retry
 and accounts for both attempts.
+
+## Retained edition replay
+
+Run `npm run check:brief-replay -- --output .tmp/retained-replay.json` to inspect
+up to 100 local archived editions and 100 retained recovery artifacts against
+their frozen inputs. Use `--archive` for another local archive and `--limit`
+to change the bound (1–500). The report file must be new and outside the archive.
+This command does not call a provider, initialize the application database,
+rewrite editions, change review dispositions, or publish recovery drafts.
+
+The report separates missing receipts and integrity failures from current
+validation findings. It includes captured attempts, cost and phase timings when
+available, selection diagnostics, judgment/action counts, and retained operator
+saves. Action-condition and CVE counts are lexical review aids: they cannot
+establish supported meaning, usefulness, recall, or an overall manual-edit rate.
+Older receipts cannot reconstruct excluded candidates. Selection regression
+fixtures separately exercise the bounded candidate pool and investigation budget.
+Use the editorial rubric below to inspect decision-changing detail and paired
+responses when comparing repaired drafts; fewer findings alone is not improvement.
 
 ## Optional live evaluation
 
@@ -204,3 +225,136 @@ screen without expanding details, then follow one story into its full
 assessment. Confirm that the opening supports a sound priority decision and
 that deeper reading exposes the facts, qualifications, full response, and
 citations. Never hide a material limitation solely to make a card shorter.
+
+## Recovery quality and evidence gaps
+
+Corrective generation gets one bounded attempt. Its request prioritizes blocking
+findings, includes captured source references, and asks for changes limited to
+the affected passages and dependent summaries/actions. The replacement must
+resolve material findings without introducing new ones. A complete draft cannot
+be replaced by an incomplete response or one with fewer judgments. Output-limit
+recovery can still request a shorter complete edition. Both attempts remain in
+cost accounting; each evaluated candidate records its recovery decision in the
+receipt's validation history.
+
+These are regression checks, not a semantic quality score. Equal judgment counts
+do not prove equal coverage, and passing factual checks does not establish that
+priorities, conditions, or actions survived a rewrite. Use retained failures to
+compare supported specificity, important coverage, action scope, and manual
+intervention alongside publication outcomes. Do not improve acceptance rates by
+automatically dropping signals or broadening affected-version guidance.
+
+The October 9, 2026 local pipeline audit also addressed upstream capture losses:
+
+- **Source capture:** retain the richest usable same-item RSS/Atom field while
+  keeping the short Wire description. Preserve substantive feed and article
+  passages as separate captures under one citation identity. Neither capture is
+  independent corroboration of the other. Do not erase a feed's title-bound CVE
+  association merely because an article repeats its text.
+- **Provenance:** each capture carries its own observation metadata and passage
+  digest. Article excerpts never inherit feed revision IDs or retrieval times.
+  Missing article provenance stays explicitly unavailable. Stale or unusable
+  article bodies cannot become current supporting evidence.
+- **Enrichment:** article extraction precedes CVE and EPSS enrichment within the
+  existing selection and request limits. Usable article-only identities can reach
+  both providers. NVD applicability is supplied separately from publisher prose,
+  preserving AND/OR, negation, vulnerable-product flags and inclusive/exclusive
+  boundaries. A range endpoint does not establish a patched release or local
+  exposure; complex applicability must not be flattened into an affected list.
+  Version checks can recognize attributed, identity-bound reports of NVD bounds
+  and conditional ranges with matching endpoint roles from the same CPE match.
+  This is additive literal support, not general interpretation of applicability.
+  Hidden, conflicting, rejected, environmental or negated conditions do not
+  supply automatic positive version support. Vendor fix claims still require
+  captured prose support.
+- **Catalog freshness:** generation captures the catalog observation time, its
+  freshness against the shared 12-hour refresh interval, and known refresh
+  failure. Retained positive membership remains available. Stale or unknown
+  freshness cannot establish current absence or a zero-addition count. Replaying
+  a saved draft uses its captured status, not today's catalog or clock; older
+  receipts retain their original verification contract.
+- **Consumers:** CVSS and timeline checks keep each capture's identity scope.
+  Precision and editorial checks inspect each usable passage, not just the
+  preferred excerpt. Edition comparisons include complementary passage changes.
+
+The provider still returns a complete replacement document. Evaluate localized,
+evidence-backed repair before adding more retries. Manual editing remains a
+fallback through Edition tools; refreshing collection does not silently replace
+a saved draft's frozen evidence. Passage bounds and lookup budgets still limit
+what the writer can know, and deterministic checks cannot prove arbitrary prose
+entailment. Test useful retained detail and priority coverage alongside acceptance.
+
+The code paths and capture losses were inspected or reproduced offline. Their
+frequency in production and contribution to another installation's failures have
+not been measured. Replay that installation's receipt before attributing an
+incident to one of these gaps. No live-provider result is implied by scripted
+evaluation.
+
+The score-report smoke gate checks all 21 cross-band pairs in its eight authored
+examples, in addition to band means and bounded component invariants. This
+prevents a mean from hiding an individual ordering inversion, but it is still
+a small synthetic regression fixture. A larger, independently adjudicated
+retained-evidence corpus is required before claiming production ranking recall
+or precision; neither these tests nor scripted provider outputs establish it.
+
+The [local ranking benchmark](ranking-benchmark.md) now captures bounded complete
+retained candidate pools, including selection exclusions, before and after
+enrichment. It supports blinded human-review exports, independently attested
+reviewers, third-person adjudication, incident/time leakage checks, and offline
+metrics with explicit annotation coverage and denominators. It contains no expert
+labels by default and does not measure upstream reports absent from collection.
+The existing selected-only archive and authored scoring fixture remain separate
+diagnostics; neither is silently relabeled as a production benchmark.
+
+### Action consistency, priority coverage, and extraction regressions
+
+Executive decisions reference canonical actions (`S1.A1` means the first action
+of the first judgment). Checks compare the referenced response, assigned owner,
+and target within its judgment; a different story's date cannot satisfy that
+association. Different containment and recovery targets remain separate summary
+decisions. Contradictory dates block publication. Where bounded prose checks
+cannot establish an action association, the draft requires an explicit review;
+a model-supplied reference is not proof of semantic equivalence.
+
+An action that actually instructs multiple containment, investigation, or recovery
+phases requires `ACTION_PHASE_BUNDLE_REVIEW`. Split those phases into separately
+owned deliverables and achievable targets, naming dependencies when needed.
+Scoped cross-functional work, log preservation, and mentions of a recovery plan
+do not alone trigger this bounded prose check. Prompts target 1,200–1,800 words
+for a full six-signal edition while retaining decision-changing qualifications.
+
+New generations capture a bounded priority list from selected evidence and ask
+for covered, duplicate, or deferred dispositions. Covered items must reference
+real judgments or Watchlist entries with supporting exact citations and visible
+event identity. Unexplained, unsupported, or deferred priority items require
+review against the saved evidence. Ranking alone does not mandate inclusion.
+Version 2 groups justified same-event reports before applying the eight-event
+cap. Material overflow and unresolved important KEV leads require review;
+bounded named overflow remains in the receipt. Version 1 receipts retain their
+original diagnostics-only overflow policy, and older receipts without a coverage
+contract are unevaluated. Federal remediation dates
+retain their FCEB scope and never establish local exposure or a local deadline.
+
+Article extraction excludes advertisement and related-story containers before
+excerpting. Quality checks reject off-topic promotional text and unrelated
+advisory teasers while preserving usable same-source feed evidence. Versioned
+extraction caches prevent old extracts from returning through 304 responses or
+failed-refresh fallbacks. Replay applies the current quality policy to immutable
+captured parts, reports original/current classifications, and uses only accepted
+passages for current claim support. It does not retrieve newer evidence or
+rewrite historical receipts.
+
+Article retrieval gives distinct events a first pass before additional publisher
+copies consume capacity. Earlier captured passages may supply dated qualifications
+only when the current source is thin and the publisher, URL, title, and publication
+day match exactly. This context is bounded to five receipts, eight sources, and
+72 hours, retains its original retrieval time, and cannot revive a stale or
+title-only current source. It does not authorize new current facts, refresh
+evidence age, or count as independent corroboration. Prior model prose remains
+topic continuity only.
+
+Regression fixtures include the October 9 Ahsay date mismatch, the omitted CISA
+advisory, both rejected article passages, valid short advisories/training stories,
+legitimate duplicate coverage, forged references, stale approvals, and repaired
+metadata. These deterministic tests and receipt replays make no provider calls;
+they do not establish general editorial recall or complete factual entailment.

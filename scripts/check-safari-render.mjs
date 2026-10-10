@@ -10,6 +10,7 @@ import { join, resolve } from 'node:path';
 import express from 'express';
 import { createFixtureApp } from './serve-visual-fixtures.mjs';
 import { SafariWebDriver } from './safari-webdriver.mjs';
+import { isReadOnlySafariFixtureRequest } from './safari-fixture-requests.mjs';
 import { promisify } from 'node:util';
 
 assert.equal(process.platform, 'darwin', 'This acceptance check requires actual macOS Safari. Run its macOS CI job.');
@@ -78,7 +79,7 @@ try {
   report.stage = 'browser-acceptance';
 
   const fixtureApp = express();
-  fixtureApp.use((req, _res, next) => { if (!['GET', 'HEAD'].includes(req.method)) writes.push(`${req.method} ${req.path}`); next(); });
+  fixtureApp.use((req, _res, next) => { if (!isReadOnlySafariFixtureRequest(req)) writes.push(`${req.method} ${req.path}`); next(); });
   fixtureApp.use(createFixtureApp());
   // The deployed landing page retains upgrade-insecure-requests. Safari applies
   // it even to loopback HTTP, so serve its unchanged bytes over actual TLS.

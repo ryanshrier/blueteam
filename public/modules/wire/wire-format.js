@@ -4,6 +4,7 @@
 // the document, window, or `location`.
 
 import { formatBriefLabel } from '../core/brief-date.js';
+import { evidenceQualifications, capturedSignalFacts } from '../core/signal-facts.js';
 
 // The saved edition may predate today's feed. Bind its label and destination
 // to the same snapshot so a reader always opens the edition that was named.
@@ -202,6 +203,8 @@ export function serializeWireUrl(filters = {}, sortMode = 'relevance') {
 export const CSV_COLUMNS = [
   'score', 'horizon', 'urgency', 'isKEV', 'kevCVE', 'corroboration', 'title', 'description',
   'source', 'sources', 'link', 'date', 'cveData', 'kevDueDate', 'kevOverdue', 'vendors', 'actors',
+  'sourceRetrievedAt', 'collectionState', 'articleRetrievedAt', 'articleRetrievalStatus',
+  'enrichmentAvailability', 'kevCatalogState', 'kevCatalogRetrievedAt', 'kevMembership', 'kevDeadlineScope', 'cvssAssessments', 'cveObservations',
 ];
 
 export function csvCell(value) {
@@ -233,7 +236,9 @@ function joinArrayCell(arr) {
 export function toCsv(items, columns = CSV_COLUMNS) {
   const lines = [columns.join(',')];
   for (const h of (Array.isArray(items) ? items : [])) {
-    lines.push(columns.map(col => csvCell(Array.isArray(h[col]) ? joinArrayCell(h[col]) : h[col])).join(','));
+    const facts = { ...h, ...capturedSignalFacts(h, h.kevRecords, h.kevCatalogStatus) };
+    const row = { ...facts, ...evidenceQualifications(facts) };
+    lines.push(columns.map(col => csvCell(Array.isArray(row[col]) ? joinArrayCell(row[col]) : row[col])).join(','));
   }
   return lines.join('\r\n');
 }

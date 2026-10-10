@@ -95,6 +95,26 @@ describe('per-source CVE and CVSS association', () => {
     }
   });
 
+  test.each(['14.1-43.56', '13.1-61.28', '12.4.3-03453', '2.1-beta.2'])(
+    'keeps the complete supported release identifier %s', version => {
+      const claim = `Manager version ${version} fixes CVE-2026-1234.`;
+      for (const prefix of ['', 'v']) {
+        const source = { ...vendor, description: `Manager ${prefix}${version} fixes CVE-2026-1234.` };
+        expect(auditClaim(claim, [source]).issues.map(issue => issue.code)).not.toContain('VERSION_UNSUPPORTED');
+      }
+    },
+  );
+
+  test.each(['14.1', '14.1-43', '14.1-43.560', '14.1-43.56.1', '14.1-43.56-beta', '14.1-43.57'])(
+    'a claim for 14.1-43.56 cannot borrow support from release %s', version => {
+      const result = auditClaim('Manager version 14.1-43.56 fixes CVE-2026-1234.',
+        [{ ...vendor, description: `Manager ${version} fixes CVE-2026-1234.` }]);
+      expect(result.issues).toContainEqual(expect.objectContaining({
+        code: 'VERSION_UNSUPPORTED', message: 'Signal 1 version 14.1-43.56 is not present in its cited evidence',
+      }));
+    },
+  );
+
   test.each(['CVSS 10.0', 'CVSS score 10.0', 'CVSS v3.1 score 10.0', 'CVSS 3.1 base score 10.0'])(
     'reads the complete supported score in %s', score => {
       const source = { ...vendor, description: 'CVE-2026-1234 has CVSS score 10.0.' };

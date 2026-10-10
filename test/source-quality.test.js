@@ -1,6 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 import { readFileSync } from 'node:fs';
-import { classifySourceEvidence, selectSourcePassage } from '../lib/evidence-quality.js';
+import { classifySourceEvidence, selectSourcePassage, reclassifyRetainedSource, EVIDENCE_QUALITY_POLICY_VERSION } from '../lib/evidence-quality.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { buildUserPrompt } from '../lib/prompts.js';
 import { buildGenerationManifest } from '../lib/generation-manifest.js';
@@ -10,6 +10,7 @@ import { enumeratedCountIssues, assertionPrecisionIssues } from '../lib/claim-ch
 const source = { source: 'Vendor', title: 'Vendor patches CVE-2026-12345', description: 'Version 2.4 fixes CVE-2026-12345. The vendor confirmed active exploitation.', link: 'https://vendor.example/advisory', date: '2026-09-04', horizon: 1 };
 const ad = 'What does your monitoring catch? A 6-day certification course rebuilds hybrid detection across endpoint and network. Enroll today.';
 const retainedSources = JSON.parse(readFileSync(new URL('./fixtures/retained-source-quality-2026-09-06.json', import.meta.url), 'utf8')).records;
+const octoberSources = JSON.parse(readFileSync(new URL('./fixtures/retained-source-quality-2026-10-09.json', import.meta.url), 'utf8')).records;
 function draft(claim) {
   return `## BLUF
 Check affected inventory.
@@ -40,6 +41,45 @@ No supported intersection was found in the supplied sources.
 const audit = (claim, headline = source) => validateBrief(draft(claim), '2026-09-05', { publication: true, groundingManifest: buildGroundingManifest({ headlines: [headline] }) });
 
 describe('substantive source evidence', () => {
+  test.each(octoberSources)('reclassifies retained $id without changing its receipt and preserves the useful feed', captured => {
+    const before = JSON.stringify(captured);
+    const rejected = captured.sourceParts.find(part => part.kind === 'article-excerpts');
+    const feed = captured.sourceParts.find(part => part.kind === 'feed-excerpt');
+    expect(classifySourceEvidence({ title: captured.title, url: captured.url, passage: rejected.passage }))
+      .toMatchObject({ status: 'contaminated', substantive: false, policyVersion: EVIDENCE_QUALITY_POLICY_VERSION });
+    const current = reclassifyRetainedSource(captured);
+    expect(current.sourceParts).toHaveLength(1);
+    expect(current).toMatchObject({ passage: feed.passage, passageKind: 'feed-excerpt', sourceRevisions: feed.sourceRevisions,
+      qualityAssessment: { rejectedPartCount: 1, originalQuality: captured.quality, policyVersion: EVIDENCE_QUALITY_POLICY_VERSION } });
+    expect(current.evidenceText).toContain(feed.passage);
+    expect(current.evidenceText).not.toContain(rejected.passage);
+    expect(current.qualityAssessment.parts[1]).toMatchObject({ originalQuality: { substantive: true }, currentQuality: { substantive: false }, accepted: false });
+    expect(JSON.stringify(captured)).toBe(before);
+    expect(selectSourcePassage({ title: captured.title, link: captured.url, description: feed.passage, articleBody: rejected.passage }))
+      .toMatchObject({ passage: feed.passage, kind: 'feed-excerpt', excludedArticle: { passage: rejected.passage } });
+  });
+
+  test('keeps real short advisories, older references and articles about training', () => {
+    for (const passage of ['Fixed in 2.4.', 'The actors used techniques first reported in Sep 08, 2026 Cybersecurity Advisory | AA26-251A. Indicators were updated today.',
+      'AA26-281A reports exploitation. See the older advisory AA26-251A for related historical techniques.']) {
+      expect(classifySourceEvidence({ title: 'Chinese government-linked actors exploit appliances', url: 'https://www.cisa.gov/advisory/aa26-281a', passage }).substantive).toBe(true);
+    }
+    expect(classifySourceEvidence({ title: 'SANS announces training for application security teams', passage: octoberSources[1].sourceParts[1].passage }).substantive).toBe(true);
+  });
+
+  test('reclassification removes stale support and rejected-part identities from legacy records', () => {
+    const current = reclassifyRetainedSource({ title: 'Campaign report', passage: 'Advertisement. CVE-2026-77777 has CVSS 9.8.', quality: { substantive: true },
+      cves: ['CVE-2026-77777'], cvssMetrics: [{ score: 9.8 }], applicabilityPassage: 'Cached assertion', configurations: [{}] });
+    expect(current).toMatchObject({ passage: '', sourceParts: [], cves: [], cvssMetrics: [], configurations: [], applicabilityPassage: '', quality: { substantive: false } });
+    expect(current.evidenceText).not.toContain('CVE-2026-77777');
+  });
+
+  test('reclassification preserves the scope of structured NVD and catalog evidence', () => {
+    for (const record of [{ title: 'NVD lookup: CVE-2026-12345', passageKind: 'structured-cve-record', passage: 'CVE-2026-12345: CVSS 9.8.', cvssMetrics: [{ score: 9.8 }] },
+      { title: 'System-verified CISA KEV membership', passageKind: 'catalog-membership-only', evidenceText: 'CVE-2026-12345 is in CISA KEV.' }]) {
+      expect(reclassifyRetainedSource(record)).toMatchObject({ passageKind: record.passageKind, cves: ['CVE-2026-12345'], quality: { substantive: true } });
+    }
+  });
   test('empty and repeated headings are title-only, including punctuation differences', () => {
     expect(classifySourceEvidence({ title: 'Vendor patch', passage: '' }).status).toBe('title-only');
     expect(classifySourceEvidence({ title: 'Vendor patch', passage: 'Vendor patch. Vendor patch.' }).status).toBe('title-only');

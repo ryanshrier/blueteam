@@ -10,12 +10,16 @@
   let pending = null;
   let loading = false;
   let disposed = false;
+  let request = null;
   async function check(apply = false) {
     if (loading || disposed) return;
     loading = true; button.disabled = true;
+    const controller = new AbortController();
+    request = controller;
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     try {
       if (!pending || !apply) {
-        const response = await fetch(location.href, { cache: 'no-store', credentials: 'same-origin' });
+        const response = await fetch(location.href, { cache: 'no-store', credentials: 'same-origin', signal: controller.signal });
         if (!response.ok) throw new Error('unavailable');
         const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
         const incoming = doc.getElementById('embedSignals');
@@ -40,7 +44,12 @@
       } else status.textContent = pending ? 'A new snapshot is available.' : 'No new snapshot.';
       button.textContent = pending ? 'Apply update' : 'Refresh signals';
     } catch { if (!disposed) status.textContent = 'Update unavailable. Current signals retained.'; }
-    finally { loading = false; if (!disposed) button.disabled = false; }
+    finally {
+      clearTimeout(timeout);
+      if (request === controller) request = null;
+      loading = false;
+      if (!disposed) button.disabled = false;
+    }
   }
   button.addEventListener('click', () => { void check(true); });
   watch.addEventListener('change', () => { status.textContent = watch.checked ? 'Update checks resumed.' : 'Update checks paused.'; });
@@ -49,6 +58,7 @@
   window.addEventListener('pagehide', event => {
     clearInterval(timer); timer = null;
     if (!event.persisted) disposed = true;
+    request?.abort();
   });
   window.addEventListener('pageshow', event => {
     if (event.persisted && !disposed && timer === null) timer = setInterval(poll, 60_000);

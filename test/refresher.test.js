@@ -104,6 +104,24 @@ describe('refresher — run lifecycle', () => {
     expect(dispatchAlertsMock).toHaveBeenCalledTimes(1);
   });
 
+  test.each(['empty', 'throw'])('a recent last-good snapshot cannot hide a newer %s collection failure', async kind => {
+    runIntelligencePipelineMock.mockResolvedValueOnce({ headlines: [{ title: 'Vendor notice',
+      description: 'Vendor version 2.5 fixes CVE-2026-12345.', retrievedAt: new Date().toISOString() }],
+      stats: { collection: { configuredSources: 8, freshSources: 8 } } });
+    const good = await refresher.refreshNow('seed');
+    const originalClock = good.generatedAtMs;
+    if (kind === 'empty') {
+      runIntelligencePipelineMock.mockResolvedValueOnce({ headlines: [], stats: { collection: { configuredSources: 8, freshSources: 0 } } });
+      await refresher.refreshNow('outage');
+    } else {
+      runIntelligencePipelineMock.mockRejectedValueOnce(new Error('collection unavailable'));
+      await expect(refresher.refreshNow('outage')).rejects.toThrow('collection unavailable');
+    }
+    expect(refresher.getLatestRun().generatedAtMs).toBe(originalClock);
+    expect(() => refresher.requireAdequateEvidence(refresher.getLatestRun())).toThrow('Most configured sources');
+    expect(JSON.parse(getMeta('latest_run')).lastCollectionAttempt.retainedLastGood).toBe(true);
+  });
+
   test('archive-write failure is non-blocking — refreshNow still resolves with the run', async () => {
     // A headline missing `title` violates headline_archive's NOT NULL column,
     // so archiveHeadlines throws inside refreshNow's inner try/catch. The
@@ -223,7 +241,7 @@ describe('refresher — getFreshRun staleness boundary', () => {
 
   test('returns a fresh adequate evidence set', async () => {
     runIntelligencePipelineMock.mockResolvedValue({
-      headlines: Array.from({ length: 5 }, (_, i) => ({ title: `signal ${i}`, retrievedAt: new Date().toISOString() })),
+      headlines: Array.from({ length: 5 }, (_, i) => ({ title: `signal ${i}`, description: 'The vendor published a patch for exposed deployments.', retrievedAt: new Date().toISOString() })),
       stats: {},
     });
     const run = await refresher.getFreshRun(60_000, {
@@ -231,6 +249,16 @@ describe('refresher — getFreshRun staleness boundary', () => {
       maxAgeMs: 30 * 60_000,
     });
     expect(run.headlines).toHaveLength(5);
+    expect(run.briefingReadiness.canGenerate).toBe(true);
+  });
+
+  test('a single fresh substantive notice passes without a headline quota', async () => {
+    runIntelligencePipelineMock.mockResolvedValue({ headlines: [{ title: 'Vendor notice',
+      description: 'Vendor version 2.4 patches a remotely exploitable issue.', retrievedAt: new Date().toISOString() }],
+      stats: { collection: { configuredSources: 8, freshSources: 8 } } });
+    await expect(refresher.getFreshRun(60_000, {})).resolves.toMatchObject({
+      briefingReadiness: { status: 'limited', usableHeadlines: 1, canGenerate: true },
+    });
   });
 });
 
