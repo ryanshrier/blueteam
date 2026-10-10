@@ -265,6 +265,8 @@ export function render(main) {
               <button type="button" data-export="json" disabled title="Download the currently filtered signals as JSON">JSON <small>Structured data</small></button>
             </div>
           </section>
+              <p class="wire-retention-note" id="wireDecisionStatus" role="status">Loading server decisions…</p>
+              <button type="button" class="btn-ghost" id="wireRefreshDecisions">Refresh decisions</button>
               <button type="button" class="btn-ghost" id="wireSavedDecisions">Browse saved decisions and history</button>
               <button type="button" class="btn-ghost" id="wireExportDecisions">Export server decisions (JSON)</button>
               <button type="button" class="btn-ghost" id="wireExportBrowserDecisions">Export retained browser decisions (JSON)</button>
@@ -275,7 +277,7 @@ export function render(main) {
         </div>
 
         <div class="wire-toolbar-status"><span class="wire-shown" id="wireShown">Loading…</span><span id="wireActiveFilters"></span><button type="button" class="wire-clear-control" id="wireClear" hidden>Clear</button></div>
-        <div class="wire-retention-note"><span id="wireDecisionStatus" role="status">Loading server decisions…</span> <button type="button" class="btn-ghost-sm" id="wireRetryDecisions">Refresh decisions</button> <button type="button" class="btn-ghost-sm" id="wireMigrateDecisions" hidden>Copy browser decisions to server</button></div>
+        <div class="wire-retention-note wire-decision-notice" id="wireDecisionNotice"><span id="wireDecisionNoticeText" role="status">Loading server decisions…</span> <button type="button" class="btn-ghost-sm" id="wireRetryDecisions" hidden>Retry decisions</button> <button type="button" class="btn-ghost-sm" id="wireMigrateDecisions" hidden>Copy browser decisions to server</button></div>
         <div class="wire-update-row"><button type="button" id="wireApplyUpdates" hidden>Updated snapshot available · Apply</button><button type="button" id="wireClearReviewed" hidden></button></div>
         <div class="wire-filter-row" id="wireFilterRows">
           <!-- Tier is SINGLE-SELECT: a radiogroup with roving tabindex and arrow-key
@@ -641,8 +643,19 @@ function keepDecisionDrafts() {
 function paintDecisionStatus() {
   if (!active) return;
   const legacy = decisionClient.legacyRecords().length;
+  const phase = decisionClient.phase;
+  const connection = phase === 'ready' ? 'Decisions saved on this server · single operator.' : phase === 'offline' ? 'Decision server unavailable · showing retained copies. Your draft is kept for retry.' : 'Loading server decisions…';
+  const retained = legacy ? `${legacy} original browser records retained.` : '';
   const status = document.getElementById('wireDecisionStatus');
-  if (status) status.textContent = `${decisionClient.phase === 'ready' ? 'Decisions saved on this server · single operator.' : decisionClient.phase === 'offline' ? 'Decision server unavailable · showing retained copies. Your draft is kept for retry.' : 'Loading server decisions…'}${legacy ? ` ${legacy} original browser records retained.` : ''}`;
+  if (status) status.textContent = [connection, retained].filter(Boolean).join(' ');
+  // Routine storage details live with the decision tools. Loading, failures,
+  // and migration work remain visible above the list without opening a menu.
+  const notice = document.getElementById('wireDecisionNotice');
+  if (notice) notice.hidden = phase === 'ready' && !legacy;
+  const noticeText = document.getElementById('wireDecisionNoticeText');
+  if (noticeText) noticeText.textContent = [phase === 'ready' ? '' : connection, retained].filter(Boolean).join(' ');
+  const retry = document.getElementById('wireRetryDecisions');
+  if (retry) retry.hidden = phase !== 'offline';
   const migrate = document.getElementById('wireMigrateDecisions');
   if (migrate) migrate.hidden = !legacy;
 }
@@ -767,6 +780,7 @@ function bindWorkspace(main) {
   window.addEventListener('storage', onWorkspaceStorage);
   decisionPoll = setInterval(() => { if (!document.hidden) void syncDecisions(); }, 30_000);
   paintDecisionStatus();
+  document.getElementById('wireRefreshDecisions')?.addEventListener('click', () => void syncDecisions());
   document.getElementById('wireRetryDecisions')?.addEventListener('click', () => void syncDecisions());
   document.getElementById('wireSavedDecisions')?.addEventListener('click', () => void openDecisionLibrary());
   document.getElementById('wireMigrateDecisions')?.addEventListener('click', () => void importServerDecisions(decisionClient.legacyRecords()));

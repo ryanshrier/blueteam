@@ -15,6 +15,29 @@ const request = extra => ({ signal, decision: value(), baseRevision: 0, requestI
 beforeEach(() => initDB(':memory:'));
 afterEach(() => closeDB());
 
+test('POST lookup retrieves existing decisions under SQLite query-only mode without creating missing records', async () => {
+  const saved = saveDecision(request());
+  const database = getDB();
+  const changes = database.prepare('SELECT total_changes() AS n').get().n;
+  database.pragma('query_only = ON');
+  const app = express(); app.use(express.json()); app.use('/api', createDecisionRouter());
+  const server = app.listen(0, '127.0.0.1'); await new Promise(done => server.once('listening', done));
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/decisions/lookup`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signals: [signal, signal, 'https://example.test/not-saved'] }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ items: [{ id: saved.record.id, revision: 1 }] });
+    expect(database.prepare('SELECT total_changes() AS n').get().n).toBe(changes);
+    expect(listDecisions().total).toBe(1);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(done => server.close(done));
+    database.pragma('query_only = OFF');
+  }
+});
+
 test('edits append revisions atomically and reject stale browser baselines without losing either version', () => {
   const first = saveDecision(request());
   expect(first).toMatchObject({ record: { revision: 1, signal, decision: { state: 'investigate' } }, savedRevision: 1 });

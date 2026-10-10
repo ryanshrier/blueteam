@@ -159,6 +159,7 @@ export async function runProductionSmoke() {
     const wirePath = `/wire?signal=${encodeURIComponent(signal)}`;
     const formReady = '!!document.querySelector("#wireInspector [data-decision-form]") && document.querySelector("#wireDecisionStatus")?.textContent.startsWith("Decisions saved on this server")';
     await navigate(first, wirePath, formReady);
+    assert(await evaluate(first, 'document.querySelector("#wireDecisionNotice").hidden && !!document.querySelector("#wireViewTools #wireDecisionStatus")'), 'Routine decision status stays in View tools so the scan list remains near the top');
     const second = await page();
     await navigate(second, wirePath, formReady);
     const draft = note => `(() => { const form = document.querySelector('#wireInspector [data-decision-form]');
@@ -199,6 +200,7 @@ export async function runProductionSmoke() {
       'https://example.test/legacy-decision': { state: 'investigate', note: 'Legacy off-feed record', recordedAt: '2026-09-01T00:00:00Z' } });
     await evaluate(first, `localStorage.setItem('wire.decisions.v1', ${JSON.stringify(legacy)})`);
     await navigate(first, wirePath, formReady);
+    assert(await evaluate(first, '!document.querySelector("#wireDecisionNotice").hidden && document.querySelector("#wireMigrateDecisions").getClientRects().length > 0'), 'Retained browser decisions remain visibly actionable without opening View tools');
     await evaluate(first, `document.querySelector('#wireMigrateDecisions').click()`);
     await waitFor(first, 'document.querySelector("dialog")?.textContent.includes("1 conflicts left unchanged")');
     assert.equal(await evaluate(first, `localStorage.getItem('wire.decisions.v1')`), legacy);
@@ -212,8 +214,12 @@ export async function runProductionSmoke() {
     await first.call('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
     await evaluate(first, submit);
     await waitFor(first, 'document.querySelector("#wireDecisionStatus")?.textContent.includes("unavailable")');
+    assert(await evaluate(first, '!document.querySelector("#wireDecisionNotice").hidden && document.querySelector("#wireDecisionNoticeText").textContent.includes("unavailable") && document.querySelector("#wireRetryDecisions").getBoundingClientRect().height >= 44'), 'Offline decision warning and usable retry remain visible outside View tools');
     assert(!(await serverDecisions()).some(record => record.signal === seed.headlines[1].link));
     await first.call('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await evaluate(first, 'document.querySelector("#wireRetryDecisions").click()');
+    await waitFor(first, formReady, 'Visible retry restores the decision connection');
+    assert(await evaluate(first, 'document.querySelector("#wireRetryDecisions").hidden && !document.querySelector("#wireDecisionNoticeText").textContent.includes("unavailable")'), 'Recovery clears the offline warning');
     await navigate(first, `/wire?signal=${encodeURIComponent(seed.headlines[1].link)}`, formReady);
     assert.equal(await evaluate(first, `document.querySelector('#wireInspector [name="note"]').value`), 'Offline draft remains recoverable');
     await evaluate(first, submit);
