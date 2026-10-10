@@ -5,10 +5,12 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, 
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { saveBrief } from '../lib/history.js';
+import { initializeBriefReceiptPolicy } from '../lib/brief-receipts.js';
 import { buildGenerationManifest, readGenerationManifest, sha256 } from '../lib/generation-manifest.js';
 import { saveRejectedBrief, readBriefDraft } from '../lib/brief-drafts.js';
 import { createPublicationLookup } from '../lib/brief-publication.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
+import { buildPriorityCoverage } from '../lib/brief-coverage.js';
 import { repairBriefFormatting, validateBrief } from '../lib/validation.js';
 import { BRIEF_EVALUATION_CASES, referenceBrief } from './fixtures/brief-evaluation.js';
 
@@ -51,13 +53,17 @@ afterEach(async () => {
   await new Promise(resolve => server.close(resolve));
   rmSync(dir, { recursive: true, force: true });
 });
-function draft({ text = content, scheduled = false, generatedAt = '2026-09-05T12:00:00Z' } = {}) {
+function draft({ text = content, scheduled = false, generatedAt = '2026-09-05T12:00:00Z', checkPriorityCoverage = false } = {}) {
   const groundingManifest = buildGroundingManifest({ headlines: item.headlines });
   const validation = validateBrief(text, '2026-09-05', { publication: true, editorialStandard: 2, groundingManifest, kevSet: new Set(), kevCatalogLoaded: true });
   const manifest = buildGenerationManifest({ run: { headlines: item.headlines }, config: {}, editionContext: { date: '2026-09-05', timezone: 'UTC', scheduled }, groundingManifest });
   Object.assign(manifest, { generationId: randomUUID(), editorialStandard: 2, generatedAt, verification: { kevCatalogLoaded: true, selectedKevCves: [] },
     providerAttempts: [{ model: 'synthetic-model', status: 'failed', usageComplete: false, usage: { inputTokens: 100, outputTokens: 50 } }],
     costEstimate: { usd: null, status: 'unknown-final-usage' }, publicationValidation: { ...validation, partial: true } });
+  if (checkPriorityCoverage) manifest.priorityCoverage = buildPriorityCoverage({
+    headlines: item.headlines.map(headline => ({ ...headline, score: 80, urgency: 'critical' })), groundingManifest,
+    editionDate: '2026-09-05', maxItems: 1,
+  });
   return saveRejectedBrief(dir, { id: manifest.generationId, content: text, manifest, validation: { ...validation, partial: true } });
 }
 const requestFor = (artifact, extra = {}) => ({ baseRevision: artifact.revisions.at(-1).number, inputSha256: artifact.manifestSha256, ...extra });
@@ -67,6 +73,44 @@ const post = (artifact, payload, route = 'publish') => fetch(`${base}/brief/draf
 const archives = () => readdirSync(dir).filter(file => file.endsWith('.md'));
 
 describe('explicit repair publication', () => {
+  test('publication revision changes for a draft absent from the ledger and stays stable on replay', async () => {
+    const artifact = draft();
+    const before = await (await fetch(`${base}/brief/status`)).json();
+    expect(before.jobs).toEqual([]);
+    expect(before.publicationRevision).toMatch(/^[a-f0-9-]{36}$/);
+    expect((await post(artifact, requestFor(artifact))).status).toBe(200);
+    const after = await (await fetch(`${base}/brief/status`)).json();
+    expect(after.publicationRevision).not.toBe(before.publicationRevision);
+    expect(after.jobs).toEqual([]);
+    expect((await post(artifact, requestFor(artifact))).status).toBe(200);
+    expect((await (await fetch(`${base}/brief/status`)).json()).publicationRevision).toBe(after.publicationRevision);
+  });
+
+  test('priority coverage requires exact-copy, exact-findings editorial review and preserves its scope', async () => {
+    const artifact = draft({ checkPriorityCoverage: true });
+    expect(artifact.manifest.priorityCoverage.items).toHaveLength(1);
+    const held = await post(artifact, requestFor(artifact));
+    expect(held.status).toBe(422);
+    const state = await held.json();
+    expect(state.publicationDecision.blockers).toEqual([]);
+    const issueCodes = [...new Set(state.publicationDecision.reviewIssues.map(issue => issue.code))].sort();
+    expect(issueCodes).toContain('PRIORITY_COVERAGE_MISSING');
+    const editorialReview = { reviewer: 'Fixture editor', reason: 'Reviewed the priority source and the scoped omission against the captured evidence.',
+      contentSha256: artifact.revisions.at(-1).sha256, issueCodes };
+    expect((await post(artifact, requestFor(artifact, { securityControlReview: editorialReview }))).status).toBe(422);
+    expect((await post(artifact, requestFor(artifact, { editorialReview: { ...editorialReview, issueCodes: [] } }))).status).toBe(422);
+    expect((await post(artifact, requestFor(artifact, { editorialReview: { ...editorialReview, contentSha256: '0'.repeat(64) } }))).status).toBe(422);
+    const publishedResponse = await post(artifact, requestFor(artifact, { editorialReview }));
+    expect(publishedResponse.status).toBe(200);
+    const published = await publishedResponse.json();
+    expect(published).toMatchObject({ published: true, publication: { eligibleForLatest: true } });
+    const receipt = readGenerationManifest(dir, published.filename);
+    expect(receipt.repairedDraft.operatorReview).toMatchObject({ scope: 'briefing-editorial', issueCodes,
+      contentSha256: artifact.revisions.at(-1).sha256, inputSha256: artifact.manifestSha256 });
+    expect(receipt.priorityCoverage).toEqual(artifact.manifest.priorityCoverage);
+    expect(receipt.publicationValidation.issues.some(issue => issue.code === 'PRIORITY_COVERAGE_MISSING')).toBe(true);
+    expect(getClient).not.toHaveBeenCalled(); expect(getFreshRun).not.toHaveBeenCalled();
+  });
   test('cached accounting recovery discovers a new commit and still rechecks the archive content', async () => {
     const artifact = draft();
     const lookup = createPublicationLookup(dir);
@@ -137,6 +181,7 @@ describe('explicit repair publication', () => {
     const artifact = draft();
     const date = mode === 'later day' ? '2026-09-06' : '2026-09-05';
     const existing = saveBrief(dir, '## BLUF\nCurrent evidence.', { date });
+    initializeBriefReceiptPolicy(dir, { adoptLegacy: true });
     utimesSync(join(dir, existing), new Date(`${date}T15:00:00Z`), new Date(`${date}T15:00:00Z`));
     const result = await (await post(artifact, requestFor(artifact))).json();
     expect(result).toMatchObject({ published: true, isCurrent: false });

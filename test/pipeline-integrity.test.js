@@ -49,14 +49,14 @@ test('a restamped pipeline cannot sell 47-hour stale cache as current evidence',
   const headlines = await feeds.fetchNewsContext([{ source: 'Stale source', url, horizon: 1 }]);
   expect(headlines).toHaveLength(5);
   expect(headlines.every(h => h.retrievedAt === retrievedAt && h.collectionStale)).toBe(true);
-  expect(() => requireAdequateEvidence({ headlines, generatedAtMs: Date.now() })).toThrow('coverage');
+  expect(() => requireAdequateEvidence({ headlines, generatedAtMs: Date.now() })).toThrow('No fresh substantive');
 });
 
 test('paid evidence gate rejects poor source coverage even with fresh headlines', () => {
-  const run = { headlines: Array.from({ length: 5 }, () => ({ retrievedAt: new Date().toISOString() })), generatedAtMs: Date.now(), stats: { collection: { configuredSources: 40, freshSources: 1 } } };
-  expect(() => requireAdequateEvidence(run)).toThrow('coverage');
+  const run = { headlines: Array.from({ length: 5 }, () => ({ title: 'Vendor notice', description: 'Vendor version 2.5 fixes CVE-2026-12345.', retrievedAt: new Date().toISOString() })), generatedAtMs: Date.now(), stats: { collection: { configuredSources: 40, freshSources: 1 } } };
+  expect(() => requireAdequateEvidence(run)).toThrow('Most configured sources');
   run.stats.collection.freshSources = 30;
-  expect(requireAdequateEvidence(run)).toBe(run);
+  expect(requireAdequateEvidence(run)).toMatchObject({ ...run, briefingReadiness: { canGenerate: true, status: 'limited' } });
 });
 
 test('freshness gate and bounded prompt sources use the same fresh members', () => {
@@ -86,6 +86,48 @@ test('NVD transient failures are reported and retried rather than cached as abse
     await expect(enrichment.enrichCVEs([{ title: 'CVE-2026-9876543 advisory' }])).rejects.toThrow('NVD unavailable');
   }
   expect(safeFetch).toHaveBeenCalledTimes(2);
+});
+
+test('post-selection article capture supplies body-only CVEs to the existing lookup budgets', async () => {
+  const cve = 'CVE-2026-87021';
+  const headline = { title: 'Gateway security update', source: 'Vendor', link: 'https://vendor.example/body-identity', horizon: 1,
+    sourceMembers: [{ title: 'Gateway security update', description: 'The vendor has published a new advisory.' }] };
+  const calls = [];
+  safeFetch.mockImplementation(async url => {
+    calls.push(url);
+    if (url.includes('known_exploited_vulnerabilities.json')) return new Response(JSON.stringify({ vulnerabilities: [{ cveID: cve, dateAdded: '2026-10-09' }] }));
+    if (url === headline.link) return new Response(`<article><p>Gateway security update. ${cve} affects Gateway version 1.2.3. The vendor recommends checking deployment before applying its update.</p><aside>CVE-2026-87022 is an unrelated sidebar.</aside></article>`);
+    if (url.includes('services.nvd.nist.gov')) return new Response(JSON.stringify({ vulnerabilities: [{ cve: { id: cve, vulnStatus: 'Analyzed', metrics: { cvssMetricV31: [{ cvssData: { baseScore: 8.1 } }] } } }] }));
+    if (url.includes('api.first.org')) return new Response(JSON.stringify({ data: [{ cve, epss: '0.42' }] }));
+    throw new Error(`Unexpected test request: ${url}`);
+  });
+  const failures = [];
+  await enrichment.enrichKEV([headline]);
+  expect(headline.isKEV).toBe(false);
+  calls.length = 0;
+  await feeds.runEnricherStage('post', [headline], { maxArticleExtractions: 1, maxCVEEnrichments: 1, maxEPSSLookups: 1 }, failures);
+  expect(failures).toEqual([]);
+  expect(calls).toHaveLength(3);
+  expect(calls[0]).toBe(headline.link);
+  expect(calls[1]).toContain(`cveId=${cve}`);
+  expect(calls[2]).toContain(cve);
+  expect(calls.join(' ')).not.toContain('87022');
+  expect(headline).toMatchObject({ isKEV: true, kevCVE: cve, kevDateAdded: '2026-10-09', cvssScore: 8.1, epss: 0.42, epssCVE: cve, articleRetrievalStatus: 'fetched' });
+  expect(Number.isFinite(Date.parse(headline.articleRetrievedAt))).toBe(true);
+});
+
+test('KEV identity parsing expands source shorthand and excludes stale or contaminated article captures', () => {
+  const kev = new Set(['CVE-2026-98761', 'CVE-2026-98762']);
+  const headlines = [
+    { title: 'Vendor fixed CVE-2026-98760/98761' },
+    { title: 'Gateway update', articleBody: 'Gateway version 1.2 is affected by CVE-2026-98762. The vendor recommends applying the patch.' },
+    { title: 'Gateway update', articleBody: 'Gateway version 1.2 is affected by CVE-2026-98762.', articleStale: true },
+    { title: 'Gateway update', articleBody: 'Access denied. CVE-2026-98762.' },
+  ];
+  enrichment.tagKEVFromCatalog(headlines, kev);
+  expect(headlines.map(h => h.isKEV)).toEqual([true, true, false, false]);
+  expect(headlines[0].kevCVE).toBe('CVE-2026-98761');
+  expect(safeFetch).not.toHaveBeenCalled();
 });
 
 test.each(['CVE-2026-87654 is not actively exploited', 'No evidence of active exploitation of CVE-2026-87654', 'Active exploitation of CVE-2026-87654 has not been observed', 'Is CVE-2026-87654 actively exploited?'])('denial does not promote urgency or tier: %s', title => {

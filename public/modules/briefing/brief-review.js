@@ -1,6 +1,6 @@
 import { escapeHtml } from '../core/sanitize.js';
 import { formatEventTime } from '../core/brief-date.js';
-import { readerIssueIdentity } from './brief-renderer.js';
+import { readerIssueIdentity, readerIssueAcknowledged } from './brief-renderer.js';
 
 /** Read the server's current-copy contract, without turning historical checks
  * into a claim about this revision. The fallback supports older saved editions. */
@@ -55,9 +55,10 @@ function locatedTarget(content, brief, issue) {
 export function readerEvidenceLimits(brief = {}, signal = null) {
   const lines = String(brief.content || '').split('\n');
   const seen = new Set();
-  return (readerPresentation(brief).currentChecks?.issues || []).filter(issue => {
+  const presentation = readerPresentation(brief);
+  return (presentation.currentChecks?.issues || []).filter(issue => {
     const identity = readerIssueIdentity(issue);
-    if (issue.audience !== 'reader' || issue.acknowledged || !issue.message || seen.has(identity)) return false;
+    if (issue.audience !== 'reader' || readerIssueAcknowledged(issue, presentation) || !issue.message || seen.has(identity)) return false;
     const line = Number(issue.location?.line);
     const heading = Number.isSafeInteger(line) && line > 0 && line <= lines.length ? lines.slice(0, line).findLast(value => /^#{2,3}\s/.test(value)) : '';
     const locatedSignal = Number(/^###\s+Signal\s+(\d+)\b/.exec(heading || '')?.[1]) || null;
@@ -85,7 +86,7 @@ function findingsHtml(content, brief, checks, { current = false } = {}) {
   return messages.length ? `<ul>${messages.map(message => {
     const issue = issues.find(item => item.message === message);
     const target = current && locatedTarget(content, brief, issue);
-    return `<li data-issue-message="${escapeHtml(message)}">${escapeHtml(message)}${issue?.acknowledged ? ' <span>Specific review recorded</span>' : ''}${target?.id ? ` <a href="#${escapeHtml(target.id)}" data-record-passage>View passage</a>` : ''}${issue?.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`;
+    return `<li data-issue-message="${escapeHtml(message)}">${escapeHtml(message)}${current && readerIssueAcknowledged(issue, readerPresentation(brief)) ? ' <span>Specific review recorded</span>' : ''}${target?.id ? ` <a href="#${escapeHtml(target.id)}" data-record-passage>View passage</a>` : ''}${issue?.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`;
   }).join('')}</ul>` : '';
 }
 
@@ -113,7 +114,7 @@ export function attachEditorialReview(content, brief = {}, { recordHost = null, 
   const checkLabel = checks.status === 'checked' ? 'Automated source checks recorded for this copy.'
     : checks.status === 'unavailable' ? 'Checks for this copy are unavailable.' : 'No saved source-check record for this edition.';
   const approval = presentation.approval || {};
-  const approvalHtml = approval.status === 'recorded' ? `<section><h3>${approval.scope === 'security-control-change' ? 'Specific security-control review' : 'Publication decision recorded'}</h3><p>${escapeHtml([approval.reviewer, formatEventTime(approval.reviewedAt)].filter(Boolean).join(' · '))}</p>${approval.reason ? `<p>${escapeHtml(approval.reason)}</p>` : ''}</section>`
+  const approvalHtml = approval.status === 'recorded' ? `<section><h3>${approval.scope === 'security-control-change' ? 'Specific security-control review' : approval.scope === 'briefing-editorial' ? 'Specific editorial review' : 'Publication decision recorded'}</h3><p>${escapeHtml([approval.reviewer, formatEventTime(approval.reviewedAt)].filter(Boolean).join(' · '))}</p>${approval.reason ? `<p>${escapeHtml(approval.reason)}</p>` : ''}${approval.scope === 'briefing-editorial' ? '<p>This approval applies only to the findings marked with a specific review in this copy.</p>' : ''}</section>`
     : ['stale', 'unavailable'].includes(approval.status) ? '<p>A previous approval could not be applied to this copy.</p>' : '';
   const history = (presentation.history || []).map(item => `<details><summary>${escapeHtml(item.label || 'Earlier edition record')}</summary>${findingsHtml(content, brief, item)}<p>These records describe an earlier revision or historical metadata.</p></details>`).join('');
   record.innerHTML = `<summary>Edition record</summary><span id="editorial-review" aria-hidden="true"></span><p>${checkLabel}</p>${current ? `<section><h3>Notes for this copy</h3>${current}</section>` : ''}${extraNotes.length ? `<section><h3>Display notes</h3>${findingsHtml(content, brief, { warnings: extraNotes })}</section>` : ''}

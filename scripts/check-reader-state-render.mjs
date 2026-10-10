@@ -54,7 +54,7 @@ try {
 async function runReaderChecks() {
   const {render,unmount}=await import('/modules/briefing/briefing-view.js');
   const {setState}=await import('/modules/core/store.js');
-  let checks=0, current, pending=false;
+  let checks=0, current, pending=false, generation=null, newer=null, publicationRevision='initial', archiveFailure=false;
   const check=(condition,message)=>{ checks++; if(!condition) throw new Error(message); };
   const until=async predicate=>{ for(let i=0;i<200;i++){ if(predicate())return; await new Promise(done=>setTimeout(done,10)); } throw new Error('Reader fixture timed out'); };
   const q=selector=>document.querySelector(selector);
@@ -94,16 +94,20 @@ Check affected inventory before scheduling remediation.
     if(!String(url).startsWith('/api/'))return originalFetch(url,options);
     check(!options.method||options.method==='GET','Reader performs only read requests');
     let data;
-    if(url==='/api/settings')data={ai:{enabled:false}};
-    else if(url==='/api/brief/status')data={persistence:'ok',active:false,latest:null,draftRecovery:{items:pending?[{id:'new-draft',status:'draft',editionDate:'2026-10-09'}]:[]}};
-    else if(url==='/api/briefs')data=[{filename,disposition:current.disposition}];
+    if(url==='/api/settings')data={ai:{enabled:true}};
+    else if(url==='/api/brief/status')data={persistence:'ok',publicationRevision,active:generation?.status==='running',latest:generation,draftRecovery:{items:pending?[{id:'new-draft',status:'draft',editionDate:'2026-10-09'}]:[]}};
+    else if(url==='/api/briefs'){
+      if(archiveFailure)throw new Error('Synthetic transient archive failure');
+      data=[...(newer?[newer]:[]),{filename,disposition:current.disposition}];
+    }
     else if(url===`/api/brief/${filename}`)data=current;
+    else if(newer&&url===`/api/brief/${newer.filename}`)data=newer;
     else if(url==='/api/headlines')data={headlines:[],generatedAt:'2026-10-09T12:00:00Z'};
     else throw new Error(`Unexpected synthetic endpoint ${url}`);
     return new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}});
   };
   async function show(state,hash=''){
-    unmount(); current=base(); pending=state==='draft';
+    unmount(); current=base(); pending=state==='draft'; generation=null; newer=null; publicationRevision='initial'; archiveFailure=false;
     if(state==='published'){current.presentation.copy.kind='published';current.presentation.history=[];}
     if(state==='corrected'){
       current.reviewedContent=markdown; current.sourceCheckStatus='findings';
@@ -119,6 +123,12 @@ Check affected inventory before scheduling remediation.
     q('#briefOverviewMode').click();await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));scrollTo(0,0);
   }
   await show('clean');
+  for(const id of ['briefGenerate','briefDrafts']) {
+    const control=q('#'+id), box=control.getBoundingClientRect();
+    check(!control.closest('details')&&control.getClientRects().length>0,`${id}: available without opening Edition tools`);
+    check(box.height>=44&&box.left>=0&&box.right<=innerWidth+1,`${id}: touch target fits the viewport`);
+  }
+  check(!q('#briefEditionTools').open,'Primary tasks do not require open Edition tools');
   check(q('#briefPublicationState').hidden,'Clean repaired edition has no material warning');
   check(q('#edition-record').textContent.includes('checks recorded for this copy')&&!q('#edition-record').textContent.includes('unavailable'),'Repaired checks are accurately recorded');
   check(!q('#edition-record').open,'Edition record is optional by default');
@@ -161,6 +171,35 @@ Check affected inventory before scheduling remediation.
   await show('published');
   check(q('#briefAiDisclosure').textContent==='AI-generated briefing · Edition record','Unedited publication has a concise AI disclosure');
   q('#briefAiDisclosure a').click();check(q('#edition-record').open&&document.activeElement===q('#edition-record > summary'),'Disclosure link opens the edition record accessibly');
+  generation={id:'remote-job',status:'running',phase:'collecting'};
+  window.dispatchEvent(new Event('focus'));
+  await until(()=>q('#briefAttemptStatus').textContent.includes('Collecting current source evidence'));
+  check(q('#briefGenerate').disabled,'A generation started elsewhere locks the visible Generate button');
+  newer={...base(),filename:'brief-2026-10-09-02.md'};
+  generation={...generation,status:'complete',filename:newer.filename};
+  publicationRevision='remote-completed';
+  window.dispatchEvent(new Event('focus'));
+  await until(()=>!q('#briefLatestNotice').hidden);
+  check(location.pathname.endsWith(filename),'Remote completion leaves the selected reading document in place');
+  check(q('#briefMeta').textContent.includes('Archived briefing'),'Previous edition no longer claims current publication');
+  check(q('#briefHistory').querySelector(`option[value="${newer.filename}"]`),'Remote publication appears in edition history');
+  check(!q('#briefGenerate').disabled,'Generate unlocks when server accounting confirms completion');
+  q('#briefLatestNotice a').click();
+  await until(()=>location.pathname.endsWith(newer.filename)&&q('#briefMeta').textContent.includes('Current published briefing'));
+  check(q('#briefLatestNotice').hidden,'Opening latest updates identity and clears the new-edition notice without reload');
+  const selected=location.pathname;
+  newer={...base(),filename:'brief-2026-10-09-03.md'};
+  publicationRevision='older-draft-published'; archiveFailure=true;
+  window.dispatchEvent(new Event('focus'));
+  await until(()=>q('#briefMeta').textContent.includes('Saved briefing'));
+  check(!q('#briefMeta').textContent.includes('Current published'),'Failed archive refresh does not leave a stale Current claim');
+  await new Promise(done=>setTimeout(done,0));
+  archiveFailure=false;
+  window.dispatchEvent(new Event('focus'));
+  await until(()=>!q('#briefLatestNotice').hidden&&q('#briefLatestNotice a').getAttribute('href').endsWith(newer.filename));
+  check(location.pathname===selected&&q('#briefMeta').textContent.includes('Archived briefing'),'Older draft publication is detected despite an unchanged latest job, preserving the selected document');
+  check(q('#briefHistory').querySelector(`option[value="${newer.filename}"]`),'A failed archive refresh retries on focus without generation');
+  check(document.documentElement.scrollWidth<=innerWidth+1,'Remote status and new-edition controls fit the viewport');
   window.__showReaderState=show;window.__finishReaderState=()=>{unmount();window.fetch=originalFetch;};
   return{checks};
 }

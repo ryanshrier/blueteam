@@ -90,13 +90,20 @@ describe('saved overview identity and authored meaning', () => {
     expect(html).toContain('35 days old');
     const withoutTime = renderOverview({ ...SAVED_BRIEF, generatedAt: undefined }, { now: Date.parse('2026-09-05T00:00:00Z') });
     expect(withoutTime).toContain('Assessment from Sep 4, 2026 · brief 2');
-    expect(withoutTime).toContain('1 day old');
+    expect(withoutTime).toContain('Edition dated 1 day ago (UTC)');
     expect(withoutTime).not.toContain('00:00 UTC');
     const undated = renderOverview({ content: SAVED_BRIEF.content }, { now: Date.parse('2026-10-09T16:00:00Z') });
     expect(undated).toContain('Assessment date unavailable');
     expect(undated).not.toContain('days old');
     const future = renderOverview(SAVED_BRIEF, { now: Date.parse('2026-09-03T16:00:00Z') });
     expect(future).not.toContain('days old');
+  });
+
+  test('publication age uses elapsed hours across UTC midnight without aging an eleven-hour edition a whole day', () => {
+    const brief = { ...SAVED_BRIEF, generatedAt: '2026-10-09T18:00:00Z' };
+    expect(renderOverview(brief, { now: Date.parse('2026-10-10T05:00:00Z') })).toContain('11 hours old');
+    expect(renderOverview(brief, { now: Date.parse('2026-10-09T18:30:00Z') })).toContain('Less than 1 hour old');
+    expect(renderOverview(brief, { now: Date.parse('2026-10-10T18:00:00Z') })).toContain('1 day old');
   });
 
   test('an over-budget unreviewed assessment is disclosed whole, never clipped into a potentially unqualified claim', () => {

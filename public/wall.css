@@ -1040,6 +1040,7 @@ body.kiosk .nb-body { overflow: hidden; }
 }
 .nb-jevidence { flex-wrap: wrap; }
 .nb-h, .nb-badge, .nb-led-cve { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
+.nb-badge.cvss { white-space: normal; overflow-wrap: anywhere; text-transform: none; letter-spacing: 0; line-height: 1.45; }
 .nb-submeta { display: flex; flex-wrap: wrap; gap: 6px 12px; line-height: 1.5; }
 .nb-source-name { color: var(--paper-ink-2); }
 .nb-score-rationale { font-size: clamp(13px, .95vw, 17px); line-height: 1.5; }

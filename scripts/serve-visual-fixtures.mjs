@@ -33,6 +33,10 @@ export function createFixtureApp() {
   app.get('/api/brief/status', (_req, res) => {
     res.json({ persistence: 'ok', active: false, latest: null, synthetic: true });
   });
+  // Visual fixtures have no authored operator records. Production persistence
+  // is exercised separately by check-production-render.mjs against SQLite.
+  app.post('/api/decisions/lookup', (_req, res) => res.json({ items: [] }));
+  app.get('/api/decisions', (_req, res) => res.json({ items: [], nextCursor: null, total: 0 }));
   app.get('/api/brief/:file/manifest', (req, res) => {
     if (req.params.file === marketingReceipt.filename) return res.json(marketingReceipt);
     const data = buildAppFixture(req.params.file.endsWith('-evidence-inputs.md') ? 'source-revision' : 'normal');

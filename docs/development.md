@@ -34,6 +34,7 @@ npm run check:security:render  # Actual sanitizer/renderer adversarial corpus; e
 npm run check:draft:render     # Draft save/publish/recovery, exact-copy review, desktop and phone; synthetic APIs only
 npm run check:design:render    # Production reader, Wire, and Wall layout and interaction checks
 npm run check:reader:render    # Current-copy records, exceptions, qualifications, and draft-task separation
+npm run check:production:render # Real server, isolated SQLite, security middleware, and browser workflows
 npm run check:theme:render     # Light/dark theme layouts and contrast across product views
 npm run check:handoff:render   # Production Blob downloads and Chromium PDF; requires Poppler
 npm run check:safari:render    # Actual Safari on macOS through Apple's installed SafariDriver
@@ -42,7 +43,7 @@ npm run check:release          # Version/date/tag consistency across release sur
 npm install-scripts ls --json  # Must report no unreviewed dependency scripts (npm 11.18+)
 ```
 
-Run the focused check for the area being changed, then run `npm test`. The CI policy job runs repository checks once on Linux. The runtime matrix covers Node 22.19, 24, and 26 on Linux; Node 22.19 and 26 on Windows; and Node 26 on Apple Silicon and Intel macOS. The **Release readiness** check succeeds only when repository policy, the entire runtime matrix, and the Safari job succeed, including when an upstream job fails or is skipped. Tag builds also require the `vX.Y.Z` tag to match `package.json`, the changelog, the landing page, and the sitemap date.
+Run the focused check for the area being changed, then run `npm test`. The CI policy job runs repository checks once on Linux. The runtime matrix covers Node 22.19, 24, and 26 on Linux and Windows, and Node 26 on Apple Silicon and Intel macOS. The **Release readiness** check succeeds only when repository policy, the entire runtime matrix, and the Safari job succeed, including when an upstream job fails or is skipped. Tag builds also require the `vX.Y.Z` tag to match `package.json`, the changelog, the landing page, and the sitemap date.
 
 Dependabot proposes npm and GitHub Actions updates weekly. Production and major
 dependency changes remain separate proposals; minor and patch development
@@ -53,6 +54,14 @@ checks as other changes and are not automatically merged.
 For browser verification without live data or paid generation, run `npm run visual:serve`.
 The [fixture guide](../test/visual/README.md) documents production-app previews,
 all seven Wall types, long/sparse content, failures, recovery, and playback controls.
+
+`check:production:render` starts the real server against temporary state with
+collection, schedules, webhook retries, and inherited provider credentials
+disabled. It exercises actual security middleware, settings persistence,
+cross-tab decision conflicts, saved-draft publication, and reader navigation
+without a model call. Fixture and replay success do not establish live provider
+writing quality or exhaustive factual accuracy; a paid generation is a separate,
+explicitly budgeted evaluation.
 
 The evidence smoke test starts its own loopback fixture server and isolated
 Chrome/Chromium/Edge profile. It requires no browser package, real sources,

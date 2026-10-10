@@ -13,7 +13,7 @@ import express from 'express';
 import { createAiProvider, loadProviderModule } from './lib/ai-provider.js';
 import { randomBytes } from 'crypto';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import {
   chmodSync,
   existsSync,
@@ -26,10 +26,12 @@ import {
 import {
   initConfig,
   getConfig,
+  getConfigWatchStatus,
   stopConfigWatch,
   MAX_GENERATION_TIMEOUT_SEC,
 } from './lib/config.js';
-import { initDB, backfillBriefSearch, closeDB } from './lib/db.js';
+import { initDB, backfillBriefSearch, closeDB, getMeta, setMeta } from './lib/db.js';
+import { initializeBriefReceiptPolicy, RECEIPT_POLICY_KEY } from './lib/brief-receipts.js';
 import { editorialContext } from './lib/intelligence-context.js';
 import { log, requestLogger, startupBanner } from './lib/logger.js';
 import {
@@ -46,7 +48,10 @@ import {
   apiSecretValidationError,
 } from './lib/middleware.js';
 import { createCompressionMiddleware } from './lib/compression.js';
-import { startRefreshSchedule, stopRefreshSchedule, waitForRefreshIdle, getLatestRun, getRunAgeMs } from './lib/refresher.js';
+import { startRefreshSchedule, stopRefreshSchedule, waitForRefreshIdle, getLatestRun, getRunAgeMs, rehydrateLatestRun } from './lib/refresher.js';
+import { startWebhookDeliverySchedule, stopWebhookDeliverySchedule, waitForWebhookDeliveryIdle, getWebhookDeliveryStatus } from './lib/alerts.js';
+import { loadBriefReadingState } from './lib/brief-reading-checks.js';
+import { sha256 } from './lib/generation-manifest.js';
 import {
   startDailyBriefSchedule,
   stopDailyBriefSchedule,
@@ -63,6 +68,7 @@ import { healthHandler, readinessHandler, livenessHandler } from './lib/health.j
 import { createBriefRouter } from './routes/brief.js';
 import { createLandscapeRouter, invalidateLandscapeMemo } from './routes/landscape.js';
 import { createSettingsRouter } from './routes/settings.js';
+import { createDecisionRouter } from './routes/decisions.js';
 import {
   loadUserSettings,
   getUserSettings,
@@ -75,6 +81,8 @@ import { PUBLIC_APP_NAME } from './lib/identity.js';
 import { normalizePublicBaseUrl } from './lib/public-url.js';
 import { closeOutboundDispatchers } from './lib/net.js';
 import { closeFeedXmlParser } from './lib/feed-xml.js';
+import { closeConfiguredRegexWorker } from './lib/configured-regex.js';
+import { configureRankingBenchmark, getRankingBenchmarkStatus } from './lib/ranking-benchmark.js';
 import { scheduledBriefFilename } from './lib/history.js';
 import {
   createBriefGenerationTracker,
@@ -87,9 +95,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // ── Paths & constants ──
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
-const HISTORY_DIR = join(__dirname, 'briefs');
-const DATA_DIR = join(__dirname, 'data');
-const CONFIG_PATH = join(__dirname, 'config.json');
+const STATE_DIR = resolve(process.env.BLUETEAM_STATE_DIR || __dirname);
+const HISTORY_DIR = join(STATE_DIR, 'briefs');
+const DATA_DIR = join(STATE_DIR, 'data');
+const REVIEW_DIR = join(STATE_DIR, 'reviews');
+const CONFIG_PATH = resolve(process.env.BLUETEAM_CONFIG_PATH || join(__dirname, 'config.json'));
+const COLLECTION_DISABLED = process.env.NODE_ENV === 'test' && process.env.BLUETEAM_DISABLE_COLLECTION === '1';
 const DB_PATH = join(DATA_DIR, 'watchfloor.db');
 const BOOT_TIME = Date.now();
 const SCHEDULED_JOB_TOKEN = randomBytes(32).toString('base64url');
@@ -113,7 +124,7 @@ if (apiSecretError) {
 }
 
 function ensurePrivateDirectory(path) {
-  if (!existsSync(path)) mkdirSync(path, { mode: 0o700 });
+  if (!existsSync(path)) mkdirSync(path, { recursive: true, mode: 0o700 });
   if (process.platform === 'win32') return;
   try {
     chmodSync(path, 0o700);
@@ -157,6 +168,8 @@ if (process.platform !== 'win32') {
 // ── Initialize core systems ──
 initConfig(CONFIG_PATH);
 initDB(DB_PATH);
+initializeBriefReceiptPolicy(HISTORY_DIR, { adoptLegacy: true, wasInitialized: getMeta(RECEIPT_POLICY_KEY) === '1', generationLedger: getMeta('brief_generation_jobs_v1') });
+setMeta(RECEIPT_POLICY_KEY, '1');
 backfillBriefSearch(HISTORY_DIR);
 
 // BlueTeam.News ships one cyber threat-intelligence product. The profile seam
@@ -164,13 +177,14 @@ backfillBriefSearch(HISTORY_DIR);
 // turning the release into a generic multi-domain briefing platform.
 setDomainPack(cyberPack);
 setEnrichers(cyberEnrichers);
+configureRankingBenchmark({ directory: join(DATA_DIR, 'ranking-benchmark') });
 
 // Warm the CISA KEV catalog at boot (non-blocking). Otherwise a brief generated
 // in the first seconds — before the first pipeline run enriches KEV — sees an
 // empty catalog and reports "0 new KEV" when the truth is simply "not yet
 // loaded." Retain the promise so shutdown keeps SQLite alive through both the
 // successful insert and the cache fallback; startup still never waits on it.
-const bootKevWarmup = refreshKEV().catch(err => log.warn('kev', `Boot KEV warm-up failed: ${err.message}`));
+const bootKevWarmup = COLLECTION_DISABLED ? Promise.resolve() : refreshKEV().catch(err => log.warn('kev', `Boot KEV warm-up failed: ${err.message}`));
 
 // Provider selection and credentials can change without restarting the server.
 loadUserSettings(DATA_DIR);
@@ -237,6 +251,7 @@ if (process.env.API_SECRET) {
 // origin). The daily scheduler and CLI/API clients omit Origin and continue to
 // work; bearer authentication remains mandatory when API_SECRET is configured.
 app.use(originCheck({ publicBaseUrl: PUBLIC_BASE_URL }));
+app.use('/api/decisions/import', express.json({ limit: '5mb' }));
 app.use(express.json({ limit: '100kb' }));
 app.use(contentTypeCheck);
 
@@ -406,18 +421,21 @@ app.use('/api', createBriefRouter({
   getAiClient: () => ai.getClient(),
   rotateKey: provider => ai.rotateKey(provider),
   historyDir: HISTORY_DIR,
+  reviewDir: REVIEW_DIR,
   cooldown,
   publicBaseUrl: PUBLIC_BASE_URL,
   localPort: PORT,
   scheduledJobToken: SCHEDULED_JOB_TOKEN,
   trackGeneration: () => briefGenerationTracker.begin(),
+  getScheduleStatus: getDailyBriefScheduleStatus,
   onDraftPublished: publication => {
     invalidateLandscapeMemo();
     recordRepairedScheduledPublication(publication);
   },
   loopback: IS_LOOPBACK,
 }));
-app.use('/api', createLandscapeRouter({ historyDir: HISTORY_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL, loopback: IS_LOOPBACK }));
+app.use('/api', createLandscapeRouter({ historyDir: HISTORY_DIR, reviewDir: REVIEW_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL, loopback: IS_LOOPBACK }));
+app.use('/api', createDecisionRouter());
 app.use('/api', createSettingsRouter({
   dataDir: DATA_DIR,
   getAiStatus,
@@ -435,6 +453,10 @@ const healthOptions = {
   version: APP_VERSION,
   dataDir: DATA_DIR,
   getAiStatus,
+  getScheduleStatus: getDailyBriefScheduleStatus,
+  getConfigWatchStatus,
+  getWebhookDeliveryStatus,
+  getRankingBenchmarkStatus,
   loopback: IS_LOOPBACK,
   requireAuthForDetails: Boolean(process.env.API_SECRET),
 };
@@ -459,7 +481,17 @@ app.use((err, req, res, _next) => {
 // ══════════════════════════════════════════
 // START
 // ══════════════════════════════════════════
-startRefreshSchedule();
+if (!COLLECTION_DISABLED) startRefreshSchedule();
+else rehydrateLatestRun();
+if (!COLLECTION_DISABLED) startWebhookDeliverySchedule({
+  getConfig,
+  validateBriefDelivery: identity => {
+    if (!identity || !/^brief-\d{4}-\d{2}-\d{2}(?:-\d+)?\.md$/.test(identity.filename)
+      || !/^[a-f0-9]{64}$/.test(identity.contentSha256)) return false;
+    const reading = loadBriefReadingState(HISTORY_DIR, identity.filename, { reviewDirectory: REVIEW_DIR });
+    return reading.disposition.eligibleForLatest === true && sha256(reading.content) === identity.contentSha256;
+  },
+});
 
 const server = app.listen(PORT, HOST, () => {
   startupBanner({
@@ -476,7 +508,7 @@ const server = app.listen(PORT, HOST, () => {
 });
 
 function armDailyBriefSchedule() {
-  if (shuttingDown) return;
+  if (shuttingDown || COLLECTION_DISABLED) return;
   return startDailyBriefSchedule({
     generateBrief: generateScheduledBrief,
     getScheduleConfig: () => getBriefScheduleSettings(),
@@ -562,7 +594,7 @@ async function runStartupSmoke() {
 let shutdownStarted = false;
 let shutdownExitCode = 0;
 const drainAndClose = createShutdownCoordinator({
-  stopWork: [stopConfigWatch, stopRefreshSchedule, stopDailyBriefSchedule, closeFeedXmlParser],
+  stopWork: [stopConfigWatch, stopRefreshSchedule, stopDailyBriefSchedule, stopWebhookDeliverySchedule, closeFeedXmlParser, closeConfiguredRegexWorker],
   requestDrains: [
     () => new Promise(resolve => {
       server.close(err => {
@@ -572,8 +604,13 @@ const drainAndClose = createShutdownCoordinator({
     }),
     () => briefGenerationTracker.waitForIdle(),
   ],
-  backgroundDrains: [() => bootKevWarmup, waitForRefreshIdle, waitForDailyBriefIdle, closeFeedXmlParser],
-  closeOutbound: closeOutboundDispatchers,
+  backgroundDrains: [() => bootKevWarmup, waitForRefreshIdle, waitForDailyBriefIdle, waitForWebhookDeliveryIdle, closeFeedXmlParser, closeConfiguredRegexWorker],
+  closeOutbound: async () => {
+    // Refresh and scheduler drains can enqueue delivery after the parallel
+    // webhook drain begins. Join again after all producers have stopped.
+    await waitForWebhookDeliveryIdle();
+    await closeOutboundDispatchers();
+  },
   closeStorage: closeDB,
   onError: err => log.warn('server', `Graceful shutdown cleanup failed: ${err.message}`),
   onTimeout: guardMs => {

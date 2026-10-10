@@ -19,6 +19,16 @@ describe('captured fact ledger',()=>{
  test('missing captured timing stays unknown even for verified membership',()=>{
    expect(facts(buildBriefFactLedger({members:records},{},true))[0]).toMatchObject({kev:'listed',fcebDue:null});
  });
+ test.each(['stale','unknown'])('retains captured positives but does not manufacture current absence with %s freshness',status=>{
+   const kevCatalogStatus={status,retrievedAt:'2026-09-01T12:00:00Z'};
+   const members=[{id:'CISA-KEV',cves:[cve]},records[1]];
+   const rows=facts(buildBriefFactLedger({members,kevCatalogStatus},timing,true));
+   expect(rows[0]).toMatchObject({cve,kev:'listed',kevSnapshotStatus:status,fcebDue:'2026-09-05'});
+   expect(rows[1]).toMatchObject({cve:other,kev:'unknown',kevSnapshotStatus:status});
+ });
+ test('a fresh snapshot can distinguish captured non-membership',()=>{
+   expect(facts(buildBriefFactLedger({members:[records[1]],kevCatalogStatus:{status:'fresh'}},{},true))[0].kev).toBe('not-in-captured-catalog');
+ });
  test('uses captured structured metrics and preserves their provenance and provisional status',()=>{
    const nvd={...records[1],evidenceText:`${other}: CVSS 3.1 base score 9.8`,cvssMetrics:[
      {cve:other,score:9.8,version:'3.1',source:'vendor@example.com',type:'Secondary',provisional:true,selected:true},
@@ -39,6 +49,14 @@ describe('captured fact ledger',()=>{
  });
  test('repair retains the offending passage and editorial findings',()=>{
    expect(repairFindingContext([{code:'FACT_PRODUCT_COUNT_MISMATCH',severity:'review',message:'Wrong count',location:{line:12,excerpt:'Five products: A, B, C and D'}}])[0]).toMatchObject({line:12,passage:'Five products: A, B, C and D',severity:'review'});
+ });
+ test('repair bounds prioritize publication blockers and identify related captured sources',()=>{
+   const notes=Array.from({length:30},()=>({code:'REVIEW',severity:'review',message:'Editorial note'}));
+   const issue={code:'CVE_CITATION_MISMATCH',severity:'trust',message:`Signal 1 ${other} is absent from its cited evidence`,sourceIds:['S1.1']};
+   const context=repairFindingContext([...notes,issue],{members:records});
+   expect(context).toHaveLength(24);
+   expect(context[0]).toMatchObject({code:issue.code,sourceIds:['S1.1'],relatedSourceIds:['CISA-KEV',`NVD-${other}`]});
+   expect(repairFindingContext([issue],{members:[{id:'unrelated',cves:[cve]}]})[0].relatedSourceIds).toEqual([]);
  });
 });
 test('observed five-versus-four product enumeration is caught without counting parenthetical commas',()=>{

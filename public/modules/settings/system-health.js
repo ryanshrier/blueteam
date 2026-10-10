@@ -32,6 +32,7 @@ export function sanitizeDiagnostics(data) {
     ageSeconds: number(data.pipeline.ageSeconds),
     headlines: number(data.pipeline.headlines),
     stale: typeof data.pipeline.stale === 'boolean' ? data.pipeline.stale : null,
+    lastAttemptFailed: data.pipeline.lastAttemptFailed === true,
   };
   if (data.feeds && typeof data.feeds === 'object') {
     const issueCounts = {};
@@ -45,9 +46,39 @@ export function sanitizeDiagnostics(data) {
     };
   }
   if (Object.hasOwn(data, 'configReloadError')) result.configReloadRejected = Boolean(data.configReloadError);
+  if (data.settings && typeof data.settings === 'object') result.settings = {
+    status: ['ok', 'missing', 'error'].includes(data.settings.status) ? data.settings.status : 'unknown',
+    operation: ['read', 'write'].includes(data.settings.operation) ? data.settings.operation : null,
+  };
+  if (data.configWatch && typeof data.configWatch === 'object') result.configWatch = {
+    status: ['watching', 'stopped', 'error'].includes(data.configWatch.status) ? data.configWatch.status : 'unknown',
+  };
+  if (data.rankingBenchmark && typeof data.rankingBenchmark === 'object') result.rankingBenchmark = {
+    enabled: data.rankingBenchmark.enabled === true,
+    state: ['disabled', 'ready', 'capturing', 'captured', 'skipped', 'unavailable'].includes(data.rankingBenchmark.state) ? data.rankingBenchmark.state : 'unavailable',
+    lastCaptureAt: timestamp(data.rankingBenchmark.lastCaptureAt),
+  };
+  if (data.webhookDelivery && typeof data.webhookDelivery === 'object') result.webhookDelivery = {
+    status: ['ok', 'paused', 'error'].includes(data.webhookDelivery.status) ? data.webhookDelivery.status : 'unknown',
+    ...Object.fromEntries(['pending', 'retrying', 'paused', 'failed', 'ambiguous', 'active']
+      .map(key => [key, number(data.webhookDelivery[key])])),
+  };
   if (data.database && typeof data.database === 'object') result.database = {
     sizeMb: number(data.database.size_mb),
     status: ['ok', 'growing', 'warning', 'missing', 'error'].includes(data.database.status) ? data.database.status : 'unknown',
+  };
+  if (data.briefingReadiness && typeof data.briefingReadiness === 'object') result.briefingReadiness = {
+    status: ['ready', 'limited', 'blocked'].includes(data.briefingReadiness.status) ? data.briefingReadiness.status : 'unknown',
+    usableHeadlines: number(data.briefingReadiness.usableHeadlines),
+    substantiveSources: number(data.briefingReadiness.substantiveSources),
+  };
+  if (data.briefingDelivery && typeof data.briefingDelivery === 'object') result.briefingDelivery = {
+    status: ['unknown', 'disabled', 'scheduled', 'running', 'published', 'awaiting-review', 'failed', 'missed', 'reconciliation-pending'].includes(data.briefingDelivery.status) ? data.briefingDelivery.status : 'unknown',
+    needsAttention: data.briefingDelivery.needsAttention === true,
+    nextAttemptAt: timestamp(data.briefingDelivery.nextAttemptAt),
+    lastSuccessAt: timestamp(data.briefingDelivery.lastSuccessAt),
+    draftAvailable: data.briefingDelivery.draftAvailable === true,
+    attempts: number(data.briefingDelivery.attempts),
   };
   return result;
 }
@@ -130,10 +161,25 @@ function uptime(value) {
   return `${Math.floor(minutes / 1440)}d ${Math.floor(minutes % 1440 / 60)}h ${minutes % 60}m`;
 }
 
+export function operationalNotices(d) {
+  return [
+    d.settings?.status === 'error' ? d.settings.operation === 'write'
+      ? 'Settings could not be saved. Check storage permissions and free space, then retry the save.'
+      : 'Saved settings could not be read or validated. Restore valid settings; unattended briefing generation is paused.' : '',
+    d.configWatch?.status === 'error' ? 'Configuration watching stopped. Check file access and restart the server to restore automatic reloads.' : '',
+    d.webhookDelivery?.retrying > 0 ? 'Webhook delivery failed and is queued for a bounded retry. Check the receiving service and server connectivity.' : '',
+    d.webhookDelivery?.failed > 0 ? 'Some webhook deliveries stopped after rejection, expiry, or repeated failure. Check the destination and server logs before arranging another delivery.' : '',
+    d.webhookDelivery?.ambiguous > 0 ? 'Webhook delivery confirmation is unavailable. Check the receiving service before arranging another delivery to avoid duplicates.' : '',
+    d.webhookDelivery?.paused > 0 ? 'Queued webhook deliveries are paused. Check the original destination, enabled event types, and briefing publication status.' : '',
+    d.webhookDelivery?.status === 'error' && !['retrying', 'failed', 'ambiguous'].some(key => d.webhookDelivery[key] > 0)
+      ? 'Webhook delivery storage needs attention. Check database access and server logs.' : '',
+  ].filter(Boolean);
+}
+
 export function mountSystemHealth(section) {
   if (!section) return () => {};
   section.innerHTML = `<div class="settings-section-heading"><h2 id="set-health">System health</h2><button class="btn-ghost-sm" id="refreshDiagnostics" type="button">Refresh diagnostics</button></div>
-    <p class="settings-note">Check collection and storage on this server.</p>
+    <p class="settings-note">Check collection, storage, settings, and briefing delivery on this server.</p>
     <div id="systemHealthStatus" class="settings-status system-health-status" data-state="loading" role="status" aria-live="polite">Loading diagnostics…</div>
     <div id="systemHealthDetails"></div>
     <div class="system-health-actions"><button class="btn-ghost-sm" id="copyDiagnostics" type="button" disabled>Copy diagnostics</button></div>
@@ -149,8 +195,8 @@ export function mountSystemHealth(section) {
   const controller = createDiagnosticsController({ onChange(state) {
     status.dataset.state = state.phase;
     status.textContent = state.phase === 'loading' ? 'Loading diagnostics…'
-      : state.phase === 'healthy' ? 'Collection and storage · Healthy'
-        : state.phase === 'degraded' ? 'Degraded — collection or storage needs attention.'
+      : state.phase === 'healthy' ? 'Server operations · Healthy'
+        : state.phase === 'degraded' ? 'Degraded — server operations need attention.'
           : 'Diagnostics unavailable — check the server connection and retry.';
     refresh.disabled = state.phase === 'loading';
     copy.disabled = state.phase === 'loading' || !state.snapshot;
@@ -168,8 +214,22 @@ export function mountSystemHealth(section) {
       ['Last collection', at(d.pipeline?.lastRefreshAt)], ['Version', d.version || 'Not available'],
     ];
     if (d.database) rows.push(['Database', `${d.database.sizeMb === null ? 'Size unavailable' : d.database.sizeMb + ' MB'} · ${d.database.status}`]);
+    if (d.settings) rows.push(['Settings', d.settings.status]);
+    if (d.configWatch) rows.push(['Configuration watching', d.configWatch.status]);
+    if (d.rankingBenchmark?.enabled) rows.push(['Ranking evaluation capture', d.rankingBenchmark.state], ['Last ranking capture', at(d.rankingBenchmark.lastCaptureAt)]);
+    if (d.webhookDelivery) rows.push(['Webhook delivery', `${d.webhookDelivery.status} · ${d.webhookDelivery.pending ?? 'unknown'} pending · ${d.webhookDelivery.paused ?? 'unknown'} paused · ${d.webhookDelivery.failed ?? 'unknown'} failed · ${d.webhookDelivery.ambiguous ?? 'unknown'} unconfirmed`]);
+    if (d.briefingReadiness) rows.push(['Briefing evidence', `${d.briefingReadiness.status} · ${d.briefingReadiness.usableHeadlines ?? 'unknown'} usable headlines`]);
+    if (d.briefingDelivery) rows.push(['Scheduled briefing', d.briefingDelivery.status], ['Next scheduled attempt', at(d.briefingDelivery.nextAttemptAt)], ['Last scheduled publication', at(d.briefingDelivery.lastSuccessAt)]);
     const notices = [
+      ...operationalNotices(d),
+      d.briefingReadiness?.status === 'limited' ? 'The current evidence supports a limited briefing. A small evidence set does not establish that no threats exist.' : '',
+      d.briefingReadiness?.status === 'blocked' ? 'A new briefing needs fresh, substantive evidence and sufficient reachable source coverage. Refresh collection or inspect the Wire.' : '',
+      d.briefingDelivery?.status === 'awaiting-review' ? 'The scheduled briefing is retained for review. Open Draft review in Briefings; no further generation is queued for that edition.' : '',
+      ['failed', 'missed'].includes(d.briefingDelivery?.status) ? 'The scheduled briefing has not been published. Check generation status and the next attempt in Settings before retrying.' : '',
+      d.briefingDelivery?.status === 'reconciliation-pending' ? 'A scheduled publication needs state reconciliation. Inspect the saved edition before generating again.' : '',
+      d.pipeline?.lastAttemptFailed ? 'The last collection attempt failed. The previous successful collection is retained; check the collection logs and configuration before retrying.' : '',
       d.pipeline?.stale ? 'Collection is overdue. Check server connectivity and the collection logs.' : '',
+      d.rankingBenchmark?.enabled && d.rankingBenchmark.state === 'unavailable' ? 'Ranking evaluation capture is unavailable. Collection can continue; inspect capture limits and storage before using these runs for evaluation.' : '',
       d.configReloadRejected ? 'The last configuration update was rejected. The previous configuration remains active; check server logs before editing again.' : '',
       d.database && ['warning', 'growing', 'missing', 'error'].includes(d.database.status)
         ? ['missing', 'error'].includes(d.database.status) ? 'Database access needs attention. Check server logs and storage permissions.' : 'Database storage is growing. Review retention and available disk space.' : '',

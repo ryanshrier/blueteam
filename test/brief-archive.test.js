@@ -28,6 +28,21 @@ describe('shareable archive navigation', () => {
 });
 
 describe('readable saved inputs', () => {
+  test('earlier source context stays outside current passage text, source counts, and citation bindings', () => {
+    const data = { grounding: { sources: [{ id: 'S1.1', title: 'Current advisory', evidenceText: 'Current retained feed.',
+      historicalCaptures: [{ passage: 'Earlier source qualification.', publishedAt: '2026-10-08', retrievedAt: '2026-10-08T14:00:00Z',
+        currentFactAuthority: false, retainedFrom: { capturedAt: '2026-10-08T15:00:00Z' } }] }] }, judgmentEvidence: [{ signal: 1, sourceIds: ['S1.1'] }] };
+    const sources = receiptSources(data);
+    expect(sources).toHaveLength(1);
+    expect(sources[0].passageText).toBe('Current retained feed.');
+    expect(sources[0].judgments).toEqual([1]);
+    const html = inputReceiptHtml(data);
+    expect(html).toContain('1 cited · 1 retained passages');
+    expect(html).toContain('Earlier captured source context');
+    expect(html).toContain('Earlier source qualification.');
+    expect(html).toContain('does not establish current facts or add independent supporting evidence');
+    expect(html).not.toContain('brief-historical-context" open');
+  });
   test('source search and passages precede the complete capture accounting', () => {
     const html = inputReceiptHtml({ selectedEvidence: [{ title: 'Captured advisory', source: 'Vendor', passage: 'Complete retained source text.' }] });
     expect(html.indexOf('data-input-search')).toBeLessThan(html.indexOf('class="brief-input-sources"'));

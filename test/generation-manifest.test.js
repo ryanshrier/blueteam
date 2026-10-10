@@ -24,13 +24,24 @@ function receipt(overrides = {}) {
 }
 
 describe('generation input receipt', () => {
+  test('cached NVD observations retain their own clock through grounding and receipts', () => {
+    const retrievedAt = '2026-09-04T11:00:00.000Z';
+    const headlines = [{ title: 'CVE-2026-12345', cveData: 'CVE-2026-12345: CVSS v3.1 9.8',
+      cveObservations: [{ cve: 'CVE-2026-12345', retrievedAt }] }];
+    const manifest = receipt({ run: { headlines }, groundingManifest: buildGroundingManifest({ headlines }) });
+    expect(manifest.selectedEvidence[0].enrichment.cveObservations).toEqual([{ cve: 'CVE-2026-12345', retrievedAt }]);
+    expect(manifest.grounding.sources.find(source => source.id === 'NVD-CVE-2026-12345')).toMatchObject({ retrievedAt, observationTimes: [retrievedAt] });
+    expect(manifest.grounding.sources.find(source => source.id === 'NVD-CVE-2026-12345').publishedAt).toBe('');
+  });
+
   test('keeps the selected bounded article passage and every grouped source with revision references', () => {
     const manifest = receipt();
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.generationId).toMatch(/^[a-f0-9-]{36}$/);
     expect(manifest.generationSettings).toMatchObject({ thinkingEffort: 'low', maxTokens: 16000 });
-    expect(manifest.selectedEvidence[0].passage).toEqual({ kind: 'article-excerpts', text: 'The vendor confirmed affected versions. '.repeat(60).trim(), quality: { status: 'substantive', substantive: true, reasons: ['retained-body-detail'] } });
-    expect(manifest.selectedEvidence[0].sourceRevisions[0]).toMatchObject({ sourceId: 'src_original', revisionId: 'rev_2', changed: true });
+    expect(manifest.selectedEvidence[0].passage).toMatchObject({ kind: 'article-excerpts', text: 'The vendor confirmed affected versions. '.repeat(60).trim(), quality: { status: 'substantive', substantive: true, reasons: ['retained-body-detail'] } });
+    expect(manifest.selectedEvidence[0].sourceRevisions).toEqual([]);
+    expect(manifest.selectedEvidence[0].sourceParts.find(part => part.kind === 'article-excerpts')).toMatchObject({ sourceRevisions: [], retrievedAt: '', passageSha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
     expect(manifest.selectedEvidence[0].groupMembers[0]).toMatchObject({ passage: 'Original vendor excerpt.', sourceRevisions: [expect.objectContaining({ revisionId: 'rev_2' })] });
     expect(manifest.selectedEvidence[0].enrichment).toMatchObject({ cveData: 'CVE-2026-12345 CVSS 9.8', isKEV: true, epss: 0.6 });
     expect(manifest.collection).toMatchObject({ configurationStatus: 'captured-at-collection', enrichmentFailures: ['EPSS'], scoringConfiguration: { axisWeights: { recency: 0.4 } } });

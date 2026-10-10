@@ -293,10 +293,10 @@ describe('capitalizeFirst', () => {
 
 describe('cvssFrom', () => {
   test('extracts "CVSS X.X SEVERITY" from a freeform cveData string', () => {
-    expect(cvssFrom({ cveData: 'CVE-2026-1234 · CVSS 9.8 (Critical) · exploited' })).toBe('CVSS 9.8 CRITICAL');
+    expect(cvssFrom({ cveData: 'CVE-2026-1234 · CVSS 9.8 (Critical) · exploited' })).toBe('CVE-2026-1234 · CVSS 9.8 Critical · version not recorded · authority not recorded');
   });
-  test('omits the severity suffix when absent', () => {
-    expect(cvssFrom({ cveData: 'CVSS 5.5' })).toBe('CVSS 5.5');
+  test('unassociated prose cannot manufacture a vulnerability severity', () => {
+    expect(cvssFrom({ cveData: 'CVSS 5.5' })).toBe('');
   });
   test('missing/absent cveData yields an empty string, never throws', () => {
     expect(cvssFrom({})).toBe('');

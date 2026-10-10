@@ -58,6 +58,10 @@ function makeServer({
   loopback = true,
   authed = false,
   requireAuthForDetails = false,
+  getScheduleStatus,
+  getConfigWatchStatus,
+  getWebhookDeliveryStatus,
+  getRankingBenchmarkStatus,
 }) {
   const app = express();
   if (authed) app.use((_req, res, next) => { res.locals.authenticated = true; next(); });
@@ -68,6 +72,10 @@ function makeServer({
     getAiStatus: () => ({ enabled: false, source: null, masked: null }),
     loopback,
     requireAuthForDetails,
+    getScheduleStatus,
+    getConfigWatchStatus,
+    getWebhookDeliveryStatus,
+    getRankingBenchmarkStatus,
   };
   app.get('/api/live', livenessHandler);
   app.get('/api/ready', readinessHandler(options));
@@ -98,6 +106,30 @@ describe('healthHandler', () => {
   });
 
   // ── feed-health status-string contract ──
+  test('failed matching or collection degrades a still-fresh retained run without exposing raw errors', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok', b: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    getLatestRunMock.mockReturnValue({ generatedAt: new Date().toISOString(), headlines: [{}, {}],
+      lastCollectionAttempt: { failed: true, retainedLastGood: true, error: 'private source/configuration' } });
+    ctx = await makeServer({ dataDir: dir, getRankingBenchmarkStatus: () => ({ enabled: true, state: 'unavailable',
+      directory: 'private-path', profile: 'private-profile', reason: 'private-error' }) });
+    const response = await fetch(`${ctx.base}/api/health`);
+    const body = await response.json();
+    expect(response.status).toBe(503);
+    expect(body.pipeline).toMatchObject({ stale: false, lastAttemptFailed: true, headlines: 2 });
+    expect(body.rankingBenchmark).toEqual({ enabled: true, state: 'unavailable', lastCaptureAt: null });
+    expect(JSON.stringify(body)).not.toContain('private-');
+  });
+  test.each(['awaiting-review', 'failed', 'skipped'])('scheduled %s degrades readiness while liveness remains healthy', async outcome => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok', b: 'empty' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    ctx = await makeServer({ dataDir: dir, getScheduleStatus: () => ({ enabled: true, outcome, draftId: 'retained-draft' }) });
+    const ready = await fetch(`${ctx.base}/api/ready`);
+    expect(ready.status).toBe(503);
+    expect((await ready.json()).briefingDelivery.needsAttention).toBe(true);
+    expect((await fetch(`${ctx.base}/api/live`)).status).toBe(200);
+  });
+
   test('classifies ok/cached/empty as reachable, and excludes stale fallback', async () => {
     getFeedHealthMock.mockReturnValue({
       feeds: {
@@ -173,6 +205,55 @@ describe('healthHandler', () => {
     const response = await fetch(`${ctx.base}/api/ready`);
     expect(response.status).toBe(503);
     expect((await response.json()).settings.errorCode).toBe('INVALID_JSON');
+  });
+
+  test('settings save failure degrades an otherwise healthy server', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    getUserSettingsStatusMock.mockReturnValue({ status: 'error', operation: 'write', usingLastGood: true, errorCode: 'ENOSPC' });
+    ctx = await makeServer({ dataDir: dir });
+    const response = await fetch(`${ctx.base}/api/ready`);
+    expect(response.status).toBe(503);
+    expect((await response.json()).settings).toMatchObject({ status: 'error', operation: 'write' });
+  });
+
+  test('a failed config watcher is degraded and only safe status is returned', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    ctx = await makeServer({ dataDir: dir, getConfigWatchStatus: () => ({ status: 'error', message: 'PRIVATE FILE', path: 'PRIVATE PATH' }) });
+    const response = await fetch(`${ctx.base}/api/ready`);
+    const body = await response.json();
+    expect(response.status).toBe(503);
+    expect(body.configWatch).toEqual({ status: 'error' });
+    expect(JSON.stringify(body)).not.toContain('PRIVATE');
+  });
+
+  test.each(['retrying', 'paused', 'failed', 'ambiguous'])('a %s webhook delivery degrades readiness and hides destination details', async field => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    ctx = await makeServer({ dataDir: dir, getWebhookDeliveryStatus: () => ({ status: 'ok', [field]: 1, pending: -3, url: 'https://PRIVATE.test/secret', message: 'PRIVATE ERROR' }) });
+    const response = await fetch(`${ctx.base}/api/ready`);
+    const body = await response.json();
+    expect(response.status).toBe(503);
+    expect(body.webhookDelivery[field]).toBe(1);
+    expect(body.webhookDelivery.pending).toBe(0);
+    expect(JSON.stringify(body)).not.toContain('PRIVATE');
+  });
+
+  test('a successful pending webhook and an active config watcher remain ready', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    ctx = await makeServer({ dataDir: dir, getWebhookDeliveryStatus: () => ({ status: 'ok', pending: 1, active: 1 }), getConfigWatchStatus: () => ({ status: 'watching' }) });
+    expect((await fetch(`${ctx.base}/api/ready`)).status).toBe(200);
+  });
+
+  test('an operational status callback failure degrades safely', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    ctx = await makeServer({ dataDir: dir, getWebhookDeliveryStatus: () => { throw new Error('PRIVATE ERROR'); } });
+    const response = await fetch(`${ctx.base}/api/ready`);
+    expect(response.status).toBe(503);
+    expect((await response.json()).webhookDelivery).toEqual({ status: 'error' });
   });
 
   test('status is degraded (503) when the pipeline run is more than 3x refreshMinutes stale', async () => {
@@ -311,10 +392,13 @@ describe('healthHandler', () => {
 
   // ── rejected config reload surfaces on /api/health ──
   test('configReloadError surfaces the last rejected hot-reload', async () => {
-    getFeedHealthMock.mockReturnValue({ feeds: {}, search: {} });
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
     getLastReloadErrorMock.mockReturnValue({ at: '2026-01-01T00:00:00.000Z', message: 'Validation failed' });
     ctx = await makeServer({ dataDir: dir });
-    const body = await (await fetch(`${ctx.base}/api/health`)).json();
+    const response = await fetch(`${ctx.base}/api/health`);
+    const body = await response.json();
+    expect(response.status).toBe(503);
     expect(body.configReloadError).toEqual({ at: '2026-01-01T00:00:00.000Z', message: 'Validation failed' });
   });
 });

@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { getEffectiveWatchProfile, evaluateApplicability, validateWatchProfile, sanitizeWatchProfile } from '../lib/watch-profile.js';
+import { getEffectiveWatchProfile, evaluateApplicability, validateWatchProfile, sanitizeWatchProfile, watchTermPattern } from '../lib/watch-profile.js';
 import { loadUserSettings, saveUserSettings, getEffectiveWatchProfile as getSavedProfile, getEffectiveOrganization } from '../lib/user-settings.js';
 import { getEffectiveAlertRules, applyAlertRules, scoreHeadline } from '../lib/scoring.js';
 import { buildSystemPrompt } from '../lib/prompts.js';
@@ -96,7 +96,7 @@ describe('watch profile — migration, truthful matches and bounded preferences'
     const headline = { title: 'Citrix advisory', horizon: 2, date: new Date().toISOString() };
     const oldScore = scoreHeadline({ ...headline }, {}, captured);
     saveUserSettings(dir, { watchProfile: { technologies: ['Citrix'] } });
-    expect(getEffectiveAlertRules({}, captured)).toEqual([{ pattern: 'Fortinet', boost: 4 }]);
+    expect(getEffectiveAlertRules({}, captured)).toEqual([{ pattern: watchTermPattern('Fortinet'), boost: 4, literalWatch: true }]);
     expect(scoreHeadline({ ...headline }, {}, captured)).toBe(oldScore);
     expect(scoreHeadline({ ...headline }, {})).toBeGreaterThan(oldScore);
   });
@@ -108,6 +108,19 @@ describe('watch profile — migration, truthful matches and bounded preferences'
     expect(profile.teamProfile).toBe(org.profile);
     expect(profile.regions).toEqual(org.regions);
     expect(profile.intelligenceQuestions).toEqual(org.watchTopics);
+  });
+
+  test('word boundaries prevent country and product substrings from claiming relevance', () => {
+    const profile = getEffectiveWatchProfile({ watchProfile: { technologies: ['US', 'a.b', 'C++', 'AT&T'], regions: ['US', 'EU'] } });
+    for (const title of ['Business security improves', 'Australian customers advised', 'Neural computing advances', 'xa.by changed', 'XC++ compiler']) {
+      expect(evaluateApplicability({ title }, profile).matches).toEqual([]);
+      const headline = { title };
+      applyAlertRules([headline], getEffectiveAlertRules({}, profile));
+      expect(headline.alertMatched).toBeUndefined();
+    }
+    for (const title of ['US agencies', 'EU advisory', 'a.b advisory', 'C++ compiler', 'AT&T notice']) {
+      expect(evaluateApplicability({ title }, profile).matches.length).toBeGreaterThan(0);
+    }
   });
 
   test('invalid and unbounded settings reject; persistence sanitation bounds hand edits', () => {

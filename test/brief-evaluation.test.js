@@ -35,7 +35,7 @@ jest.unstable_mockModule('../lib/refresher.js', () => ({ getFreshRun: async () =
 jest.unstable_mockModule('../lib/user-settings.js', () => ({ getEffectiveOrganization: () => config.organization, getEffectiveWatchProfile: () => null }));
 jest.unstable_mockModule('../lib/history.js', () => ({
   saveBrief: (_dir, text, options) => { saved = { text, manifest: JSON.parse(JSON.stringify(options.manifest)) }; return `brief-${EVAL_DATE}-01.md`; },
-  loadRecentBriefs: () => [], listBriefEditions: () => [], extractContinuityContext: () => '',
+  loadRecentBriefs: () => [], listBriefEditions: () => [], countBriefEditions: () => 0, extractContinuityContext: () => '',
   extractBluf: text => text.slice(0, 200), localDateISO: () => EVAL_DATE,
   scheduledBriefFilename: date => `brief-${date}-00.md`, scheduledBriefJobKey: date => `daily-brief:${date}`,
   briefDateFromFilename: name => /brief-(\d{4}-\d{2}-\d{2})/.exec(name)?.[1] || null,
@@ -84,6 +84,7 @@ function reservationFor(params, { model, attempts, usedUsd, budgetUsd }) {
 }
 
 const report = () => ({ schemaVersion: 1, mode: live ? 'live-synthetic' : 'scripted-regression',
+  authoredCollectionCount: BRIEF_EVALUATION_CASES.length,
   provider: selectedProvider, model: selectedModel, pricing: { perMillionTokens: pricing, basis: 'Application standard API list-rate estimates' },
   evaluatedAt: new Date().toISOString(), budgetUsd: live ? budget : 0, conservativeReservationUsd: live ? reservedUsd : 0,
   estimatedProviderCostUsd: live ? (rows.length === BRIEF_EVALUATION_CASES.length && rows.every(row => row.usageComplete) ? rows.reduce((sum, row) => sum + (row.costUsd || 0), 0) : null) : 0,
@@ -176,6 +177,7 @@ async function execute(item, corrective = false, { provider = selectedProvider, 
     usageComplete, knownAttemptSubtotalUsd, costUsd: usageComplete ? knownAttemptSubtotalUsd : null,
     issues: checked?.issues || [], citedHorizons,
     priorityCoverage: item.expected.priorityCves.map(cve => ({ cve, mentioned: text.includes(cve) })),
+    detailCoverage: (item.expected.requiredDetails || []).map(detail => ({ detail, retained: text.includes(detail) })),
     sourceCoverage: (item.expected.requiredSourceUrls || []).map(url => ({ url, cited: grounding.members.some(m => m.url === url && citedIds.has(m.id)) })),
     expected: rejectDraft ? { ...item.expected, publishable: false } : item.expected, receipt,
   };
@@ -195,6 +197,7 @@ test.each(BRIEF_EVALUATION_CASES)('$id: $description', async item => {
       expect(row.providerAttempts).toBe(1);
       expect(row.citedHorizons).toEqual(item.expected.horizons);
       expect(row.priorityCoverage.every(item => item.mentioned)).toBe(true);
+      expect(row.detailCoverage.every(item => item.retained)).toBe(true);
       expect(row.sourceCoverage.every(item => item.cited)).toBe(true);
     }
   } else {
@@ -221,6 +224,7 @@ test.each(BRIEF_EVALUATION_CASES)('$id: $description', async item => {
   if (!item.expected.publishable) return;
   expect(row.citedHorizons).toEqual(item.expected.horizons);
   expect(row.priorityCoverage.every(item => item.mentioned)).toBe(true);
+  expect(row.detailCoverage.every(item => item.retained)).toBe(true);
   expect(row.sourceCoverage.every(item => item.cited)).toBe(true);
   expect(row.receipt.generationSettings).toMatchObject({ provider, preferredModel: model });
   expect(row.providerRecords[0]).toMatchObject({ model, responseModel: model, usageComplete: true });

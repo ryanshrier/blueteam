@@ -204,6 +204,33 @@ describe('safeFetch — redirect hop loop (injected transport)', () => {
     expect(out).toBe(res);
   });
 
+  test('webhook mode rejects redirects before a payload-free GET can look successful', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(fakeResponse({ status: 302, location: '/login', body: true }));
+    _setTransportFetchForTests(fetchMock);
+    await expect(safeFetch('https://public.example.com/hook', { method: 'POST', body: 'payload' }, { allowRedirects: false }))
+      .rejects.toMatchObject({ code: 'E_WEBHOOK_REDIRECT' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('safe reads try another already-vetted address after a connect failure', async () => {
+    lookupMock.mockResolvedValue([{ address: '2606:4700:4700::1111', family: 6 }, { address: '1.1.1.1', family: 4 }]);
+    const response = fakeResponse({ status: 200 });
+    const fetchMock = jest.fn().mockRejectedValueOnce(Object.assign(new Error('connect failed'), { cause: { code: 'ENETUNREACH' } })).mockResolvedValueOnce(response);
+    _setTransportFetchForTests(fetchMock);
+    await expect(safeFetch('https://public.example.com/feed')).resolves.toBe(response);
+    expect(lookupMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1].dispatcher).not.toBe(fetchMock.mock.calls[1][1].dispatcher);
+  });
+
+  test.each(['POST', 'GET'])('does not replay %s after an ambiguous socket failure', async method => {
+    lookupMock.mockResolvedValue([{ address: '8.8.8.8', family: 4 }, { address: '1.1.1.1', family: 4 }]);
+    const fetchMock = jest.fn().mockRejectedValue(Object.assign(new Error('socket failed'), { cause: { code: 'UND_ERR_SOCKET' } }));
+    _setTransportFetchForTests(fetchMock);
+    await expect(safeFetch('https://public.example.com/', { method })).rejects.toThrow('socket failed');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test('a 302 rewrites POST to GET and removes its body headers', async () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(fakeResponse({ status: 302, location: '/accepted', body: true }))

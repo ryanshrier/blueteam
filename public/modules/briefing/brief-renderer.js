@@ -41,6 +41,16 @@ export function readerIssueIdentity(issue) {
   return JSON.stringify([issue?.code || '', issue?.location?.scope || '', issue?.location?.line || null, issue?.message || '']);
 }
 
+/** A scoped approval covers only the exact issue codes recorded for this copy.
+ * Legacy control approvals imply that single control code, never other issues. */
+export function readerIssueAcknowledged(issue, presentation) {
+  const approval = presentation?.approval;
+  if (issue?.acknowledged !== true || approval?.status !== 'recorded') return false;
+  if (approval.scope === 'security-control-change') return issue.code === 'SECURITY_CONTROL_CHANGE'
+    && (!Array.isArray(approval.issueCodes) || approval.issueCodes.includes(issue.code));
+  return approval.scope === 'briefing-editorial' && Array.isArray(approval.issueCodes) && approval.issueCodes.includes(issue.code);
+}
+
 /** Current material findings only. Publication consequence and reader relevance
  * are separate; unknown/editorial diagnostics remain in the edition record. */
 export function readerPresentationIssues(presentation, { signal, sourceContent = '' } = {}) {
@@ -65,21 +75,20 @@ export function readerPresentationIssues(presentation, { signal, sourceContent =
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).map(issue => issue.code === 'SECURITY_CONTROL_CHANGE' ? { ...issue,
-    acknowledged: issue.acknowledged === true && presentation.approval?.status === 'recorded'
-      && presentation.approval.scope === 'security-control-change',
-  } : issue);
+  }).map(issue => ({ ...issue, acknowledged: readerIssueAcknowledged(issue, presentation) }));
 }
 
 export function readerIssueText(issue) {
-  return issue.acknowledged && issue.code === 'SECURITY_CONTROL_CHANGE'
-    ? `Reviewed control exception: ${issue.location?.excerpt || issue.message}` : issue.message;
+  if (!issue.acknowledged) return issue.message;
+  return issue.code === 'SECURITY_CONTROL_CHANGE' ? `Reviewed control exception: ${issue.location?.excerpt || issue.message}`
+    : `Reviewed editorial finding: ${issue.message}`;
 }
 
 export function scopedApprovalText(presentation) {
   const approval = presentation?.approval;
-  if (approval?.status !== 'recorded' || !['security-control-change', 'publication-disposition'].includes(approval.scope)) return '';
-  const label = approval.scope === 'security-control-change' ? 'Specific security-control change reviewed' : 'Publication disposition recorded';
+  if (approval?.status !== 'recorded' || !['security-control-change', 'briefing-editorial', 'publication-disposition'].includes(approval.scope)) return '';
+  const label = approval.scope === 'security-control-change' ? 'Specific security-control change reviewed'
+    : approval.scope === 'briefing-editorial' ? 'Specific editorial findings reviewed' : 'Publication disposition recorded';
   return [label, approval.reviewer, approval.reviewedAt].filter(Boolean).join(' · ');
 }
 
@@ -99,9 +108,9 @@ export function decisionCopyText({ title = '', action = '', recommendations = []
   } else if (review) lines.push(`WARNING: ${review.message || 'Editorial review unavailable; original text displayed.'}`);
   const findings = Number.isSafeInteger(signal) && signal > 0 ? readerPresentationIssues(presentation, { signal, sourceContent }) : [];
   if (findings.length) lines.push('This assessment:', ...findings.map(issue => `- ${readerIssueText(issue)}`));
-  // A scoped control approval does not imply a review of every claim. Include
+  // A scoped approval does not imply a review of every claim. Include
   // it only when this copied judgment contains the acknowledged exception.
-  if (findings.some(issue => issue.code === 'SECURITY_CONTROL_CHANGE' && issue.acknowledged)) {
+  if (findings.some(issue => issue.acknowledged)) {
     const approval = scopedApprovalText(presentation);
     if (approval) lines.push(approval);
   }

@@ -1,5 +1,6 @@
 import { escapeHtml } from '../core/sanitize.js';
 import { formatBriefLabel, formatBriefPublishedAt, formatEventTime } from '../core/brief-date.js';
+import { historicalSourceContextHtml } from './source-context.js';
 
 export function safeSourceUrl(value) {
   try {
@@ -17,10 +18,12 @@ export function receiptSources(data = {}) {
     for (const id of item.sourceIds || []) bindings.set(id, [...new Set([...(bindings.get(id) || []), item.signal])]);
   }
   const records = Array.isArray(data.grounding?.sources) ? [...data.grounding.sources] : (data.selectedEvidence || []).flatMap((item, index) => [item, ...(item.groupMembers || [])].map(member => ({ ...member, index })));
-  const passage = item => typeof item.passage === 'string' ? item.passage : item.passage?.text || item.evidenceText || '';
+  const passage = item => item.sourceParts?.length > 1 ? item.sourceParts.map(part => `${part.kind}: ${part.passage}`).join('\n\n')
+    : typeof item.passage === 'string' ? item.passage : item.passage?.text || item.evidenceText || '';
   const publisher = value => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
   const identity = item => `${publisher(item.label || item.source)}\n${safeSourceUrl(item.url)}`;
-  const existing = new Set(records.map(item => `${identity(item)}\n${passage(item)}`));
+  const existing = new Set(records.flatMap(item => [passage(item), ...(item.sourceParts || []).map(part => part.passage)]
+    .map(text => `${identity(item)}\n${text}`)));
   const additional = [];
   if (Array.isArray(data.grounding?.sources)) for (const [groupIndex, group] of (data.selectedEvidence || []).entries()) {
     for (const [memberIndex, member] of (group.groupMembers || []).entries()) {
@@ -82,10 +85,13 @@ export function inputReceiptHtml(data = {}, { judgment = null } = {}) {
       const quality = item.quality?.status || (!item.passageText || item.passageText.trim() === title.trim() ? 'title-only' : 'legacy quality not recorded');
       const rowLabel = item.retainedMember ? (item.passageKind === 'feed-excerpt' ? 'Retained feed capture' : 'Retained source capture') : (/^S\d+\.\d+$/.test(item.id) ? item.id : 'Retained input');
       const captureIdentity = `<dl class="brief-input-capture"><div><dt>Evidence ID</dt><dd><code>${escapeHtml(item.id)}</code></dd></div>${(item.sourceRevisions || []).map((ref, index) => `<div><dt>Source${item.sourceRevisions.length > 1 ? ` ${index + 1}` : ''}</dt><dd><code>${escapeHtml(ref.sourceId || 'Not recorded')}</code></dd></div><div><dt>Revision${item.sourceRevisions.length > 1 ? ` ${index + 1}` : ''}</dt><dd><code>${escapeHtml(ref.revisionId || 'Not recorded')}</code></dd></div>`).join('')}</dl>`;
+      const retainedPassages = item.sourceParts?.length ? `${item.sourceParts.length > 1 ? '<p>Complementary captures of one article, sharing one citation identity. Their observation times and qualifications remain separate.</p>' : ''}${item.sourceParts.map(part => `<section><p class="brief-input-source-meta">${escapeHtml(part.kind)}${part.feedPassageField ? ` · ${escapeHtml(part.feedPassageField)}` : ''} · Published ${escapeHtml(formatEventTime(part.publishedAt) || 'not independently recorded')} · Retrieved ${escapeHtml(formatEventTime(part.retrievedAt) || 'time not recorded')} · ${escapeHtml(part.retrievalStatus || 'status not recorded')}</p><blockquote>${escapeHtml(part.passage)}</blockquote><dl class="brief-input-capture"><div><dt>Passage SHA-256</dt><dd><code>${escapeHtml(part.passageSha256 || 'Not recorded')}</code></dd></div>${(part.sourceRevisions || []).map(ref => `<div><dt>Source</dt><dd><code>${escapeHtml(ref.sourceId || 'Not recorded')}</code></dd></div><div><dt>Revision</dt><dd><code>${escapeHtml(ref.revisionId || 'Not recorded')}</code></dd></div>`).join('')}</dl>${part.sourceRevisions?.length ? '' : '<p class="brief-input-source-meta">No independently recorded source revision; passage digest identifies this retained excerpt only.</p>'}</section>`).join('')}`
+        : item.passageText ? `<blockquote>${escapeHtml(item.passageText)}</blockquote>` : '<p>No substantive passage retained.</p>';
+      const applicability = item.applicabilityPassage ? `<section><p class="brief-input-source-meta">NVD applicability conditions · not evidence of a fixed release or local exposure</p><blockquote>${escapeHtml(item.applicabilityPassage)}</blockquote>${item.configurationCaptures?.length > 1 ? item.configurationCaptures.map((capture, index) => `<details><summary>Captured condition set ${index + 1}</summary><blockquote>${escapeHtml(capture.passage)}</blockquote></details>`).join('') : ''}</section>` : '';
       return `<li data-input-source data-input-text="${escapeHtml([item.id, title, item.label, item.source, item.passageText].join(' ').toLowerCase())}" data-input-judgments="${item.judgments.join(',')}"><p class="brief-input-source-label">${escapeHtml(rowLabel)} · ${Number.isInteger(item.index) ? `Signal group ${item.index + 1}` : 'Catalog input'}</p>${url ? `<a class="brief-input-source-title" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)} ↗</a>` : `<strong class="brief-input-source-title">${escapeHtml(title)}</strong>`}
         <p class="brief-input-source-meta">${escapeHtml([item.label || item.source, formatEventTime(item.publishedAt), item.passageKind || item.passage?.kind, quality, item.collectionStale && 'Retained from earlier collection'].filter(Boolean).join(' · '))}</p>
         <p class="brief-input-source-meta">${item.judgments.length ? `Cited in ${item.judgments.map(number => `<a href="/briefing/${encodeURIComponent(data.filename || '')}#${escapeHtml(moved.get(number) || `judgment-${number}`)}" data-close-receipt>${judgmentLabel(number)}</a>`).join(', ')}` : 'Considered input; no judgment citation binding recorded'}</p>
-        <details><summary>Retained passage and capture</summary>${item.passageText ? `<blockquote>${escapeHtml(item.passageText)}</blockquote>` : '<p>No substantive passage retained.</p>'}<p class="brief-input-source-meta">Retrieved ${escapeHtml(formatEventTime(item.retrievedAt) || 'time not recorded')} · ${item.sourceRevisions?.length || 0} recorded source revisions${item.retainedMember ? ` · Retained group-member passage${item.revisionBinding === 'unavailable' ? '; exact revision binding unavailable' : ''}` : ''}</p>${captureIdentity}</details></li>`;
+        <details><summary>Retained passage and capture</summary>${retainedPassages}${applicability}<p class="brief-input-source-meta">Retrieved ${escapeHtml(formatEventTime(item.retrievedAt) || 'time not recorded')} · ${item.sourceRevisions?.length || 0} recorded source revisions${item.retainedMember ? ` · Retained group-member passage${item.revisionBinding === 'unavailable' ? '; exact revision binding unavailable' : ''}` : ''}</p>${captureIdentity}</details>${historicalSourceContextHtml(item)}</li>`;
     }).join('')}</ol>${accounting}`;
 }
 

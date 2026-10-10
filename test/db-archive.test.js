@@ -182,7 +182,7 @@ describe('headline_archive — publisher identity round-trip', () => {
 
   test('a repeated story refreshes corrected display fields while retaining known publication time', () => {
     archiveHeadlines([{
-      title: 'Vendor patches critical flaw', source: 'Old Feed', link: 'https://old.example/story',
+      title: 'Vendor patches critical flaw', source: 'Old Feed', link: 'https://vendor.example/advisory',
       horizon: 2, date: '2026-07-10T00:00:00Z',
     }]);
     archiveHeadlines([{
@@ -202,6 +202,26 @@ describe('headline_archive — publisher identity round-trip', () => {
     const [row] = getArchivedHeadlines(7);
     expect(row.publishers).toEqual([]);
     expect(row.sources).toEqual(['SomeWire']);
+  });
+
+  test('distinct URLs with the same long title prefix retain their own first observations', () => {
+    const prefix = 'Repeated vendor advisory text '.repeat(8);
+    archiveHeadlines([
+      { title: prefix + 'Alpha', link: 'https://example.test/alpha', score: 10 },
+      { title: prefix + 'Beta', link: 'https://example.test/beta', score: 90 },
+    ]);
+    const rows = getDB().prepare('SELECT title, first_snapshot_json FROM headline_archive').all();
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(JSON.parse(row.first_snapshot_json).title).toBe(row.title);
+  });
+
+  test('a changed title at the same article URL preserves its original snapshot', () => {
+    archiveHeadlines([{ title: 'Initial advisory', link: 'https://example.test/advisory?utm_source=feed', score: 10 }]);
+    archiveHeadlines([{ title: 'Confirmed exploitation', link: 'https://example.test/advisory', score: 99 }]);
+    const rows = getDB().prepare('SELECT title, first_snapshot_json FROM headline_archive').all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].title).toBe('Confirmed exploitation');
+    expect(JSON.parse(rows[0].first_snapshot_json).title).toBe('Initial advisory');
   });
 
   test('corrupt or non-array publisher JSON degrades to count-only, never throws', () => {

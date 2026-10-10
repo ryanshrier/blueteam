@@ -1,6 +1,7 @@
 // BlueTeam.News — wire view: dense scannable list of scored headlines.
 
 import { escapeHtml } from '../core/sanitize.js';
+import { kevFact, signalMetrics, signalSeverity, evidenceQualifications, briefingReadinessLabel } from '../core/signal-facts.js';
 import { captureWireFocus, restoreWireFocus } from './wire-focus.js';
 import { bindScoreDismissal, bindDisclosureDismissal } from './wire-popovers.js';
 import { fetchHeadlines, fetchLandscape } from '../core/api.js';
@@ -10,7 +11,9 @@ import { showToast } from '../core/toast.js';
 import { TIER_NAMES, TIERS } from '../core/tiers.js';
 import { openEvidenceInspector, closeEvidenceInspector, renderEvidenceContext } from './evidence-inspector.js';
 import { highlightWireText, wireIcon, reflectReadControl } from './wire-presentation.js';
-import { DECISION_STATES, DECISION_STORAGE_KEY, readDecisions, mergeDecisions, saveDecisionRecord, exportDecisionRecords, normalizeDecision, decisionForm, reflectDecisionDraft, filterChips, scanFacts, signalAssessmentMeta, exportContext, captureScrollAnchor } from './wire-workspace.js';
+import { decisionEvidence, decisionLabel } from './wire-workspace.js';
+import { createDecisionClient, decisionRecord, readDecisionDrafts, persistDecisionDrafts, newDecisionRequestId, DECISION_CHANGED_KEY } from './decision-client.js';
+import { DECISION_STATES, DECISION_STORAGE_KEY, exportDecisionRecords, normalizeDecision, decisionForm, reflectDecisionDraft, filterChips, scanFacts, signalAssessmentMeta, exportContext, captureScrollAnchor } from './wire-workspace.js';
 import {
   dateMs, parseCveData, filterSignals, parseWireQuery, serializeWireUrl, signalUrl, signalReadKey, isSignalRead, migrateLegacyReadKeys, toCsv, sigKey as fmtSigKey, CSV_COLUMNS, briefingLinkModel, isFeedStale,
 } from './wire-format.js';
@@ -98,9 +101,17 @@ let savedViewUrl = '';
 let restoreScroll = false;
 let controlsObserver = null;
 const heldReviewed = new Set();
-const decisionDrafts = new Map();
-let decisions;
-try { decisions = readDecisions(localStorage); } catch { decisions = new Map(); }
+let decisionStorage;
+try { decisionStorage = localStorage; } catch { /* drafts remain in memory */ }
+const decisionClient = createDecisionClient({ storage: decisionStorage });
+let decisionDraftStorage;
+try { decisionDraftStorage = sessionStorage; } catch { /* drafts remain in memory */ }
+const decisionDrafts = readDecisionDrafts(decisionDraftStorage);
+const decisionSaves = new Set();
+let decisions = decisionClient.values();
+let decisionPoll = null;
+let decisionSync = null;
+let decisionDialog = null;
 let density = 'compact';
 try { density = localStorage.getItem('wire.density') === 'comfortable' ? 'comfortable' : 'compact'; } catch { /* session default */ }
 
@@ -254,12 +265,17 @@ export function render(main) {
               <button type="button" data-export="json" disabled title="Download the currently filtered signals as JSON">JSON <small>Structured data</small></button>
             </div>
           </section>
-              <button type="button" class="btn-ghost" id="wireExportDecisions">Export all saved decisions (JSON)</button>
+              <button type="button" class="btn-ghost" id="wireSavedDecisions">Browse saved decisions and history</button>
+              <button type="button" class="btn-ghost" id="wireExportDecisions">Export server decisions (JSON)</button>
+              <button type="button" class="btn-ghost" id="wireExportBrowserDecisions">Export retained browser decisions (JSON)</button>
+              <button type="button" class="btn-ghost" id="wireImportDecisions">Import saved decisions (JSON)</button>
+              <input type="file" id="wireDecisionFile" accept="application/json,.json" hidden>
             </div>
           </details>
         </div>
 
         <div class="wire-toolbar-status"><span class="wire-shown" id="wireShown">Loading…</span><span id="wireActiveFilters"></span><button type="button" class="wire-clear-control" id="wireClear" hidden>Clear</button></div>
+        <div class="wire-retention-note"><span id="wireDecisionStatus" role="status">Loading server decisions…</span> <button type="button" class="btn-ghost-sm" id="wireRetryDecisions">Refresh decisions</button> <button type="button" class="btn-ghost-sm" id="wireMigrateDecisions" hidden>Copy browser decisions to server</button></div>
         <div class="wire-update-row"><button type="button" id="wireApplyUpdates" hidden>Updated snapshot available · Apply</button><button type="button" id="wireClearReviewed" hidden></button></div>
         <div class="wire-filter-row" id="wireFilterRows">
           <!-- Tier is SINGLE-SELECT: a radiogroup with roving tabindex and arrow-key
@@ -605,15 +621,125 @@ function closeSignalInspector() {
 }
 
 function onWorkspaceStorage(event) {
-  if (event.key !== null && ![DECISION_STORAGE_KEY, LS_READ_KEY, LS_DISMISSED_KEY].includes(event.key)) return;
+  if (event.key !== null && ![DECISION_STORAGE_KEY, DECISION_CHANGED_KEY, LS_READ_KEY, LS_DISMISSED_KEY].includes(event.key)) return;
   reloadWorkspaceState();
   renderList();
+  if (event.key === null || event.key === DECISION_CHANGED_KEY) void syncDecisions();
 }
 
 function reloadWorkspaceState() {
-  try { decisions = mergeDecisions(decisions, localStorage); } catch { /* browser storage unavailable */ }
+  decisions = decisionClient.values();
   readKeys = loadKeySet(LS_READ_KEY, readKeys);
   dismissedKeys = loadKeySet(LS_DISMISSED_KEY, dismissedKeys);
+}
+
+function keepDecisionDrafts() {
+  const persisted = persistDecisionDrafts(decisionDraftStorage, decisionDrafts);
+  if (!persisted && decisionDrafts.size) showToast('Draft remains in this tab only. Browser storage is unavailable; export it before closing.', 'error');
+  return persisted;
+}
+function paintDecisionStatus() {
+  if (!active) return;
+  const legacy = decisionClient.legacyRecords().length;
+  const status = document.getElementById('wireDecisionStatus');
+  if (status) status.textContent = `${decisionClient.phase === 'ready' ? 'Decisions saved on this server · single operator.' : decisionClient.phase === 'offline' ? 'Decision server unavailable · showing retained copies. Your draft is kept for retry.' : 'Loading server decisions…'}${legacy ? ` ${legacy} original browser records retained.` : ''}`;
+  const migrate = document.getElementById('wireMigrateDecisions');
+  if (migrate) migrate.hidden = !legacy;
+}
+async function syncDecisions() {
+  if (decisionSync) return decisionSync;
+  decisionSync = (async () => {
+    try {
+      await decisionClient.lookup([...cachedHeadlines.map(sigKey), filters.signal, selectedSignal].filter(Boolean));
+      decisions = decisionClient.values();
+      if (active) renderList();
+    } catch { /* a failed lookup preserves the cached values and every draft */ }
+    finally { paintDecisionStatus(); }
+  })();
+  try { await decisionSync; } finally { decisionSync = null; }
+}
+function decisionModal(title) {
+  decisionDialog?.close(); decisionDialog?.remove();
+  const dialog = document.createElement('dialog');
+  decisionDialog = dialog;
+  dialog.className = 'brief-draft-dialog';
+  dialog.setAttribute('aria-label', title);
+  dialog.innerHTML = `<header><h2>${escapeHtml(title)}</h2><button type="button" class="btn-ghost" data-close>Close</button></header><div class="draft-review-body"></div>`;
+  document.body.appendChild(dialog);
+  const close = () => { dialog.close(); dialog.remove(); if (decisionDialog === dialog) decisionDialog = null; };
+  dialog.querySelector('[data-close]').addEventListener('click', close);
+  dialog.addEventListener('cancel', close);
+  dialog.showModal();
+  return { dialog, body: dialog.querySelector('.draft-review-body'), close };
+}
+function inspectSavedDecision(record) {
+  selectedSnapshot = cachedHeadlines.find(headline => sigKey(headline) === record.signal) || { link: record.signal, title: 'Saved decision outside the current feed', evidence: [] };
+  inspectorFingerprint = '';
+  selectSignal(record.signal, true);
+}
+async function openDecisionHistory(record) {
+  const { dialog, body } = decisionModal('Decision history and retained evidence');
+  body.innerHTML = '<p>Loading saved revisions…</p>';
+  let before = 0;
+  async function page() {
+    try {
+      const data = await decisionClient.history(record.serverId || record.id, before);
+      if (!dialog.isConnected) return;
+      if (!before) body.innerHTML = '<p>Edits made through this server are recorded below. Individual author identity is not recorded; Owner is an operator-entered label.</p>';
+      body.querySelector('[data-more]')?.remove();
+      const section = document.createElement('div');
+      section.innerHTML = data.items.map(item => `<details><summary>Revision ${item.revision} · ${escapeHtml(item.savedAt)} · ${item.operation === 'import' ? 'Imported record' : 'Saved edit'}</summary><p>${escapeHtml(DECISION_STATES[item.decision.state])} · Owner: ${escapeHtml(item.decision.owner || 'Unassigned')} · Review: ${escapeHtml(item.decision.nextReview || 'Not set')}</p><p>${escapeHtml(item.decision.note)}</p><p>${escapeHtml(item.decision.evidence)}</p>${item.evidenceSnapshots.map(source => `<details><summary>${escapeHtml(source.title || source.sourceId)} · ${source.status === 'retained' ? 'Evidence copy retained' : 'Evidence unavailable'}</summary><p>${escapeHtml(source.provenance === 'imported-copy-unverified' ? 'Imported copy; original observation is unverified on this server.' : source.reason || 'Retained server observation; source text is not an assessment.')}</p><p>Source: ${escapeHtml(source.source || source.sourceId)} · Revision: ${escapeHtml(source.revisionId)}</p><pre>${escapeHtml(source.passage || '')}</pre></details>`).join('')}</details>`).join('');
+      body.appendChild(section);
+      before = data.nextCursor;
+      if (before) { const more = document.createElement('button'); more.dataset.more = ''; more.textContent = 'Older revisions'; more.addEventListener('click', page); body.appendChild(more); }
+    } catch (error) { if (dialog.isConnected) { const message = document.createElement('p'); message.textContent = error.message; body.appendChild(message); } }
+  }
+  await page();
+}
+async function openDecisionLibrary() {
+  const { dialog, body, close } = decisionModal('Server decisions');
+  body.innerHTML = '<p>Loading decisions…</p>';
+  let after = '';
+  async function page() {
+    try {
+      const data = await decisionClient.list(after);
+      if (!dialog.isConnected) return;
+      if (!after) body.innerHTML = `<p>${data.total} saved decisions. All edits and bound evidence copies are retained in the server backup.</p>`;
+      body.querySelector('[data-more]')?.remove();
+      for (const record of data.items) {
+        const item = document.createElement('p');
+        item.innerHTML = `<strong>${escapeHtml(DECISION_STATES[record.decision.state])}</strong> · ${escapeHtml(record.signal)} · Revision ${record.revision} <button type="button" data-edit>Open decision</button> <button type="button" data-history>History and evidence</button>`;
+        item.querySelector('[data-edit]').addEventListener('click', () => { close(); decisions.set(record.signal, decisionRecord(record)); inspectSavedDecision(record); });
+        item.querySelector('[data-history]').addEventListener('click', () => { close(); void openDecisionHistory(record); });
+        body.appendChild(item);
+      }
+      after = data.nextCursor;
+      if (after) { const more = document.createElement('button'); more.dataset.more = ''; more.textContent = 'More decisions'; more.addEventListener('click', page); body.appendChild(more); }
+    } catch (error) { if (dialog.isConnected) body.textContent = error.message; }
+  }
+  await page();
+}
+async function importServerDecisions(records) {
+  try {
+    const result = await decisionClient.importRecords(records);
+    decisions = decisionClient.values();
+    if (active) { inspectorFingerprint = ''; renderList(); paintDecisionStatus(); }
+    if (!active) { showToast('Decision import finished. Original records remain available.', 'success'); return; }
+    const { body, close } = decisionModal('Decision import result');
+    body.innerHTML = `<p>${result.imported} imported; ${result.unchanged} already present; ${result.conflicts} conflicts left unchanged; ${result.invalid} invalid or over limit. Original browser records and files have not been erased.</p><button type="button" data-report>Export this import report</button>`;
+    body.querySelector('[data-report]').addEventListener('click', () => triggerDownload(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }), 'wire-decision-import-report.json'));
+    for (const item of result.results.filter(item => ['conflict', 'invalid', 'limit'].includes(item.status))) {
+      const section = document.createElement('details');
+      section.innerHTML = `<summary>${escapeHtml(item.signal || `Record ${item.index + 1}`)} · ${escapeHtml(item.status)}</summary><p>${escapeHtml(item.error || 'The server assessment differs; neither record was replaced.')}</p><pre>${escapeHtml(JSON.stringify({ incoming: item.importedRecord?.decision, server: item.current?.decision }, null, 2))}</pre>${item.status === 'conflict' ? '<button type="button" data-resolve>Review both assessments</button>' : ''}`;
+      section.querySelector('[data-resolve]')?.addEventListener('click', () => {
+        if (decisionDrafts.has(item.signal)) { showToast('An unsaved draft already exists for this signal. Export or finish it before reviewing this import.', 'error'); return; }
+        const current = decisionRecord(item.current);
+        decisionDrafts.set(item.signal, { values: item.importedRecord.decision, base: current, conflict: current });
+        keepDecisionDrafts(); close(); inspectSavedDecision(item.current);
+      });
+      body.appendChild(section);
+    }
+  } catch (error) { showToast(`${error.message} Original records remain available. Retrying this import is safe if some records already saved.`, 'error'); }
 }
 
 function bindWorkspace(main) {
@@ -639,11 +765,32 @@ function bindWorkspace(main) {
     [surface, controls, surface.querySelector('.wire-head'), document.querySelector('.app-header')].filter(Boolean).forEach(element => controlsObserver.observe(element));
   }
   window.addEventListener('storage', onWorkspaceStorage);
-  document.getElementById('wireExportDecisions')?.addEventListener('click', () => {
-    reloadWorkspaceState();
-    if (!decisions.size) { showToast('No saved decisions in this browser'); return; }
-    const records = exportDecisionRecords(decisions, { origin: location.origin });
+  decisionPoll = setInterval(() => { if (!document.hidden) void syncDecisions(); }, 30_000);
+  paintDecisionStatus();
+  document.getElementById('wireRetryDecisions')?.addEventListener('click', () => void syncDecisions());
+  document.getElementById('wireSavedDecisions')?.addEventListener('click', () => void openDecisionLibrary());
+  document.getElementById('wireMigrateDecisions')?.addEventListener('click', () => void importServerDecisions(decisionClient.legacyRecords()));
+  document.getElementById('wireExportBrowserDecisions')?.addEventListener('click', () => {
+    const records = decisionClient.legacyRecords();
+    if (!records.length) { showToast('No retained browser decisions'); return; }
     triggerDownload(new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' }), `wire-decisions-${new Date().toISOString().slice(0, 10)}.json`);
+  });
+  document.getElementById('wireExportDecisions')?.addEventListener('click', async () => {
+    try {
+      const response = await fetch('/api/decisions/export', { cache: 'no-store', signal: AbortSignal.timeout(60_000) });
+      if (!response.ok) throw new Error('Server decision export unavailable.');
+      triggerDownload(await response.blob(), `wire-server-decisions-${new Date().toISOString().slice(0, 10)}.json`);
+    } catch (error) { showToast(error.message, 'error'); }
+  });
+  document.getElementById('wireImportDecisions')?.addEventListener('click', () => document.getElementById('wireDecisionFile')?.click());
+  document.getElementById('wireDecisionFile')?.addEventListener('change', async event => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      if (file.size > 64 * 1024 * 1024) throw new Error('Decision export exceeds the 64 MB browser import limit');
+      await importServerDecisions(JSON.parse(await file.text()));
+    } catch (error) { showToast(`Import failed: ${error.message}`, 'error'); }
   });
   document.getElementById('wireDensity')?.addEventListener('change', event => {
     density = event.target.value === 'comfortable' ? 'comfortable' : 'compact';
@@ -670,7 +817,39 @@ function bindWorkspace(main) {
   document.getElementById('wireAboveList')?.addEventListener('toggle', event => {
     if (event.target.classList.contains('wire-converge')) clusterOpen = event.target.open;
   }, true);
-  surface.addEventListener('click', event => {
+  surface.addEventListener('click', async event => {
+    const decisionAction = event.target.closest('[data-decision-rebase], [data-decision-draft-export], [data-decision-export-all], [data-decision-history]');
+    if (decisionAction) {
+      const form = decisionAction.closest('[data-decision-form]');
+      const key = form?.dataset.decisionForm;
+      const draft = decisionDrafts.get(key) || (form ? { values: Object.fromEntries(new FormData(form)) } : null);
+      if (decisionAction.hasAttribute('data-decision-history')) { const record = decisions.get(key); if (record?.serverId) void openDecisionHistory(record); }
+      else if (decisionAction.hasAttribute('data-decision-export-all')) document.getElementById('wireExportDecisions')?.click();
+      else if (draft && decisionAction.hasAttribute('data-decision-rebase')) {
+        try { await decisionClient.lookup([key]); } catch { paintDecisionStatus(); showToast('Could not check the latest decision. Your edits are retained.', 'error'); return; }
+        reloadWorkspaceState();
+        const latest = decisions.get(key) || null;
+        if (JSON.stringify(latest) !== JSON.stringify(draft.conflict)) {
+          draft.conflict = latest;
+          keepDecisionDrafts();
+          inspectorFingerprint = ''; renderList();
+          showToast('The saved decision changed again. Review its latest contents before continuing.', 'error');
+          return;
+        }
+        draft.base = latest;
+        draft.conflict = null;
+        draft.request = null;
+        keepDecisionDrafts();
+        inspectorFingerprint = ''; renderList();
+        showToast('Your edits are retained. Save when your merged assessment is ready.');
+      } else if (draft) {
+        const headline = cachedHeadlines.find(h => sigKey(h) === key) || selectedSnapshot;
+        const value = normalizeDecision({ ...draft.values, recordedAt: new Date().toISOString(), evidenceBinding: decisionEvidence(headline) });
+        const records = exportDecisionRecords(new Map([[key, value]]), { origin: location.origin });
+        triggerDownload(new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' }), `wire-decision-draft-${new Date().toISOString().slice(0, 10)}.json`);
+      }
+      return;
+    }
     const summary = event.target.closest('.wire-details > summary');
     if (summary && window.matchMedia?.('(min-width: 1000px)').matches) { event.preventDefault(); selectSignal(summary.closest('.wire-item').dataset.key, true); return; }
     if (event.target.closest('[data-inspector-close]')) closeSignalInspector();
@@ -694,26 +873,59 @@ function bindWorkspace(main) {
     const form = event.target.closest('[data-decision-form]');
     if (form) {
       const draft = Object.fromEntries(new FormData(form));
-      decisionDrafts.set(form.dataset.decisionForm, draft);
+      const key = form.dataset.decisionForm;
+      const previous = decisionDrafts.get(key);
+      decisionDrafts.set(key, { ...previous, values: draft, base: previous ? previous.base : decisions.get(key) || null });
+      keepDecisionDrafts();
       reflectDecisionDraft(surface.querySelectorAll('[data-decision-form]'), form.dataset.decisionForm, draft, form);
     }
   });
-  surface.addEventListener('submit', event => {
+  surface.addEventListener('submit', async event => {
     const form = event.target.closest('[data-decision-form]');
     if (!form) return;
     event.preventDefault();
     const key = form.dataset.decisionForm;
+    if (decisionSaves.has(key)) return;
+    const draft = decisionDrafts.get(key) || { values: Object.fromEntries(new FormData(form)), base: decisions.get(key) || null };
+    if (draft.conflict) return;
+    decisionDrafts.set(key, draft);
     const headline = cachedHeadlines.find(h => sigKey(h) === key) || selectedSnapshot;
-    const entry = normalizeDecision({ ...Object.fromEntries(new FormData(form)), recordedAt: new Date().toISOString() });
+    const currentEvidence = decisionEvidence(headline);
+    const entry = normalizeDecision({ ...Object.fromEntries(new FormData(form)), recordedAt: '', evidenceBinding: currentEvidence.length ? currentEvidence : draft.base?.evidenceBinding || draft.values.evidenceBinding || [] });
     if (!entry.evidence && headline?.evidence?.[0]) entry.evidence = signalUrl(headline, location.origin, headline.evidence[0]);
-    let storage;
-    try { storage = localStorage; } catch { /* retain the session copy */ }
-    const saved = saveDecisionRecord(storage, decisions, key, entry);
-    decisions = saved.decisions; decisionDrafts.delete(key);
-    const { persisted } = saved;
-    inspectorFingerprint = ''; renderList();
+    const baseRevision = draft.base?.revision || 0;
+    const signature = JSON.stringify([baseRevision, entry]);
+    if (draft.request?.signature !== signature) draft.request = { id: newDecisionRequestId(), signature };
+    keepDecisionDrafts();
+    decisionSaves.add(key);
+    const controls = [...surface.querySelectorAll('[data-decision-form]')]
+      .filter(candidate => candidate.dataset.decisionForm === key).flatMap(candidate => [...candidate.elements]);
+    controls.forEach(control => { control.disabled = true; });
+    let saved;
+    try {
+      saved = await decisionClient.save(key, entry, baseRevision, draft.request.id);
+    } catch (error) {
+      if (error.current) draft.conflict = decisionRecord(error.current);
+      draft.limitReached = error.code === 'E_DECISION_LIMIT';
+      draft.limitMessage = draft.limitReached ? error.message : '';
+      draft.saveError = error.current ? '' : error.message;
+      keepDecisionDrafts();
+      showToast(error.current ? 'Decision changed on the server. Review it before saving your edits.' : `${error.message} Your draft remains available for retry or export.`, 'error');
+    } finally {
+      decisionSaves.delete(key);
+      controls.forEach(control => { control.disabled = false; });
+    }
+    decisions = decisionClient.values();
+    paintDecisionStatus();
+    if (!saved) { inspectorFingerprint = ''; if (active) renderList(); return; }
+    if (saved.record.revision > saved.savedRevision) {
+      draft.conflict = decisionRecord(saved.record);
+      showToast('Your earlier save is recorded, and a newer revision now exists. Your text remains here for comparison.', 'error');
+    } else decisionDrafts.delete(key);
+    keepDecisionDrafts();
+    inspectorFingerprint = ''; if (active) renderList();
     [...surface.querySelectorAll('[data-decision-form]')].find(candidate => candidate.dataset.decisionForm === key && candidate.getClientRects().length)?.querySelector('button[type="submit"]')?.focus({ preventScroll: true });
-    showToast(persisted ? 'Decision saved in this browser' : 'Decision kept for this session; browser storage unavailable', persisted ? 'success' : 'error');
+    if (!decisionDrafts.has(key)) showToast(`Decision saved on the server · Revision ${saved.record.revision}`, 'success');
   });
 }
 
@@ -729,6 +941,8 @@ export function unmount() {
   savedScroll = window.scrollY;
   savedViewUrl = serializeWireUrl(filters, sortMode);
   window.removeEventListener('storage', onWorkspaceStorage);
+  clearInterval(decisionPoll); decisionPoll = null;
+  decisionDialog?.close(); decisionDialog?.remove(); decisionDialog = null;
   controlsObserver?.disconnect(); controlsObserver = null;
   active = false;
   scoreDismissalCleanup?.();
@@ -873,7 +1087,7 @@ function exportSignals(format) {
   // Carry the analyst's read/unread state into the export (a spread copy so
   // the export never mutates the cached headline objects renderList reads from).
   const capturedAt = new Date().toISOString();
-  const items = filtered.map(h => exportContext(h, { read: isSignalRead(h, readKeys), decision: decisions.get(sigKey(h)), filters, sort: sortMode, capturedAt, origin: location.origin }));
+  const items = filtered.map(h => ({ ...exportContext(h, { read: isSignalRead(h, readKeys), decision: decisions.get(sigKey(h)), filters, sort: sortMode, capturedAt, origin: location.origin }), ...evidenceQualifications(h) }));
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
   if (format === 'json') {
     const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
@@ -949,15 +1163,16 @@ function renderFreshnessMeta() {
   meta.classList.toggle('stale', stale);
   const health = document.getElementById('wireCollectionHealth');
   if (health) {
+    const readiness = briefingReadinessLabel(lastLoadData.briefingReadiness, { elapsedMs: elapsed * 1000, refreshMinutes: lastLoadData.refreshMinutes });
     const feeds = collectionHealth;
     const collection = lastLoadData.collection;
     const count = feeds?.total > 0 ? feeds.total : collection?.configuredSources;
     const available = feeds?.total > 0 ? feeds.ok : collection?.freshSources;
-    health.hidden = !(Number.isFinite(count) && count > 0 && Number.isFinite(available));
-    if (!health.hidden) {
-      health.textContent = `${available}/${count} sources ${feeds?.total > 0 ? 'reachable' : 'fresh'}${available < count ? ' · collection needs attention' : ''}`;
-      health.classList.toggle('is-degraded', available < count);
-    }
+    const hasCounts = Number.isFinite(count) && count > 0 && Number.isFinite(available);
+    health.hidden = false;
+    health.textContent = `${hasCounts ? `${available}/${count} sources reachable${available < count ? ' · collection needs attention' : ''} · ` : ''}${readiness.label}`;
+    health.title = readiness.reason;
+    health.classList.toggle('is-degraded', (hasCounts && available < count) || readiness.status === 'blocked');
   }
 }
 
@@ -992,7 +1207,7 @@ function adoptSnapshot(data) {
   detectArrivals();
   lastGoodAt = Date.now();
   clearReconnecting();
-  lastLoadData = { generatedAt: data?.generatedAt || null, ageSeconds: data?.ageSeconds, loadedAt: Date.now(), refreshMinutes: lastLoadData?.refreshMinutes, collection: data?.stats?.collection || null,
+  lastLoadData = { generatedAt: data?.generatedAt || null, ageSeconds: data?.ageSeconds, loadedAt: Date.now(), refreshMinutes: data?.refreshMinutes ?? lastLoadData?.refreshMinutes, collection: data?.collection || data?.stats?.collection || null, briefingReadiness: data?.briefingReadiness,
     enrichmentFailures: data.enrichmentFailures || data.stats?.enrichmentFailures || [] };
   renderFreshnessMeta();
   renderList();
@@ -1018,6 +1233,7 @@ async function load() {
       if (button) { button.hidden = false; button.textContent = 'Updated snapshot available · Apply'; }
       document.getElementById('wireList')?.setAttribute('aria-busy', 'false');
     } else adoptSnapshot(data);
+    void syncDecisions();
     // Convergence is decoration over the list — never let its failure or absence
     // block the headlines render. Cached 15s in api.js, so cheap to re-pull.
     fetchLandscape()
@@ -1217,8 +1433,9 @@ function rowDescription(h, cveInfo) {
   const parts = [`${tier.toLowerCase()} tier`];
   const sourceCount = Number(h.corroboration) || 1;
   if (sourceCount > 1) parts.push(`reported by ${sourceCount} distinct sources`);
-  if (h.isKEV) parts.push('KEV-listed');
-  if (h.kevOverdue) parts.push('remediation overdue');
+  const kev = kevFact(h);
+  if (kev.listed) parts.push(kev.description);
+  if (kev.listed && kev.overdue) parts.push('FCEB remediation deadline passed; not an organizational target');
   if (cveInfo && cveInfo.exploit) parts.push('public exploit references exist');
   if (h.alertMatched) parts.push('matched an alert rule');
   else if (Number(h.originalHorizon) && Number(h.originalHorizon) !== h.horizon) parts.push('promoted by the pipeline');
@@ -1412,7 +1629,9 @@ function renderList() {
 // in the row's single Details disclosure, without hundreds of chip tab stops.
 function labelExplanations(h, cve) {
   const lines = [];
-  if (h.isKEV) lines.push(`KEV: catalog-listed exploitation${h.kevDueDate ? `. CISA remediation due ${h.kevDueDate}${h.kevOverdue ? ' (overdue)' : ''}` : ''}.`);
+  const kev = kevFact(h);
+  if (kev.listed || cve.cve) lines.push(`${kev.description}${kev.dueDate ? ` CISA deadline for FCEB agencies only: ${kev.dueDate}${kev.overdue ? ' (past deadline)' : ''}; not an organizational target.` : ''}`);
+  for (const metric of signalMetrics(h)) lines.push(`${metric.cve}: CVSS ${metric.version ? `v${metric.version} ` : ''}${metric.score.toFixed(1)}; ${metric.source || 'authority not recorded'}${metric.type ? `; ${metric.type} assessment` : ''}${metric.provisional ? '; provisional' : ''}${metric.selected === true ? '; selected for ranking' : metric.selected === false ? '; alternative assessment' : ''}.`);
   if (cve.exploit) lines.push('Exploit references: public exploit references exist; inspect the source for scope.');
   if (Number(h.corroboration) > 1) lines.push(`${h.corroboration} source identities report a similar story${h.sources?.length ? `: ${h.sources.join(', ')}` : ''}. This does not establish independent confirmation.`);
   const vendors = (Array.isArray(h.vendors) ? h.vendors : []).map(v => typeof v === 'string' ? v : v?.name).filter(Boolean);
@@ -1431,7 +1650,7 @@ function scanIdentityHtml(h) {
   const identity = scanFacts(h);
   const decision = decisions.get(sigKey(h));
   const severity = identity.severity;
-  return `<div class="wire-scan-identity">${identity.product ? `<span class="wire-product">${escapeHtml(identity.product)}</span>` : ''}${identity.cves.map(cve => `<span class="wire-cve-fact"><button type="button" data-copy-cve="${escapeHtml(cve)}" title="Copy ${escapeHtml(cve)}">${escapeHtml(cve)}</button>${cve === severity.scope ? `<span class="wire-severity"${severity.level ? ` data-level="${severity.level}"` : ''}>CVSS ${escapeHtml(severity.value)}</span>` : ''}</span>`).join('')}${identity.remainingCves ? `<span>+${identity.remainingCves} CVEs</span>` : ''}${identity.cves.length && !severity.scope ? '<span class="wire-severity">CVSS unavailable</span>' : ''}${decision && decision.state !== 'unreviewed' ? `<span class="wire-outcome-chip">Your assessment: ${escapeHtml(DECISION_STATES[decision.state])}</span>` : ''}</div>`;
+  return `<div class="wire-scan-identity">${identity.product ? `<span class="wire-product">${escapeHtml(identity.product)}</span>` : ''}${identity.cves.map(cve => `<span class="wire-cve-fact"><button type="button" data-copy-cve="${escapeHtml(cve)}" title="Copy ${escapeHtml(cve)}">${escapeHtml(cve)}</button>${cve === severity.scope ? `<span class="wire-severity"${severity.level ? ` data-level="${severity.level}"` : ''}>CVSS ${escapeHtml(severity.value)}</span>` : ''}</span>`).join('')}${identity.remainingCves ? `<span>+${identity.remainingCves} CVEs</span>` : ''}${identity.cves.length && !severity.scope ? '<span class="wire-severity">CVSS unavailable</span>' : ''}${decision && decision.state !== 'unreviewed' ? `<span class="wire-outcome-chip">${escapeHtml(decisionLabel(h, decision))}</span>` : ''}</div>`;
 }
 
 function signalSubmeta(h, cveInfo) {
@@ -1454,14 +1673,14 @@ function signalDetailsHtml(h, cveInfo = parseCveData(h.cveData), submeta = signa
   const href = safeHref(h.link);
   const isRead = isSignalRead(h, readKeys);
   const localDecision = decisions.get(key);
-  return `${editorialContextHtml(h)}<p class="wire-local-state">${localDecision && localDecision.state !== 'unreviewed' ? `Your assessment · ${escapeHtml(DECISION_STATES[localDecision.state])}` : 'Local exposure · Unknown'}</p>
+  return `${editorialContextHtml(h)}<p class="wire-local-state">${localDecision && localDecision.state !== 'unreviewed' ? escapeHtml(decisionLabel(h, localDecision)) : 'Local exposure · Unknown'}</p>
     <div class="wire-evidence-row">${h.evidence?.length ? `<button type="button" class="wire-inspect" data-evidence="${escapeHtml(key)}">Inspect evidence <span class="wire-evidence-count">${h.evidence.length} retained ${h.evidence.length === 1 ? 'source' : 'sources'}</span></button>` : '<p class="wire-retention-note">No retained excerpt is attached to this signal. Open the source for its reporting.</p>'}</div>
     ${signalAssessmentMeta(h, true)}
     <div class="wire-decision"><span class="wire-tier h${h.horizon}">${TIER_NAMES[h.horizon] || ''}</span>${corroborationGlyph(h)}${cveCluster(h, cveInfo)}</div>
     <details class="wire-source-context"><summary>Reported text and source context</summary>
       ${h.editorialContext?.sourceTitle && h.editorialContext.title !== h.editorialContext.sourceTitle ? `<p class="wire-retention-note">Publisher headline: ${escapeHtml(h.editorialContext.sourceTitle)}</p>` : ''}${renderEvidenceContext(h)}
       ${h.description ? `<p class="wire-detail-description">${highlightWireText(h.description, filters.q)}</p>` : ''}${submeta ? `<div class="wire-submeta">${submeta}</div>` : ''}
-    </details>${labelExplanations(h, cveInfo)}${decisionForm(h, decisionDrafts.get(key) || decisions.get(key))}
+    </details>${labelExplanations(h, cveInfo)}${decisionForm(h, decisionDrafts.get(key)?.values || decisions.get(key), { ...decisionDrafts.get(key), saving: decisionSaves.has(key), record: decisions.get(key), serverPhase: decisionClient.phase })}
     <span class="wire-row-actions">${copyLinkBtn(h, href, cveInfo)}
       <button type="button" class="wire-mark-read" data-mark-read="${escapeHtml(key)}" aria-pressed="${isRead}" title="${isRead ? 'Mark unread' : 'Mark read'}" aria-label="${isRead ? 'Mark unread' : 'Mark read'}">${wireIcon(isRead ? 'read' : 'unread')}<span class="wire-read-label">${isRead ? 'Read' : 'Unread'}</span></button>
       ${dismissedKeys.has(key)
@@ -1477,15 +1696,16 @@ function editorialContextHtml(h) {
   const records = Array.isArray(h.kevRecords) ? h.kevRecords : [];
   return `${fields.filter(([, value]) => text(value)).map(([label, value]) => `<section class="wire-context-fact"><h4>${label}</h4><p>${escapeHtml(value)}</p></section>`).join('')}
     ${Array.isArray(context.unknowns) && context.unknowns.length ? `<details class="wire-evidence-gaps"><summary>What remains unverified</summary><ul>${context.unknowns.map(value => `<li>${escapeHtml(value)}</li>`).join('')}</ul></details>` : ''}
-    ${records.length > 1 ? `<details class="wire-cve-records"><summary>${records.length} catalog-listed vulnerabilities</summary>${records.map(record => `<section><h4>${escapeHtml(record.cve)} · ${escapeHtml(record.product || record.vendor || '')}</h4><p>${escapeHtml(record.description || record.name || '')}</p><p>CISA deadline: ${escapeHtml(record.dueDate || 'not retained')}${record.overdue ? ' · Past deadline' : ''}</p>${record.requiredAction ? `<p>Catalog action: ${escapeHtml(record.requiredAction)}</p>` : ''}</section>`).join('')}</details>` : ''}
+    ${records.length > 1 ? `<details class="wire-cve-records"><summary>${records.length} vulnerabilities in captured KEV evidence</summary><p>${escapeHtml(kevFact(h).description)}</p>${records.map(record => `<section><h4>${escapeHtml(record.cve)} · ${escapeHtml(record.product || record.vendor || '')}</h4><p>${escapeHtml(record.description || record.name || '')}</p><p>FCEB deadline: ${escapeHtml(record.dueDate || 'not retained')}${record.overdue ? ' · Past deadline' : ''}; external catalog deadline, not an organizational target.</p>${record.requiredAction ? `<p>Catalog action: ${escapeHtml(record.requiredAction)}</p>` : ''}</section>`).join('')}</details>` : ''}
     ${h.enrichmentStatus && Object.entries(h.enrichmentStatus).some(([, value]) => value === 'unavailable') ? '<p class="wire-retention-note">Some structured lookups are unavailable. Ranking has limited enrichment coverage; inspect attributed source reporting.</p>' : ''}`;
 }
 
 function scanPriorityChip(h) {
   const changed = Array.isArray(h.evidence) && h.evidence.some(source => source.changed);
   const watched = h.applicability?.state === 'declared-match' || h.applicability?.questionMatches?.length;
-  const overdue = h.kevOverdue || h.kevRecords?.some(record => record.overdue);
-  const urgent = overdue ? '<span class="wire-priority crit">KEV overdue</span>' : h.isKEV ? '<span class="cl-kev">KEV</span>' : priorityChip(h);
+  const kev = kevFact(h);
+  const overdue = kev.listed && (kev.overdue || h.kevRecords?.some(record => record.overdue));
+  const urgent = overdue ? `<span class="wire-priority crit" title="${escapeHtml(kev.description)}">FCEB overdue${kev.status !== 'fresh' ? ' · retained' : ''}</span>` : kev.listed ? `<span class="cl-kev" title="${escapeHtml(kev.description)}">${escapeHtml(kev.label)}</span>` : priorityChip(h);
   const kind = h.evidence?.find(source => source.changed)?.changeKind || h.editorialContext?.changeKind;
   const update = kind === 'capture-expanded' ? 'More source context retained' : 'Retained source changed';
   const context = changed ? `<span class="wire-priority changed">${update}</span>` : watched ? `<span class="wire-priority watch">${h.applicability?.state === 'declared-match' ? 'Watch match' : 'Question match'}</span>` : '';
@@ -1544,7 +1764,7 @@ function scoreBlock(h) {
     .filter(k => Number.isFinite(comps[k]))
     .map(k => {
       const pct = Math.round(Math.max(0, Math.min(1, comps[k])) * 100);
-      if (k === 'severity' && pct === 0 && !parseCveData(h.cveData).cvss && !parseCveData(h.cveData).sev) {
+      if (k === 'severity' && pct === 0 && !signalSeverity(h).scope) {
         return '<li class="wsb-axis wsb-unavailable"><span class="wsb-label">Severity unavailable</span><span>No severity evidence retained · 0 ranking contribution</span></li>';
       }
       const points = Number(h.scoreContributions?.[k]);
@@ -1570,25 +1790,26 @@ function humanizeKey(k) {
 // shared metadata, so a separate catalog CVE cannot inherit another CVE's score.
 function cveCluster(h, p = parseCveData(h.cveData)) {
   const data = p.raw;
-  const cve = h.kevCVE || p.cve;
+  const kev = kevFact(h);
+  const cve = kev.cve || p.cve;
   const { exploit } = p;
   const parts = [];
   // The CVE id is the most frequent single exit action from the Wire (into a
   // ticket, a scanner query, Slack); make it a click-to-copy button rather than inert
   // text an analyst has to drag-select across a dense row of links and tooltip chips.
   if (cve) parts.push(`<button type="button" class="cl-cve" data-copy-cve="${escapeHtml(cve)}" title="${escapeHtml(data || cve)}" aria-label="Copy ${escapeHtml(cve)}">${highlightWireText(cve, filters.q)}${wireIcon('copy')}</button>`);
-  if (h.isKEV) {
-    const kevT = 'On the CISA Known Exploited Vulnerabilities catalog — federal remediation mandated';
-    parts.push(`<span class="cl-kev" data-tip="${escapeHtml(kevT)}" aria-label="${escapeHtml(kevT)}">KEV</span>`);
-    if (h.kevDueDate) {
-      const due = escapeHtml(h.kevDueDate);
-      if (h.kevOverdue) {
-        const t = `CISA remediation deadline passed — ${due}`;
-        parts.push(`<span class="cl-due overdue" data-tip="${t}" aria-label="${t}">OVERDUE</span>`);
+  if (kev.listed) {
+    const kevT = kev.description;
+    parts.push(`<span class="cl-kev" data-tip="${escapeHtml(kevT)}" aria-label="${escapeHtml(kevT)}">${escapeHtml(kev.label)}</span>`);
+    if (kev.dueDate) {
+      const due = escapeHtml(kev.dueDate);
+      if (kev.overdue) {
+        const t = `CISA deadline for FCEB agencies passed — ${due}; not an organizational target`;
+        parts.push(`<span class="cl-due overdue" data-tip="${t}" aria-label="${t}">FCEB OVERDUE</span>`);
       } else {
-        const days = daysUntil(h.kevDueDate);
-        const f = days == null ? `due ${due}` : (days <= 0 ? 'due today' : `due in ${days}d`);
-        const t = `CISA remediation deadline — ${due}`;
+        const days = daysUntil(kev.dueDate);
+        const f = days == null ? `FCEB due ${due}` : (days <= 0 ? 'FCEB due today' : `FCEB due in ${days}d`);
+        const t = `CISA deadline for FCEB agencies — ${due}; not an organizational target`;
         parts.push(`<span class="cl-due" data-tip="${t}" aria-label="${t}">${escapeHtml(f)}</span>`);
       }
     }
@@ -1608,16 +1829,17 @@ function cveCluster(h, p = parseCveData(h.cveData)) {
 // the whole line (the single allowed escalation). Exact dates live in the title.
 // Renders only when BOTH the CISA add-date and due-date are known.
 function kevTimeline(h) {
-  if (!h.isKEV || !h.kevDueDate || !h.kevDateAdded) return '';
-  const added = dateMs(h.kevDateAdded);
-  const due = dateMs(h.kevDueDate);
+  const kev = kevFact(h);
+  if (!kev.listed || !kev.dueDate || !kev.dateAdded) return '';
+  const added = dateMs(kev.dateAdded);
+  const due = dateMs(kev.dueDate);
   if (!added || !due || due <= added) return '';
   const frac = (Date.now() - added) / (due - added);
   const pos = Math.max(0, Math.min(1, frac)) * 100;
-  const overdue = !!h.kevOverdue;
-  const a = shortDate(h.kevDateAdded);
-  const d = shortDate(h.kevDueDate);
-  const label = `KEV added ${h.kevDateAdded} · remediation due ${h.kevDueDate}${overdue ? ' — OVERDUE' : ''}`;
+  const overdue = kev.overdue;
+  const a = shortDate(kev.dateAdded);
+  const d = shortDate(kev.dueDate);
+  const label = `${kev.label} added ${kev.dateAdded} · FCEB remediation due ${kev.dueDate}${overdue ? ' — OVERDUE' : ''}; not an organizational target`;
   return `<span class="kev-timeline${overdue ? ' overdue' : ''}" style="--kev-now:${pos.toFixed(1)}%" data-tip="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">
     <span class="kt-line"><span class="kt-now"></span></span>
     <span class="kt-ends"><span>${escapeHtml(a)}</span><span>${escapeHtml(d)}</span></span>

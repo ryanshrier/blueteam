@@ -2,7 +2,7 @@
 
 import { Router } from 'express';
 import { createHash } from 'crypto';
-import { buildLandscape, pipelineStaleAfterMs } from '../lib/landscape.js';
+import { buildLandscape, pipelineStaleAfterMs, currentKevCatalogStatus } from '../lib/landscape.js';
 import { getKEVDueDates, getKEVRecords, getBriefMeta } from '../lib/db.js';
 import { getLatestRun, refreshNow, getRunAgeMs } from '../lib/refresher.js';
 import { parseBluf, parseSignalTitles } from '../lib/brief-schema.js';
@@ -17,7 +17,8 @@ import { getSourceEvidence } from '../lib/evidence.js';
 import { getEffectiveWatchProfile } from '../lib/user-settings.js';
 import { evaluateApplicability } from '../lib/watch-profile.js';
 import { editorialContext, enrichmentStatus, headlineCves, normalizeFeedTimestamp, readableExcerpt } from '../lib/intelligence-context.js';
-import { summarizeEvidence } from '../lib/evidence-freshness.js';
+import { summarizeEvidence, briefingReadiness } from '../lib/evidence-freshness.js';
+import { capturedSignalFacts } from '../public/modules/core/signal-facts.js';
 
 // How many top-scored signals each feed publishes by default, and the hard cap
 // a caller's own ?limit= may not exceed.
@@ -137,12 +138,15 @@ function buildLandscapeMemoized(historyDir, reviewDirectory) {
   const runAgeMs = getRunAgeMs();
   const now = Date.now();
   const configVersion = getConfigVersion();
+  const catalogStatus = currentKevCatalogStatus(run);
+  const catalogRevision = `${catalogStatus.status}:${catalogStatus.retrievedAt || ''}`;
 
   const runChanged = !landscapeMemo || landscapeMemo.generatedAtMs !== (run?.generatedAtMs ?? null);
   const configChanged = !landscapeMemo || landscapeMemo.configVersion !== configVersion;
+  const catalogChanged = !landscapeMemo || landscapeMemo.catalogRevision !== catalogRevision;
   const ttlExpired = !landscapeMemo || (now - landscapeMemo.builtAtMs) > LANDSCAPE_MEMO_TTL_MS;
 
-  if (runChanged || configChanged || ttlExpired) {
+  if (runChanged || configChanged || catalogChanged || ttlExpired) {
     const brief = loadLatestBriefSummary(historyDir, reviewDirectory);
     let archivedCount = 0;
     if (!brief) { try { archivedCount = listBriefEditions(historyDir).length; } catch { /* unavailable archive has no usable default */ } }
@@ -156,12 +160,14 @@ function buildLandscapeMemoized(historyDir, reviewDirectory) {
     if (
       runChanged
       || configChanged
+      || catalogChanged
       || !landscapeMemo
       || landscapeMemo.briefRevision !== briefRevision
     ) {
       landscapeMemo = {
         generatedAtMs: run?.generatedAtMs ?? null,
         configVersion,
+        catalogRevision,
         briefRevision,
         builtAtMs: now,
         payload: { ...buildLandscape(run, brief, { runAgeMs }), briefAvailability },
@@ -175,14 +181,17 @@ function buildLandscapeMemoized(historyDir, reviewDirectory) {
   // threshold. Re-evaluate their window even while the expensive build is cached.
   const payload = landscapeMemo.payload;
   const pipelineAgeMin = run ? Math.floor(runAgeMs / 60_000) : null;
-  const evidence = summarizeEvidence(run?.headlines || [], { now });
+  const maxAgeMs = Math.max(15 * 60_000, (getConfig().analysisSettings?.refreshMinutes ?? 10) * 3 * 60_000);
+  const evidence = summarizeEvidence(run?.headlines || [], { now, maxAgeMs });
+  const readiness = briefingReadiness(run, { now, maxAgeMs });
   return {
     ...payload,
     generatedAt: evidence.observedAt,
     evidence,
+    briefingReadiness: readiness,
+    collection: readiness.collection ? { ...payload.collection, ...readiness.collection } : payload.collection,
     stale: !run || runAgeMs > pipelineStaleAfterMs(payload.pipeline?.refreshMinutes)
-      || evidence.freshHeadlines < 5
-      || (payload.collection?.configuredSources > 0 && payload.collection.freshSources / payload.collection.configuredSources < 0.5),
+      || readiness.collection?.outage === true,
     pipeline: { ...payload.pipeline, ageMinutes: pipelineAgeMin },
   };
 }
@@ -251,6 +260,9 @@ export function createLandscapeRouter({ historyDir, reviewDir, cooldown, publicB
       return res.json({ generatedAt: null, ageSeconds: null, headlines: [] });
     }
     const headlines = run.headlines || [];
+    const catalogStatus = currentKevCatalogStatus(run);
+    const refreshMinutes = getConfig().analysisSettings?.refreshMinutes ?? 10;
+    const readiness = briefingReadiness(run, { maxAgeMs: Math.max(15 * 60_000, refreshMinutes * 3 * 60_000) });
     const profile = loopback || res.locals.authenticated === true ? getEffectiveWatchProfile(getConfig()) : null;
     if (profile) res.set('Cache-Control', 'private, no-store');
 
@@ -267,30 +279,31 @@ export function createLandscapeRouter({ historyDir, reviewDir, cooldown, publicB
     res.json({
       generatedAt: run.generatedAt,
       ageSeconds: Math.floor(getRunAgeMs() / 1000),
+      refreshMinutes,
+      briefingReadiness: readiness,
+      collection: readiness.collection ? { ...run.stats?.collection, ...readiness.collection } : run.stats?.collection || null,
+      kevCatalogStatus: catalogStatus,
       stats: run.stats,
       enrichmentFailures: run.stats?.enrichmentFailures || [],
       ...(profile ? { watchProfile: profile } : {}),
       headlines: headlines.map(h => {
         const due = (h.kevCVE && dueDates[h.kevCVE]) || null;
         const kevRecords = [...new Set([...headlineCves(h), h.kevCVE].filter(Boolean))].flatMap(cve => kevById[cve] ? [kevById[cve]] : []);
+        const facts = capturedSignalFacts({ ...h, kevDueDate: due?.due_date || h.kevDueDate, kevDateAdded: due?.date_added || h.kevDateAdded,
+          kevOverdue: due ? Boolean(due.overdue) : h.kevOverdue }, kevRecords, catalogStatus);
         const normalizedDate = normalizeFeedTimestamp(h.date);
         return {
           title: h.title,
           description: readableExcerpt(h.passage || h.description || '', 480),
           descriptionTruncated: String(h.passage || h.description || '').length > 480 || Boolean(h.passageTruncated),
-          editorialContext: editorialContext(h, kevRecords),
-          kevRecords,
+          editorialContext: editorialContext({ ...h, ...facts }, facts.kevRecords, { preparedOnly: true }),
+          ...facts,
           enrichmentStatus: enrichmentStatus(h, run.stats?.enrichmentFailures),
           link: h.link || null,
           source: h.source,
           horizon: h.horizon,
           score: Math.round((h.score || 0) * 10) / 10,
           urgency: h.urgency,
-          isKEV: Boolean(h.isKEV),
-          kevCVE: h.kevCVE || null,
-          kevDueDate: due ? due.due_date : null,
-          kevDateAdded: due ? due.date_added : null,  // micro-timeline anchor
-          kevOverdue: due ? due.overdue : false,
           cveData: h.cveData || null,
           corroboration: h.corroboration || 1,
           date: normalizedDate || h.date || null,

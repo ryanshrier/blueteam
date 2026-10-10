@@ -23,6 +23,13 @@ For example, send `{}` as the body of `POST /api/brief` and `POST /api/refresh`.
 | `/api/landscape` | `GET` | Full Wall payload: signals, KEV, actors, and velocity |
 | `/api/headlines` | `GET` | Every scored headline from the latest pipeline run |
 | `/api/evidence/:sourceId` | `GET` | Bounded retained source revisions and exact stored feed passages; no publisher fetch |
+| `/api/decisions` | `GET` | Cursor-paginated current decision records, independent of the current feed |
+| `/api/decisions` | `PUT` | Save a decision using an expected revision and an idempotent request identifier |
+| `/api/decisions/lookup` | `POST` | Find decisions for exact signal keys |
+| `/api/decisions/import` | `POST` | Add exported or legacy browser records without overwriting divergent server records |
+| `/api/decisions/export` | `GET` | Stream all current decisions and their latest retained evidence copies |
+| `/api/decisions/:id` | `GET` | Read a current decision and its retained evidence copies |
+| `/api/decisions/:id/history` | `GET` | Read immutable decision revisions and their evidence copies |
 | `/api/feed.xml` | `GET` | RSS 2.0 feed of top signals with source, tier, score, and KEV status |
 | `/api/feed.json` | `GET` | [JSON Feed](https://www.jsonfeed.org/) of the same top signals |
 | `/api/briefs.xml` | `GET` | RSS 2.0 feed of daily Briefings |
@@ -45,19 +52,53 @@ For example, send `{}` as the body of `POST /api/brief` and `POST /api/refresh`.
 | `/api/settings/verify` | `POST` | Make a small billable request to verify a built-in provider key and, for OpenAI, model access; for experimental Custom, call the optional module health hook instead |
 | `/embed` | `GET` | Headerless signal strip for an iframe; supports `tier`, `limit`, and `theme` query parameters |
 
+## Decision records
+
+Decisions belong to this server's single trusted operator. The shared bearer token does not identify a person; history reports operator identity as not recorded. The API does not provide separate user accounts, roles, or a team approval workflow. The same origin, JSON, authentication, and request-rate boundaries as other API mutations apply.
+
+`GET /api/decisions?limit=100&after=<cursor>` returns `items`, `nextCursor`, `total`, and storage limits. Pages contain at most 200 records. Each record includes a stable SHA-256 `id`, the original `signal` key, its `revision`, timestamps, and a `decision`. Signal keys remain independent of mutable titles. `POST /api/decisions/lookup` takes `{ "signals": ["https://example.test/advisory"] }`, with at most 100 keys and the ordinary 100 KB request limit.
+
+To create a decision, send `PUT /api/decisions`:
+
+```json
+{
+  "signal": "https://example.test/advisory",
+  "baseRevision": 0,
+  "requestId": "550e8400-e29b-41d4-a716-446655440000",
+  "decision": {
+    "state": "investigate",
+    "owner": "Operations",
+    "nextReview": "2026-10-12",
+    "note": "Compare the affected release with the local inventory.",
+    "evidence": "",
+    "evidenceBinding": []
+  }
+}
+```
+
+Updates must use the current revision as `baseRevision`. A stale update returns 409 `E_DECISION_CONFLICT` with the current record; clients must retain their unsaved draft for reconciliation. Retry an uncertain save with the same request identifier and unchanged body. Reusing that identifier for different content returns 409. Successful writes atomically update the current record and append an immutable revision. Available bound source passages are copied into that revision, so subsequent rolling source pruning does not erase the decision's retained basis. Missing observations remain explicitly unavailable; imported copies are labeled unverified.
+
+`GET /api/decisions/:id/history?limit=10&before=<revision>` returns newest-first revisions, with at most 20 per page. Each entry reports its operation, saved time, decision, evidence copies, and the absence of named actor attribution.
+
+`GET /api/decisions/export` streams the current records with their latest evidence snapshots. It does not include every historical revision; use paginated history or a complete SQLite backup for that record.
+
+`POST /api/decisions/import` takes `{ "records": [...] }`, with at most 25 records and 4 MB of record data per request. This endpoint alone accepts a 5 MB JSON envelope; other endpoints retain the 100 KB boundary. Existing identical records are unchanged, divergent records are conflicts, and invalid rows are reported individually. Imports do not erase browser records or replace server decisions. Server limits stop new writes without evicting previous records or revisions. Include the SQLite database in backups.
+
 ## Generation stream
 
 `POST /api/brief` uses server-sent events so the interface can show generation progress and recover cleanly from timeouts. SSE responses are not compressed, which avoids buffering surprises in common proxy configurations.
 
 The route permits only one in-process generation at a time and applies a short cooldown from request start plus per-client fixed windows for short-term and daily requests. These limiter counters live in process memory and reset when the server restarts; they are a guardrail, not a spending cap. A 429 response includes a machine-readable error and `Retry-After`; clients should wait instead of immediately retrying. Requests rejected before a provider call do not consume the generation allowance. Manual and automatic generation use this same route and its limits.
 
-`GET /api/brief/status` returns `persistence`, `active`, `latest`, and a bounded `jobs` list. Each paid attempt is recorded before its provider call, with model, prompt hashes, usage checkpoints, estimated cost, and final outcome. No prompts, source excerpts, provider credentials, or raw provider errors are retained in this ledger. Trusted health diagnostics also include a compact `generation` summary. The stream announces its `generationId` and status URL before starting paid work.
+`GET /api/brief/status` returns `persistence`, `active`, `latest`, and a bounded `jobs` list. Jobs are recorded before collection begins, so another tab sees the active request throughout its lifecycle. A running job's optional `phase` is `collecting`, `preparing`, `generating`, `validating`, or `publishing`; older ledger records may omit it. Each paid attempt is recorded before its provider call, with model, prompt hashes, usage checkpoints, estimated cost, and final outcome. No prompts, source excerpts, provider credentials, or raw provider errors are retained in this ledger. Trusted health diagnostics also include a compact `generation` summary. The stream announces its `generationId` and status URL before collection.
 
 A finite nonnegative `usage.cost_usd` reported by the provider overrides the token-rate estimate for that attempt. Completed receipts and stream results sum the per-attempt costs, including retries; if any attempt lacks both a reported cost and a known model rate, the total is `null`. Provider-reported amounts and list-rate estimates are not a final billing statement.
 
+The opaque `publicationRevision` status token changes when this server saves an edition, publishes a draft, changes an edition disposition, or restarts. Clients use it to reread archive eligibility independently of the newest generation job; publishing an older draft need not change that job. A failed archive refresh remains pending until a later status poll or focus event succeeds. The token is an invalidation hint, not an edition identifier or proof of eligibility.
+
 Clients recovering a disconnected stream must match that `generationId` in `jobs`; an unrelated `latest` job is not the result of their request. A provider response requires its terminal event and stop reason before it can be recorded as complete. An incomplete stream retains recoverable output and reports unknown final usage. Scheduled replay verifies the reserved edition's receipt, completion flags, date, and timezone; inconsistent artifacts return 409 `E_SCHEDULE_INTEGRITY` without starting another generation.
 
-After a process restart, a job without a verified matching publication is `interrupted`, with `billing: "unknown-final-usage"` and `automaticRetry: false`. Token counts and costs are only the last recorded provider usage, not a final billing statement. A verified saved manifest can reconcile a publication even if the final ledger write failed. The scheduler cannot automatically repeat an ambiguous paid attempt for the same edition; review its status and provider usage before explicitly requesting another manual generation. Initial ledger failure stops generation before a provider call; later checkpoint failures stop further attempts and surface a storage error. This endpoint reports status; it does not replay the stream or resume a discarded draft.
+After a process restart, a job without a verified matching publication is `interrupted`, with `automaticRetry: false`. When a provider attempt was recorded, billing is `unknown-final-usage`; token counts and costs are only the last recorded usage, not a final billing statement. A job interrupted before any provider attempt retains `billing: "no-provider-attempt-recorded"` and zero cost, and does not prevent the scheduler from trying that edition again. A verified saved manifest can reconcile a publication even if the final ledger write failed. The scheduler cannot automatically repeat an ambiguous paid attempt for the same edition; review its status and provider usage before explicitly requesting another manual generation. Initial ledger failure stops generation before a provider call; later checkpoint failures stop further attempts and surface a storage error. This endpoint reports status; it does not replay the stream or resume a discarded draft.
 
 ## Draft recovery and publication
 
@@ -68,6 +109,10 @@ Save with `{ "content": "...", "baseRevision": 2 }` at `/revalidate`. The return
 Publish with `{ "content": "...", "baseRevision": 2, "inputSha256": "<manifestSha256 from the draft>" }` at `/publish`. The server saves the submitted text, applies safe formatting repairs, and checks it again. A 422 `E_DRAFT_BLOCKED` returns the saved `artifact`, findings, and `publicationDecision`; edits are preserved even though publication did not occur. A 409 `E_DRAFT_CONFLICT` means the saved revision or input identity no longer matches. Reload before changing the request. Other technical failures cannot be bypassed with an approval.
 
 For a detected `SECURITY_CONTROL_CHANGE`, the operator can submit `securityControlReview: { reviewer, reason, contentSha256 }`, using the exact saved revision's digest after reviewing that copy and its captured evidence. Editing it invalidates that approval. An accepted review preserves the finding and records the specific exception; it does not claim the automatic check passed or approve other blockers.
+
+Priority coverage and ambiguous action-summary findings use `editorialReview: { reviewer, reason, contentSha256, issueCodes }`. `issueCodes` must exactly match the current distinct `publicationDecision.reviewIssues` codes. Mixed coverage/control reviews use this same field. Review is bound to the saved revision and captured-input hash; it cannot waive contradictory action dates, malformed action mappings, or other blockers. The resulting `briefing-editorial` disposition retains the reviewed codes and reason. A legacy `securityControlReview` cannot approve a coverage finding.
+
+Generated action references and priority dispositions are retained as `briefingMetadata` in the receipt. The bounded trailing `briefing-metadata` JSON comment is stripped from published prose. A replacement record supplied during Markdown repair is stored with that repair revision; changing only the record still advances the revision. Editing prose clears stale action mappings, and publication rechecks the current copy. The original captured manifest remains unchanged.
 
 A successful publish returns `published: true`, `filename`, `isCurrent`, `replayed`, `publication`, and `warnings`. It preserves the edition/evidence date separately from publication time. Repeating the same request after a lost response returns the same verified edition. Older dates do not replace a newer current briefing. The permanent receipt retains the original failed/partial attempt and the repaired publication checks; publishing cannot resolve unknown provider usage or create new token charges. Post-publication accounting or indexing problems are separate warnings, not a failed publication. Configured notifications remain best effort; a publication replay does not resend them.
 

@@ -30,6 +30,9 @@ let settingsReady = Promise.resolve(); // resolves once aiEnabled is known, so t
 let searchTimer = null; // module-scoped so route changes/unmount can cancel a pending archive search
 let recoveryGenerationId = null; // only the exact interrupted attempt may navigate this view
 let generationStatus = null;
+let serverGenerationState = null;
+let observedGenerationKey = null;
+let publicationRefresh = { revision: null, dirty: false, inFlight: false, version: 0 };
 let closeInputReceipt = null;
 let closeOriginalEdition = null;
 let closeDraftReview = null;
@@ -42,29 +45,33 @@ let readingMode = 'overview';
 let stopRecentDevelopments = null;
 try { const saved = localStorage.getItem('briefing.readingMode'); if (['overview', 'scan', 'read'].includes(saved)) readingMode = saved === 'scan' ? 'read' : saved; } catch { /* browser storage is optional */ }
 
-export function briefGenerateModel({ enabled, known, loading, generating }) {
-  if (generating) return { label: 'Generating…', disabled: true, action: '' };
+export function briefGenerateModel({ enabled, known, loading, generating, accounting }) {
+  if (generating || accounting?.active || accounting?.kind === 'running') return { label: 'Generating…', disabled: true, action: '' };
   if (loading) return { label: 'Checking AI availability…', disabled: true, action: '' };
   if (!known) return { label: 'Check AI settings', disabled: false, action: 'settings' };
+  if (enabled && accounting?.kind === 'checking') return { label: 'Checking generation…', disabled: true, action: '' };
+  if (enabled && accounting?.kind === 'unavailable') return { label: 'Generation status unavailable', disabled: true, action: '' };
   return enabled
     ? { label: 'Generate briefing', disabled: false, action: 'generate' }
     : { label: 'Enable AI in Settings', disabled: false, action: 'settings' };
 }
 
 function generationControlState() {
-  return briefGenerateModel({ enabled: aiEnabled, known: aiKnown, loading: settingsLoading, generating: getState().isGenerating });
+  return briefGenerateModel({ enabled: aiEnabled, known: aiKnown, loading: settingsLoading, generating: getState().isGenerating, accounting: serverGenerationState });
 }
 
 function reflectBriefGenerate() {
-  const button = document.getElementById('briefGenerate');
-  if (!button) return;
   const state = generationControlState();
-  button.textContent = state.label;
-  button.disabled = state.disabled;
+  for (const id of ['briefGenerate', 'emptyGenerate']) {
+    const button = document.getElementById(id);
+    if (button) { button.textContent = state.label; button.disabled = state.disabled; }
+  }
   const helper = document.getElementById('briefGenerateInput');
   if (helper) helper.textContent = state.action === 'settings'
     ? 'Configure AI access in Settings to generate a briefing.'
-    : 'Input: latest collected signals';
+    : state.disabled && serverGenerationState?.kind === 'unavailable'
+      ? 'Retry the status check below before generating.'
+      : 'Uses current signals · API charges may apply';
   reflectDocumentActions();
 }
 
@@ -96,6 +103,8 @@ function leaveDocument(content) {
   if (record) record.innerHTML = '';
   const disclosure = document.getElementById('briefAiDisclosure');
   if (disclosure) { disclosure.hidden = true; disclosure.innerHTML = ''; }
+  const latestNotice = document.getElementById('briefLatestNotice');
+  if (latestNotice) { latestNotice.hidden = true; latestNotice.innerHTML = ''; }
   const layout = document.querySelector?.('.briefing-layout');
   if (layout) layout.hidden = false;
   document.querySelector?.('.briefing-view')?.classList.toggle('briefing-view--overview', false);
@@ -206,7 +215,7 @@ export function render(main) {
           <div class="brief-tools-panel">
             <div class="brief-tools-heading"><strong>Edition tools</strong><button type="button" class="btn-ghost" id="briefToolsClose" data-close-edition-tools>Close</button></div>
             <section class="brief-tools-group" aria-label="Browse editions">
-            <nav class="brief-reader-nav" aria-label="Briefing navigation"><a data-brief-route href="/briefing?latest=1">Latest</a><a data-brief-route href="/briefing?archive=1">Archive</a><button type="button" class="btn-ghost" id="briefDrafts">Drafts</button></nav>
+            <nav class="brief-reader-nav" aria-label="Briefing navigation"><a data-brief-route href="/briefing?latest=1">Latest</a><a data-brief-route href="/briefing?archive=1">Archive</a></nav>
             <label class="brief-toolbar-field">Edition
               <select class="history-select" id="briefHistory"><option value="">Choose edition</option></select>
             </label>
@@ -220,21 +229,22 @@ export function render(main) {
             <div id="briefInputManifest"></div>
             <p id="briefReviewState" class="brief-tool-review"><a href="#edition-record" data-open-edition-record>Edition record</a></p>
             </section>
-            <div class="brief-generate-control">
-              <button class="btn-primary" id="briefGenerate" type="button" aria-describedby="briefGenerateInput" disabled>Checking AI availability…</button>
-              <p id="briefGenerateInput">Input: latest collected signals</p>
-              <p class="brief-generation-cost">Uses this server's configured model and may incur API charges.</p>
-            </div>
             <div class="brief-edition-provenance"><span id="briefGenerationMeta"></span></div>
             <div id="briefSuccessStatus"></div>
           </div>
         </details>
       </header>
+      <div class="brief-operator-bar" role="group" aria-label="Briefing tasks">
+        <button class="btn-primary" id="briefGenerate" type="button" aria-describedby="briefGenerateInput" disabled>Checking AI availability…</button>
+        <button type="button" class="btn-ghost" id="briefDrafts">Review drafts</button>
+        <p id="briefGenerateInput">Uses current signals · API charges may apply</p>
+      </div>
       <div class="brief-document-bar" role="group" aria-label="Reading mode">
         <button type="button" class="btn-ghost" id="briefOverviewMode" data-reading-mode="overview" aria-pressed="${readingMode === 'overview'}">Overview</button>
         <button type="button" class="btn-ghost" id="briefReadingMode" data-reading-mode="read" aria-pressed="${readingMode === 'read'}">Full report</button>
       </div>
       <div class="brief-publication-state" id="briefPublicationState" hidden></div>
+      <div class="brief-latest-notice" id="briefLatestNotice" role="status" aria-live="polite" hidden></div>
       <div id="briefAttemptSlot"><section class="brief-attempt-status" id="briefAttemptStatus" role="status" aria-live="polite" aria-label="Generation and draft tasks" hidden></section></div>
       <div id="briefEditionRecord"></div>
       <section class="brief-overview" id="briefOverview" aria-label="Briefing overview" hidden></section>
@@ -347,11 +357,33 @@ export function render(main) {
   });
 
   generationStatus?.stop();
+  serverGenerationState = document.getElementById('briefAttemptStatus') ? { kind: 'checking' } : null;
+  observedGenerationKey = null;
+  publicationRefresh = { revision: null, dirty: false, inFlight: false, version: 0 };
+  reflectBriefGenerate();
   generationStatus = mountGenerationStatus(document.getElementById('briefAttemptStatus'), {
+    watchIdle: true,
     isGenerating: () => getState().isGenerating,
     getGenerationId: () => recoveryGenerationId,
     onReviewDraft: reviewSavedDraft,
-    onState: model => {
+    onState: (model, data) => {
+      serverGenerationState = model;
+      reflectBriefGenerate();
+      const revision = typeof data?.publicationRevision === 'string' && data.publicationRevision.length > 0
+        ? data.publicationRevision : null;
+      // Publication can change without changing the latest generation job: an
+      // older saved draft may publish after a newer job has already completed.
+      // Reconcile the first observed revision too, closing the mount/read race.
+      let changed = revision !== null && publicationRefresh.revision !== revision;
+      if (revision !== null) publicationRefresh.revision = revision;
+      const key = ['checking', 'unavailable'].includes(model?.kind) ? null : model?.jobId ? `${model.jobId}:${model.kind}` : model?.kind || 'idle';
+      if (key && observedGenerationKey !== key) {
+        const changedJob = observedGenerationKey !== null;
+        observedGenerationKey = key;
+        if (revision === null && changedJob && ['complete', 'failed', 'interrupted'].includes(model?.kind)) changed = true;
+      }
+      if (changed) markPublicationHistoryDirty();
+      if (data?.persistence === 'ok') reconcilePublicationHistory();
       const host = document.getElementById('briefAttemptStatus');
       const destination = document.getElementById(model?.kind === 'complete' && !model.pendingDraft ? 'briefSuccessStatus' : 'briefAttemptSlot');
       if (host && destination && host.parentElement !== destination) destination.appendChild(host);
@@ -646,7 +678,7 @@ function setupStoreListeners() {
           ${renderDraftMarkdown(recoverableDraft)}
         </section>
       `;
-      document.getElementById('retryGen')?.addEventListener('click', () => emit('generate-brief'));
+      document.getElementById('retryGen')?.addEventListener('click', requestBriefGeneration);
       document.getElementById('reviewDraft')?.addEventListener('click', event => {
         reviewSavedDraft(failure.draftArtifact.id, event.currentTarget);
       });
@@ -658,7 +690,7 @@ function setupStoreListeners() {
         <button class="btn-ghost" id="retryGen">Retry</button>
       </div>
     `;
-    document.getElementById('retryGen')?.addEventListener('click', () => emit('generate-brief'));
+    document.getElementById('retryGen')?.addEventListener('click', requestBriefGeneration);
   });
 }
 
@@ -762,6 +794,7 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
     const briefs = await fetchBriefs({ fresh: true });
     if (token !== contentRenderToken) return;
     const latest = briefs?.find(eligibleEdition);
+    latestFilename = latest?.filename || null;
     if (latest) {
       navigate(`/briefing/${encodeURIComponent(latest.filename)}`);
       return;
@@ -791,7 +824,7 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
       <p class="empty-kicker">Daily Threat Landscape</p>
       <h2>No briefing yet</h2>
       <p>Generate the first threat landscape briefing from the latest scored signals.</p>
-      <button class="btn-primary" id="emptyGenerate">${escapeHtml(generationControlState().label)}</button>
+      <button class="btn-primary" id="emptyGenerate"${generationControlState().disabled ? ' disabled' : ''}>${escapeHtml(generationControlState().label)}</button>
     </div>
   `;
   document.getElementById('emptyGenerate')?.addEventListener('click', requestBriefGeneration);
@@ -1428,6 +1461,7 @@ function setMeta(text) {
   if (el) el.textContent = brief?.content
     ? `${brief.filename === latestFilename ? 'Current published briefing' : latestFilename ? 'Archived briefing' : 'Saved briefing'} · ${formatEditionIdentity(brief.filename)}`
     : text;
+  reflectLatestNotice(brief);
   const generationMeta = document.getElementById('briefGenerationMeta');
   if (generationMeta) { const previous = [brief?.model && formatModelLabel(brief.model), Number.isFinite(brief?.costUsd) && formatCost(brief.costUsd)].filter(Boolean).join(' · '); generationMeta.textContent = previous ? `Previous generation · ${previous}` : ''; }
   const disclosure = document.getElementById('briefAiDisclosure');
@@ -1449,6 +1483,15 @@ function setMeta(text) {
   }
   const reviewState = document.getElementById('briefReviewState');
   if (reviewState) reviewState.hidden = !brief?.filename;
+}
+
+function reflectLatestNotice(brief = getState().currentBrief) {
+  const notice = document.getElementById('briefLatestNotice');
+  if (!notice) return;
+  const available = Boolean(brief?.filename && brief.content && latestFilename && latestFilename !== brief.filename);
+  notice.hidden = !available;
+  const html = available ? `<span>Newer edition available · ${escapeHtml(formatBriefLabel(latestFilename))}</span><a data-brief-route href="/briefing/${encodeURIComponent(latestFilename)}">Open latest briefing →</a>` : '';
+  if (notice.innerHTML !== html) notice.innerHTML = html;
 }
 
 export function publicationStateLabel(brief = {}) {
@@ -1505,19 +1548,19 @@ function formatCost(costUsd) {
 
 async function loadHistoryDropdown({ force = false } = {}) {
   const dropdown = document.getElementById('briefHistory');
-  if (!dropdown && !force) return;
-  if (!force && dropdown.options.length > 1) return;
+  if (!dropdown && !force) return false;
+  if (!force && dropdown.options.length > 1) return true;
 
   const request = ++historyRequest;
   try {
     const briefs = await fetchBriefs({ fresh: true });
-    if (request !== historyRequest) return;
+    if (request !== historyRequest) return false;
+    if (!Array.isArray(briefs)) return false;
     latestFilename = briefs?.find(eligibleEdition)?.filename || null;
     if (getState().currentBrief?.content) setMeta('');
     // Refresh the archive cache after off-view completion too, but never paint
     // a dropdown belonging to a detached mount.
-    if (!dropdown || dropdown !== document.getElementById('briefHistory')) return;
-    if (!Array.isArray(briefs) || briefs.length === 0) return;
+    if (!dropdown || dropdown !== document.getElementById('briefHistory')) return true;
     const current = getState().currentBrief?.filename || '';
     // /briefs' `date` field has the sequence suffix stripped (routes/brief.js),
     // so same-day regenerations were indistinguishable ("2026-06-22" × 5). Render the
@@ -1526,7 +1569,33 @@ async function loadHistoryDropdown({ force = false } = {}) {
     dropdown.innerHTML = '<option value="">Past editions</option>' + briefs.map(b =>
       `<option value="${escapeHtml(b.filename)}"${b.filename === current ? ' selected' : ''}>${escapeHtml(formatBriefLabel(b.filename))}${eligibleEdition(b) ? '' : ` · ${b.disposition?.status === 'superseded' ? 'Superseded' : 'Review required'}`}</option>`
     ).join('');
-  } catch { /* non-critical */ }
+    return true;
+  } catch { return false; }
+}
+
+function markPublicationHistoryDirty() {
+  publicationRefresh.dirty = true;
+  publicationRefresh.version++;
+  historyRequest++;
+  // Until archive eligibility is reread, the previous edition cannot claim to
+  // be current. A failed refresh keeps the honest "Saved" identity.
+  latestFilename = null;
+  if (getState().currentBrief?.content) setMeta('');
+}
+
+async function reconcilePublicationHistory() {
+  const owner = publicationRefresh;
+  if (!owner.dirty || owner.inFlight) return;
+  owner.inFlight = true;
+  const version = owner.version;
+  try {
+    const refreshed = await loadHistoryDropdown({ force: true });
+    if (owner === publicationRefresh && owner.version === version && refreshed) owner.dirty = false;
+  } finally {
+    owner.inFlight = false;
+  }
+  // Failure (or a revision change during the request) stays dirty. The next
+  // bounded status poll/focus refresh retries only this read, never generation.
 }
 
 function syncHistoryDropdown(filename) {
@@ -1570,6 +1639,9 @@ export function unmount() {
   tocScrollCleanup = null;
   generationStatus?.stop();
   generationStatus = null;
+  serverGenerationState = null;
+  observedGenerationKey = null;
+  publicationRefresh = { revision: null, dirty: false, inFlight: false, version: 0 };
   showingGeneration = false;
   clearTimeout(searchTimer);
   searchTimer = null;

@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.4.0 — 2026-10-09
+
+This release adds durable Wire decisions and strengthens briefing evidence,
+action review, collection isolation, and publication recovery.
+
+- Budget article retrieval and priority coverage by distinct events, retain unresolved high-priority leads for review, and expose material overflow. Preserve bounded, dated same-source qualifications from earlier receipts without treating them as current fact evidence.
+- Require review when one response action bundles containment, investigation, and recovery; prompt for separately owned milestones and a shorter full report.
+- Track generation from collection through publication, keep visible tabs synchronized, and surface newer editions without moving the reader. Promote Generate and Review drafts beside the reader modes, and calculate edition age from elapsed time.
+- Bind executive action targets to their specific judgment/action, require explicit review of unexplained priority coverage, and retain exact-copy editorial dispositions. Keep generated bookkeeping outside published prose and preserve it through draft repair.
+- Exclude advertisement and related-story extracts, version the article cache, and reclassify retained evidence during offline replay without changing original receipts. Show accepted and excluded captures in draft review.
+- Move Wire decisions into SQLite with optimistic revision checks, idempotent saves, retained evidence copies, paginated history, additive legacy import, and per-tab unsaved drafts. Preserve existing browser records for separate export.
+- Isolate configurable pattern compilation and matching in bounded workers. Failed matching retains the last good collection and reports degraded readiness without blocking HTTP handling.
+- Capture bounded private ranking datasets with complete candidate pools, frozen scoring inputs, blinded review exports, independent adjudication, incident/time splits, and metrics that expose unknown judgments and incomplete coverage.
+- Apply security-control review to Convergence actions and block objective contradictions in counts, catalog windows, and action targets. Retain publisher calendar dates and named edition timezones for citation checks.
+- Recognize article-only and shortened CVE lists in KEV matching, and bound NVD/EPSS observation caches.
+- Track legacy receipt exemptions independently of manifests; missing modern receipts cannot restore automatic publication eligibility. Page archive reads before loading edition contents.
+- Persist bounded webhook delivery jobs, reject redirects, retry transient failures, and distinguish material escalations per destination. Surface uncertain delivery, settings persistence, and configuration watcher failures in health diagnostics.
+- Preserve independent headline archive identities beyond the old 160-character title prefix with a transactional schema v10 migration.
+- Detect stale Wire decision edits across tabs, block new decisions at capacity without discarding existing records, and retain unsaved text. Bound embed waits and synchronize Wall display settings across tabs.
+- Add a real-server browser gate covering security middleware, settings persistence, decision conflicts, saved-draft publication, and reader navigation in isolated temporary state.
+
+### Upgrade notes
+
+Stop the service and back up `data/`, `briefs/`, `reviews/`, configuration, and
+secrets before upgrading. Startup migrates SQLite from schema 9 through schemas
+10 and 11 and creates the hidden `briefs/.receipt-policy.json` inventory. Keep
+that inventory with the database and saved editions. Rollback requires the prior
+code and its matching pre-upgrade backup; older code cannot open schema 11.
+
+Import legacy browser Wire decisions additively and keep their export until the
+import is verified. Stronger current-copy checks can remove older editions from
+Latest, Wall, RSS, or continuity until reviewed; original editions and receipts
+remain intact. Named accounts, permissions, and team approval workflows remain
+outside this release. See [Upgrade and rollback](docs/operations.md#upgrade-and-rollback).
+
 ## 1.3.2 — 2026-10-09
 
 - Preserve CVE/score associations across soft line wraps and explicit trailing CVE parentheses, while rejecting ambiguous objects and scores borrowed from adjacent vulnerabilities. Locate score blockers on the affected draft line and link their captured evidence.

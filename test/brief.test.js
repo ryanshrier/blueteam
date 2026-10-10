@@ -22,11 +22,11 @@ import express from 'express';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { CISA_KEV_CATALOG_URL } from '../lib/grounding.js';
-import { listBriefEditions as realListBriefEditions, saveBrief as realSaveBrief, extractBluf as realExtractBluf } from '../lib/history.js';
+import { CISA_KEV_CATALOG_URL, buildGroundingManifest } from '../lib/grounding.js';
+import { listBriefEditions as realListBriefEditions, countBriefEditions as realCountBriefEditions, saveBrief as realSaveBrief, extractBluf as realExtractBluf } from '../lib/history.js';
 import { createBriefGenerationTracker } from '../lib/brief-lifecycle.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
-import { generationManifestFilename, sha256 } from '../lib/generation-manifest.js';
+import { buildGenerationManifest, generationManifestFilename, sha256 } from '../lib/generation-manifest.js';
 import { createOpenAiClient } from '../lib/ai-provider.js';
 
 const getConfigMock = jest.fn();
@@ -60,6 +60,7 @@ jest.unstable_mockModule('../lib/history.js', () => ({
   saveBrief: saveBriefMock,
   loadRecentBriefs: loadRecentBriefsMock,
   listBriefEditions: realListBriefEditions,
+  countBriefEditions: realCountBriefEditions,
   extractContinuityContext: extractContinuityContextMock,
   extractBluf: extractBlufMock,
   localDateISO: (d = new Date()) => new Date(d).toISOString().slice(0, 10),
@@ -96,7 +97,7 @@ jest.unstable_mockModule('../lib/logger.js', () => ({
   log: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 
-const { createBriefRouter, streamWithRecovery, safeErrorMsg, estimateCostUsd, supportsAdaptiveThinking, applyThinking, buildGroundTruth, correctiveGuidance } = await import('../routes/brief.js');
+const { createBriefRouter, streamWithRecovery, safeErrorMsg, estimateCostUsd, supportsAdaptiveThinking, applyThinking, buildGroundTruth, correctiveGuidance, hasViableRetryBudget } = await import('../routes/brief.js');
 
 // A well-formed brief long enough to clear the 2,000-char structural floor and
 // carry every section the Wall/validator expect — reused as the "happy path"
@@ -268,6 +269,7 @@ async function readSSE(res) {
 
 beforeEach(() => {
   generationMetadata.clear();
+  generationMetadata.set('kev_last_refresh', new Date().toISOString());
   setMetaMock.mockReset().mockImplementation((key, value) => generationMetadata.set(key, value));
   getConfigMock.mockReset().mockReturnValue({ analysisSettings: {}, horizons: {}, organization: {} });
   getFreshRunMock.mockReset().mockResolvedValue({ headlines: [{ title: 'A headline', description: 'The source reports a change.', horizon: 1, source: 'Feed A' }], stats: { enriched: 1 } });
@@ -285,6 +287,42 @@ describe('POST /api/brief — happy path SSE framing', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
+  test('carries dated publisher context into the prompt and receipt without changing current facts', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'brief-source-continuity-'));
+    try {
+      const now = Date.now();
+      const filename = 'brief-2026-07-02-01.md';
+      const headline = { title: 'Gateway exploitation reported', source: 'Publisher', link: 'https://example.test/gateway',
+        date: new Date(now - 3_600_000).toISOString(), retrievedAt: new Date(now - 60_000).toISOString(),
+        description: 'The publisher reports exploitation activity targeting gateway appliances.', horizon: 1 };
+      const oldCapture = { ...headline, retrievedAt: new Date(now - 1_800_000).toISOString(),
+        description: 'Earlier captured evidence records attempted exploitation, not established successful compromise. '
+          + 'The investigation is still assessing whether the observed activity reached production systems. '.repeat(7) };
+      const older = buildGenerationManifest({ run: { headlines: [oldCapture] }, config: {}, editionContext: {},
+        groundingManifest: buildGroundingManifest({ headlines: [oldCapture] }) });
+      Object.assign(older, { filename, outputSha256: sha256(GOOD_BRIEF), capturedAt: new Date(now - 1_700_000).toISOString() });
+      writeFileSync(join(directory, filename), GOOD_BRIEF);
+      writeFileSync(join(directory, generationManifestFilename(filename)), JSON.stringify(older));
+      loadRecentBriefsMock.mockReturnValueOnce([{ filename, content: GOOD_BRIEF }]);
+      getFreshRunMock.mockResolvedValue({ headlines: [headline], stats: { enriched: 0 } });
+      const responseText = GOOD_BRIEF.replaceAll('[Feed A, date unavailable]',
+        `[Publisher, ${headline.date.slice(0, 10)}](${headline.link})`);
+      const stream = jest.fn(textStream(responseText));
+      ctx = await makeServer({ historyDir: directory, getAnthropic: () => fakeAnthropic(stream) });
+      const before = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+      const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      expect(events.filter(event => event.error)).toEqual([]);
+      expect(events.some(event => event.briefComplete)).toBe(true);
+      expect(stream.mock.calls[0][0].messages[0].content).toContain('DATED SOURCE CONTEXT');
+      const manifest = saveBriefMock.mock.calls[0][2].manifest;
+      expect(manifest.evidenceContinuity.sources).toHaveLength(1);
+      expect(manifest.grounding.sources[0].passage).toBe(headline.description);
+      expect(manifest.grounding.sources[0].historicalCaptures[0]).toMatchObject({ currentFactAuthority: false,
+        retrievedAt: oldCapture.retrievedAt, retainedFrom: { generationId: older.generationId } });
+      expect((await (await fetch(`${ctx.base}/api/brief/status`)).json()).publicationRevision).not.toBe(before.publicationRevision);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   test('fails before any paid provider call when initial accounting cannot be saved', async () => {
     setMetaMock.mockImplementation(() => { throw new Error('read-only disk'); });
     const stream = jest.fn(textStream(GOOD_BRIEF));
@@ -299,9 +337,13 @@ describe('POST /api/brief — happy path SSE framing', () => {
   });
 
   test('aborts provider work on a usage-checkpoint failure and does not retry', async () => {
-    let writes = 0;
+    let failedCheckpoint = false;
     setMetaMock.mockImplementation((key, value) => {
-      if (++writes >= 3) throw new Error('disk full');
+      const attempt = JSON.parse(value).jobs.at(-1)?.attempts.at(-1);
+      if (failedCheckpoint || attempt?.usage?.inputTokens > 0) {
+        failedCheckpoint = true;
+        throw new Error('disk full');
+      }
       generationMetadata.set(key, value);
     });
     const abort = jest.fn();
@@ -680,6 +722,39 @@ describe('POST /api/brief — evidence publication gate', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
+  test('reports collecting to another tab before refresh settles and rejects concurrent generation', async () => {
+    let rejectCollection;
+    let collectionEntered;
+    const entered = new Promise(resolve => { collectionEntered = resolve; });
+    getFreshRunMock.mockImplementation(() => {
+      collectionEntered();
+      return new Promise((resolve, reject) => { rejectCollection = reject; });
+    });
+    const stream = jest.fn(textStream(GOOD_BRIEF));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const pending = fetch(`${ctx.base}/api/brief`, { method: 'POST' });
+    try {
+      await entered;
+      const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+      expect(status).toMatchObject({ active: true, latest: {
+        status: 'running', phase: 'collecting', attempts: [], billing: 'no-provider-attempt-recorded',
+      } });
+      const overlap = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
+      expect(overlap.status).toBe(429);
+      expect(await overlap.json()).toMatchObject({ code: 'E_GENERATION_ACTIVE' });
+      expect(stream).not.toHaveBeenCalled();
+    } finally {
+      rejectCollection(Object.assign(new Error('Briefing evidence is stale.'), { code: 'E_EVIDENCE' }));
+    }
+    const events = await readSSE(await pending);
+    const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+    expect(status).toMatchObject({ active: false, latest: {
+      id: events.find(event => event.generationId).generationId,
+      status: 'failed', phase: 'collecting', code: 'E_EVIDENCE', attempts: [],
+      billing: 'no-provider-attempt-recorded', costUsd: 0,
+    } });
+  });
+
   test('stops before the provider when current evidence is unavailable', async () => {
     const evidenceError = new Error('Briefing evidence is stale.');
     evidenceError.code = 'E_EVIDENCE';
@@ -698,7 +773,7 @@ describe('POST /api/brief — evidence publication gate', () => {
     expect(saveBriefMock).not.toHaveBeenCalled();
   });
 
-  test('the end-to-end deadline also bounds a refresh that never settles', async () => {
+  test('a separate collection deadline bounds a refresh that never settles without a provider attempt', async () => {
     getConfigMock.mockReturnValue({
       analysisSettings: { generationTimeoutSec: 0.02 },
       horizons: {},
@@ -713,11 +788,60 @@ describe('POST /api/brief — evidence publication gate', () => {
     expect(anthropic.messages.stream).not.toHaveBeenCalled();
     expect(saveBriefMock).not.toHaveBeenCalled();
   });
+
+  test('collection does not consume the provider budget and the receipt records distinct phases', async () => {
+    getConfigMock.mockReturnValue({ analysisSettings: { generationTimeoutSec: 0.2 }, horizons: {}, organization: {} });
+    getFreshRunMock.mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 125));
+      return { generatedAtMs: Date.now(), headlines: [{ title: 'A headline', description: 'The source reports a change.',
+        horizon: 1, source: 'Feed A', retrievedAt: new Date().toISOString() }], stats: { enriched: 1, collection: { configuredSources: 8, freshSources: 8 } } };
+    });
+    const stream = jest.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 125));
+      return textStream(GOOD_BRIEF)();
+    });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.some(event => event.briefComplete)).toBe(true);
+    expect(stream).toHaveBeenCalledTimes(1);
+    const manifest = saveBriefMock.mock.calls[0][2].manifest;
+    expect(manifest.briefingReadiness).toMatchObject({ canGenerate: true, status: 'limited' });
+    expect(manifest.phaseTimingsMs.collection).toBeGreaterThanOrEqual(100);
+    expect(manifest.phaseTimingsMs.provider).toBeGreaterThanOrEqual(100);
+    expect(stream.mock.calls[0][0].messages[0].content).toContain('including a single judgment when appropriate');
+  });
 });
 
 describe('POST /api/brief — corrective retry recovery', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test('retains the original draft and one-attempt cost when no viable corrective budget remains', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'blueteam-retry-budget-'));
+    try {
+      getConfigMock.mockReturnValue({ analysisSettings: { generationTimeoutSec: 10 }, horizons: {}, organization: {} });
+      const original = GOOD_BRIEF.replace('## BLUF', '## OVERVIEW');
+      const stream = jest.fn(textStream(original));
+      ctx = await makeServer({ historyDir: directory, getAnthropic: () => fakeAnthropic(stream) });
+      const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      const blocked = events.find(event => event.error);
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(blocked).toMatchObject({ draft: original, tokens: 300, awaitingReview: true });
+      expect(blocked.validation.warnings).toEqual(expect.arrayContaining([expect.stringContaining('without another provider charge')]));
+      expect(saveBriefMock).not.toHaveBeenCalled();
+      const artifact = await (await fetch(`${ctx.base}/api/brief/drafts/${blocked.draftArtifact.id}`)).json();
+      expect(artifact.manifest.recovery).toMatchObject({ status: 'not-attempted', reason: 'insufficient-time', minimumMs: 30_000 });
+      expect(artifact.manifest.providerAttempts).toHaveLength(1);
+      expect(artifact.revisions.at(-1).content).toBe(original);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  test('retry viability requires a complete minimum window rather than a positive millisecond', () => {
+    expect(hasViableRetryBudget(30_000, 0)).toBe(true);
+    expect(hasViableRetryBudget(29_999, 0)).toBe(false);
+    expect(hasViableRetryBudget(1, 0)).toBe(false);
+    expect(hasViableRetryBudget(0, 1)).toBe(false);
+  });
 
   test('publishes an independence finding as an editorial note without another paid attempt', async () => {
     const firstDraft = GOOD_BRIEF.replace(
@@ -786,6 +910,32 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(saveBriefMock).not.toHaveBeenCalled();
     expect(indexBriefMock).not.toHaveBeenCalled();
     expect(saveBriefMetaMock).not.toHaveBeenCalled();
+    expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+  });
+
+  test.each(['new finding', 'removed judgment', 'incomplete replacement'])('retains the original draft when recovery causes %s', async failure => {
+    const original = GOOD_BRIEF + '\nCVE-2099-99999 is affected.';
+    const candidate = failure === 'new finding'
+      ? GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', '')
+      : failure === 'removed judgment'
+        ? GOOD_BRIEF.replace(/### Signal 2[\s\S]*?(?=---\s*\n\s*## CONVERGENCE)/, '')
+        : GOOD_BRIEF;
+    const requests = [];
+    const stream = jest.fn(async params => {
+      requests.push(JSON.parse(JSON.stringify(params)));
+      return textStream(requests.length === 1 ? original : candidate, {
+        stopReason: requests.length === 2 && failure === 'incomplete replacement' ? 'max_tokens' : 'end_turn',
+      })();
+    });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const blocked = events.find(event => event.code === 'E006');
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(blocked).toMatchObject({ draft: original, tokens: 600 });
+    expect(blocked.validation.warnings).toContain('Ungrounded CVE(s) in no source headline: CVE-2099-99999');
+    expect(requests[1].messages.at(-1).content).toContain('Repair only the identified passages');
+    expect(events.some(event => event.briefComplete)).toBe(false);
+    expect(saveBriefMock).not.toHaveBeenCalled();
     expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
   });
 
@@ -946,10 +1096,11 @@ describe('POST /api/brief — grounding publication gate', () => {
     expect(guidance).toContain('one explicit pair per clause');
     expect(guidance).toContain('An NVD-only score requires the supplied NVD citation');
     expect(guidance).toContain('Add the exact supplied publisher/date/URL citation');
-    expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Remove unsupported detail rather than guessing it');
+    expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Do not broaden affected versions');
+    expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Missing captured support does not establish that the claim is false');
   });
 
-  test('rejects an all-title-only collection before any provider or accounting mutation, even with catalog membership', async () => {
+  test('records an unpaid failure for an all-title-only collection, even with catalog membership', async () => {
     getFreshRunMock.mockResolvedValue({ headlines: Array.from({ length: 5 }, (_, i) => ({ title: `Advisory CVE-2026-${10000 + i}`, source: `Feed ${i}`, horizon: 1, isKEV: true, kevCVE: `CVE-2026-${10000 + i}` })), stats: { enriched: 5 } });
     getKEVSetMock.mockReturnValue(new Set(Array.from({ length: 5 }, (_, i) => `CVE-2026-${10000 + i}`)));
     const stream = jest.fn(textStream(GOOD_BRIEF));
@@ -957,7 +1108,9 @@ describe('POST /api/brief — grounding publication gate', () => {
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
     expect(events.find(event => event.error)).toMatchObject({ code: 'E_EVIDENCE_UNUSABLE' });
     expect(stream).not.toHaveBeenCalled();
-    expect(setMetaMock).not.toHaveBeenCalled();
+    const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+    expect(status).toMatchObject({ active: false, latest: { status: 'failed', code: 'E_EVIDENCE_UNUSABLE',
+      attempts: [], billing: 'no-provider-attempt-recorded', costUsd: 0 } });
     expect(saveBriefMock).not.toHaveBeenCalled();
   });
 
@@ -1963,6 +2116,17 @@ describe('buildGroundTruth — KEV ground-truth facts', () => {
     expect(gt).toMatch(/Enrichment note — KEV: the current catalog refresh was incomplete/);
     expect(gt).toMatch(/retain their captured facts/);
     expect(gt).toMatch(/do not label every retained score provisional/);
+  });
+
+  test.each(['missing', 'old', 'failed'])('a %s KEV refresh cannot claim there were no new additions', freshness => {
+    getKEVSetMock.mockReturnValue(new Set(['CVE-2026-0001']));
+    countKEVAddedTodayMock.mockReturnValue(0);
+    if (freshness === 'missing') generationMetadata.delete('kev_last_refresh');
+    if (freshness === 'old') generationMetadata.set('kev_last_refresh', '2026-01-01T00:00:00Z');
+    const gt = buildGroundTruth({ stats: { enrichmentFailures: freshness === 'failed' ? ['KEV'] : [] } });
+    expect(gt).toContain('retained snapshot');
+    expect(gt).not.toMatch(/0 new entries|no new.*(?:entries|additions)/i);
+    expect(gt).toMatch(/unconfirmed|not confirmed/);
   });
 
   test('one failed article extraction does not imply an NVD or KEV outage', () => {

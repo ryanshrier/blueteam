@@ -4,6 +4,7 @@
 
 import { escapeHtml } from '../core/sanitize.js';
 import { usableKevRecords } from './wall-format.js';
+import { kevFact } from '../core/signal-facts.js';
 
 export function renderKevSection(kev = {}) {
   const usable = usableKevRecords(kev);
@@ -11,20 +12,22 @@ export function renderKevSection(kev = {}) {
   const incomplete = (Array.isArray(kev.recent) ? kev.recent.length : 0) - usable.length;
   if (!recent.length) return '<section class="nb-section"><div class="nb-empty">No identifiable KEV additions are available.</div></section>';
   const rows = recent.map(renderKevRecent).join('');
+  const catalog = kevFact({ kevRecords: recent, kevCatalogStatus: kev.catalogStatus });
   const weekCount = kev.added7d != null && Number.isFinite(Number(kev.added7d)) && Number(kev.added7d) >= 0 ? Number(kev.added7d) : null;
   const todayCount = Number.isFinite(Number(kev.added24h)) ? Number(kev.added24h) : 0;
   const weeklyRead = weekCount !== null ? `Catalog total · ${weekCount} ${weekCount === 1 ? 'addition' : 'additions'} in the past 7 days` : 'Latest catalog additions';
   const todayRead = todayCount > 0
-    ? `<div class="nb-kev-today" aria-label="${todayCount} added today UTC, as of the feed update"><strong>${todayCount}</strong><span>today (UTC)<small>As of feed update</small></span></div>`
+    ? `<div class="nb-kev-today" aria-label="${todayCount} dated today UTC in the captured catalog"><strong>${todayCount}</strong><span>today (UTC)<small>Captured catalog</small></span></div>`
     : '';
 
   return `
     <section class="nb-section nb-kev-page row-count-${recent.length}">
       <header class="nb-kev-lead">
         <div class="nb-kev-intro">
-          <span class="nb-kev-eyebrow">Confirmed exploited · catalog change</span>
+          <span class="nb-kev-eyebrow">${catalog.status === 'fresh' ? 'Captured' : 'Retained'} CISA KEV · catalog additions</span>
           <strong class="nb-kev-total">${escapeHtml(weeklyRead)}</strong>
           <p class="nb-kev-deck">Check whether these confirmed exploited vulnerabilities affect your systems.</p>
+          <p class="nb-coverage">${escapeHtml(catalog.description)}</p>
           <p class="nb-coverage">Preview · ${recent.length} of the ${usable.length} newest catalog entries in this snapshot</p>
           ${incomplete ? `<p class="nb-coverage nb-coverage-warning">${incomplete} incomplete ${incomplete === 1 ? 'record' : 'records'} omitted</p>` : ''}
         </div>

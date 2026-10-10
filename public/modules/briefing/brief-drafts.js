@@ -1,6 +1,7 @@
 import { escapeHtml } from '../core/sanitize.js';
 import { formatEventTime } from '../core/brief-date.js';
 import { renderDraftMarkdown } from '../core/markdown.js';
+import { historicalSourceContextHtml } from './source-context.js';
 
 // Unsaved repairs survive closing the dialog during this app session.
 const workingCopies = new Map();
@@ -33,11 +34,26 @@ export function repairRequest(artifact, content) {
 
 export function draftCheckLabel(validation = {}, decision) {
   if (decision?.blockers?.length) return 'Draft saved · fixes needed before publication';
-  if (decision?.requiresReview) return 'Draft saved · specific control review required';
+  if (decision?.requiresReview) return securityOnly(decision.reviewIssues) ? 'Draft saved · specific control review required' : 'Draft saved · editorial review required';
   if (decision?.canPublish) return 'Draft saved · ready to publish';
   if (validation.valid === false || validation.sourceCheckStatus === 'findings') return 'Draft saved · checks need attention';
   if (validation.valid === true) return 'Draft saved · supported checks passed · unpublished';
   return 'Checks unavailable';
+}
+
+const securityOnly = issues => Array.isArray(issues) && issues.length > 0 && issues.every(issue => issue.code === 'SECURITY_CONTROL_CHANGE');
+
+export function draftReviewIssues(artifact) {
+  const decision = artifact?.publicationDecision;
+  if (decision) return decision.blockers?.length ? [] : decision.reviewIssues || [];
+  // Older draft responses exposed only the specific security exception.
+  return (draftValidation(artifact).issues || []).filter(issue => issue.code === 'SECURITY_CONTROL_CHANGE');
+}
+
+export function draftReviewFormHtml(issues, { changed = false } = {}) {
+  if (!issues?.length) return '';
+  const control = securityOnly(issues);
+  return `<form class="draft-control-review" data-control-review><h3>${control ? 'Review these security-control changes' : 'Review these editorial findings'}</h3><p>Approval applies only to ${control ? 'these changes' : 'these findings'} in the saved text below. Other publication checks still apply.</p><ul>${issues.map(issue => `<li>${escapeHtml(issue.location?.excerpt || issue.message)}</li>`).join('')}</ul><label>Reviewer<input name="reviewer" maxlength="200" required autocomplete="name"></label><label>${control ? 'Why is this change appropriate for this evidence and scope?' : 'Why is publication appropriate given these findings and the captured evidence?'}<textarea name="reason" maxlength="4000" required rows="3"></textarea></label><label class="draft-control-confirm"><input type="checkbox" name="confirmed" required> I reviewed these specific ${control ? 'control changes' : 'findings'} against the captured evidence.</label><p data-control-changed${changed ? '' : ' hidden'}>Your text changed. Publish to recheck it before approving ${control ? 'its control changes' : 'these findings'}.</p></form>`;
 }
 
 export function publicationRequest(artifact, content, review = null) {
@@ -46,9 +62,17 @@ export function publicationRequest(artifact, content, review = null) {
   const request = { ...patch, inputSha256: artifact.manifestSha256 };
   if (review) {
     const revision = artifact.revisions.at(-1);
-    if (content !== revision.content || !/^[a-f\d]{64}$/.test(revision.sha256 || '')) throw new Error('The draft changed. Publish to recheck this text before reviewing its control changes.');
-    if (!review.confirmed || !review.reviewer?.trim() || !review.reason?.trim()) throw new Error('Complete the specific security-control review before publishing.');
-    request.securityControlReview = { reviewer: review.reviewer.trim(), reason: review.reason.trim(), contentSha256: revision.sha256 };
+    const issues = draftReviewIssues(artifact);
+    const control = securityOnly(issues) || !artifact.publicationDecision;
+    if (content !== revision.content || !/^[a-f\d]{64}$/.test(revision.sha256 || '')) throw new Error(`The draft changed. Publish to recheck this text before reviewing ${control ? 'its control changes' : 'its findings'}.`);
+    if (artifact.publicationDecision && (!issues.length || artifact.publicationDecision.blockers?.length)) throw new Error('Resolve required fixes and reload the current review findings before approving publication.');
+    if (!review.confirmed || !review.reviewer?.trim() || !review.reason?.trim()) throw new Error(`Complete the specific ${control ? 'security-control' : 'editorial'} review before publishing.`);
+    const approval = { reviewer: review.reviewer.trim(), reason: review.reason.trim(), contentSha256: revision.sha256 };
+    if (control) request.securityControlReview = approval;
+    else {
+      if (issues.some(issue => typeof issue.code !== 'string' || !issue.code)) throw new Error('Reload the current review findings before approving publication.');
+      request.editorialReview = { ...approval, issueCodes: [...new Set(issues.map(issue => issue.code))].sort() };
+    }
   }
   return request;
 }
@@ -62,20 +86,47 @@ export function draftPublicationLabel(result) {
 function draftFindingsHtml(issues, decision) {
   const groups = decision ? [
     { label: 'Fix before publishing', items: decision.blockers || [], open: true },
-    { label: 'Specific control review', items: decision.reviewIssues || [], open: true },
+    { label: securityOnly(decision.reviewIssues) ? 'Specific control review' : 'Editorial review', items: decision.reviewIssues || [], open: true },
     { label: 'Editorial notes', items: decision.notes || [], open: false },
   ] : [{ label: 'Checks need attention', items: issues, open: true }];
   let index = 0;
   return groups.filter(group => group.items.length).map(group => `<details class="draft-findings"${group.open ? ' open' : ''}><summary>${group.label} · ${group.items.length}</summary><ol>${group.items.map(issue => `<li><button type="button" data-draft-line="${Number(issue.location?.line) || 1}" data-draft-issue="${index++}">${escapeHtml(issue.message || '')}<span>${group.label === 'Editorial notes' ? 'Editorial note · optional' : group.label}${issue.location?.line ? ` · Line ${Number(issue.location.line)}` : ''}</span></button>${issue.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`).join('')}</ol></details>`).join('') || '<p>No required changes. Ready to publish.</p>';
 }
 
-function capturedEvidenceHtml(artifact) {
+function currentEvidenceHtml(source, assessment) {
+  const original = typeof source.passage === 'string' && source.passage ? source.passage
+    : typeof source.passage?.text === 'string' ? source.passage.text : typeof source.evidenceText === 'string' ? source.evidenceText : '';
+  const parts = source.sourceParts?.length ? source.sourceParts : [{ kind: source.passageKind || 'retained-passage', passage: original, passageSha256: source.passageSha256 }];
+  const assessed = Array.isArray(assessment.parts) ? assessment.parts : [];
+  // Bind diagnostics to the retained capture identity, never just its position
+  // in an array or the historical "substantive" label.
+  const accepted = parts.filter(part => /^[a-f\d]{64}$/.test(part.passageSha256 || '') && assessed.some(item => item.kind === part.kind
+    && item.passageSha256 === part.passageSha256 && item.accepted === true && item.currentQuality?.substantive === true));
+  const excluded = parts.filter(part => !accepted.includes(part));
+  const reasons = new Set(assessed.filter(part => !part.accepted).flatMap(part => part.currentQuality?.reasons || []));
+  const explanations = [];
+  if (reasons.has('unrelated-advisory-card')) explanations.push('An unrelated advisory teaser was excluded.');
+  if (reasons.has('off-topic-promotional-body') || reasons.has('interstitial-or-promotional-body')) explanations.push('Advertisement, promotional, or access-page text was excluded.');
+  const feedRetained = accepted.some(part => part.kind === 'feed-excerpt');
+  const diagnostic = accepted.length ? `${feedRetained ? 'Retained feed evidence remains available.' : 'Other retained evidence remains available.'} ${explanations.join(' ')}`
+    : assessment.currentQuality?.substantive === false ? `No usable passage remains for current checks. ${explanations.join(' ')}`
+      : 'Current checks recorded usable evidence, but its passage could not be matched to this receipt. Recheck the draft before relying on the capture.';
+  const label = kind => kind === 'feed-excerpt' ? 'Retained feed evidence' : kind === 'article-excerpts' ? 'Retained article evidence' : 'Retained source evidence';
+  return `<p class="draft-evidence-quality"><strong>Current evidence checks:</strong> ${escapeHtml(diagnostic.trim())}</p>
+    ${accepted.map(part => `<section class="draft-current-evidence"><p>${label(part.kind)}</p><blockquote>${escapeHtml(typeof part.passage === 'string' ? part.passage : '')}</blockquote></section>`).join('')}
+    ${excluded.length ? `<details class="draft-excluded-evidence"><summary>Original captures excluded or unmatched in current checks · ${excluded.length}</summary><p>Preserved for audit. These passages are not used as current supporting evidence.</p>${excluded.map(part => `<p>${escapeHtml(part.kind || 'Captured passage')}</p><blockquote>${escapeHtml(typeof part.passage === 'string' ? part.passage : '')}</blockquote>`).join('')}</details>` : ''}`;
+}
+
+export function capturedEvidenceHtml(artifact) {
   const sources = artifact?.manifest?.grounding?.sources || [];
+  const quality = draftValidation(artifact).sourceQuality;
+  const assessments = new Map((Array.isArray(quality?.sources) ? quality.sources : []).map(item => [item.id, item]));
   return `<details class="draft-captured-evidence"><summary>Captured evidence · ${sources.length} sources</summary>${sources.map(source => {
     const passage = source.evidenceText || source.passage?.text || source.passage || '';
+    const assessment = assessments.get(source.id);
     let link = '';
     try { const url = new URL(source.url); if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) link = url.href; } catch { /* An unavailable URL stays plain text. */ }
-    return `<details data-draft-source="${escapeHtml(source.id || '')}"><summary>${escapeHtml(source.label || source.source || source.title || 'Captured source')}</summary><p>${escapeHtml(source.title || '')}</p><p>${escapeHtml(source.publishedAt || source.date || 'Publication date unavailable')}</p><blockquote>${escapeHtml(typeof passage === 'string' ? passage : '')}</blockquote>${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Open captured source ↗</a>` : ''}</details>`;
+    return `<details data-draft-source="${escapeHtml(source.id || '')}"><summary>${escapeHtml(source.label || source.source || source.title || 'Captured source')}${assessment ? ' · Current evidence filtered' : ''}</summary><p>${escapeHtml(source.title || '')}</p><p>${escapeHtml(source.publishedAt || source.date || 'Publication date unavailable')}</p>${assessment ? currentEvidenceHtml(source, assessment) : `<blockquote>${escapeHtml(typeof passage === 'string' ? passage : '')}</blockquote>`}${historicalSourceContextHtml(source)}${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Open captured source ↗</a>` : ''}</details>`;
   }).join('')}</details>`;
 }
 
@@ -143,7 +194,7 @@ export function openDraftReview({ id = '', opener, onPublished, onSaved } = {}) 
     const issues = decision ? [...(decision.blockers || []), ...(decision.reviewIssues || []), ...(decision.notes || [])] : validation.issues || [];
     // Resolve non-overridable failures first; approval must never suggest it can
     // waive an unrelated trust or structural failure.
-    const securityIssues = decision?.blockers?.length ? [] : issues.filter(issue => issue.code === 'SECURITY_CONTROL_CHANGE');
+    const reviewIssues = draftReviewIssues(artifact);
     if (artifact.status === 'published' && artifact.publication?.filename) {
       body.classList.remove('is-reviewing');
       body.innerHTML = `<p class="draft-review-note">This draft was published. Its saved revisions and captured evidence are preserved.</p><a class="btn-primary" href="/briefing/${encodeURIComponent(artifact.publication.filename)}">Open published briefing</a>`;
@@ -161,7 +212,7 @@ export function openDraftReview({ id = '', opener, onPublished, onSaved } = {}) 
       </div><details class="draft-reference-panel"${wide ? ' open' : ''}><summary>Checks and saved inputs</summary><div class="draft-reference-content">
       ${draftFindingsHtml(issues, decision)}
       ${capturedEvidenceHtml(artifact)}
-      ${securityIssues.length ? `<form class="draft-control-review" data-control-review><h3>Review these security-control changes</h3><p>Approval applies only to these changes in the saved text below. Other publication checks still apply.</p><ul>${securityIssues.map(issue => `<li>${escapeHtml(issue.location?.excerpt || issue.message)}</li>`).join('')}</ul><label>Reviewer<input name="reviewer" maxlength="200" required autocomplete="name"></label><label>Why is this change appropriate for this evidence and scope?<textarea name="reason" maxlength="4000" required rows="3"></textarea></label><label class="draft-control-confirm"><input type="checkbox" name="confirmed" required> I reviewed these specific control changes against the captured evidence.</label><p data-control-changed${pending ? '' : ' hidden'}>Your text changed. Publish to recheck it before approving its control changes.</p></form>` : ''}
+      ${draftReviewFormHtml(reviewIssues, { changed: Boolean(pending) })}
       <details class="draft-revision-history"><summary>Saved revisions and technical details</summary><p>${artifact.operatorSavedAt ? 'Your saved work is protected from automatic recovery cleanup.' : 'Recovered attempts are retained temporarily. Save draft to keep this work.'} The original and recent saved revisions remain available.</p>${artifact.revisions.map(revision => `<details><summary>Revision ${revision.number} · ${escapeHtml(formatEventTime(revision.createdAt))}</summary><pre>${escapeHtml(revision.content)}</pre></details>`).join('')}<details><summary>Captured input receipt</summary><p>SHA-256: <code>${escapeHtml(artifact.manifestSha256 || 'Unavailable')}</code></p><pre>${escapeHtml(JSON.stringify(artifact.manifest, null, 2))}</pre></details></details>
       </div></details></div>
       <div class="draft-repair-actions"><button type="button" class="btn-primary" data-draft-publish>Publish briefing</button><button type="button" class="btn-ghost" data-draft-save>Save draft</button><span role="status" id="draftRepairStatus">${pending ? 'Unsaved changes restored from this tab.' : `Saved ${escapeHtml(formatEventTime(artifact.lastCheck?.checkedAt || latest.createdAt) || '')} · unpublished`}</span></div>`;

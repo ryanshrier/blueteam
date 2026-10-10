@@ -4,6 +4,8 @@
 // layer imports these and wraps their output in markup / DOM writes; nothing here
 // touches the document, window, or `location`.
 
+import { signalSeverity } from '../core/signal-facts.js';
+
 // ── Rotation page-building: which broadsheet sections exist this cycle, and in
 // what order. Pure over (briefDoc, landscape, caps) so buildPages' section-skipping
 // and cap logic (JUDG_MAX/CONV_MAX — a long list can't monopolize the rotation) is
@@ -228,9 +230,9 @@ export function actionDisplayModel(actionShift) {
 }
 
 export function cvssFrom(s) {
-  if (!s || typeof s.cveData !== 'string') return '';
-  const m = s.cveData.match(/CVSS\s+([\d.]+)\s*(?:\(([A-Za-z]+)\))?/i);
-  return m ? `CVSS ${m[1]}${m[2] ? ' ' + m[2].toUpperCase() : ''}` : '';
+  const severity = signalSeverity(s || {});
+  return severity.scope ? `${severity.scope} · CVSS ${severity.value}`
+    : severity.metrics.length ? severity.value : '';
 }
 
 // Strip RSS boilerplate so the wire gist reads as a clean fact.

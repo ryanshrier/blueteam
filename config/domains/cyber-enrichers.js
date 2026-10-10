@@ -28,7 +28,7 @@
 // score (including article-aware MITRE tagging), followed by a re-score.
 // `limitKey`/`limitDefault` resolve a per-enricher budget from analysisSettings.
 
-import { enrichKEV, tagEntities, enrichCVEs, enrichEPSS, enrichArticleBodies, enrichIOCs } from '../../lib/enrichment.js';
+import { enrichKEV, tagKEVFromCatalog, tagEntities, enrichCVEs, enrichEPSS, enrichArticleBodies, enrichIOCs } from '../../lib/enrichment.js';
 import { tagMitre } from '../../lib/mitre.js';
 
 export const cyberEnrichers = [
@@ -36,12 +36,16 @@ export const cyberEnrichers = [
   { name: 'entities', stage: 'pre', fn: tagEntities },
   { name: 'cached-cve', stage: 'pre', fn: headlines => enrichCVEs(headlines, 0) },
   { name: 'cached-epss', stage: 'pre', fn: headlines => enrichEPSS(headlines, 0) },
+  // Extract first so identities disclosed only in an article share the existing
+  // CVE/EPSS budgets. Ranking selection and live-request limits are unchanged.
+  { name: 'article', stage: 'post', fn: enrichArticleBodies, failureKey: 'article', limitKey: 'maxArticleExtractions', limitDefault: 10 },
+  // The article can disclose a KEV identity absent from its feed excerpt.
+  // Reuse the catalog already refreshed above; this adds no network request.
+  { name: 'article-kev', stage: 'post', fn: headlines => tagKEVFromCatalog(headlines), failureKey: 'KEV' },
   { name: 'cve', stage: 'post', fn: enrichCVEs, failureKey: 'CVE', limitKey: 'maxCVEEnrichments', limitDefault: 8 },
-  // Runs after 'cve' (reuses the CVE ids it already extracted — see enrichEPSS
-  // in lib/enrichment.js) and before 'article', which is unrelated. A failure
+  // Runs after 'cve', using the same captured identity selection. A failure
   // stays nonfatal but remains visible to consumers of missing context.
   { name: 'epss', stage: 'post', fn: enrichEPSS, failureKey: 'EPSS', limitKey: 'maxEPSSLookups', limitDefault: 20 },
-  { name: 'article', stage: 'post', fn: enrichArticleBodies, failureKey: 'article', limitKey: 'maxArticleExtractions', limitDefault: 10 },
   // Article bodies carry technique detail that is often absent from headlines.
   // Run the pure MITRE matcher after extraction, before the IOC consumer.
   { name: 'mitre', stage: 'post', fn: tagMitre },

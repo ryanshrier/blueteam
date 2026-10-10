@@ -19,7 +19,13 @@ jest.unstable_mockModule('../lib/net.js', () => ({
 }));
 
 const { initDB, closeDB, getMeta } = await import('../lib/db.js');
-const { dispatchAlerts, dispatchBriefWebhook } = await import('../lib/alerts.js');
+const { dispatchAlerts, dispatchBriefWebhook, alertEventKey } = await import('../lib/alerts.js');
+const { webhookDestinationKey } = await import('../lib/alert-delivery.js');
+const sentKeysJson = () => {
+  const keys = JSON.parse(getMeta('webhook_outbox_v1') || '{"receipts":[]}').receipts;
+  return keys.length ? JSON.stringify(keys) : null;
+};
+const advanceRetryDeadline = () => jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
 
 function okResponse(status = 200, cancel = jest.fn()) {
   return { ok: status >= 200 && status < 300, status, body: { cancel } };
@@ -47,7 +53,7 @@ describe('dispatchAlerts', () => {
     safeFetchMock.mockReset();
     readCappedMock.mockReset().mockResolvedValue('');
   });
-  afterEach(() => closeDB());
+  afterEach(() => { closeDB(); jest.restoreAllMocks(); });
 
   test('no-op when the webhook url is empty (disabled by default)', async () => {
     await dispatchAlerts([headline()], { analysisSettings: { webhook: { url: '' } } });
@@ -66,7 +72,7 @@ describe('dispatchAlerts', () => {
     const [url, opts] = safeFetchMock.mock.calls[0];
     expect(url).toBe('https://hooks.example.com/x');
     expect(opts.method).toBe('POST');
-    const stored = JSON.parse(getMeta('alert_sent_keys'));
+    const stored = JSON.parse(sentKeysJson());
     expect(stored.length).toBe(1);
   });
 
@@ -84,38 +90,41 @@ describe('dispatchAlerts', () => {
       expect(body.blocks.length).toBeLessThanOrEqual(50);
       expect(body.blocks.every(block => block.text.text.length <= 3000)).toBe(true);
     }
-    expect(JSON.parse(getMeta('alert_sent_keys'))).toHaveLength(50);
+    expect(JSON.parse(sentKeysJson())).toHaveLength(50);
   });
 
   test('a failed later Slack batch records only delivered alerts and retries the remainder', async () => {
     safeFetchMock.mockResolvedValueOnce(okResponse()).mockResolvedValueOnce(okResponse(503));
     const items = Array.from({ length: 50 }, (_, i) => headline({ title: `Batch alert ${i}: ${'details '.repeat(40)}` }));
     await dispatchAlerts(items, configWithWebhook());
-    const deliveredCount = JSON.parse(getMeta('alert_sent_keys')).length;
+    const deliveredCount = JSON.parse(sentKeysJson()).length;
     expect(deliveredCount).toBeGreaterThan(0);
     expect(deliveredCount).toBeLessThan(50);
     const firstBatch = JSON.parse(safeFetchMock.mock.calls[0][1].body).blocks.map(block => block.text.text).join('\n');
     expect(firstBatch).toContain(items[deliveredCount - 1].title);
     expect(firstBatch).not.toContain(items[deliveredCount].title);
     safeFetchMock.mockReset().mockResolvedValue(okResponse());
+    advanceRetryDeadline();
     await dispatchAlerts(items, configWithWebhook());
     const retried = safeFetchMock.mock.calls.flatMap(([, options]) => JSON.parse(options.body).blocks).map(block => block.text.text).join('\n');
     expect(retried).not.toContain(items[0].title);
     expect(retried).toContain(items[deliveredCount].title);
-    expect(JSON.parse(getMeta('alert_sent_keys'))).toHaveLength(50);
+    expect(JSON.parse(sentKeysJson())).toHaveLength(50);
   });
 
   test('an oversized alert is fully visible across chunks and remains retryable until its last chunk succeeds', async () => {
     const item = headline({ title: `Long ${'🛡'.repeat(9000)} tail` });
     safeFetchMock.mockResolvedValueOnce(okResponse()).mockResolvedValueOnce(okResponse(500));
     await dispatchAlerts([item], configWithWebhook());
-    expect(getMeta('alert_sent_keys')).toBeNull();
+    expect(sentKeysJson()).toBeNull();
+    const firstAccepted = JSON.parse(safeFetchMock.mock.calls[0][1].body).blocks.slice(1);
     safeFetchMock.mockReset().mockResolvedValue(okResponse());
+    advanceRetryDeadline();
     await dispatchAlerts([item], configWithWebhook());
-    const sections = safeFetchMock.mock.calls.flatMap(([, options]) => JSON.parse(options.body).blocks.slice(1));
+    const sections = [...firstAccepted, ...safeFetchMock.mock.calls.flatMap(([, options]) => JSON.parse(options.body).blocks.slice(1))];
     expect(sections.map(block => block.text.text).join('')).toContain(item.title);
     expect(sections.every(block => block.text.text.length <= 3000)).toBe(true);
-    expect(JSON.parse(getMeta('alert_sent_keys'))).toHaveLength(1);
+    expect(JSON.parse(sentKeysJson())).toHaveLength(1);
   });
 
   test('second run skips already-sent keys (title-key dedup across runs)', async () => {
@@ -160,21 +169,22 @@ describe('dispatchAlerts', () => {
     ], configWithWebhook());
     const body = JSON.parse(safeFetchMock.mock.calls[0][1].body);
     expect(body.blocks[1].text.text.split('\n')).toHaveLength(2);
-    expect(JSON.parse(getMeta('alert_sent_keys'))).toHaveLength(2);
+    expect(JSON.parse(sentKeysJson())).toHaveLength(2);
   });
 
   test('a non-2xx response leaves the key UNPERSISTED so a transient failure retries', async () => {
     const cancel = jest.fn();
     safeFetchMock.mockResolvedValue(okResponse(500, cancel));
     await dispatchAlerts([headline()], configWithWebhook());
-    expect(getMeta('alert_sent_keys')).toBeNull();
+    expect(sentKeysJson()).toBeNull();
     expect(cancel).toHaveBeenCalledTimes(1);
 
     // Next run, same title, now succeeds — must actually retry (not think it already sent).
     safeFetchMock.mockResolvedValue(okResponse(200));
+    advanceRetryDeadline();
     await dispatchAlerts([headline()], configWithWebhook());
     expect(safeFetchMock).toHaveBeenCalledTimes(2);
-    const stored = JSON.parse(getMeta('alert_sent_keys'));
+    const stored = JSON.parse(sentKeysJson());
     expect(stored.length).toBe(1);
   });
 
@@ -184,11 +194,12 @@ describe('dispatchAlerts', () => {
     for (let i = 0; i < 501; i++) {
       await dispatchAlerts([headline({ title: `Unique alert story number ${i}`, link: `https://example.com/${i}` })], configWithWebhook());
     }
-    const stored = JSON.parse(getMeta('alert_sent_keys'));
+    const stored = JSON.parse(sentKeysJson());
     expect(stored.length).toBe(500);
     // The oldest key (story 0) should have been evicted; the newest (story 500) survives.
-    expect(stored).not.toContain('unique alert story number 0');
-    expect(stored).toContain('unique alert story number 500');
+    const destination = webhookDestinationKey(configWithWebhook().analysisSettings.webhook.url);
+    expect(stored).not.toContain(alertEventKey(headline({ title: 'Unique alert story number 0' }), destination));
+    expect(stored).toContain(alertEventKey(headline({ title: 'Unique alert story number 500' }), destination));
   });
 
   test('slack format builds a mrkdwn body; json format builds a structured body', async () => {
@@ -208,7 +219,7 @@ describe('dispatchAlerts', () => {
   test('a thrown fetch never propagates out of dispatchAlerts', async () => {
     safeFetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
     await expect(dispatchAlerts([headline()], configWithWebhook())).resolves.toBeUndefined();
-    expect(getMeta('alert_sent_keys')).toBeNull();
+    expect(sentKeysJson()).toBeNull();
   });
 
   test('the webhook timeout stays armed until the response body is drained', async () => {

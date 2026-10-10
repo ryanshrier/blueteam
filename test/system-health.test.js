@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, jest, test } from '@jest/globals';
 import { fetchDiagnostics } from '../public/modules/core/api.js';
-import { createDiagnosticsController, sanitizeDiagnostics } from '../public/modules/settings/system-health.js';
+import { createDiagnosticsController, sanitizeDiagnostics, operationalNotices } from '../public/modules/settings/system-health.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -40,6 +40,43 @@ describe('readiness diagnostics API', () => {
 });
 
 describe('sanitized diagnostics', () => {
+  test('retains settings, watcher and webhook states without error text or destinations', () => {
+    const result = sanitizeDiagnostics({ ...healthy(),
+      settings: { status: 'error', operation: 'write', message: 'PRIVATE FILE', path: 'PRIVATE PATH' },
+      configWatch: { status: 'error', errorCode: 'PRIVATE CODE', message: 'PRIVATE ERROR' },
+      webhookDelivery: { status: 'paused', pending: 2, retrying: 1, paused: 1, failed: 0, ambiguous: 0, active: 0,
+        url: 'https://PRIVATE.test/secret', body: 'PRIVATE BRIEF', errorCode: 'PRIVATE CODE' },
+    });
+    expect(result.settings).toEqual({ status: 'error', operation: 'write' });
+    expect(result.configWatch).toEqual({ status: 'error' });
+    expect(result.webhookDelivery).toEqual({ status: 'paused', pending: 2, retrying: 1, paused: 1, failed: 0, ambiguous: 0, active: 0 });
+    expect(JSON.stringify(result)).not.toContain('PRIVATE');
+    expect(sanitizeDiagnostics({ status: 'ok', settings: { status: 'PRIVATE', operation: 'PRIVATE' },
+      configWatch: { status: 'PRIVATE' }, webhookDelivery: { status: 'PRIVATE', pending: -1, retrying: 'SECRET' } }))
+      .toMatchObject({ settings: { status: 'unknown', operation: null }, configWatch: { status: 'unknown' },
+        webhookDelivery: { status: 'unknown', pending: null, retrying: null } });
+  });
+
+  test('operational failures display distinct recovery actions from safe fields', () => {
+    expect(operationalNotices({ settings: { status: 'error', operation: 'write' } }).join(' ')).toMatch(/retry the save/);
+    expect(operationalNotices({ settings: { status: 'error', operation: 'read' } }).join(' ')).toMatch(/generation is paused/);
+    expect(operationalNotices({ configWatch: { status: 'error' } }).join(' ')).toMatch(/restart the server/);
+    const notices = operationalNotices({ webhookDelivery: { status: 'error', retrying: 1, paused: 1, failed: 1, ambiguous: 1 } });
+    expect(notices).toHaveLength(4);
+    expect(notices.join(' ')).toMatch(/bounded retry/);
+    expect(notices.join(' ')).toMatch(/avoid duplicates/);
+    expect(notices.join(' ')).toMatch(/original destination/);
+    expect(operationalNotices({ webhookDelivery: { status: 'error' } }).join(' ')).toMatch(/database access/);
+    expect(operationalNotices({ settings: { status: 'ok' }, configWatch: { status: 'watching' }, webhookDelivery: { status: 'ok' } })).toEqual([]);
+  });
+  test('retains safe briefing readiness and schedule outcomes without raw draft or error content', () => {
+    const result = sanitizeDiagnostics({ ...healthy(), briefingReadiness: { status: 'limited', usableHeadlines: 2, substantiveSources: 1, reason: 'PRIVATE SOURCE' },
+      briefingDelivery: { status: 'awaiting-review', needsAttention: true, draftAvailable: true, attempts: 1,
+        nextAttemptAt: '2026-10-10T05:00:00Z', draftId: 'PRIVATE DRAFT', lastError: 'PRIVATE ERROR' } });
+    expect(result).toMatchObject({ briefingReadiness: { status: 'limited', usableHeadlines: 2 },
+      briefingDelivery: { status: 'awaiting-review', needsAttention: true, draftAvailable: true } });
+    expect(JSON.stringify(result)).not.toContain('PRIVATE');
+  });
   test('copies only typed operational fields and aggregates reasons without source identities or raw details', () => {
     const data = { ...healthy(), anthropicKey: 'secret-api-key', profile: 'PRIVATE PROFILE',
       version: '1.0.3-secret-api-key', uptimeHuman: 'secret-api-key',
@@ -69,7 +106,7 @@ describe('sanitized diagnostics', () => {
     expect(sanitizeDiagnostics({ status: 'ok', uptime: -2,
       pipeline: { lastRun: 'not a timestamp', ageSeconds: null, headlines: '4', stale: 'false' },
       database: { size_mb: Infinity, status: 'raw error details' },
-    })).toEqual({ status: 'ok', pipeline: { lastRefreshAt: null, ageSeconds: null, headlines: null, stale: null }, database: { sizeMb: null, status: 'unknown' } });
+    })).toEqual({ status: 'ok', pipeline: { lastRefreshAt: null, ageSeconds: null, headlines: null, stale: null, lastAttemptFailed: false }, database: { sizeMb: null, status: 'unknown' } });
   });
 });
 

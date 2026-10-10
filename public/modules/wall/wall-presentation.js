@@ -2,6 +2,7 @@
 // The glance projection never turns a qualified procedure into an isolated task.
 import { executiveSummaryModel, executiveTargetModel, actionDisplayModel, usableKevRecords, cleanSummary } from './wall-format.js';
 import { formatDecisionWindow, judgmentCertainty } from '/vendor/brief-schema.js';
+import { signalSeverity } from '../core/signal-facts.js';
 
 export const DISPLAY_DEFAULTS = Object.freeze({ size: 'standard', margin: 'normal', speed: 'normal', playlist: 'balanced', feedSeconds: 90, holdSeconds: 0, dim: false, dimStart: 1, dimEnd: 5, maintenance: false, maintenanceHour: 4, fullscreen: true, awake: true });
 export const DISPLAY_STORAGE_KEY = 'bt-wall-display';
@@ -121,7 +122,7 @@ export function buildGlanceModel(page = {}) {
   const catalogFact = (includeEntries = true) => {
     const ids = [...new Set([...(page.isKEV === true ? [cve(page.cve)] : []),
       ...(includeEntries ? page.catalogEntries || [] : []).map(item => cve(item.cve))].filter(Boolean))];
-    if (ids.length) fact('CISA KEV', ids.join(' · '));
+    if (ids.length) fact(page.kevCatalogStatus?.status === 'fresh' ? 'Captured CISA KEV' : 'Retained CISA KEV', `${ids.join(' · ')}${page.kevCatalogStatus?.retrievedAt ? ` · captured ${page.kevCatalogStatus.retrievedAt}` : ' · capture time unavailable'}`);
     return ids;
   };
   switch (page.kind) {
@@ -167,6 +168,7 @@ export function buildGlanceModel(page = {}) {
       model.summaryLabel = '';
       model.railLabel = 'Catalog record';
       fact('CVE', cve(page.cve));
+      fact('Catalog evidence', `${page.kevCatalogStatus?.status === 'fresh' ? 'Captured catalog' : 'Retained catalog; current membership unverified'}${page.kevCatalogStatus?.retrievedAt ? ` · ${page.kevCatalogStatus.retrievedAt}` : ' · capture time unavailable'}`);
       fact('Catalog added', page.added);
       fact('Federal civilian deadline', text(page.federalDue) ? `${page.federalDue} · FCEB scope` : '');
       break;
@@ -177,6 +179,8 @@ export function buildGlanceModel(page = {}) {
       model.summaryLabel = model.summary ? 'From the report' : '';
       model.railLabel = 'Report context';
       catalogFact(false);
+      if (page.severity?.scope) fact('CVSS severity', `${page.severity.scope} · ${page.severity.value}`);
+      else if (page.severity?.metrics?.length) fact('CVSS severity', page.severity.value);
       break;
     case 'watchlist': {
       model.label = 'Watch for';
@@ -304,7 +308,7 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
       pages.push({ kind: 'judgment', idx, topic: edited?.title || story.title, bundle: story.id || `judgment:${idx}`, part: 0, parts: 1,
         block: { label: 'Recommended response', text: context }, actions, actionCount: actions.length,
         decision: story.decision, editionDate: doc.date, certainty: story.confidence, citations: story.citations,
-        isKEV: story.isKEV, cve: story.kevCVE, cves: topicCves(story),
+        isKEV: story.isKEV, cve: story.kevCVE, cves: topicCves(story), kevCatalogStatus: doc.kevCatalogStatus,
         coveredReports: edited?.coveredReports || [],
       });
     });
@@ -360,8 +364,9 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
     const includesVendor = vendor && new RegExp(`(?:^|[^a-z0-9])${vendorPattern}(?:$|[^a-z0-9])`, 'i').test(product);
     const identity = (includesVendor ? product : [vendor, product].filter(Boolean).join(' ')) || 'Product';
     add('kev', idx, `${identity}: known exploitation`, [
-      { label: 'Exploitation confirmed by CISA', text: item.name || identity },
+      { label: landscape?.kev?.catalogStatus?.status === 'fresh' ? 'CISA KEV catalog record' : 'Retained CISA KEV record', text: item.name || identity },
     ], { productIdentity: identity, vendor: item.vendor, cve: item.cve, added: item.dateAdded, federalDue: item.dueDate,
+      kevCatalogStatus: landscape?.kev?.catalogStatus,
       condition: item.requiredAction || 'Check affected versions and deployment. Apply the vendor mitigation or fix where applicable.' });
   });
   const catalogCves = new Set(selectedKev.map(item => item.cve));
@@ -386,7 +391,7 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
     const excerpt = completeSourceExcerpt(item.displayExcerpt || item.description);
     add('wire', idx, item.editorialContext?.title || item.title, [
       { label: excerpt ? 'Retained reporting · excerpt' : 'Reporting headline · complete excerpt unavailable', text: excerpt || 'A complete retained excerpt is unavailable.' },
-    ], { sourceExcerpt: excerpt, source: item.source, sourceUrl: item.link, sourceDate: item.date, cve: item.kevCVE, signalKey: item.link || item.title, isKEV: item.isKEV, selectionIndex: idx + 1, selectionCount: signals.length });
+    ], { sourceExcerpt: excerpt, source: item.source, sourceUrl: item.link, sourceDate: item.date, cve: item.kevCVE, signalKey: item.link || item.title, isKEV: item.isKEV, kevCatalogStatus: item.kevCatalogStatus, severity: signalSeverity(item), selectionIndex: idx + 1, selectionCount: signals.length });
   });
   return pages.length ? pages : [{ kind: 'empty' }];
 }

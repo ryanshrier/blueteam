@@ -2,25 +2,10 @@ import { escapeHtml } from '../core/sanitize.js';
 import { sigKey, signalUrl, parseCveData } from './wire-format.js';
 import { renderAssessmentMeta } from '../core/assessment-meta.js';
 import { formatEventTime } from '../core/brief-date.js';
-
-// CVSS belongs to a named vulnerability, not to the report as a whole. Match
-// within each CVE entry so a later entry's score cannot attach to the first CVE.
-export function signalSeverity(headline = {}) {
-  const raw = Array.isArray(headline.cveDetails) ? headline.cveDetails.filter(value => typeof value === 'string').join(' · ')
-    : typeof headline.cveData === 'string' ? headline.cveData : '';
-  const entries = raw.match(/CVE-\d{4}-\d{4,7}[^]*?(?=CVE-\d{4}-\d{4,7}|$)/gi) || [];
-  const scores = entries.flatMap(entry => {
-    const match = entry.match(/^(CVE-\d{4}-\d{4,7})[^]*?CVSS\s+(?:(?:[234]\.\d)\s+)?(\d+(?:\.\d+)?)\s*(?:\((critical|high|medium|low|none)\))?/i);
-    if (!match || Number(match[2]) > 10) return [];
-    return [{ cve: match[1].toUpperCase(), score: Number(match[2]), band: match[3]?.toLowerCase() || '' }];
-  }).sort((a, b) => b.score - a.score);
-  if (!scores.length) return { label: 'CVSS severity', value: 'Not available', scope: '' };
-  const highest = scores[0];
-  const severity = highest.band ? `${highest.band[0].toUpperCase()}${highest.band.slice(1)}` : '';
-  return { label: scores.length > 1 ? 'Highest CVSS severity' : 'CVSS severity',
-    value: `${highest.score.toFixed(1)}${severity ? ` ${severity}` : ''}`, scope: highest.cve,
-    level: ['critical', 'high'].includes(highest.band) ? highest.band : undefined };
-}
+import { signalSeverity } from '../core/signal-facts.js';
+export { signalSeverity } from '../core/signal-facts.js';
+import { decisionEvidence, decisionReviewState } from './decision-evidence.js';
+export { decisionEvidence, decisionReviewState } from './decision-evidence.js';
 
 export function signalAssessmentMeta(headline = {}, compact = false) {
   const severity = signalSeverity(headline);
@@ -32,24 +17,27 @@ export function signalAssessmentMeta(headline = {}, compact = false) {
   const dateTime = !headline.dateUnknown && headline.date && Number.isFinite(Date.parse(headline.date)) ? new Date(headline.date).toISOString() : '';
   return renderAssessmentMeta({ sources, compact,
     time: { label: 'Published', value: dateTime ? formatEventTime(dateTime) : 'Not available', dateTime },
-    severity: { ...severity, value: `${severity.value}${severity.scope ? ` · ${severity.scope} (NVD)` : ''}` },
+    severity: { ...severity, value: `${severity.value}${severity.scope ? ` · ${severity.scope} (NVD lookup)` : ''}` },
     certainty: { label: 'Assessment confidence', value: 'Not assessed' } });
 }
 
 export const DECISION_STATES = Object.freeze({ unreviewed: 'Not assessed', investigate: 'Investigating', affected: 'Affected', unaffected: 'Not affected', mitigated: 'Mitigated' });
 export const DECISION_STORAGE_KEY = 'wire.decisions.v1';
+export const DECISION_LIMIT = 2000;
 
 export function normalizeDecision(value = {}) {
+  if (!value || typeof value !== 'object') value = {};
   const text = (key, cap) => typeof value[key] === 'string' ? value[key].trim().slice(0, cap) : '';
   return { state: Object.hasOwn(DECISION_STATES, value.state) ? value.state : 'unreviewed',
     owner: text('owner', 100), nextReview: /^\d{4}-\d{2}-\d{2}$/.test(value.nextReview || '') ? value.nextReview : '',
-    note: text('note', 2000), evidence: text('evidence', 6000), recordedAt: text('recordedAt', 40) };
+    note: text('note', 2000), evidence: text('evidence', 6000), recordedAt: text('recordedAt', 40),
+    ...(Array.isArray(value.evidenceBinding) ? { evidenceBinding: decisionEvidence({ evidence: value.evidenceBinding }) } : {}) };
 }
 
 export function readDecisions(storage) {
   try {
     const parsed = JSON.parse(storage?.getItem(DECISION_STORAGE_KEY) || '{}');
-    return new Map(Object.entries(parsed).filter(([key, value]) => key && value && typeof value === 'object').slice(-2000).map(([key, value]) => [key, normalizeDecision(value)]));
+    return new Map(Object.entries(parsed).filter(([key, value]) => key && value && typeof value === 'object').map(([key, value]) => [key, normalizeDecision(value)]));
   } catch { return new Map(); }
 }
 
@@ -63,11 +51,20 @@ export function mergeDecisions(current, storage) {
   return merged;
 }
 
-export function saveDecisionRecord(storage, current, key, value) {
+export function saveDecisionRecord(storage, current, key, value, expected = current.get(key) || null) {
   const merged = mergeDecisions(current, storage);
+  const existing = merged.get(key) || null;
+  const signature = record => record ? JSON.stringify(normalizeDecision(record)) : null;
+  if (signature(existing) !== signature(expected)) {
+    return { decisions: merged, persisted: false, conflict: true, existing };
+  }
+  // Assessments are authored records, not an LRU cache. Never make room by
+  // silently deleting another investigation, including one still unresolved.
+  if (!existing && merged.size >= DECISION_LIMIT) {
+    return { decisions: merged, persisted: false, limitReached: true };
+  }
   merged.delete(key);
   merged.set(key, normalizeDecision(value));
-  while (merged.size > 2000) merged.delete(merged.keys().next().value);
   let persisted = false;
   try { storage.setItem(DECISION_STORAGE_KEY, JSON.stringify(Object.fromEntries(merged))); persisted = true; } catch { /* preserve the session copy */ }
   return { decisions: merged, persisted };
@@ -78,17 +75,55 @@ export function exportDecisionRecords(decisions, { origin = '', capturedAt = new
     signalUrl: signalUrl({ link: key }, origin), exportedAt: capturedAt, decision: normalizeDecision(value) }));
 }
 
-export function decisionForm(headline, value = {}) {
+// Import is additive. Divergent local decisions are left intact for the user to
+// reconcile using the exported record; timestamps alone do not resolve intent.
+export function importDecisionRecords(storage, current, records) {
+  if (!Array.isArray(records) || records.length > 2000) throw new Error('Expected a decisions export containing at most 2,000 records');
+  const decisions = mergeDecisions(current, storage);
+  let imported = 0, conflicts = 0, invalid = 0, unchanged = 0;
+  for (const record of records) {
+    const value = record?.decision;
+    if (typeof record?.signal !== 'string' || !record.signal.trim() || record.signal.length > 8192 ||
+        !value || typeof value !== 'object' || !Object.hasOwn(DECISION_STATES, value.state) ||
+        typeof value.recordedAt !== 'string' || !Number.isFinite(Date.parse(value.recordedAt))) { invalid++; continue; }
+    const normalized = normalizeDecision(value);
+    const existing = decisions.get(record.signal);
+    if (existing) {
+      if (JSON.stringify(normalizeDecision(existing)) === JSON.stringify(normalized)) unchanged++;
+      else conflicts++;
+    } else if (decisions.size >= 2000) invalid++;
+    else { decisions.set(record.signal, normalized); imported++; }
+  }
+  let persisted = imported === 0;
+  if (imported) {
+    try { storage.setItem(DECISION_STORAGE_KEY, JSON.stringify(Object.fromEntries(decisions))); persisted = true; } catch { /* session remains usable */ }
+  }
+  return { decisions, imported, conflicts, invalid, unchanged, persisted };
+}
+
+export function decisionLabel(headline, value) {
   const d = normalizeDecision(value);
-  return `<details class="wire-outcome"${d.state !== 'unreviewed' || d.note ? ' open' : ''}><summary>Decision record · ${escapeHtml(DECISION_STATES[d.state])}</summary>
-    <p class="wire-retention-note">Your assessment, saved in this browser. It is separate from source reporting and is not shared with your team. Export it for handoff.</p>
-    <form data-decision-form="${escapeHtml(sigKey(headline))}">
+  const review = decisionReviewState(headline, d);
+  return `${review.needsReview ? 'Previous assessment' : 'Your assessment'}: ${DECISION_STATES[d.state]}${review.needsReview ? ` · ${review.reasons.join('; ')}; review needed` : ''}`;
+}
+
+export function decisionForm(headline, value = {}, { conflict = null, limitReached = false, limitMessage = '', saving = false, saveError = '', record = value, serverPhase = 'ready' } = {}) {
+  const d = normalizeDecision(value);
+  const review = decisionReviewState(headline, d);
+  return `<details class="wire-outcome"${d.state !== 'unreviewed' || d.note || conflict || limitReached ? ' open' : ''}><summary>Decision record · ${escapeHtml(DECISION_STATES[d.state])}${review.needsReview ? ' · Review needed' : ''}</summary>
+    <p class="wire-retention-note">${record?.localOnly ? 'Original browser record · not yet saved on this server. Copy browser records above, or save this assessment to the server.' : `Operator assessment, saved on this server. The shared server records revisions without identifying an individual author.${serverPhase !== 'ready' ? ' Server status is unavailable; displayed values may be cached.' : ''}`}</p>
+    <p class="wire-retention-note">Unsaved drafts stay in this tab across reloads when browser storage is available. Export your draft before closing the tab.</p>
+    ${review.needsReview ? `<p class="wire-retention-note">${escapeHtml(review.reasons.join('; '))}. The previous assessment is preserved. Save after reviewing to associate it with the evidence currently shown.</p>` : ''}
+    <form data-decision-form="${escapeHtml(sigKey(headline))}"${saving ? ' inert aria-busy="true"' : ''}>
       <label>Assessment<select name="state">${Object.entries(DECISION_STATES).map(([key, label]) => `<option value="${key}"${d.state === key ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
       <label>Owner<input name="owner" maxlength="100" value="${escapeHtml(d.owner)}" autocomplete="off"></label>
       <label class="wire-outcome-note">Next review<input name="nextReview" type="date" value="${escapeHtml(d.nextReview)}"></label>
       <label class="wire-outcome-note">Basis / local evidence<textarea name="note" maxlength="2000" rows="3" placeholder="What was checked, where, and the result">${escapeHtml(d.note)}</textarea></label>
       <label class="wire-outcome-note">Evidence or revision link<input name="evidence" maxlength="6000" value="${escapeHtml(d.evidence)}" placeholder="Paste the exact evidence link or local reference"></label>
-      <div class="wire-decision-save"><button type="submit" class="btn-primary">Save decision</button><span class="wire-decision-status" role="status">${d.recordedAt ? `Saved ${escapeHtml(formatEventTime(d.recordedAt) || d.recordedAt)}` : ''}</span></div>
+      ${conflict ? `<div class="wire-outcome-note" role="alert"><p>A newer decision is saved on the server. Your edits remain here. Review the saved assessment and merge any changes before replacing it.</p><details open><summary>Latest saved decision · ${escapeHtml(DECISION_STATES[conflict.state])} · Revision ${Number(conflict.revision) || 'unknown'}</summary><p>Owner: ${escapeHtml(conflict.owner || 'Unassigned')} · Review: ${escapeHtml(conflict.nextReview || 'Not set')}</p><p>${escapeHtml(conflict.note || 'No basis recorded')}</p><p>${escapeHtml(conflict.evidence || '')}</p></details><button type="button" class="btn-ghost-sm" data-decision-rebase>I reviewed the latest decision; keep my edits</button></div>` : ''}
+      ${limitReached ? `<div class="wire-outcome-note" role="alert"><p>${escapeHtml(limitMessage || 'Decision capacity reached.')} No saved assessment was removed. Your draft remains available; export it before clearing browser data.</p><button type="button" class="btn-ghost-sm" data-decision-export-all>Export all saved decisions (JSON)</button></div>` : ''}
+      ${saveError ? `<p class="wire-outcome-note" role="alert">${escapeHtml(saveError)} Your draft is retained. Retry the same save to check an uncertain result.</p>` : ''}
+      <div class="wire-decision-save"><button type="submit" class="btn-primary"${conflict ? ' disabled' : ''}>Save decision</button><button type="button" class="btn-ghost-sm" data-decision-draft-export>Export my draft (JSON)</button>${record?.serverId ? '<button type="button" class="btn-ghost-sm" data-decision-history>History and evidence</button>' : ''}<span class="wire-decision-status" role="status">${record?.revision ? `Revision ${record.revision} · ` : ''}${d.recordedAt ? `Recorded ${escapeHtml(formatEventTime(d.recordedAt) || d.recordedAt)}` : ''}</span></div>
     </form></details>`;
 }
 
@@ -144,7 +179,7 @@ export function exportContext(headline, { read = false, decision = {}, filters =
     filterDefinition: JSON.stringify({ ...filters, sort }),
     watchReasons: headline.applicability?.matches || [], retainedSourceChanged: Boolean(headline.evidence?.some(source => source.changed)),
     evidenceLinks: (headline.evidence || []).map(source => `${signalUrl(headline, origin)}&source=${encodeURIComponent(source.sourceId || '')}&revision=${encodeURIComponent(source.revisionId || '')}`),
-    decision: normalizeDecision(decision) };
+    decision: normalizeDecision(decision), decisionReview: decisionReviewState(headline, decision) };
 }
 
 export function captureScrollAnchor(list, viewportTop = 0) {

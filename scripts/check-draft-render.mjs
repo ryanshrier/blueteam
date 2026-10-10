@@ -67,9 +67,10 @@ async function runDraftChecks() {
   };
   const hash = async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(byte => byte.toString(16).padStart(2, '0')).join('');
   const control = { code: 'SECURITY_CONTROL_CHANGE', severity: 'trust', message: 'Review disabling an alert for a scoped maintenance window.', sourceIds: ['source-1'], location: { line: 5, excerpt: 'Suppress this one alert during the documented maintenance window.' } };
+  const coverage = { code: 'PRIORITY_COVERAGE_MISSING', severity: 'review', message: 'A priority advisory has no coverage disposition. Review its saved evidence and explain the omission.', sourceIds: ['source-1'], location: { line: 1 } };
   const blocker = { code: 'SOURCE_UNSUPPORTED', severity: 'trust', message: 'This claim is not supported by captured evidence.', sourceIds: ['source-1'], location: { line: 3, excerpt: 'Unsupported claim.' } };
   const note = { code: 'STYLE_NOTE', severity: 'structure', message: 'Consider shortening the heading.', location: { line: 1 } };
-  const decision = content => ({ blockers: content.includes('[BLOCKED]') ? [blocker] : [], reviewIssues: content.includes('[CONTROL]') ? [control] : [], notes: [note], canPublish: !/\[(BLOCKED|CONTROL)\]/.test(content), requiresReview: content.includes('[CONTROL]') });
+  const decision = content => ({ blockers: content.includes('[BLOCKED]') ? [blocker] : [], reviewIssues: [...(content.includes('[CONTROL]') ? [control] : []), ...(content.includes('[COVERAGE]') ? [coverage] : [])], notes: [note], canPublish: !/\[(BLOCKED|CONTROL|COVERAGE)\]/.test(content), requiresReview: /\[(CONTROL|COVERAGE)\]/.test(content) });
   const basic = '# Defensive briefing\n\nReview the captured advisory and confirm affected inventory.\n\nA scoped assessment for the security team.\n\n[Unvalidated link](https://attacker.invalid/) <img src=x onerror="window.__draftAttack=1">';
   const artifacts = new Map();
   const calls = [];
@@ -108,9 +109,10 @@ async function runDraftChecks() {
     artifact.lastCheck = { revision: current.number, contentSha256: current.sha256, checkedAt: artifact.operatorSavedAt, validation: current.validation };
     if (action === 'revalidate') return reply(artifact);
     check(body.inputSha256 === artifact.manifestSha256, 'Publish is bound to the captured input receipt');
-    const review = body.securityControlReview;
+    const review = body.editorialReview || body.securityControlReview;
     if (artifact.publicationDecision.blockers.length || (artifact.publicationDecision.requiresReview && !review)) return reply({ error: 'Resolve required findings before publication.', code: 'E_DRAFT_BLOCKED', artifact, validation: current.validation, reviewableIssues: artifact.publicationDecision.reviewIssues }, 422);
     if (review) check(review.contentSha256 === current.sha256 && review.reviewer === 'Test reviewer' && review.reason === 'Verified the one alert and exact maintenance scope.', 'Explicit contextual approval is bound to the latest saved text');
+    if (body.editorialReview) check(JSON.stringify(body.editorialReview.issueCodes) === JSON.stringify([...new Set(artifact.publicationDecision.reviewIssues.map(issue => issue.code))].sort()), 'Editorial approval covers exactly the displayed findings');
     artifact.status = 'published';
     artifact.publication = { revision: current.number, contentSha256: current.sha256, inputSha256: artifact.manifestSha256, filename: 'brief-2026-10-09.md', publishedAt: artifact.operatorSavedAt, eligibleForLatest: true };
     if (mode === 'lost-response' && !lostOnce) { lostOnce = true; throw new TypeError('Synthetic connection interruption'); }
@@ -225,6 +227,38 @@ async function runDraftChecks() {
     fillReview(); await act('[data-draft-publish]');
     check(published?.filename && calls.at(-1).body.securityControlReview?.contentSha256 === artifacts.get('control').revisions.at(-1).sha256, 'Reviewed exact text publishes');
 
+    const coverageArtifact = await make('coverage', basic + '\n\n[COVERAGE]');
+    const feedText = 'The captured advisory describes an exploited management interface and scoped containment.';
+    const adText = 'Find training for app teams who inherited GenAI risk.';
+    const feedPart = { kind: 'feed-excerpt', passage: feedText, passageSha256: await hash(feedText) };
+    const adPart = { kind: 'article-excerpts', passage: adText, passageSha256: await hash(adText) };
+    coverageArtifact.manifest.grounding.sources[0].sourceParts = [feedPart, adPart];
+    coverageArtifact.manifest.grounding.sources[0].historicalCaptures = [{ passage: 'Earlier source context left successful exploitation unconfirmed.',
+      publishedAt: '2026-10-08T12:00:00Z', retrievedAt: '2026-10-08T14:00:00Z', currentFactAuthority: false,
+      retainedFrom: { capturedAt: '2026-10-08T15:00:00Z', sourceId: 'S2.1' } }];
+    coverageArtifact.revisions[0].validation.sourceQuality = { policyVersion: 2, sources: [{ id: 'source-1', currentQuality: { substantive: true }, rejectedPartCount: 1,
+      parts: [{ ...feedPart, accepted: true, currentQuality: { substantive: true } },
+        { ...adPart, accepted: false, currentQuality: { substantive: false, reasons: ['off-topic-promotional-body'] } }] }] };
+    await open('coverage');
+    check(q('.draft-current-evidence').textContent.includes(feedText) && !q('.draft-current-evidence').textContent.includes(adText), 'Accepted feed remains the current evidence');
+    check(q('.draft-excluded-evidence').textContent.includes(adText) && !q('.draft-excluded-evidence').open, 'Rejected advertising is preserved only in collapsed audit details');
+    const historical=q('.brief-historical-context');
+    check(historical&&!historical.open&&historical.querySelector('summary').textContent==='Earlier captured source context','Earlier qualifications have a separate closed disclosure');
+    check(historical.textContent.includes('Oct 8, 2026, 14:00 UTC')&&historical.textContent.includes('does not establish current facts'),'Earlier context retains its capture time and authority limit');
+    check(!q('.draft-current-evidence').textContent.includes('unconfirmed')&&q('.draft-captured-evidence > summary').textContent==='Captured evidence · 2 sources','Historical prose does not join accepted evidence or inflate source counts');
+    check(q('[data-control-review]').textContent.includes('editorial') && !q('[name="confirmed"]').checked, 'Coverage review is explicitly identified and not preapproved');
+    fillReview(); await act('[data-draft-publish]');
+    check(published?.filename && calls.at(-1).body.editorialReview?.issueCodes.join(',') === 'PRIORITY_COVERAGE_MISSING'
+      && !calls.at(-1).body.securityControlReview, 'Coverage review publishes only with its exact findings and copy');
+
+    await make('mixed', basic + '\n\n[CONTROL] [COVERAGE]'); await open('mixed');
+    fillReview(); edit(basic + '\n\n[CONTROL] [COVERAGE] Additional source context.');
+    check(!q('[name="confirmed"]').checked, 'Editing a mixed review invalidates approval');
+    await act('[data-draft-publish]');
+    check(!calls.at(-1).body.editorialReview && q('.draft-review-note').textContent.includes('not published'), 'Mixed changes require rechecking before review');
+    fillReview(); await act('[data-draft-publish]');
+    check(published?.filename && calls.at(-1).body.editorialReview?.issueCodes.length === 2, 'Mixed review records both explicit findings');
+
     await make('interrupted'); await open('interrupted'); mode = 'lost-response';
     await act('[data-draft-publish]');
     check(q('#draftRepairStatus').textContent.includes('retry Publish briefing with the same text'), 'Interrupted publication has a safe recovery action');
@@ -238,7 +272,7 @@ async function runDraftChecks() {
     close();
 
     mode = 'normal';
-    await make('screenshot', basic + '\n\n[CONTROL]'); await open('screenshot');
+    await make('screenshot', basic + '\n\n[COVERAGE]'); await open('screenshot');
     q('.draft-reference-panel').open = true;
     q('[data-control-review]').scrollIntoView({ block: 'nearest' });
     fits();

@@ -5,6 +5,7 @@
 // setup; the optional ?read=1 route retains complete staffed reading tools.
 
 import { escapeHtml } from '../core/sanitize.js';
+import { kevFact, signalSeverity, briefingReadinessLabel } from '../core/signal-facts.js';
 import { fetchLandscape, fetchBrief, fetchEdition, fetchHealth } from '../core/api.js';
 import { setState } from '../core/store.js';
 import { followInternalLink, navigate, getWallReturnUrl } from '../core/router.js';
@@ -28,7 +29,7 @@ import {
   executiveSummaryModel, executiveTargetModel,
 } from './wall-format.js';
 import { renderKevSection } from './wall-kev.js';
-import { buildPresentationPages, buildGlanceModel, loadDisplaySettings, displayDwellMs, presentationReadingText, pageKey, topicKey, topicLabel, readerFragment, inDimWindow, storyActions, isEligibleWallEdition } from './wall-presentation.js';
+import { buildPresentationPages, buildGlanceModel, loadDisplaySettings, DISPLAY_STORAGE_KEY, displayDwellMs, presentationReadingText, pageKey, topicKey, topicLabel, readerFragment, inDimWindow, storyActions, isEligibleWallEdition } from './wall-presentation.js';
 import { mountWallBrowser } from './wall-browser.js';
 import { mountWallActions, wallActionHtml, wallEditionRecordHtml } from './wall-actions.js';
 // The broadsheet's terse region labels (its own editorial shortening — the pack's
@@ -140,8 +141,10 @@ export function mount(layer) {
     layer.addEventListener('pointerdown', revealExit);
     layer.addEventListener('focusin', revealExit);
   }
-  displaySettingsHandler = () => {
+  displaySettingsHandler = event => {
+    if (event?.type === 'storage' && event.key !== null && event.key !== DISPLAY_STORAGE_KEY) return;
     displaySettings = loadDisplaySettings();
+    if (!displaySettings.maintenance) pendingMaintenance = false;
     browserDisplay?.update(displaySettings);
     syncWallScale();
     const key = displayedPage && pageKey(displayedPage);
@@ -150,6 +153,7 @@ export function mount(layer) {
     renderPage();
   };
   window.addEventListener('wall-display-settings-changed', displaySettingsHandler);
+  window.addEventListener('storage', displaySettingsHandler);
   // Keyboard interaction also makes an unattended display usable by an operator.
   // Bound only while the Wall is mounted so controls never leak into other views.
   keyHandler = onWallKey;
@@ -178,7 +182,10 @@ export function unmount() {
   if (resizeHandler) { window.removeEventListener('resize', resizeHandler); resizeHandler = null; }
   browserDisplay?.destroy();
   browserDisplay = null;
-  if (displaySettingsHandler) window.removeEventListener('wall-display-settings-changed', displaySettingsHandler);
+  if (displaySettingsHandler) {
+    window.removeEventListener('wall-display-settings-changed', displaySettingsHandler);
+    window.removeEventListener('storage', displaySettingsHandler);
+  }
   displaySettingsHandler = null;
   clearTimeout(exitRevealTimer);
   exitRevealTimer = null;
@@ -604,6 +611,7 @@ function ensureBrief() {
     briefDoc = parseBrief(readingCopy, {
       verifiedKevCves: d.inputManifest?.verification?.selectedKevCves,
     });
+    briefDoc.kevCatalogStatus = d.inputManifest?.verification?.kevCatalogStatus || { status: 'unknown' };
     const currentWarnings = d.presentation?.currentChecks?.warnings
       ?? (d.review?.status === 'editorially-corrected' ? d.readingChecks?.warnings : d.meta?.warnings);
     briefDoc.warnings = Array.isArray(currentWarnings) ? [...currentWarnings] : [];
@@ -1373,7 +1381,8 @@ export function presentationHtml(page, { interactive = true } = {}) {
     ${page.actions?.length ? `<ol class="nb-response-actions nb-display-actions${page.actions.length > 1 ? ' has-multiple' : ''}">${page.actions.map(action => wallActionHtml(action, { compact: true })).join('')}</ol>` : ''}
     ${page.condition ? `<div class="nb-display-condition"><strong>${page.kind === 'kev' ? 'Applicability decision' : 'Escalation condition'}</strong><p>${escapeHtml(page.condition)}</p></div>` : ''}</div>
     ${hasFacts ? `<div class="nb-display-facts">
-      ${page.cve ? `<span>${page.isKEV || page.kind === 'kev' ? 'Confirmed exploited · ' : ''}${escapeHtml(page.cve)}</span>` : ''}
+      ${page.cve ? `<span>${page.isKEV || page.kind === 'kev' ? `${page.kevCatalogStatus?.status === 'fresh' ? 'Captured CISA KEV' : 'Retained CISA KEV'} · ` : ''}${escapeHtml(page.cve)}</span>` : ''}
+      ${page.kevCatalogStatus?.retrievedAt ? `<span>Catalog captured · ${escapeHtml(page.kevCatalogStatus.retrievedAt)}</span>` : ''}
       ${page.added ? `<span>Catalog added · ${escapeHtml(page.added)} (UTC)</span>` : ''}
       ${page.federalDue ? `<span>Federal civilian deadline · ${escapeHtml(page.federalDue)} (FCEB scope)</span>` : ''}
       ${page.validity ? `<span>Watch validity · ${escapeHtml(page.validity)}</span>` : ''}
@@ -1510,7 +1519,7 @@ export function judgmentHtml(s, briefDate = '') {
   const sources = judgmentSources(s);
   const evidence = s.isKEV || sources.length
     ? `<div class="nb-jevidence" aria-label="Saved citation provenance">
-        ${s.isKEV ? `<span class="nb-evidence-kev">KEV${s.kevCVE ? ` · ${escapeHtml(s.kevCVE)}` : ''}</span>` : ''}
+        ${s.isKEV ? `<span class="nb-evidence-kev">Retained KEV${s.kevCVE ? ` · ${escapeHtml(s.kevCVE)}` : ''}</span>` : ''}
         ${sources.length ? `<span class="nb-evidence-sources"><b>${sources.length === 1 ? 'Cited source' : 'Cited sources'}</b> ${sources.map(host => {
           const citation = (s.citations || []).find(item => safeWallSource(item.url) && new URL(item.url).hostname.replace(/^www\./i, '') === host);
           return `<a href="${escapeHtml(citation.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(host)}</a>`;
@@ -1555,17 +1564,19 @@ function wireStoryHtml(s, isLead) {
   const h = [1, 2, 3].includes(s.horizon) ? s.horizon : 2;   // a missing/out-of-range tier would render an unstyled, invisible row at 10 ft
   const age = relAge(s.date);
   const fresh = isFresh(s.date);
-  const cls = `nb-item h${h}${isLead ? ' lead' : ''}${s.isKEV ? ' is-kev' : ''}${s.urgency === 'critical' ? ' is-crit' : ''}`;
+  const kev = kevFact(s);
+  const cls = `nb-item h${h}${isLead ? ' lead' : ''}${kev.listed ? ' is-kev' : ''}${s.urgency === 'critical' ? ' is-crit' : ''}`;
 
   const sev = [];
-  if (s.isKEV) {
-    sev.push('<span class="nb-badge kev">KEV</span>');
-    if (s.kevCVE) sev.push(`<span class="nb-badge nb-cve kev">${escapeHtml(s.kevCVE)}</span>`);
+  if (kev.listed) {
+    sev.push(`<span class="nb-badge kev" title="${escapeHtml(kev.description)}">${escapeHtml(kev.label)}</span>`);
+    if (kev.cve) sev.push(`<span class="nb-badge nb-cve kev">${escapeHtml(kev.cve)}</span>`);
+    if (kev.dueDate) sev.push(`<span class="nb-badge" title="External catalog deadline for FCEB agencies only; not an organizational target">FCEB ${kev.overdue ? 'past deadline' : 'due'} · ${escapeHtml(kev.dueDate)}</span>`);
   }
   else if (s.urgency === 'critical') sev.push('<span class="nb-badge crit">CRITICAL</span>');
   const cvss = cvssFrom(s);
   if (cvss) {
-    const sv = (cvss.match(/\b(CRITICAL|HIGH|MEDIUM|LOW)\b/) || [])[1] || 'na';
+    const sv = signalSeverity(s).level || 'na';
     sev.push(`<span class="nb-badge cvss sev-${sv.toLowerCase()}">${escapeHtml(cvss)}</span>`);
   }
 
@@ -1723,6 +1734,8 @@ function updateLiveline() {
   const invalidFeeds = !Number.isFinite(ok) || !Number.isFinite(total) || total <= 0 || total < ok || ok < 0;
   const stale = ageSec !== null && ageSec > Math.max(2 * 60 * 60, staleAfterSec(landscape?.pipeline?.refreshMinutes));
   const unavailable = invalidFeeds ? 0 : total - ok;
+  const readiness = briefingReadinessLabel(landscape?.briefingReadiness, { elapsedMs: Number.isFinite(Date.parse(landscape?.refreshedAt)) ? Math.max(0, Date.now() - Date.parse(landscape.refreshedAt) - (landscape.briefingReadiness?.ageMs || 0)) : 0,
+    refreshMinutes: landscape?.pipeline?.refreshMinutes });
   // Match /api/ready: only a majority outage degrades the overall feed service.
   // A quiet, successfully fetched feed counts as available in both endpoints.
   const degraded = !invalidFeeds && unavailable > total * 0.5;
@@ -1746,7 +1759,9 @@ function updateLiveline() {
     word = stale ? 'FEEDS STALE' : degraded ? 'FEEDS DEGRADED' : 'FEEDS CURRENT';
   }
   const warn = sourceLoadError || ageSec === null || invalidFeeds || stale || degraded;
-  el.hidden = isPresentation() && !warn && !unavailable;
+  el.textContent += ` · ${readiness.label}`;
+  el.title = [el.title, readiness.reason].filter(Boolean).join('; ');
+  el.hidden = isPresentation() && !warn && !unavailable && readiness.status === 'ready';
   el.dataset.status = warn ? 'warn' : 'live';
   if (dot) dot.dataset.status = warn ? 'warn' : 'live';
   setLiveWord(word, warn);

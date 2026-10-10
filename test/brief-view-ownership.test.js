@@ -27,6 +27,7 @@ jest.unstable_mockModule('../public/modules/briefing/brief-renderer.js', () => (
   applySemanticStyling: jest.fn(), extractSections,
   decisionCardContent: () => ({}), decisionCopyText: () => '',
   readerIssueIdentity: issue => JSON.stringify([issue.code, issue.location?.scope, issue.location?.line, issue.message]),
+  readerIssueAcknowledged: () => false,
 }));
 jest.unstable_mockModule('../public/modules/briefing/brief-export.js', () => ({ exportBriefNewspaper }));
 const { render, unmount, runSearch } = await import('../public/modules/briefing/briefing-view.js');
@@ -82,7 +83,7 @@ beforeEach(() => {
   fetchStatus.mockReset().mockResolvedValue({ ok: true, json: async () => ({ persistence: 'ok', latest: null }) });
   globalThis.fetch = fetchStatus;
   elements = new Map(['briefContent', 'briefMeta', 'briefInputManifest', 'briefToc', 'briefGenerate',
-    'briefGenerateInput', 'briefCopyLink', 'briefExport', 'briefHistory', 'briefSearch', 'genStatus', 'briefSrLive', 'briefAttemptStatus']
+    'briefGenerateInput', 'briefCopyLink', 'briefExport', 'briefHistory', 'briefSearch', 'genStatus', 'briefSrLive', 'briefAttemptStatus', 'briefLatestNotice']
     .map(id => [id, element()]));
   global.document = { getElementById: id => elements.get(id) || elements.get('briefContent')?.querySelector(`#${id}`) || null, createElement: element, querySelectorAll: () => [] };
   global.window = { location: { pathname: '/briefing', search: '', hash: '', origin: 'https://desk.example',
@@ -508,6 +509,118 @@ test('the explicit Latest link resolves the newest eligible edition instead of r
 
   expect(fetchBrief).not.toHaveBeenCalled();
   expect(navigate).toHaveBeenCalledWith(`/briefing/${latest.filename}`);
+});
+
+test('another tab generation locks Generate, refreshes latest identity once, and preserves the chosen reading copy', async () => {
+  const previous = { persistence: 'ok', active: false, latest: { id: 'old-job', status: 'complete', filename: oldBrief().filename } };
+  const running = { persistence: 'ok', active: true, latest: { id: 'new-job', status: 'running', phase: 'collecting' } };
+  const done = { persistence: 'ok', active: false, latest: { id: 'new-job', status: 'complete', filename: completed().filename } };
+  fetchStatus.mockResolvedValueOnce({ ok: true, json: async () => previous })
+    .mockResolvedValueOnce({ ok: true, json: async () => running })
+    .mockResolvedValue({ ok: true, json: async () => done });
+  fetchBriefs.mockResolvedValueOnce([oldBrief()]).mockResolvedValue([completed(), oldBrief()]);
+  render(element());
+  await flush();
+  expect(elements.get('briefMeta').textContent).toContain('Current published briefing');
+  await jest.advanceTimersByTimeAsync(30_000);
+  expect(elements.get('briefGenerate')).toMatchObject({ disabled: true, textContent: 'Generating…' });
+  expect(elements.get('briefAttemptStatus').innerHTML).toContain('Collecting current source evidence');
+  await jest.advanceTimersByTimeAsync(10_000);
+  expect(elements.get('briefGenerate').disabled).toBe(false);
+  expect(elements.get('briefHistory').innerHTML).toContain(completed().filename);
+  expect(elements.get('briefMeta').textContent).toContain('Archived briefing');
+  expect(elements.get('briefLatestNotice').innerHTML).toContain('Newer edition available');
+  expect(elements.get('briefLatestNotice').innerHTML).toContain(completed().filename);
+  expect(getState().currentBrief.filename).toBe(oldBrief().filename);
+  expect(navigate).not.toHaveBeenCalled();
+  await jest.advanceTimersByTimeAsync(60_000);
+  expect(fetchBriefs).toHaveBeenCalledTimes(2);
+  route(`/briefing/${completed().filename}`, { filename: completed().filename });
+  await flush();
+  expect(elements.get('briefMeta').textContent).toContain('Current published briefing');
+  expect(elements.get('briefLatestNotice').hidden).toBe(true);
+});
+
+test('missing accounting disables generation until a read-only status retry succeeds', async () => {
+  fetchStatus.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ persistence: 'error' }) })
+    .mockResolvedValue({ ok: true, json: async () => ({ persistence: 'ok', active: false, latest: null }) });
+  render(element());
+  await flush();
+  expect(elements.get('briefGenerate')).toMatchObject({ disabled: true, textContent: 'Generation status unavailable' });
+  expect(elements.get('briefAttemptStatus').innerHTML).toContain('Retry status check');
+  route('/briefing', {});
+  await flush();
+  expect(elements.get('briefGenerate')).toMatchObject({ disabled: false, textContent: 'Generate briefing' });
+});
+
+test('publishing an older saved draft refreshes history even when the newer completed generation job is unchanged', async () => {
+  let revision = 'publication-1';
+  let editions = [oldBrief()];
+  const job = { id: 'newer-job', status: 'complete', filename: oldBrief().filename };
+  fetchStatus.mockImplementation(async () => ({ ok: true, json: async () => ({ persistence: 'ok', active: false, latest: job, publicationRevision: revision }) }));
+  fetchBriefs.mockImplementation(async () => editions);
+  render(element()); await flush();
+  expect(elements.get('briefMeta').textContent).toContain('Current published briefing');
+  const initialReads = fetchBriefs.mock.calls.length;
+  revision = 'publication-2';
+  editions = [completed(), oldBrief()];
+  await jest.advanceTimersByTimeAsync(30_000);
+  expect(fetchBriefs).toHaveBeenCalledTimes(initialReads + 1);
+  expect(elements.get('briefMeta').textContent).toContain('Archived briefing');
+  expect(elements.get('briefHistory').innerHTML).toContain(completed().filename);
+  expect(elements.get('briefLatestNotice').innerHTML).toContain(completed().filename);
+  expect(getState().currentBrief.filename).toBe(oldBrief().filename);
+  expect(navigate).not.toHaveBeenCalled();
+  await jest.advanceTimersByTimeAsync(30_000);
+  expect(fetchBriefs).toHaveBeenCalledTimes(initialReads + 1);
+});
+
+test('failed publication reconciliation stays dirty and retries the archive read on the next status poll', async () => {
+  let revision = 'publication-1';
+  fetchStatus.mockImplementation(async () => ({ ok: true, json: async () => ({ persistence: 'ok', active: false,
+    latest: { id: 'unchanged-job', status: 'complete', filename: oldBrief().filename }, publicationRevision: revision }) }));
+  fetchBriefs.mockResolvedValue([oldBrief()]);
+  render(element()); await flush();
+  revision = 'publication-2';
+  fetchBriefs.mockRejectedValueOnce(new Error('Archive temporarily offline')).mockResolvedValue([completed(), oldBrief()]);
+  await jest.advanceTimersByTimeAsync(30_000);
+  expect(elements.get('briefMeta').textContent).toContain('Saved briefing');
+  expect(elements.get('briefMeta').textContent).not.toContain('Current published');
+  const failedReads = fetchBriefs.mock.calls.length;
+  await jest.advanceTimersByTimeAsync(30_000);
+  expect(fetchBriefs).toHaveBeenCalledTimes(failedReads + 1);
+  expect(elements.get('briefMeta').textContent).toContain('Archived briefing');
+  expect(elements.get('briefLatestNotice').innerHTML).toContain(completed().filename);
+  expect(getState().currentBrief.filename).toBe(oldBrief().filename);
+  await jest.advanceTimersByTimeAsync(60_000);
+  expect(fetchBriefs).toHaveBeenCalledTimes(failedReads + 1);
+});
+
+test('the first publication revision reconciles an archive response started before mount status arrived', async () => {
+  let finishOld;
+  fetchBriefs.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }))
+    .mockResolvedValue([completed(), oldBrief()]);
+  fetchStatus.mockResolvedValue({ ok: true, json: async () => ({ persistence: 'ok', active: false,
+    latest: { id: 'existing-job', status: 'complete', filename: completed().filename }, publicationRevision: 'first-observed' }) });
+  render(element()); await flush();
+  expect(fetchBriefs).toHaveBeenCalledTimes(2);
+  expect(elements.get('briefHistory').innerHTML).toContain(completed().filename);
+  expect(elements.get('briefMeta').textContent).toContain('Archived briefing');
+  finishOld([oldBrief()]); await flush();
+  expect(elements.get('briefMeta').textContent).toContain('Archived briefing');
+  expect(elements.get('briefHistory').innerHTML).toContain(completed().filename);
+});
+
+test('generation and draft controls are visible outside Edition tools', () => {
+  const main = element();
+  render(main);
+  const dom = parseDocument(main.innerHTML);
+  for (const id of ['briefGenerate', 'briefDrafts']) {
+    const node = DomUtils.findOne(item => item.attribs?.id === id, dom.children, true);
+    expect(node).toBeTruthy();
+    for (let parent = node.parent; parent; parent = parent.parent) expect(parent.name).not.toBe('details');
+  }
+  expect(main.innerHTML).toContain('Review drafts');
 });
 
 test('returning after an off-view failure shows durable outcome and cost beside the unchanged saved edition', async () => {

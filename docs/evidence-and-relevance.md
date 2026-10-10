@@ -2,7 +2,7 @@
 
 [Back to the README](../README.md)
 
-BlueTeam.News connects a declared watch profile to retained source passages and the inputs of a saved Briefing. Wire and evidence inspection work without an AI key. Wire can save your assessment, owner, next review date, basis, and evidence reference in this browser and include them in exports. These local decision records are separate from source reporting; they do not provide a shared case workflow, verified exposure, or handoff acknowledgment.
+BlueTeam.News connects a declared watch profile to retained source passages and the inputs of a saved Briefing. Wire and evidence inspection work without an AI key. Wire saves your assessment, owner, next review date, basis, and available evidence copies in the server's SQLite database. Revision history and exports preserve those records separately from source reporting. They do not provide individual user identities, verified exposure, or handoff acknowledgment.
 
 ## Try the workflow
 
@@ -24,9 +24,11 @@ The inspector supports keyboard navigation, source selection, expandable revisio
 
 Read state follows the retained revisions attached to a signal. A later revision becomes unread even when its story URL is unchanged; signals without retained revisions use the story identity. Marking a signal read records reading state, not an assessment of its claims or your exposure.
 
-Saved decisions and hidden/read preferences update across tabs using the same browser profile and application origin. They remain local to that browser. If browser storage is unavailable, the interface reports that a decision is retained only for the session.
+Saved decisions are available to authorized browsers using the same server. Each save supplies the revision it edited; a stale edit is rejected instead of overwriting newer work. Browse saved decisions to inspect records and their history after a signal leaves the current feed. Hidden/read preferences remain local to the browser. Unsaved decision drafts are retained in the current tab's session storage when available; export them before closing the tab.
 
-**Export current results** includes the currently filtered signals, their evidence references, and any saved decisions. **Export all saved decisions (JSON)** exports the browser's decision records even when their signals are hidden, filtered out, or no longer in the current feed. This separate export contains decision records and links, not a copy of the underlying source evidence. Up to 2,000 decisions are retained in browser storage; server backups do not include them.
+**Export current results** includes the currently filtered signals, their evidence references, and any saved decisions. The server decision export includes every current record and its retained evidence copies, including signals no longer in the feed. Full revision history is preserved in the SQLite backup and available through paginated history. The server accepts up to 20,000 records and 1,000 revisions per record; reaching a bound rejects further writes without evicting existing work.
+
+Existing browser decisions remain available for separate export and explicit copying to the server. Import does not overwrite an existing server record; conflicts need review. Available source revisions are copied when a decision is saved so rolling source pruning cannot erase that decision's evidence. Missing evidence remains explicitly unavailable, and imported evidence copies without a matching retained source revision are labeled unverified.
 
 ## What a watch match means
 
@@ -68,7 +70,7 @@ NVD product labels retain the qualification that configuration conditions and ve
 
 The manifest is written and flushed before the Markdown completion marker. A receipt publication failure cannot announce a completed edition, index it, or dispatch its webhook. A later Markdown publication failure removes the receipt where possible; a crash can leave an orphan receipt that a retry replaces. Recovery of an existing scheduled edition verifies its receipt, completion flags, date, and timezone. Inconsistent artifacts return `E_SCHEDULE_INTEGRITY` without starting another provider call or overwriting the original.
 
-The API checks the manifest version, filename, size, and Markdown hash. Editing the saved Markdown directly makes that receipt fail verification; preserve the original pair. An existing invalid receipt excludes the edition from default publication surfaces. Legacy editions without a receipt remain readable with an explicit unavailable status; a completely deleted receipt cannot be distinguished from a legacy absence. Exact prompts are represented by hashes rather than stored text; these hashes are not tamper-proof signatures and do not guarantee reproducible model output.
+The API checks the manifest version, filename, size, and Markdown hash. Editing the saved Markdown directly makes that receipt fail verification; preserve the original pair. An invalid or required-but-missing receipt excludes the edition from default publication surfaces. An independent inventory records eligible legacy editions at adoption; only unchanged editions in that inventory can use the legacy unavailable status. Receipt loss before the first inventory was created cannot always be reconstructed. Exact prompts are represented by hashes rather than stored text; these hashes are not tamper-proof signatures and do not guarantee reproducible model output.
 
 Ordinary generation publishes automatically when its findings are editorial notes. Optional field grammar, presentation, limited supplemental sources, and bounded editorial suggestions remain available for inspection. Concrete citation, core evidence, CVE/CVSS/version, KEV, and incomplete-content failures stop publication. Detected security-control changes require a specific operator review. Diagnostic severity and publication consequence are separate; an advisory note does not become a blocker merely because an older checker called it a trust or structure issue.
 
@@ -96,7 +98,7 @@ The evidence database prunes sources not observed within 30 days, keeps at most 
 
 Saved Briefings and their manifests do not expire automatically. Their copied excerpts survive pruning of the rolling evidence database. Back up `data/`, `briefs/`, `reviews/`, configuration, and the corresponding application version together using the stopped-process procedure in [Operations](operations.md#state-and-backups). Losing `reviews/` loses corrections, approvals, and publication exclusions. Backups can outlive live retention; manage their access and expiration separately.
 
-Automatic draft recovery retains up to 20 untouched drafts for 30 days. Once an operator explicitly saves a draft, it is protected from that automatic expiry and pruning. Each artifact retains its original text plus the seven most recent changed revisions; revision numbers continue increasing as older repair revisions leave the retained window. Rechecking unchanged text does not add a revision. Publication preserves repair provenance in the permanent edition receipt. Wire decision records live in browser storage rather than the server backup; export them before clearing that storage or moving to another browser.
+Automatic draft recovery retains up to 20 untouched drafts for 30 days. Once an operator explicitly saves a draft, it is protected from that automatic expiry and pruning. Each artifact retains its original text plus the seven most recent changed revisions; revision numbers continue increasing as older repair revisions leave the retained window. Rechecking unchanged text does not add a revision. Publication preserves repair provenance in the permanent edition receipt. Wire decision records, revision history, and copied evidence are included in the server's SQLite backup. Export legacy browser decisions until their server import is verified; unsaved tab drafts are not part of that backup.
 
 The project's software license does not label the reuse rights of collected reporting. Source licensing and handling markings are not yet modeled or enforced per passage. Retain attribution and source links, review the source's sharing conditions before redistributing extracts, and avoid treating a local manifest as a preapproved public evidence bundle. No external sharing or product telemetry is added by this workflow.
 
@@ -110,4 +112,36 @@ Preserve these distinctions in changes: source reporting versus deterministic en
 npm test -- --runInBand test/watch-profile.test.js test/evidence.test.js test/evidence-inspector.test.js test/generation-manifest.test.js test/history-manifest-publication.test.js test/brief.test.js
 ```
 
-For an advisory updated the next day, BlueTeam.News can retain yesterday's excerpt, show today's passage change, explain a watched-technology match, keep automatic exposure unknown, and preserve a generated Briefing's inputs. It can also save a browser-local decision and present a separately reviewed edition. Persistent situation tracking across collections, explicit shortlist-based generation, shared handoff acknowledgment, and action-completion tracking remain proposed improvements. See the [roadmap](decision-desk-roadmap.md).
+For an advisory updated the next day, BlueTeam.News can retain yesterday's excerpt, show today's passage change, explain a watched-technology match, keep automatic exposure unknown, and preserve a generated Briefing's inputs. It can also save a server-backed decision with revision history and evidence copies, and present a separately reviewed edition. Persistent situation tracking across collections, explicit shortlist-based generation, shared handoff acknowledgment, and action-completion tracking remain proposed improvements. See the [roadmap](decision-desk-roadmap.md).
+## Collection and decision continuity
+
+Generation readiness uses fresh substantive passages and collection reachability.
+A healthy quiet collection can support a limited briefing with fewer judgments;
+a broad source outage or no usable evidence still stops generation. Readiness is
+separate from server liveness and the outcome of scheduled briefing publication.
+
+The collector retains the original publication date when admitting a recently
+updated older advisory. Admission requires a retained baseline and changed
+operational text; a changed timestamp alone is insufficient. Such an admission
+is a revision candidate, not proof of a new incident. Source revisions remain
+available for inspection.
+
+Up to two excluded relevant or authoritative candidates can receive a small
+reserved share of existing enrichment budgets before final selection. Receipts
+record these investigations and whether they entered the final selection.
+The request budgets and final selection limit remain bounded. Watch matching
+respects word boundaries; saved intelligence questions rotate through the
+existing three-query allowance. A match remains relevance, not local exposure.
+
+Wire assessments now retain their source revision bindings. Changed or missing
+evidence and due review dates mark an assessment for review without changing its
+conclusion. Saving after review binds it to the evidence currently shown.
+Legacy assessments without bindings remain unverified. Export and import saved
+decisions as JSON to transfer them between browsers; conflicting local records
+are left unchanged and counted for reconciliation. These records remain local
+to each browser and are not synchronized automatically.
+
+CVSS displays preserve CVE, metric version, assessment authority and provisional
+status. KEV membership retains catalog freshness qualifications across the Wire,
+Wall and exports. Federal remediation dates retain their FCEB scope. CSV exports
+include collection and retrieval limitations as well as the displayed facts.
