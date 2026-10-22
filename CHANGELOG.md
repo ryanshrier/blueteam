@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.4.1 — 2026-10-22
+
+This patch removes unnecessary briefing publication holds and fixes unchanged
+drafts losing their coverage metadata during revalidation.
+
+- Treat coverage-accounting overflow and valid, explained editorial deferrals as optional notes. Keep review for missing or unsupported coverage claims and unresolved evidence presented as covered.
+- Preserve the exact content and bound metadata when saving, rechecking, or publishing an untouched draft. Continue revalidating against captured evidence; actual edits still invalidate stale metadata and approvals.
+- Show the actual finding in review forms. Keep edition-wide coverage findings separate from paragraph-specific errors, without misleading CVE excerpts or line jumps.
+- Add regressions for the retained busy-day draft, real-server save/reopen/publication, and factual blockers that cannot be waived by editorial notes or approval. Unsupported CVEs, contradictory federal deadlines, invalid citations, and security-control review remain enforced.
+
+### Upgrade notes
+
+No database migration or configuration change is required from v1.4.0. Restart
+the service after upgrading. Existing drafts are rechecked under the corrected
+publication policy when saved or published; original receipts remain intact.
+
 ## 1.4.0 — 2026-10-09
 
 This release adds durable Wire decisions and strengthens briefing evidence,

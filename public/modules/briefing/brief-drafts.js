@@ -6,6 +6,7 @@ import { historicalSourceContextHtml } from './source-context.js';
 // Unsaved repairs survive closing the dialog during this app session.
 const workingCopies = new Map();
 export const MAX_REPAIR_BYTES = 80_000;
+const editionWideFinding = issue => issue.location?.scope === 'document' || /^PRIORITY_(?:COVERAGE_|EVIDENCE_)/.test(issue.code || '');
 
 export function draftPreviewHtml(content) {
   return `<p class="draft-preview-note">Preview · unpublished · source links disabled</p>${renderDraftMarkdown(content)}`;
@@ -53,7 +54,7 @@ export function draftReviewIssues(artifact) {
 export function draftReviewFormHtml(issues, { changed = false } = {}) {
   if (!issues?.length) return '';
   const control = securityOnly(issues);
-  return `<form class="draft-control-review" data-control-review><h3>${control ? 'Review these security-control changes' : 'Review these editorial findings'}</h3><p>Approval applies only to ${control ? 'these changes' : 'these findings'} in the saved text below. Other publication checks still apply.</p><ul>${issues.map(issue => `<li>${escapeHtml(issue.location?.excerpt || issue.message)}</li>`).join('')}</ul><label>Reviewer<input name="reviewer" maxlength="200" required autocomplete="name"></label><label>${control ? 'Why is this change appropriate for this evidence and scope?' : 'Why is publication appropriate given these findings and the captured evidence?'}<textarea name="reason" maxlength="4000" required rows="3"></textarea></label><label class="draft-control-confirm"><input type="checkbox" name="confirmed" required> I reviewed these specific ${control ? 'control changes' : 'findings'} against the captured evidence.</label><p data-control-changed${changed ? '' : ' hidden'}>Your text changed. Publish to recheck it before approving ${control ? 'its control changes' : 'these findings'}.</p></form>`;
+  return `<form class="draft-control-review" data-control-review><h3>${control ? 'Review these security-control changes' : 'Review these editorial findings'}</h3><p>Approval applies only to ${control ? 'these changes' : 'these findings'} in the saved text below. Other publication checks still apply.</p><ul>${issues.map(issue => `<li>${escapeHtml(issue.message || '')}${!editionWideFinding(issue) && issue.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`).join('')}</ul><label>Reviewer<input name="reviewer" maxlength="200" required autocomplete="name"></label><label>${control ? 'Why is this change appropriate for this evidence and scope?' : 'Why is publication appropriate given these findings and the captured evidence?'}<textarea name="reason" maxlength="4000" required rows="3"></textarea></label><label class="draft-control-confirm"><input type="checkbox" name="confirmed" required> I reviewed these specific ${control ? 'control changes' : 'findings'} against the captured evidence.</label><p data-control-changed${changed ? '' : ' hidden'}>Your text changed. Publish to recheck it before approving ${control ? 'its control changes' : 'these findings'}.</p></form>`;
 }
 
 export function publicationRequest(artifact, content, review = null) {
@@ -83,14 +84,20 @@ export function draftPublicationLabel(result) {
       : 'Briefing published · current display status unavailable';
 }
 
-function draftFindingsHtml(issues, decision) {
+export function draftFindingsHtml(issues, decision) {
   const groups = decision ? [
     { label: 'Fix before publishing', items: decision.blockers || [], open: true },
     { label: securityOnly(decision.reviewIssues) ? 'Specific control review' : 'Editorial review', items: decision.reviewIssues || [], open: true },
     { label: 'Editorial notes', items: decision.notes || [], open: false },
   ] : [{ label: 'Checks need attention', items: issues, open: true }];
   let index = 0;
-  return groups.filter(group => group.items.length).map(group => `<details class="draft-findings"${group.open ? ' open' : ''}><summary>${group.label} · ${group.items.length}</summary><ol>${group.items.map(issue => `<li><button type="button" data-draft-line="${Number(issue.location?.line) || 1}" data-draft-issue="${index++}">${escapeHtml(issue.message || '')}<span>${group.label === 'Editorial notes' ? 'Editorial note · optional' : group.label}${issue.location?.line ? ` · Line ${Number(issue.location.line)}` : ''}</span></button>${issue.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`).join('')}</ol></details>`).join('') || '<p>No required changes. Ready to publish.</p>';
+  return groups.filter(group => group.items.length).map(group => `<details class="draft-findings"${group.open ? ' open' : ''}><summary>${group.label} · ${group.items.length}</summary><ol>${group.items.map(issue => {
+    const line = !editionWideFinding(issue) && Number.isSafeInteger(issue.location?.line) && issue.location.line > 0 ? issue.location.line : null;
+    const issueIndex = index++;
+    const label = `${group.label === 'Editorial notes' ? 'Editorial note · optional' : group.label}${line ? ` · Line ${line}` : ' · Edition-wide'}`;
+    const summary = `${escapeHtml(issue.message || '')}<span>${label}</span>`;
+    return `<li>${line ? `<button type="button" data-draft-line="${line}" data-draft-issue="${issueIndex}">${summary}</button>` : `<div class="draft-finding-summary">${summary}</div>`}${line && issue.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`;
+  }).join('')}</ol></details>`).join('') || '<p>No required changes. Ready to publish.</p>';
 }
 
 function currentEvidenceHtml(source, assessment) {

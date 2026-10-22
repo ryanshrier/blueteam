@@ -23,11 +23,17 @@ export function productionSmokeEnvironment({ stateDir, configPath, port, secret 
 
 export async function seedProductionSmoke(stateDir) {
   const [{ initDB, setMeta, closeDB }, { saveRejectedBrief }, { buildGenerationManifest },
-    { buildGroundingManifest }, { repairBriefFormatting, validateBrief }, { BRIEF_EVALUATION_CASES, referenceBrief }] = await Promise.all([
+    { buildGroundingManifest }, { repairBriefFormatting, validateBrief, publicationDecision }, { BRIEF_EVALUATION_CASES, referenceBrief }, { buildPriorityCoverage }, { sha256 }] = await Promise.all([
     import('../lib/db.js'), import('../lib/brief-drafts.js'), import('../lib/generation-manifest.js'),
     import('../lib/grounding.js'), import('../lib/validation.js'), import('../test/fixtures/brief-evaluation.js'),
+    import('../lib/brief-coverage.js'), import('../lib/generation-manifest.js'),
   ]);
-  const item = BRIEF_EVALUATION_CASES[0];
+  const item = { ...BRIEF_EVALUATION_CASES[0], headlines: [...BRIEF_EVALUATION_CASES[0].headlines,
+    ...Array.from({ length: 7 }, (_, index) => ({ source: `Synthetic advisory ${index + 1}`,
+      title: `Synthetic service ${index + 1} addresses CVE-2026-${20000 + index}`,
+      description: `The synthetic vendor reports that CVE-2026-${20000 + index} affects service ${index + 1}. Its advisory provides supported update guidance and explains how administrators can verify the deployed release. Local deployment and successful exploitation remain unknown.`,
+      link: `https://example.test/evaluation/additional-${index + 1}`, date: '2026-09-04T12:00:00Z', horizon: 1 })),
+  ].map((headline, index) => ({ ...headline, score: 80 - index, urgency: 'critical' })) };
   const now = new Date().toISOString();
   const headlines = item.headlines.map((headline, index) => ({ ...headline, date: now, horizon: 1, score: 80 - index }));
   await mkdir(join(stateDir, 'data'), { recursive: true });
@@ -38,12 +44,28 @@ export async function seedProductionSmoke(stateDir) {
     observeSources(headlines, { observedAt: now });
     setMeta('latest_run', JSON.stringify({ headlines, generatedAt: now, generatedAtMs: Date.parse(now), stats: { totalFeeds: 0, successfulFeeds: 0 } }));
   } finally { closeDB(); }
-  const content = repairBriefFormatting(referenceBrief(item).replace('The vendor confirms exploitation in original reporting.',
-    'The vendor confirms exploitation in original reporting. [Synthetic Vendor, September 4, 2026](https://example.test/evaluation/vendor)'));
+  // Retain the generated representation rather than pre-normalizing away the
+  // unchanged-draft regression. Its coverage metadata binds to these bytes.
+  const content = referenceBrief(item).replace('The vendor confirms exploitation in original reporting.',
+    'The vendor confirms exploitation in original reporting. [Synthetic Vendor, September 4, 2026](https://example.test/evaluation/vendor)')
+    .replace('Operations — identify applicable systems and review owners', 'Operations — document applicability and identify the owner of the follow-up')
+    .replace('No sufficiently supported intersection was identified; the source subjects remain separate assessment tasks.',
+      'No supported intersection is established by the current retained evidence.');
+  assert.notEqual(repairBriefFormatting(content), content, 'Fixture must exercise a noncanonical retained generation');
   const groundingManifest = buildGroundingManifest({ headlines: item.headlines });
-  const validation = validateBrief(content, '2026-09-05', { publication: true, editorialStandard: 2, groundingManifest, kevSet: new Set(), kevCatalogLoaded: true });
+  const priorityCoverage = buildPriorityCoverage({ headlines: item.headlines, groundingManifest, editionDate: '2026-09-05' });
+  assert.equal(priorityCoverage.eligibleCount, 12);
+  assert.equal(priorityCoverage.items.length, 8);
+  const briefingMetadata = { schemaVersion: 1, executiveActions: [{ decision: 1, actionIds: ['S1.A1', 'S2.A1', 'S3.A1'] }],
+    coverage: priorityCoverage.items.map(item => item.rank <= 3
+      ? { priorityId: item.id, status: 'covered', section: 'judgment', index: item.rank, sourceIds: item.sourceIds }
+      : { priorityId: item.id, status: 'deferred', reason: `${item.title} remains available in the source feed; this edition prioritizes the three distinct developments discussed in its judgments.` }) };
+  const validation = validateBrief(content, '2026-09-05', { publication: true, editorialStandard: 2, groundingManifest, priorityCoverage,
+    briefingMetadata, kevSet: new Set(), kevCatalogLoaded: true });
+  assert(publicationDecision(validation).canPublish, `Synthetic routine edition must be publishable: ${JSON.stringify(publicationDecision(validation))}`);
   const manifest = buildGenerationManifest({ run: { headlines: item.headlines }, config: {}, editionContext: { date: '2026-09-05', timezone: 'UTC', scheduled: false }, groundingManifest });
   Object.assign(manifest, { generationId: randomUUID(), editorialStandard: 2, generatedAt: now,
+    priorityCoverage, briefingMetadata, briefingMetadataIssues: [], briefingMetadataContentSha256: sha256(content),
     verification: { kevCatalogLoaded: true, selectedKevCves: [] }, providerAttempts: [],
     costEstimate: { usd: 0, status: 'synthetic-no-provider' }, publicationValidation: { ...validation, partial: true } });
   const artifact = saveRejectedBrief(join(stateDir, 'briefs'), { id: manifest.generationId, content, manifest, validation: { ...validation, partial: true } });
@@ -243,6 +265,7 @@ export async function runProductionSmoke() {
     await waitFor(first, `!!document.querySelector('[data-draft-id="${seed.artifact.id}"]')`);
     await evaluate(first, `document.querySelector('[data-draft-id="${seed.artifact.id}"]').click()`);
     await waitFor(first, '!!document.querySelector("#draftRepair")');
+    assert.equal(await evaluate(first, '!!document.querySelector("[data-control-review]")'), false, 'Busy-day capacity and explicit deferrals must not request approval');
     // Saving the same captured text is an explicit retention action; publication
     // still performs all real checks and writes a verifiable archive/receipt.
     await evaluate(first, `document.querySelector('[data-draft-save]').click()`);
@@ -258,6 +281,11 @@ export async function runProductionSmoke() {
     assert.equal(await readFile(join(stateDir, 'briefs', filename), 'utf8'), seed.artifact.revisions.at(-1).content);
     const savedArtifact = await (await fetch(`${origin}/api/brief/drafts/${seed.artifact.id}`, { headers: auth })).json();
     assert.equal(savedArtifact.status, 'published');
+    assert.equal(savedArtifact.revisions.length, 1, 'Unchanged save/publish must not invent a repair revision');
+    assert.equal(savedArtifact.revisions[0].sha256, seed.artifact.revisions[0].sha256, 'Publication must preserve the exact retained generation');
+    const publishedManifest = JSON.parse(await readFile(join(stateDir, 'briefs', filename.replace(/\.md$/, '.manifest.json')), 'utf8'));
+    assert.deepEqual(publishedManifest.briefingMetadata.coverage, seed.artifact.manifest.briefingMetadata.coverage, 'All eight valid coverage bindings survive the browser round trip');
+    assert.equal(publishedManifest.repairedDraft.operatorReview, undefined, 'Routine publication needs no operator approval');
     assert(savedArtifact.operatorSavedAt, 'Explicit draft save must survive reopen');
 
     await navigate(first, '/wall?read=1', '!!document.querySelector(".news-mode")');

@@ -1,6 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 import { createHash } from 'node:crypto';
-import { draftCheckLabel, draftReviewIssues, draftReviewFormHtml, publicationRequest, capturedEvidenceHtml } from '../public/modules/briefing/brief-drafts.js';
+import { draftCheckLabel, draftReviewIssues, draftReviewFormHtml, draftFindingsHtml, publicationRequest, capturedEvidenceHtml } from '../public/modules/briefing/brief-drafts.js';
 import { decisionCopyText, readerPresentationIssues } from '../public/modules/briefing/brief-renderer.js';
 import { attachEditorialReview, readerEvidenceLimits } from '../public/modules/briefing/brief-review.js';
 import { reclassifyRetainedSource } from '../lib/evidence-quality.js';
@@ -64,6 +64,33 @@ describe('current editorial review in draft publication', () => {
     expect(html).toContain('given these findings and the captured evidence');
     expect(html).toContain('I reviewed these specific findings');
     expect(html).toContain('<p data-control-changed>');
+  });
+
+  test('a passage supplements the actual finding instead of replacing the reason for review', () => {
+    const issue = { ...association, location: { scope: 'paragraph', line: 103, excerpt: 'A quoted <technical> passage.' } };
+    const html = draftReviewFormHtml([issue]);
+    expect(html).toContain(association.message);
+    expect(html).toContain('<blockquote>A quoted &lt;technical&gt; passage.</blockquote>');
+  });
+
+  test('edition-wide findings never invent a line jump or show a misleading excerpt', () => {
+    const issue = { ...coverage, location: { scope: 'document', line: 1, excerpt: 'Unrelated CVE paragraph.' } };
+    const html = draftFindingsHtml([], { blockers: [], reviewIssues: [issue], notes: [] });
+    expect(html).toContain(coverage.message);
+    expect(html).toContain('Edition-wide');
+    expect(html).not.toContain('data-draft-line');
+    expect(html).not.toContain('Line 1');
+    expect(html).not.toContain(issue.location.excerpt);
+    expect(draftReviewFormHtml([issue])).toContain(coverage.message);
+    expect(draftReviewFormHtml([issue])).not.toContain(issue.location.excerpt);
+  });
+
+  test('a real paragraph finding retains its exact evidence jump after document-wide notes', () => {
+    const issue = { ...association, location: { scope: 'paragraph', line: 103, excerpt: '<unsafe>' } };
+    const html = draftFindingsHtml([], { blockers: [], reviewIssues: [coverage, issue], notes: [] });
+    expect(html).toContain('data-draft-line="103" data-draft-issue="1"');
+    expect(html).toContain(association.message);
+    expect(html).toContain('<blockquote>&lt;unsafe&gt;</blockquote>');
   });
 });
 

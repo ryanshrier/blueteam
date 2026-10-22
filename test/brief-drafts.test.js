@@ -13,16 +13,16 @@ afterEach(() => { rmSync(dir, { recursive:true, force:true }); });
 const save = (content = replay.content) => saveRejectedBrief(dir, {content,manifest:replay.manifest,validation:validate(content,replay.manifest)});
 
 describe('durable rejected briefing repair', () => {
-  test('revalidation repairs safe formatting before checking and preserves the original and captured inputs', () => {
+  test('an edited draft receives safe formatting repairs before checking and preserves the original and captured inputs', () => {
     const original = '## CONVERGENCE\n\nNo supported convergence is established in the retained evidence.\n\n## WATCHLIST\n\n- First item\n- Second item';
     const saved = save(original);
     let checked;
-    const updated = revalidateBriefDraft(dir, saved.id, { baseRevision: 1 }, content => {
+    const updated = revalidateBriefDraft(dir, saved.id, { baseRevision: 1, content: original.replace('First item', 'Corrected first item') }, content => {
       checked = content;
       return { valid: true, warnings: [], issues: [] };
     });
     expect(checked).toContain('No supported intersection was found in the retained evidence.');
-    expect(checked).toContain('- First item\n\n- Second item');
+    expect(checked).toContain('- Corrected first item\n\n- Second item');
     expect(updated.revisions[0]).toEqual(saved.revisions[0]);
     expect(updated.manifestSha256).toBe(saved.manifestSha256);
     expect(updated.revisions[1]).toMatchObject({ content: checked, formattingRepaired: true });
