@@ -7,6 +7,7 @@ import { saveRejectedBrief, readBriefDraft, revalidateBriefDraft, validationMani
 import { createPublicationLookup, publishDraftEdition, verifyPublicationReplay } from '../lib/brief-publication.js';
 import { readGenerationManifest, sha256 } from '../lib/generation-manifest.js';
 import { replayBriefArchive } from '../lib/brief-replay.js';
+import { repairBriefFormatting } from '../lib/validation.js';
 
 let dir;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'draft-metadata-')); });
@@ -20,7 +21,7 @@ const envelope = metadata => `<!-- briefing-metadata\n${JSON.stringify(metadata)
 const checks = (content, manifest) => ({ valid: !(manifest.briefingMetadataIssues || []).length,
   warnings: (manifest.briefingMetadataIssues || []).map(issue => issue.message),
   issues: manifest.briefingMetadataIssues || [], briefingMetadata: manifest.briefingMetadata || null });
-const save = (extra = {}) => saveRejectedBrief(dir, { content: prose,
+const save = (extra = {}, content = prose) => saveRejectedBrief(dir, { content,
   manifest: { schemaVersion: 1, edition: { date: '2026-10-09', timezone: 'America/Chicago' },
     grounding: { sources: [], urls: [], cves: [] }, selectedEvidence: [], ...extra },
   validation: { valid: false, warnings: ['Initial rejection'], issues: [] } });
@@ -28,6 +29,35 @@ const repair = (saved, content, validate = checks) => revalidateBriefDraft(dir, 
   { baseRevision: saved.revisions.at(-1).number, ...(content !== undefined ? { content } : {}) }, validate);
 
 describe('draft generator-record normalization', () => {
+  test.each(['\n', '\r\n'])('unchanged original prose preserves exact bytes and bound metadata across repeated rechecks (%j)', newline => {
+    const original = [prose, '## CONVERGENCE', '',
+      'No supported intersection is established by the current retained evidence.', '',
+      '## WATCHLIST', '- First retained item', '- Second retained item', ''].join('\n').replaceAll('\n', newline);
+    expect(repairBriefFormatting(original)).not.toBe(original);
+    const saved = save({ briefingMetadata: record(), briefingMetadataIssues: [], briefingMetadataContentSha256: sha256(original) }, original);
+    let rechecked = saved;
+    for (const submitted of [original, undefined, original]) {
+      rechecked = repair(readBriefDraft(dir, saved.id), submitted, (content, manifest) => {
+        expect(content).toBe(original);
+        expect(validationSourceFromManifest(manifest, content).briefingMetadata).toEqual(record());
+        return checks(content, manifest);
+      });
+      expect(rechecked.revisions).toEqual(saved.revisions);
+      expect(rechecked.lastCheck).toMatchObject({ revision: 1, contentSha256: sha256(original) });
+      expect(rechecked.manifestSha256).toBe(saved.manifestSha256);
+    }
+    const edited = original.replace('First retained item', 'Corrected retained item');
+    const repaired = repair(rechecked, edited, (content, manifest) => {
+      expect(content).toBe(repairBriefFormatting(edited));
+      expect(validationSourceFromManifest(manifest, content).briefingMetadata).toBeNull();
+      return checks(content, manifest);
+    });
+    expect(repaired.revisions.at(-1)).toMatchObject({ number: 2, formattingRepaired: true, briefingMetadata: null });
+    expect(repaired.revisions[0]).toEqual(saved.revisions[0]);
+    expect(repair(repaired).revisions).toEqual(repaired.revisions);
+    expect(() => repair(saved, original)).toThrow('newer repair');
+  });
+
   test('strips the envelope before hashing/checking and retains metadata separately without changing captured inputs', () => {
     const saved = save();
     const captured = JSON.stringify(saved.manifest);

@@ -1,7 +1,8 @@
 import { describe, expect, test } from '@jest/globals';
+import { readFileSync } from 'node:fs';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { buildPriorityCoverage, validatePriorityCoverage, formatPriorityCoverageInstructions,
-  PRIORITY_COVERAGE_MAX_ITEMS, PRIORITY_COVERAGE_REVIEW_CODES } from '../lib/brief-coverage.js';
+  PRIORITY_COVERAGE_MAX_ITEMS, PRIORITY_COVERAGE_REVIEW_CODES, PRIORITY_COVERAGE_NOTE_CODES } from '../lib/brief-coverage.js';
 
 const headline = (overrides = {}) => ({
   title: 'Acme Gateway actively exploited through CVE-2026-1234',
@@ -67,17 +68,19 @@ describe('bounded priority event selection', () => {
     }
   });
 
-  test('bounds selection and exposes urgent overflow rather than silently dropping it', () => {
+  test('bounds selection and records urgent overflow without making capacity a publication hold', () => {
     const inputs = Array.from({ length: 12 }, (_, index) => headline({ title: `Acme Gateway CVE-2026-${1234 + index}`, link: `https://vendor.example/story-${index}` }));
     const { priorityCoverage, groundingManifest } = setup(inputs, { maxItems: 99 });
     expect(priorityCoverage.items).toHaveLength(PRIORITY_COVERAGE_MAX_ITEMS);
     expect(priorityCoverage).toMatchObject({ eligibleCount: 12, omittedByCap: 4, omittedCriticalCount: 4 });
     const checked = validatePriorityCoverage('', { priorityCoverage, groundingManifest, dispositions: [] });
     expect(checked.diagnostics).toMatchObject({ boundedCount: 8, omittedByCap: 4, omittedCriticalCount: 4 });
-    expect(codes(checked)).toEqual(['PRIORITY_COVERAGE_OVERFLOW', ...Array(8).fill('PRIORITY_COVERAGE_MISSING')]);
+    expect(codes(checked)).toEqual(Array(8).fill('PRIORITY_COVERAGE_MISSING'));
+    expect(checked.notes).toEqual([expect.objectContaining({ code: 'PRIORITY_COVERAGE_OVERFLOW', severity: 'note',
+      location: { scope: 'document' }, priorityIds: priorityCoverage.overflow.map(item => item.id) })]);
+    expect(checked.notes[0].message).toContain('does not establish an omission');
     expect(priorityCoverage.overflow).toHaveLength(4);
-    expect(codes(validatePriorityCoverage('', { priorityCoverage: { ...priorityCoverage, schemaVersion: 1 }, groundingManifest, dispositions: [] })))
-      .not.toContain('PRIORITY_COVERAGE_OVERFLOW');
+    expect(validatePriorityCoverage('', { priorityCoverage: { ...priorityCoverage, schemaVersion: 1 }, groundingManifest, dispositions: [] }).notes).toEqual([]);
   });
 
   test('counts repeated publishers against one event before applying coverage capacity', () => {
@@ -93,7 +96,27 @@ describe('bounded priority event selection', () => {
     const state = setup([headline({ title: 'Acme CVE-2026-1234', description: '', score: 40, urgency: 'routine', isKEV: true })]);
     expect(state.priorityCoverage.items[0]).toMatchObject({ evidenceStatus: 'unresolved-lead', reasons: ['verified-kev'] });
     const checked = validatePriorityCoverage('', { ...state, dispositions: [{ priorityId: 'P1', status: 'deferred', reason: 'Acquire the original advisory before making operational claims.' }] });
-    expect(codes(checked)).toEqual(['PRIORITY_EVIDENCE_UNRESOLVED', 'PRIORITY_COVERAGE_DEFERRED']);
+    expect(checked.issues).toEqual([]);
+    expect(checked.notes.map(note => note.code)).toEqual(['PRIORITY_EVIDENCE_DEFERRED', 'PRIORITY_COVERAGE_DEFERRED']);
+    expect(checked.notes.every(note => note.severity === 'note' && note.location.scope === 'document')).toBe(true);
+    expect(checked.items[0]).toMatchObject({ priorityId: 'P1', status: 'deferred', outcome: 'deferred' });
+  });
+
+  test('an unresolved lead claimed as covered still requires evidence and a valid source mapping', () => {
+    const state = setup([headline({ title: 'Acme CVE-2026-1234', description: '', score: 40, urgency: 'routine', isKEV: true })]);
+    const checked = validatePriorityCoverage(report(passage), { ...state, dispositions: [covered()] });
+    expect(codes(checked)).toEqual(['PRIORITY_EVIDENCE_UNRESOLVED', 'PRIORITY_COVERAGE_UNSUPPORTED']);
+    expect(checked.notes).toEqual([]);
+    expect(codes(validatePriorityCoverage('', { ...state, dispositions: [] })))
+      .toEqual(['PRIORITY_EVIDENCE_UNRESOLVED', 'PRIORITY_COVERAGE_MISSING']);
+  });
+
+  test('an invalid deferral cannot downgrade an unresolved evidence finding', () => {
+    const state = setup([headline({ title: 'Acme CVE-2026-1234', description: '', score: 40, urgency: 'routine', isKEV: true })]);
+    const checked = validatePriorityCoverage('', { ...state,
+      dispositions: [{ priorityId: 'P1', status: 'deferred', reason: 'skip' }] });
+    expect(codes(checked)).toEqual(['PRIORITY_COVERAGE_INVALID', 'PRIORITY_EVIDENCE_UNRESOLVED', 'PRIORITY_COVERAGE_MISSING']);
+    expect(checked.notes).toEqual([]);
   });
 
   test('retained receipt headlines use enrichment fields and retain the original source IDs', () => {
@@ -109,6 +132,9 @@ describe('bounded priority event selection', () => {
     expect(prompt.match(/<\/priority-events>/g)).toHaveLength(1);
     expect(prompt).toContain('\\u003c/system\\u003e');
     expect(prompt).not.toContain('<system>');
+    expect(prompt).toContain('accounting limit alone does not require operator review');
+    expect(prompt).toContain('A valid reasoned deferral records an editorial selection decision');
+    expect(prompt).not.toContain('Deferred events remain subject to editorial review');
     expect(formatPriorityCoverageInstructions(null)).toBe('');
   });
 });
@@ -169,11 +195,13 @@ describe('verified priority dispositions', () => {
     expect(codes(validatePriorityCoverage(both, { ...state, dispositions: circular }))).toEqual(['PRIORITY_COVERAGE_UNSUPPORTED', 'PRIORITY_COVERAGE_UNSUPPORTED']);
   });
 
-  test('deferral records a bounded reason and still requires editorial review', () => {
+  test('a reasoned editorial deferral is retained as a document note without a publication hold', () => {
     const dispositions = [{ priorityId: 'P1', status: 'deferred', reason: 'Local applicability is unknown; the team chose other response work.' }];
     const checked = validatePriorityCoverage('', { ...setup(), dispositions });
-    expect(codes(checked)).toEqual(['PRIORITY_COVERAGE_DEFERRED']);
-    expect(checked.items[0]).toMatchObject({ ...dispositions[0], outcome: 'deferred-review' });
+    expect(checked.issues).toEqual([]);
+    expect(checked.notes).toEqual([expect.objectContaining({ code: 'PRIORITY_COVERAGE_DEFERRED', severity: 'note',
+      location: { scope: 'document' }, priorityId: 'P1', sourceIds: ['S1.1'], reason: dispositions[0].reason })]);
+    expect(checked.items[0]).toMatchObject({ ...dispositions[0], outcome: 'deferred' });
   });
 
   test.each([
@@ -198,6 +226,33 @@ describe('verified priority dispositions', () => {
   test('every coverage issue has a narrow exported review code', () => {
     const checked = validatePriorityCoverage('', { ...setup(), dispositions: 'invented' });
     expect(checked.issues.every(issue => issue.severity === 'review' && PRIORITY_COVERAGE_REVIEW_CODES.includes(issue.code))).toBe(true);
+    expect(PRIORITY_COVERAGE_NOTE_CODES).toEqual(['PRIORITY_COVERAGE_OVERFLOW', 'PRIORITY_COVERAGE_DEFERRED', 'PRIORITY_EVIDENCE_DEFERRED']);
+    expect(PRIORITY_COVERAGE_NOTE_CODES.some(code => PRIORITY_COVERAGE_REVIEW_CODES.includes(code))).toBe(false);
+  });
+});
+
+describe('retained October 21 generation — capacity does not imply missing coverage', () => {
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/priority-coverage-2026-10-21.json', import.meta.url), 'utf8'));
+
+  test('the original busy edition validates its eight dispositions and records four overflow events as a note', () => {
+    const checked = validatePriorityCoverage(fixture.brief, fixture);
+    expect(checked.diagnostics).toMatchObject({ eligibleCount: 12, boundedCount: 8, materialOverflowCount: 4 });
+    expect(checked.issues).toEqual([]);
+    expect(checked.items.map(item => item.outcome)).toEqual(['covered', 'covered', 'duplicate', 'covered', 'covered', 'duplicate', 'covered', 'covered']);
+    expect(checked.notes).toEqual([expect.objectContaining({ code: 'PRIORITY_COVERAGE_OVERFLOW', severity: 'note',
+      location: { scope: 'document' }, priorityIds: ['P13', 'P17', 'P19', 'P26'] })]);
+  });
+
+  test('overflow does not excuse a forged source mapping in the same retained edition', () => {
+    const dispositions = fixture.dispositions.map(item => item.priorityId === 'P1' ? { ...item, sourceIds: ['S99.1'] } : item);
+    const checked = validatePriorityCoverage(fixture.brief, { ...fixture, dispositions });
+    expect(checked.issues).toEqual([expect.objectContaining({ code: 'PRIORITY_COVERAGE_UNSUPPORTED', severity: 'review', priorityId: 'P1' })]);
+    expect(checked.notes).toHaveLength(1);
+  });
+
+  test('overflow does not excuse missing coverage metadata in the same retained edition', () => {
+    const checked = validatePriorityCoverage(fixture.brief, { ...fixture, dispositions: [] });
+    expect(codes(checked)).toEqual(Array(8).fill('PRIORITY_COVERAGE_MISSING'));
   });
 });
 

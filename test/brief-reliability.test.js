@@ -1,6 +1,6 @@
 import { describe, test, expect } from '@jest/globals';
 import { readFileSync } from 'node:fs';
-import { wholeDocumentReliability, expandBriefCves } from '../lib/brief-reliability.js';
+import { wholeDocumentReliability, expandBriefCves, locateBriefIssues } from '../lib/brief-reliability.js';
 import { validateBrief } from '../lib/validation.js';
 import { validationSourceFromManifest } from '../lib/brief-drafts.js';
 import { sha256 } from '../lib/generation-manifest.js';
@@ -9,6 +9,16 @@ import { buildGroundingManifest } from '../lib/grounding.js';
 const replay = JSON.parse(readFileSync(new URL('./fixtures/retained-briefing-2026-09-06.json', import.meta.url),'utf8'));
 const secondOpening = JSON.parse(readFileSync(new URL('./fixtures/retained-briefing-2026-09-06-02-opening.json', import.meta.url),'utf8'));
 const audit = content => validateBrief(content, '2026-09-06', validationSourceFromManifest(replay.manifest));
+
+test('edition-wide coverage findings cannot borrow a CVE paragraph as their location', () => {
+  const text = '# Briefing\n\nCVE-2026-88771 is discussed here.';
+  const [coverage, factual] = locateBriefIssues(text, [
+    { code: 'PRIORITY_COVERAGE_OVERFLOW', message: 'Selection capacity includes an update about CVE-2026-88771.' },
+    { code: 'FACT_CVSS_UNSUPPORTED', message: 'CVE-2026-88771 has an unsupported score.' },
+  ]);
+  expect(coverage.location).toEqual({ scope: 'document' });
+  expect(factual.location).toMatchObject({ scope: 'paragraph', line: 3 });
+});
 
 describe('one citation contract for judgment and whole-document metric checks', () => {
   const id = 'CVE-2026-1234';

@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test } from '@jest/globals';
+import { afterEach, describe, expect, jest, test } from '@jest/globals';
 import { createServer } from 'node:http';
+import { Worker } from 'node:worker_threads';
 import { createConfiguredRegexWorker, CONFIGURED_REGEX_LIMITS, evaluateConfiguredRegexSync } from '../lib/configured-regex.js';
 import { createRegexScoringContext, prepareHeadlineRegexes, scoreHeadline } from '../lib/scoring.js';
 import { getDomainPack, setDomainPack } from '../lib/domain.js';
@@ -100,10 +101,14 @@ describe('configured regex isolation', () => {
   });
 
   test('a timed-out synchronous worker retains its slot until termination finishes', async () => {
-    expect(() => evaluateConfiguredRegexSync({ operation: 'match', source: '(a+)+$', flags: 'i', text: 'a'.repeat(60) + 'z' })).toThrow(/timed out/);
-    expect(() => evaluateConfiguredRegexSync({ operation: 'validate', patterns: [{ source: 'unique-next-pattern', flags: 'i' }] })).toThrow(/still stopping/);
-    // Give the exit event a turn before accepting another admission worker.
-    await new Promise(resolve => setTimeout(resolve, 100));
-    expect(evaluateConfiguredRegexSync({ operation: 'validate', patterns: [{ source: 'unique-next-pattern', flags: 'i' }] })).toBe(true);
+    const terminate = jest.spyOn(Worker.prototype, 'terminate');
+    try {
+      expect(() => evaluateConfiguredRegexSync({ operation: 'match', source: '(a+)+$', flags: 'i', text: 'a'.repeat(60) + 'z' })).toThrow(/timed out/);
+      expect(() => evaluateConfiguredRegexSync({ operation: 'validate', patterns: [{ source: 'unique-next-pattern', flags: 'i' }] })).toThrow(/still stopping/);
+      expect(terminate).toHaveBeenCalledTimes(1);
+      // Await the real exit instead of assuming termination completes in a fixed delay.
+      await terminate.mock.results[0].value;
+      expect(evaluateConfiguredRegexSync({ operation: 'validate', patterns: [{ source: 'unique-next-pattern', flags: 'i' }] })).toBe(true);
+    } finally { terminate.mockRestore(); }
   });
 });

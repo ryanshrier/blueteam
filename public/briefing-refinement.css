@@ -173,8 +173,8 @@
 .draft-list button span { color: var(--text-secondary); font-size: 13px; }
 .draft-findings { margin: 0; border-block: 1px solid var(--border); }
 .draft-findings ol { margin: 0 0 12px; padding-left: 24px; }
-.draft-findings li button { display: grid; text-align: left; background: none; border: 0; color: var(--text-primary); font: 14px/1.5 var(--font-sans); padding: 8px; }
-.draft-findings li button span { color: var(--text-secondary); font: 12px/1.5 var(--font-mono); }
+.draft-findings li button, .draft-finding-summary { display: grid; text-align: left; background: none; border: 0; color: var(--text-primary); font: 14px/1.5 var(--font-sans); padding: 8px; }
+.draft-findings li button span, .draft-finding-summary span { color: var(--text-secondary); font: 12px/1.5 var(--font-mono); }
 [data-draft-editor] { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .draft-editor-label { display: block; flex: 0 0 auto; margin: 8px 0 6px; font-size: 13px; font-weight: 600; }
 #draftRepair { display: block; flex: 1; width: 100%; min-height: 0; resize: none; padding: 14px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); font: 14px/1.65 var(--font-mono); }
@@ -361,7 +361,7 @@
 .draft-preview .draft-preview-note { font: 13px/1.5 var(--font-sans); color: var(--text-secondary); border-bottom: 1px solid var(--border); padding-bottom: 12px; }
 .draft-preview pre { white-space: pre-wrap; }
 .draft-repair-actions { flex: 0 0 auto; background: var(--bg-reading); padding: 12px 0; border-top: 1px solid var(--border); margin: 12px 0 0; }
-.draft-findings li button { gap: 4px; }
+.draft-findings li button, .draft-finding-summary { gap: 4px; }
 .draft-findings blockquote, .draft-captured-evidence blockquote { margin: 6px 0 14px; padding-left: 10px; border-left: 2px solid var(--border); white-space: pre-wrap; }
 .draft-captured-evidence { margin: 12px 0; }
 .draft-captured-evidence > details { margin-block: 10px; }
