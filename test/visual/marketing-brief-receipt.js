@@ -40,6 +40,7 @@ export function buildMarketingSampleReceipt({ regeneratedAt = new Date().toISOSt
   const trustFail = hasTrustCriticalFailure(validation.issues);
   manifest.judgmentEvidence = validation.judgmentEvidence;
   manifest.publicationValidation = {
+    validationPolicyVersion: validation.validationPolicyVersion,
     valid: validation.valid, warnings: validation.warnings, issues: validation.issues,
     hardFail, trustFail, partial: false, coverage: validation.coverage,
     sourceCheckStatus: hardFail || trustFail ? 'findings' : 'passed-supported-checks',

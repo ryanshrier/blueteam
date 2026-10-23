@@ -996,11 +996,48 @@ describe('POST /api/brief — corrective retry recovery', () => {
       expect.objectContaining({
         scheduled: false,
         manifest: expect.objectContaining({
-          publicationValidation: expect.objectContaining({ hardFail: false, trustFail: false, partial: false }),
+          publicationValidation: expect.objectContaining({ validationPolicyVersion: 2, hardFail: false, trustFail: false, partial: false }),
         }),
       }),
     );
     expect(indexBriefMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('publishes a bounded repair that omits only the judgment with an unsupported version', async () => {
+    const firstDraft = GOOD_BRIEF.replace('The source reports a change. [Feed A, date unavailable]',
+      'The source reports affected version 99.1.2. [Feed A, date unavailable]');
+    const correctedDraft = GOOD_BRIEF.replace(/### Signal 1[^]*?(?=### Signal 2)/, '')
+      .replace('### Signal 2', '### Signal 1');
+    const stream = jest.fn(async () => textStream(stream.mock.calls.length === 1 ? firstDraft : correctedDraft)());
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(events.filter(event => event.error)).toEqual([]);
+    expect(events.find(event => event.briefComplete)?.text).toBe(correctedDraft);
+    const manifest = saveBriefMock.mock.calls[0][2].manifest;
+    expect(manifest.validation[0].issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'VERSION_UNSUPPORTED' }),
+    ]));
+    expect(manifest.validation.at(-1).recovery.accepted).toBe(true);
+    expect(manifest.providerAttempts).toHaveLength(2);
+  });
+
+  test('retains an ambiguous score as a note without buying a corrective generation', async () => {
+    getFreshRunMock.mockResolvedValue({ headlines: [{ source: 'Feed A', title: 'Two gateway fixes', horizon: 1,
+      description: 'CVE-2026-11111: CVSS v3.1 5.0. CVE-2026-22222: CVSS v3.1 9.8. Apply the corresponding gateway fixes.',
+    }], stats: { enriched: 1 } });
+    const draft = GOOD_BRIEF.replace('The source reports a change.',
+      'CVE-2026-11111 and CVE-2026-22222 affect the gateway. The pair has CVSS v3.1 9.8.');
+    const stream = jest.fn(textStream(draft));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(events.filter(event => event.error)).toEqual([]);
+    expect(events.find(event => event.briefComplete)?.text).toBe(draft);
+    expect(saveBriefMock.mock.calls[0][2].manifest.publicationValidation).toMatchObject({
+      validationPolicyVersion: 2, hardFail: false, trustFail: false,
+      issues: expect.arrayContaining([expect.objectContaining({ code: 'CVE_CVSS_AMBIGUOUS' })]),
+    });
   });
 
   test('returns but never publishes the first invalid draft when its corrective retry is interrupted', async () => {
@@ -1226,6 +1263,8 @@ describe('POST /api/brief — grounding publication gate', () => {
     expect(guidance).toContain("Cite its complete captured URL in this judgment's What happened field");
     expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Do not broaden affected versions');
     expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Missing captured support does not establish that the claim is false');
+    expect(guidance).toContain('omit only the judgment explicitly identified by a blocking finding');
+    expect(guidance).toContain('Preserve every other judgment verbatim apart from Signal numbering');
   });
 
   test('records an unpaid failure for an all-title-only collection, even with catalog membership', async () => {

@@ -141,13 +141,13 @@ describe('per-source CVE and CVSS association', () => {
   test('an ambiguous source with multiple distinct scores does not imply a pair', () => {
     const source = { ...vendor, description: 'Initial CVSS 9.8; revised CVSS 4.3.' };
     expect(auditClaim('CVE-2026-1234 CVSS 9.8.', [source]).issues)
-      .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'CVE_CVSS_MISMATCH' })]));
+      .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'CVE_CVSS_UNVERIFIED' })]));
   });
 
   test('an ambiguous source with multiple CVEs does not imply either score association', () => {
     const source = { ...vendor, title: 'CVE-2026-1234 and CVE-2026-5678 vulnerabilities' };
     expect(auditClaim('CVE-2026-1234 CVSS 9.8.', [source]).issues)
-      .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'CVE_CVSS_MISMATCH' })]));
+      .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'CVE_CVSS_UNVERIFIED' })]));
   });
 
   test('separate single-CVE sources do not permit their scores to be swapped', () => {

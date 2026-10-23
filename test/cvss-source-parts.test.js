@@ -87,9 +87,9 @@ describe('complementary source parts at the publication boundary', () => {
       .toEqual(expect.arrayContaining(['CVE_CVSS_MISMATCH']));
   });
 
-  test('a same-publisher article score without an identity cannot be assigned to the feed CVE', () => {
+  test('a same-publisher article score without an identity leaves its feed-CVE association unverified', () => {
     expect(audit(`${a}: CVSS v3.1 9.8.`, { passage: `${a} affects gateways.`,
       articleBody: 'The console flaw has CVSS v3.1 9.8. Apply the console update.' }).map(issue => issue.code))
-      .toContain('CVE_CVSS_MISMATCH');
+      .toContain('CVE_CVSS_UNVERIFIED');
   });
 });

@@ -83,7 +83,8 @@ beforeEach(() => {
   fetchStatus.mockReset().mockResolvedValue({ ok: true, json: async () => ({ persistence: 'ok', latest: null }) });
   globalThis.fetch = fetchStatus;
   elements = new Map(['briefContent', 'briefMeta', 'briefInputManifest', 'briefToc', 'briefGenerate',
-    'briefGenerateInput', 'briefCopyLink', 'briefExport', 'briefHistory', 'briefSearch', 'genStatus', 'briefSrLive', 'briefAttemptStatus', 'briefLatestNotice']
+    'briefGenerateInput', 'briefCopyLink', 'briefExport', 'briefHistory', 'briefSearch', 'genStatus', 'briefSrLive', 'briefAttemptStatus', 'briefLatestNotice',
+    'briefAiDisclosure', 'briefGenerationMeta', 'briefPublicationState', 'briefReviewState']
     .map(id => [id, element()]));
   global.document = { getElementById: id => elements.get(id) || elements.get('briefContent')?.querySelector(`#${id}`) || null, createElement: element, querySelectorAll: () => [] };
   global.window = { location: { pathname: '/briefing', search: '', hash: '', origin: 'https://desk.example',
@@ -682,7 +683,7 @@ test('a publication failure replaces the stale generating screen-reader announce
   expect(elements.get('genStatus').textContent).toBe('');
 });
 
-test('a recoverable new draft returns to the published briefing with a persistent review action', async () => {
+test('a retained draft stays visible with findings while the prior published edition keeps its identity', async () => {
   render(element());
   await flush();
   setState({ isGenerating: true });
@@ -692,13 +693,97 @@ test('a recoverable new draft returns to the published briefing with a persisten
   fetchStatus.mockResolvedValue({ ok: true, json: async () => ({ persistence: 'ok', active: false,
     latest: { id: draft.id, status: 'failed' }, draftRecovery: { items: [draft], latest: draft, count: 1 } }) });
   setState({ isGenerating: false });
-  emit('generation-error', { code: 'E006', message: 'A captured source needs repair.', draftArtifact: draft });
+  emit('generation-draft', { outcome: 'checks-required', code: 'E006', message: 'A captured source needs repair.', draftArtifact: draft,
+    recoverableDraft: 'The authoritative retained briefing draft.',
+    publicationDecision: { blockers: [{ code: 'SOURCE_UNSUPPORTED', message: 'Check <affected versions> against the captured source.' }],
+      reviewIssues: [], notes: [{ message: 'Optional heading note.' }] } });
   await flush();
-  expect(navigate).toHaveBeenCalledWith('/briefing?latest=1');
+  const content = elements.get('briefContent');
+  expect(navigate).not.toHaveBeenCalled();
+  expect(window.location.pathname).toBe('/briefing/new');
   expect(getState().currentBrief.filename).toBe(oldBrief().filename);
+  expect(getState().currentBrief.content).toBe(oldBrief().content);
+  expect(getState().lastGeneratedBrief).toBeNull();
+  expect(content.innerHTML).toContain('The authoritative retained briefing draft.');
+  expect(content.innerHTML).not.toContain('Unpublished draft text');
+  expect(content.innerHTML).toContain('Draft findings · 2');
+  expect(content.innerHTML).toContain('Required fix:</strong> Check &lt;affected versions&gt;');
+  expect(content.innerHTML).toContain('Optional note:</strong> Optional heading note.');
+  expect(content.innerHTML).toContain('Review saved draft');
+  expect(content.innerHTML).toContain('No edition was published');
+  expect(content.innerHTML).not.toContain('Generate again');
+  expect(content._validatedBriefContent).toBeNull();
+  expect(elements.get('briefExport').disabled).toBe(true);
+  expect(elements.get('briefCopyLink').disabled).toBe(true);
+  expect(elements.get('briefSrLive').textContent).toBe('Draft generated · checks need attention');
   expect(elements.get('briefAttemptStatus').innerHTML).toContain('Saved draft · unpublished');
   expect(elements.get('briefAttemptStatus').innerHTML).toContain('data-review-draft="failed-new"');
-  expect(showToast).toHaveBeenCalledWith('Draft generated · checks need attention. The saved draft is available for review.', 'info');
+});
+
+test.each(['late history response', 'publication revision'])('%s cannot relabel a retained draft as the previous published edition', async refresh => {
+  let finishHistory;
+  let revision = null;
+  fetchStatus.mockImplementation(async () => ({ ok: true, json: async () => ({ persistence: 'ok', active: false, latest: null,
+    ...(revision ? { publicationRevision: revision } : {}) }) }));
+  fetchBriefs.mockResolvedValue([oldBrief()]);
+  if (refresh === 'late history response') fetchBriefs.mockReturnValueOnce(new Promise(resolve => { finishHistory = resolve; }));
+  render(element());
+  await flush();
+  expect(elements.get('briefMeta').textContent).toContain('briefing');
+  expect(elements.get('briefAiDisclosure').hidden).toBe(false);
+  setState({ isGenerating: true });
+  route('/briefing/new', { action: 'generate' });
+  setState({ isGenerating: false });
+  emit('generation-draft', { outcome: 'checks-required', code: 'E006', recoverableDraft: 'Retained draft awaiting repair.',
+    draftArtifact: { id: 'retained' } });
+  await flush();
+  expect(elements.get('briefReviewState').hidden).toBe(true);
+  if (finishHistory) finishHistory([oldBrief()]);
+  else { revision = 'publication-after-draft'; await jest.advanceTimersByTimeAsync(30_000); }
+  await flush();
+  expect(elements.get('briefContent').innerHTML).toContain('Retained draft awaiting repair.');
+  expect(elements.get('briefMeta').textContent).toBe('');
+  expect(elements.get('briefGenerationMeta').textContent).toBe('');
+  for (const id of ['briefInputManifest', 'briefAiDisclosure', 'briefPublicationState', 'briefLatestNotice']) expect(elements.get(id).innerHTML).toBe('');
+  for (const id of ['briefAiDisclosure', 'briefPublicationState', 'briefReviewState', 'briefLatestNotice']) expect(elements.get(id).hidden).toBe(true);
+  expect(getState().currentBrief.filename).toBe(oldBrief().filename);
+  expect(elements.get('briefExport').disabled).toBe(true);
+  expect(elements.get('briefCopyLink').disabled).toBe(true);
+  expect(navigate).not.toHaveBeenCalled();
+});
+
+test.each([
+  ['E_SHUTTING_DOWN', 'Server is shutting down'],
+  ['E_DRAFT_STORAGE', 'Retained drafts could not be read.'],
+])('a %s response keeps provider setup enabled and presents the actual failure', async (code, message) => {
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  emit('generation-error', { code, message, aiDisabled: false });
+  await flush();
+  expect(elements.get('briefContent').innerHTML).toContain(message);
+  expect(elements.get('briefContent').innerHTML).not.toContain('AI Briefing is unavailable');
+  expect(elements.get('briefGenerate')).toMatchObject({ disabled: false, textContent: 'Generate briefing' });
+});
+
+test('an unavailable provider guides both built-in and Custom providers to their actual setup', async () => {
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  emit('generation-error', { code: 'E002', message: 'Selected provider unavailable', aiDisabled: true });
+  const html = elements.get('briefContent').innerHTML;
+  expect(html).toContain('AI Briefing is unavailable');
+  expect(html).toContain('Custom providers use a server module and its configured credentials');
+  expect(html).toContain('Check provider in Settings');
+  expect(html).not.toContain('Add a key in Settings');
+  expect(elements.get('briefGenerate').textContent).toBe('Enable AI in Settings');
+  const settings = document.getElementById('aiOffSettings');
+  settings.addEventListener.mock.calls.find(([name]) => name === 'click')[1]();
+  expect(navigate).toHaveBeenCalledWith('/settings');
 });
 
 test.each([

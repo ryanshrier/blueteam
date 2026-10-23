@@ -13,6 +13,19 @@ afterEach(() => { rmSync(dir, { recursive:true, force:true }); });
 const save = (content = replay.content) => saveRejectedBrief(dir, {content,manifest:replay.manifest,validation:validate(content,replay.manifest)});
 
 describe('durable rejected briefing repair', () => {
+  test('only an explicit recheck adopts the current policy while preserving legacy findings and inputs', () => {
+    const issue = { code: 'CVE_CVSS_AMBIGUOUS', severity: 'trust', message: 'The metric association is ambiguous.' };
+    const saved = saveRejectedBrief(dir, { content: replay.content, manifest: replay.manifest,
+      validation: { valid: false, warnings: [issue.message], issues: [issue] } });
+    expect(saved.revisions[0].validation.validationPolicyVersion).toBe(1);
+    expect(listBriefDrafts(dir)[0]).toMatchObject({ blockerCount: 1, canPublish: false });
+    const checked = revalidateBriefDraft(dir, saved.id, {}, () => ({ valid: false, warnings: [issue.message], issues: [issue] }));
+    expect(checked.manifestSha256).toBe(saved.manifestSha256);
+    expect(checked.revisions).toEqual(saved.revisions);
+    expect(draftValidation(readBriefDraft(dir, saved.id)).validationPolicyVersion).toBe(2);
+    expect(listBriefDrafts(dir)[0]).toMatchObject({ blockerCount: 0, noteCount: 1, canPublish: true });
+  });
+
   test('an edited draft receives safe formatting repairs before checking and preserves the original and captured inputs', () => {
     const original = '## CONVERGENCE\n\nNo supported convergence is established in the retained evidence.\n\n## WATCHLIST\n\n- First item\n- Second item';
     const saved = save(original);

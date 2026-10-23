@@ -8,17 +8,18 @@
     "implementationSha256": {
       "prompts": "ec9c31ef200d60255eb9cc4bbcdb3f2e7d771a00619c4b42cf80485089a44e21",
       "grounding": "d773acd74d4b05bef20ee21d38d540ae7ba8f644444b5a4b012a7125a8a95db5",
-      "validation": "727f64318ecc9b57f60385efeed519f8ab8ecb737443ad763e4aecbc010da2d5",
+      "validation": "bb2deb944b8a79c9b1676c0b9a1c865ebfaae8b8b944fdb908364047fabc4d19",
+      "brief-validation-policy": "c7a3b5c74a9e175cb32b1f8cb2ba754e5cf809bf1c5baacf16538bb0a224a945",
       "scoring": "08c904e08b64e3a859b6fbc90fa0b1d5eb8f3319a724ed6e59c99f8ef7f16b37",
       "evidence-quality": "8d8a4684612b199409cb9a95156a474c64af93d80e3b9489819f298a4c8d2d8e",
       "claim-checks": "843a57849edd9632805edfe29e155cf7468c05133c78fd8bc44d12fbf3c43f6f",
       "cvss": "4421c4699979933ba4f36fd419ba10e9dbecbb597e1d45476c22cd46442a7880",
       "cve-identities": "165ad931857a69851f60a277118ee1d55c7f9450cbd530e3d72b223d6ac6959e",
       "brief-action-security": "bb022304197d204466b26939588faaba05c74dd5920159b5fc7bfcb2dcc3ce6f",
-      "brief-recovery": "39920aac979e881f89c2a6e8bda7967d4c9547850ab55585875a057db8bcf485",
+      "brief-recovery": "7fe8fda0e48d4ead793a48f390f1020e846a2bc670193906bdebc3687ab56fa2",
       "brief-fact-ledger": "60e5324b9a2f663887e462829b6e2c1af50baa4554773c200a27370c5eed1a78",
       "brief-editorial": "29302b925c6c0e04b830bc0a7b2b427bf103170e0bcc16232b7f265ad0f56877",
-      "brief-reliability": "f4ec573afc5a76695fd920fb0bc971bb5672791ef90d9ef00688f14c22c1b2e9",
+      "brief-reliability": "ebe28d963b2b67a307b27113e71c8056fc64eee0cb766d0b094f0fb2611cf0df",
       "brief-coverage": "5e19f1861e0e1130c05baddafe8c8b5db12f702b40ee99049316c27c8142e92c",
       "brief-metadata": "44cc4ce1563fac540b3ce4fea120e64793d677e83de1ab7cd4e45a9c283e6b56",
       "kev-status": "ac7f55c54a47c88bbce4a12b086e7373dbeee8ce3c4ea3b64aad2ade463fa5da",
@@ -86,6 +87,7 @@
     "maxConvergence": null
   },
   "generationSettings": {
+    "validationPolicyVersion": 2,
     "preferredModel": "synthetic-fixture",
     "fallbackModel": "synthetic-fixture",
     "maxTokens": null,
@@ -497,6 +499,7 @@
   "validation": [
     {
       "draftSha256": "7e6d0cbf6133fc131b0d8513192f2809c3696f467cd35d00631179cecb11c7d3",
+      "validationPolicyVersion": 2,
       "valid": true,
       "warnings": [],
       "issues": [],
@@ -527,7 +530,7 @@
   ],
   "generatedAt": "2026-07-24T12:00:00Z",
   "synthetic": true,
-  "syntheticRegeneratedAt": "2026-10-23T00:18:57.762Z",
+  "syntheticRegeneratedAt": "2026-10-23T01:52:39.332Z",
   "syntheticNote": "Authored fictional demonstration; no provider was called. Edition, source, collection, capturedAt, and generatedAt dates describe the July 24, 2026 scenario, not a real collection or generation. syntheticRegeneratedAt records when this sample receipt was rebuilt and checked against the recorded application implementation. Passing supported checks does not verify real-world events or complete analyst review.",
   "filename": "brief-2026-07-24-01.md",
   "outputSha256": "7e6d0cbf6133fc131b0d8513192f2809c3696f467cd35d00631179cecb11c7d3",
@@ -565,6 +568,7 @@
     }
   ],
   "publicationValidation": {
+    "validationPolicyVersion": 2,
     "valid": true,
     "warnings": [],
     "issues": [],

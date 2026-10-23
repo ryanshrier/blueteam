@@ -164,7 +164,7 @@ Check affected inventory before scheduling remediation.
   check(q('#edition-record').open,'Legacy review links open the shared record');
   await show('corrected','#edition-record');check(q('#edition-record').open,'Shared record links work on load');
   await show('draft');
-  check(q('#briefAttemptStatus').textContent.includes('New draft awaiting review'),'Separate operator task names the new draft');
+  check(q('#briefAttemptStatus').textContent.includes('Saved draft · unpublished')&&q('#briefAttemptStatus [data-review-draft="new-draft"]'),'Separate operator task identifies the saved unpublished draft and its recovery action');
   check(q('#briefAttemptSlot').compareDocumentPosition(q('#briefOverview'))&Node.DOCUMENT_POSITION_FOLLOWING,'Draft task occupies the same position before both reading modes');
   q('#briefReadingMode').click();check(!q('#briefAttemptStatus').hidden&&q('#briefPublicationState').hidden,'New draft does not mark the published edition as blocked');
   check(document.documentElement.scrollWidth<=innerWidth+1,'Reader has no horizontal overflow');

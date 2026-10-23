@@ -60,10 +60,10 @@ describe('retained CISA metric tables at the publication boundary', () => {
     expect(hasTrustCriticalFailure(displayError.issues)).toBe(false);
   });
 
-  test('metric rows cannot be distributed among multiple CVEs in one source', () => {
+  test('metric rows with multiple possible CVEs keep an unverified association note', () => {
     const source = { ...ixon, description: `${ixon.description} Also references CVE-2026-99999.` };
-    expect(codes(audit('CVE-2026-75925 CVSS 9.6.', [source]))).toContain('CVE_CVSS_MISMATCH');
-    expect(codes(audit('CVE-2026-99999 CVSS 9.4.', [source]))).toContain('CVE_CVSS_MISMATCH');
+    expect(codes(audit('CVE-2026-75925 CVSS 9.6.', [source]))).toContain('CVE_CVSS_UNVERIFIED');
+    expect(codes(audit('CVE-2026-99999 CVSS 9.4.', [source]))).toContain('CVE_CVSS_UNVERIFIED');
   });
 
   test('a different cited CVE cannot borrow IXON table scores', () => {

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep newly retained drafts visible with their findings, and classify generation failures by server code so shutdown/storage errors do not send users to API-key setup. Provider setup guidance includes Custom modules.
+- Make uncertain CVE/score associations and inferred action associations or phase grouping advisory under publication policy 2. Preserve factual contradictions, unsupported scores, source identity, completion and receipt protections; record the policy version with checks.
+- Allow a corrective attempt to omit a judgment identified by a blocking finding only when every remaining judgment is preserved. Keep the single-retry limit and reject incomplete replacements or new material findings.
 - Resolve citations by a unique complete captured URL and repair their display labels without changing destinations or claims. Keep unsafe URLs, ambiguous identities, and unsupported facts blocked.
 - Separate explicitly internal patch targets from federal deadline claims; preserve checks for contradictory captured federal dates.
 - Make generated action/coverage bookkeeping optional, derive supported coverage from visible citations, and retain unchanged bindings during edits. Malformed hidden records cannot bypass the visible action and evidence checks.

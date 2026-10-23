@@ -123,6 +123,10 @@ function leaveDocument(content) {
     const el = document.getElementById(id);
     if (el) el.textContent = '';
   }
+  for (const id of ['briefPublicationState', 'briefReviewState']) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  }
   reflectDocumentActions();
 }
 
@@ -182,6 +186,19 @@ export function generationFailureModel(payload) {
     validation: structured ? payload.validation || null : null,
     publicationDecision: structured ? payload.publicationDecision || null : null,
   };
+}
+
+function generationFindingsHtml(failure) {
+  const decision = failure.publicationDecision;
+  const groups = decision ? [
+    { label: 'Required fix', items: decision.blockers },
+    { label: 'Review requested', items: decision.reviewIssues },
+    { label: 'Optional note', items: decision.notes },
+  ] : [{ label: '', items: failure.validation?.issues }];
+  const findings = groups.flatMap(({ label, items }) => (Array.isArray(items) ? items : [])
+    .filter(issue => typeof issue?.message === 'string' && issue.message.trim())
+    .map(issue => `<li>${label ? `<strong>${label}:</strong> ` : ''}${escapeHtml(issue.message)}</li>`));
+  return findings.length ? `<details class="brief-review-summary" open><summary>Draft findings · ${findings.length}</summary><ul>${findings.join('')}</ul></details>` : '';
 }
 
 /** Keep local collection/request failures distinct from provider failures. */
@@ -608,7 +625,7 @@ function setupStoreListeners() {
     } = failure;
     const draftPresentation = draftOutcomePresentation(failure);
     const msg = generationErrorMessage(failure);
-    announce(aiDisabled ? 'AI Briefing is off'
+    announce(aiDisabled ? 'AI Briefing is unavailable'
       : streamLost ? 'Connection lost — generation may still complete on the server'
       : failure.code === 'E_EVIDENCE' ? 'Briefing did not start'
       : draftPresentation.label);
@@ -620,17 +637,7 @@ function setupStoreListeners() {
       // Off-view: no DOM to paint an inline error into — a toast is the only signal
       // the operator gets until they return to the Briefing.
       generationStatus?.refresh();
-      showToast(aiDisabled ? 'AI Briefing is off — add a key in Settings.' : msg, draftPresentation.neutral ? 'info' : 'error');
-      return;
-    }
-    if (failure.draftArtifact && !streamLost && getState().currentBrief?.filename && eligibleEdition(getState().currentBrief)) {
-      // An unpublished attempt must not displace the last published reading copy.
-      // Its durable recovery notice remains beside that copy after navigation.
-      showingGeneration = false;
-      recoveryGenerationId = null;
-      generationStatus?.refresh();
-      showToast(`${draftPresentation.label}. The saved draft is available for review.`, draftPresentation.neutral ? 'info' : 'error');
-      navigate('/briefing?latest=1');
+      showToast(aiDisabled ? 'AI Briefing is unavailable — check provider status in Settings.' : msg, draftPresentation.neutral ? 'info' : 'error');
       return;
     }
     leaveDocument(content);
@@ -675,6 +682,7 @@ function setupStoreListeners() {
           ${failure.draftArtifact ? '<button class="btn-primary" id="reviewDraft">Review saved draft</button>' : ''}
           ${draftPresentation.canRegenerate ? '<button class="btn-ghost" id="retryGen">Generate again</button>' : ''}
         </div>
+        ${generationFindingsHtml(failure)}
         ${recoverableDraft ? `<section class="recoverable-draft" aria-label="Unpublished briefing draft">
           <p class="recoverable-draft-label brief-draft-label">Unpublished draft</p>
           ${renderDraftMarkdown(recoverableDraft)}
@@ -834,8 +842,8 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
   document.getElementById('emptyGenerate')?.addEventListener('click', requestBriefGeneration);
 }
 
-// No-key guided setup: a Generate that 503s is a dead end. Send the operator to
-// Settings to add a key instead of offering a Retry that re-fails.
+// Explicitly unavailable AI setup needs provider diagnostics. Custom providers
+// are configured on the server and may not use the built-in API key fields.
 function renderAiOffState(content) {
   aiEnabled = false;
   aiKnown = true;
@@ -843,9 +851,9 @@ function renderAiOffState(content) {
   content.innerHTML = `
     <div class="empty-state">
       <p class="empty-kicker">Daily Threat Landscape</p>
-      <h2>AI Briefing is off</h2>
-      <p>Choose Anthropic or OpenAI (Codex) and add its API key in Settings to generate briefings. The Wire and the Wall keep running without one.</p>
-      <button class="btn-primary" id="aiOffSettings">Add a key in Settings →</button>
+      <h2>AI Briefing is unavailable</h2>
+      <p>Check the selected provider’s status in Settings. Anthropic and OpenAI use an API key; Custom providers use a server module and its configured credentials. The Wire and the Wall keep running.</p>
+      <button class="btn-primary" id="aiOffSettings">Check provider in Settings →</button>
     </div>
   `;
   document.getElementById('aiOffSettings')?.addEventListener('click', () => navigate('/settings'));
@@ -1461,7 +1469,11 @@ function handleExport(event) {
 function setMeta(text) {
   const el = document.getElementById('briefMeta');
   const host = document.getElementById('briefInputManifest');
-  const brief = getState().currentBrief;
+  const selected = getState().currentBrief;
+  const content = document.getElementById('briefContent');
+  // The selected published edition survives generation in store. Only the
+  // document actually rendered here may supply its masthead and receipt tools.
+  const brief = selected?.content && content?._validatedBriefContent === selected.content ? selected : null;
   if (el) el.textContent = brief?.content
     ? `${brief.filename === latestFilename ? 'Current published briefing' : latestFilename ? 'Archived briefing' : 'Saved briefing'} · ${formatEditionIdentity(brief.filename)}`
     : text;

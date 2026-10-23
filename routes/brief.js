@@ -156,7 +156,7 @@ export function correctiveGuidance(issues = []) {
     rules.push('Score repair: each numeric score needs the exact source citation that supplies that CVE and score in the same judgment\'s What happened field. Write one explicit pair per clause: "CVE-YYYY-NNNN: CVSS v3.1 score N.N" (use only captured values). Do not use an unassigned list of scores or "respectively". An NVD-only score requires the supplied NVD citation; a catalog listing does not supply it. Preserve metric versions and per-record provisional status. Omit any score that the cited passage does not support.');
   }
   if (codes.has('CVE_CITATION_MISMATCH') || codes.has('VERSION_UNSUPPORTED')) {
-    rules.push('Evidence repair: a source elsewhere in the input is not automatically cited support for this judgment. Cite its complete captured URL in this judgment\'s What happened field when its passage supports the affected CVE or version; use the captured publisher/date label for clarity. Check attribution and related captured sources before changing the reporting. Missing captured support does not establish that the claim is false. Use only the retained passage and captured lookup facts; a product name or article link alone does not establish an identifier or version. Do not broaden affected versions, replace a specific supported action with generic advice, or delete a judgment to clear a finding. If an essential claim cannot be resolved from the captured evidence, leave it for review rather than inventing a correction.');
+    rules.push('Evidence repair: a source elsewhere in the input is not automatically cited support for this judgment. Cite its complete captured URL in this judgment\'s What happened field when its passage supports the affected CVE or version; use the captured publisher/date label for clarity. Check attribution and related captured sources before changing the reporting. Missing captured support does not establish that the claim is false. Use only the retained passage and captured lookup facts; a product name or article link alone does not establish an identifier or version. Do not broaden affected versions or replace a specific supported action with generic advice. If an essential claim cannot be resolved from the captured evidence, you may omit only the judgment explicitly identified by a blocking finding, removing its dependent summary claims too. Preserve every other judgment verbatim apart from Signal numbering. If the finding cannot be tied to a specific judgment, leave it for review rather than inventing a correction or deleting unrelated coverage.');
   }
   if ([...codes].some(code => /KEV_DEADLINE/.test(code) && code !== 'KEV_DEADLINE_AMBIGUOUS')) {
     rules.push('Deadline repair: copy the captured SYSTEM-DERIVED FACTS date for each named CVE exactly. Name the CVE explicitly beside its FCEB remediation date; do not infer a default two-week deadline or substitute a recommended internal target.');
@@ -1197,7 +1197,7 @@ export function createBriefRouter({
         // draft, so always carry its usage into the final metadata/cost.
         result.usage = retryResult.usage;
         // Retain the first draft when recovery introduces a new material
-        // finding or deletes coverage. This detects bounded regressions, not
+        // finding or deletes unaffected coverage. This detects bounded regressions, not
         // arbitrary changes in meaning; keep repairs local in the request.
         if (!retryResult.error && !retryResult.timedOut && retryResult.stopReason !== 'refusal' && retryResult.text.length >= 100) {
           const candidateMetadata = extractBriefMetadata(retryResult.text);
@@ -1270,7 +1270,7 @@ export function createBriefRouter({
       generationManifest.briefingMetadata = extractedMetadata.metadata;
       generationManifest.briefingMetadataIssues = extractedMetadata.issues;
       generationManifest.briefingMetadataContentSha256 = sha256(fullBrief);
-      generationManifest.publicationValidation = { valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial, coverage: validation.coverage,
+      generationManifest.publicationValidation = { validationPolicyVersion: validation.validationPolicyVersion, valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial, coverage: validation.coverage,
         priorityCoverage: validation.priorityCoverage, sourceQuality: validation.sourceQuality,
         sourceCheckStatus: hardFail || trustFail ? 'findings' : 'passed-supported-checks', editorialReviewStatus: 'not-reviewed' };
       checkedRecoveryDraft = { content: fullBrief, validation: { ...validation, partial: isPartial, hardFail, trustFail } };
@@ -1349,7 +1349,7 @@ export function createBriefRouter({
       generationManifest.modelUsed = modelUsed;
       generationManifest.responseModel = result.responseModel || null;
       generationManifest.judgmentEvidence = validation.judgmentEvidence;
-      generationManifest.publicationValidation = { ...generationManifest.publicationValidation, valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial };
+      generationManifest.publicationValidation = { ...generationManifest.publicationValidation, validationPolicyVersion: validation.validationPolicyVersion, valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial };
       generationManifest.costEstimate = { usd: estimateAttemptCosts(generationManifest.providerAttempts), currency: 'USD', asOf: '2026-09-05', basis: 'Sum of per-attempt reported costs or API list-rate estimates' };
       jobs.setPhase(generationJobId, 'publishing');
       let filename;
