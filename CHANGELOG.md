@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.4.4 — 2026-10-23
+
+This patch fixes Bob Shell startup and answer extraction in the experimental
+CLI provider and makes common CLI failures easier to diagnose.
+
+- Add `--accept-license` and `--trust` to the Bob profile so each isolated attempt can start without saved home-directory consent. Use `--format json` and parse the completed result's `last_message`.
+- Expand disabled tool groups with `browser`, `command`, `subtask`, `workflow`, `artifact`, and `plan`, retaining the dedicated MCP and subagent disabling flags and tool-activity checks.
+- Match Bob's silence timeout to its 180-second overall deadline so a quiet JSON run can finish. Keep zero automatic restarts and the application's remaining generation deadline.
+- Surface fixed diagnostics for license acceptance, API-key/authentication failures, and gateway timeouts, including HTTP 504 and 524. Bound diagnostic processing without exposing raw stderr or credentials; preserve failure codes, usage, and uncertain outcomes.
+- Add offline Bob contract regressions for isolated startup, JSON completion, tool restrictions, accounting, failure diagnostics, and zero restarts.
+
+### Upgrade notes
+
+No database migration or mandatory configuration change is required from v1.4.3;
+SQLite remains at schema 11. Stop the service, back up state and configuration
+together, install v1.4.4, and restart. If you copied the Bob profile to an
+operator-managed location, merge these changes into that copy; upgrading does
+not replace it. Review the explicit license-acceptance flag and keep
+`BOB_API_KEY` in the service environment. Bob itself remains a separately
+installed dependency. Offline fixtures do not establish live authentication or
+generation readiness. See [Upgrade and rollback](docs/operations.md#from-v143-to-v144).
+
 ## 1.4.3 — 2026-10-23
 
 This patch makes briefings easier to read and act on, restores large CISA

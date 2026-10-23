@@ -228,6 +228,62 @@ describe('CLI process boundaries', () => {
     expect(`${error.message} ${error.stack}`).not.toMatch(/fixture-|東京|-secret|raw-cli-diagnostic/);
   });
 
+  test.each([
+    ['license', 'license agreement acceptance'],
+    ['authentication', 'API key or authentication error'],
+    ['missing-key', 'API key or authentication error'],
+    ['gateway524', 'gateway timeout (524)'],
+    ['gateway504', 'gateway timeout (504)'],
+    ['gateway', 'gateway timeout'],
+  ])('surfaces a fixed %s diagnosis without raw logs or split secrets', async (kind, diagnosis) => {
+    const secret = 'fixture-東京-secret';
+    const value = profile('diagnostic-stderr', { env_allow: ['FIXTURE_CREDENTIAL'] });
+    value.args.push(kind);
+    const { events, error } = await failed(createCliClient(value, { env: { FIXTURE_CREDENTIAL: secret } }));
+    expect(error).toMatchObject({ code: 'E_CLI_EXIT', completionUncertain: true, reason: error.message });
+    expect(error.reason).toContain(diagnosis);
+    expect(error.message).toContain('exit 1');
+    expect(`${error.message} ${error.stack} ${JSON.stringify(events)}`).not.toMatch(/fixture-|東京|-secret|raw-cli-diagnostic/);
+  });
+
+  test.each(['failed-result', 'malformed', 'nonzero-result'])('preserves %s failure while including the gateway diagnosis', async scenario => {
+    const value = profile('diagnostic-stderr');
+    value.output.format = 'json';
+    value.output.fail_on.push({ when: [condition('status', 'error')], reason: 'Request failed.' });
+    value.args.push('gateway524', scenario);
+    const { error, events } = await failed(createCliClient(value, { env: {} }));
+    expect(error.reason).toContain('gateway timeout (524)');
+    expect(error.code).toBe(scenario === 'nonzero-result' ? 'E_CLI_EXIT' : 'E_CLI_OUTPUT');
+    if (scenario === 'failed-result') {
+      expect(error.reason).toContain('Request failed.');
+      expect(textOf(events)).toBe('');
+      expect(usageOf(events)).toMatchObject({ input_tokens: 123, output_tokens: 45 });
+    }
+  });
+
+  test.each(['unknown', 'status-prefix', 'key-prefix'])('withholds unrecognized %s stderr even across partial tokens', async kind => {
+    const value = profile('diagnostic-stderr');
+    value.args.push(kind);
+    const { error } = await failed(createCliClient(value, { env: {} }));
+    expect(error.message).toBe('CLI exited unsuccessfully (exit 1).');
+    expect(error.reason).toBeUndefined();
+  });
+
+  test('recognizes a diagnostic ending at EOF without a newline', async () => {
+    const value = profile('diagnostic-stderr');
+    value.args.push('gateway524', 'no-newline');
+    const { error } = await failed(createCliClient(value, { env: {} }));
+    expect(error.reason).toContain('gateway timeout (524)');
+  });
+
+  test('a stderr warning cannot change a verified successful result', async () => {
+    const value = profile('diagnostic-stderr');
+    value.args.push('gateway524', 'success');
+    const events = await collect(createCliClient(value, { env: {} }));
+    expect(textOf(events)).toBe('A complete briefing from the captured evidence.');
+    expect(events.at(-1).type).toBe('message_stop');
+  });
+
   test('silence timeout preserves partial chunks and never restarts despite caller retries', async () => {
     const countPath = join(scratch(), 'count.txt');
     const value = deltaProfile('partial-silent', { env_allow: ['FIXTURE_COUNT_PATH'], restarts: 0,

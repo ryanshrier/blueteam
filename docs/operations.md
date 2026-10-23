@@ -9,7 +9,7 @@ BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and
 ## Start, stop, and restart
 
 ```bash
-git clone --branch v1.4.3 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.4 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -129,6 +129,32 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 ## Upgrade and rollback
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
+
+### From v1.4.3 to v1.4.4
+
+No database migration or mandatory configuration change is required; SQLite
+remains at schema 11. Stop the service, back up `data/`, `briefs/` (including
+hidden files), `reviews/`, configuration, operator-managed CLI profiles, and
+protected secrets together, install v1.4.4, and restart.
+
+The bundled Bob profile now accepts the license explicitly, trusts its fresh
+workspace, and reads `last_message` from JSON output. Review the
+`--accept-license` flag, retain `BOB_API_KEY` in the service environment, and
+merge the bundled profile changes into any operator-managed copy. Existing
+copies are not updated automatically. Bob's silence and overall timeouts are
+both 180 seconds; the application's remaining deadline still bounds the run.
+Automatic restarts remain disabled.
+
+CLI errors now include fixed diagnoses for recognized license, authentication,
+and gateway-timeout failures without returning raw stderr. An uncertain remote
+outcome still requires review before another manual attempt. After startup,
+verify the selected provider and profile path. The installation check confirms
+only that the configured executable can run its health command; it does not
+verify authentication or generation readiness. See [CLI provider profiles](cli-provider.md).
+
+Existing API and Custom providers, archived editions, and saved drafts retain
+their behavior. Rollback requires the previous code and its matching
+pre-upgrade state/configuration backup.
 
 ### From v1.4.2 to v1.4.3
 

@@ -15,6 +15,14 @@ Restart after changing the profile, executable, or environment. Relative profile
 
 A previously saved provider selection takes precedence: choose **CLI (JSON profile)** in Settings and save. **Check status** runs only the configured `health_args`; configure those as a version/help operation that does not generate or charge. A successful installation check returns `valid: null`, because it does not establish authentication or generation readiness. The runner cannot prove that an arbitrary command is free of charges.
 
+## Bob Shell profile
+
+The bundled `config/cli-profiles/bob.json` runs `bob run --accept-license --trust --mode ask --format json --workspace {workspace}` with the transcript on stdin. The runner creates a fresh private home for each attempt, so Bob cannot reuse a user's saved `licenseConsent`. The explicit license flag accepts IBM's license for that invocation, and `--trust` trusts the fresh workspace. `BOB_API_KEY` is still required; an interactive Bob login does not authenticate `bob run`. These flags and stdin support are documented in IBM's [non-interactive session guide](https://bob.ibm.com/docs/shell/getting-started/start-bobshell-non-interactive).
+
+The profile reads `last_message` from the single JSON result and accepts only `type: "result"`, `status: "success"`, and a zero exit code. IBM documents `last_message` for JSON output. Its current guide also lists that field for `stream-json`, but reported installed-version behavior omits it there; this profile uses JSON to avoid depending on that discrepancy. Because JSON output arrives only at completion, Bob's silence limit matches its 180-second overall deadline. A healthy quiet run can use the full deadline; the application's remaining generation time can shorten it. `restarts` stays `0`; a timeout fails the attempt and does not launch another potentially billable run.
+
+Bob pre-approves tools in non-interactive runs, so Ask mode alone is insufficient for this provider. The profile passes `--disable-mcp`, `--disable-subagents`, and an expanded group denylist including `browser`, `command`, `subtask`, `workflow`, `artifact`, and `plan`. IBM's [Shell tool guide](https://bob.ibm.com/docs/shell/core-concepts/tools), [Shell custom modes](https://bob.ibm.com/docs/shell/configuration/custom-modes-bobshell), and [IDE custom modes](https://bob.ibm.com/docs/ide/configuration/custom-modes) list differing group sets. The additional names cover reported installed-version groups; verify the launch controls against the installed Bob version. The result's `stats.tool_calls` also rejects reported tool activity.
+
 ## Trust and isolation
 
 A profile is trusted execution configuration. It selects a program that receives credentials and runs with the server's OS permissions. Review the executable and its version as well as the JSON. Profiles cannot be created, replaced, or uploaded through Settings. The provider loads the profile once at startup, enforces a 64 KiB limit, rejects unknown fields, and accepts fixed selectors and comparisons rather than code or regular expressions.
@@ -70,6 +78,8 @@ Silence, overall deadline, abort, parse failure, or size-limit failure stops the
 The runner never restarts, even if a caller supplies a nonzero retry count. BlueTeam's separately recorded corrective attempts after a verified result still apply. Every invocation receives a fresh workspace and complete conversation, without resuming an unrelated session.
 
 Generation receipts record the profile ID, schema version, and SHA-256 identity of the loaded configuration, plus actual model and usage when reported. Non-USD `providerCost` remains an amount/unit pair. Only explicit `USD` populates `costUsd`; CLI model names never trigger API-list-rate estimates. Missing USD cost stays unknown. BlueTeam redacts forwarded environment values from errors and installation output and does not save raw diagnostic logs.
+
+On failure, the runner recognizes a small set of stderr signatures for required license acceptance, API-key/authentication errors, and gateway timeouts (including HTTP 504 and 524). It appends a fixed diagnosis to the original error; arbitrary stderr text, endpoints, and credentials are withheld. Matching uses a bounded in-memory window and never changes success criteria, failure codes, or restart behavior. Unknown or absent stderr diagnostics still produce the generic failure, and failures available only in Bob's private log files are not inspected.
 
 | Limit | Default | Maximum |
 | --- | --- | --- |

@@ -19,7 +19,7 @@ Wall and Wire work without API keys. Briefing generation may incur provider char
 Recommended: Node.js 24 with npm. See the full supported ranges in [Operations](docs/operations.md#runtime-support) and [Development](docs/development.md).
 
 ```bash
-git clone --branch v1.4.3 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.4 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -88,7 +88,7 @@ The server binds to `127.0.0.1` by default. Remote interactive access requires a
 
 Local state lives in `data/watchfloor.db`, saved assessments and input receipts in `briefs/`, editorial corrections and publication decisions in `reviews/`, and operator settings in the gitignored `data/settings.local.json`. Back up these together. Saved API keys are masked in responses but stored in plaintext. Protect the host account and backups.
 
-Upgrading from v1.4.2 to v1.4.3 requires no database migration or mandatory configuration change; restart the service after upgrading. Follow the [v1.4.3 upgrade notes](docs/operations.md#from-v142-to-v143) for shared action records, coverage accounting, and the optional CLI provider. When upgrading from v1.4.0 or v1.4.1, also read the [v1.4.2 notes](docs/operations.md#from-v140-or-v141-to-v142) for retained drafts and check policies. Upgrading from v1.3.2 migrates SQLite from schema 9 to 11 and initializes a saved-edition receipt inventory; follow the [earlier upgrade steps](docs/operations.md#from-v132-to-v140), including the stopped-process backup and optional browser-decision import. Rollback requires the matching pre-upgrade state backup.
+Upgrading from v1.4.3 to v1.4.4 requires no database migration or mandatory configuration change; restart the service after upgrading. Follow the [v1.4.4 upgrade notes](docs/operations.md#from-v143-to-v144) for the Bob profile fixes and CLI diagnostics, including updates to operator-managed profile copies. From v1.4.2, also read the [v1.4.3 notes](docs/operations.md#from-v142-to-v143) for shared action records, coverage accounting, and the optional CLI provider. When upgrading from v1.4.0 or v1.4.1, also read the [v1.4.2 notes](docs/operations.md#from-v140-or-v141-to-v142) for retained drafts and check policies. Upgrading from v1.3.2 migrates SQLite from schema 9 to 11 and initializes a saved-edition receipt inventory; follow the [earlier upgrade steps](docs/operations.md#from-v132-to-v140), including the stopped-process backup and optional browser-decision import. Rollback requires the matching pre-upgrade state backup.
 
 There is no product telemetry. Outbound requests go to configured feeds and enrichment sources, the selected AI provider during verification or generation, and an optional configured webhook. Generation sends selected source evidence and configured organization context. The [network boundary](docs/operations.md#network-behavior) lists the supplied data.
 

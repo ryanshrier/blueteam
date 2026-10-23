@@ -3,7 +3,7 @@
   "id": "bob-shell-v1",
   "model": "cli-default",
   "command": "bob",
-  "args": ["run", "--mode", "ask", "--format", "stream-json", "--workspace", "{workspace}"],
+  "args": ["run", "--accept-license", "--trust", "--mode", "ask", "--format", "json", "--workspace", "{workspace}"],
   "input": { "transport": "stdin", "format": "transcript" },
   "env_allow": ["BOB_API_KEY", "PATH", "SystemRoot"],
   "env_required": ["BOB_API_KEY"],
@@ -15,10 +15,10 @@
     "externalTools": false
   },
   "tools": {
-    "disabled_args": ["--disable-mcp", "--disable-subagents", "--disable-tool-groups", "read,edit,execute,mcp,skill,todo,subagent,mode"]
+    "disabled_args": ["--disable-mcp", "--disable-subagents", "--disable-tool-groups", "read,edit,execute,mcp,skill,todo,subagent,mode,browser,command,subtask,workflow,artifact,plan"]
   },
   "output": {
-    "format": "ndjson",
+    "format": "json",
     "text": { "path": "last_message", "when": [{ "path": "type", "equals": "result" }], "mode": "final" },
     "fail_on": [
       { "when": [{ "path": "type", "equals": "tool_use" }], "reason": "CLI attempted a forbidden tool call." },
@@ -35,7 +35,7 @@
       "cost": { "path": "stats.session_costs", "unit": "Bobcoins" }
     }
   },
-  "limits": { "silence_timeout_ms": 60000, "total_timeout_ms": 180000 },
+  "limits": { "silence_timeout_ms": 180000, "total_timeout_ms": 180000 },
   "restarts": 0,
   "health_args": ["--version"]
 }

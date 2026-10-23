@@ -122,6 +122,30 @@ switch (scenario) {
     process.exitCode = 7;
     break;
   }
+  case 'diagnostic-stderr': {
+    const messages = {
+      license: 'A license agreement is required.',
+      authentication: 'Invalid API key.',
+      'missing-key': 'BOB_API_KEY environment variable is required.',
+      gateway524: 'Request failed with status code 524.',
+      gateway504: 'HTTP/1.1 504 Gateway Timeout.',
+      gateway: 'The upstream gateway timed out.',
+      unknown: 'Unclassified diagnostic with a private endpoint.',
+      'status-prefix': 'Request failed with status code 5240.',
+      'key-prefix': 'Invalid API keyboard layout.',
+    };
+    const bytes = Buffer.from(args[1] === 'no-newline' ? messages[args[0]].replace(/\.$/, '')
+      : `raw-cli-diagnostic: ${messages[args[0]]} ${process.env.FIXTURE_CREDENTIAL}\n`);
+    for (const byte of bytes) {
+      process.stderr.write(Buffer.from([byte]));
+      await new Promise(resolve => setTimeout(resolve, 1));
+    }
+    if (args[1] === 'success' || args[1] === 'nonzero-result') emit(result());
+    if (args[1] === 'failed-result') emit(result('Rejected answer.', { status: 'error' }));
+    if (args[1] === 'malformed') process.stdout.write('{ malformed diagnostic result }');
+    if (args[1] !== 'success') process.exitCode = 1;
+    break;
+  }
   case 'empty-answer':
     emit(result('', { status: args[0] || 'success' }));
     break;
