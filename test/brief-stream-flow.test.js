@@ -28,6 +28,41 @@ afterEach(() => {
 });
 
 describe('startGeneration completion boundary', () => {
+  test.each(['review-requested', 'checks-required', 'draft-ready'])('a %s terminal draft is retained without publication, provider-error events or retry', async outcome => {
+    const draft = 'The server-selected retained briefing.';
+    const draftArtifact = { id: 'saved-draft', status: 'draft' };
+    const publicationDecision = { blockers: outcome === 'checks-required' ? [{ code: 'GROUNDING' }] : [],
+      requiresReview: outcome === 'review-requested', canPublish: outcome === 'draft-ready' };
+    const reader = { read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(`data: ${JSON.stringify({
+      outcome, error: 'Draft generated; saved checks need attention.', draft, draftArtifact, publicationDecision,
+    })}\n\n`) }).mockRejectedValueOnce(new Error('socket reset after terminal draft')),
+      cancel: jest.fn().mockResolvedValue(undefined) };
+    generateBriefMock.mockResolvedValue({ body: { getReader: () => reader } });
+    const drafts = [], errors = [], published = [];
+    capture('generation-draft', drafts); capture('generation-error', errors); capture('brief-generated', published);
+    await startGeneration();
+    expect(drafts).toEqual([expect.objectContaining({ outcome, recoverableDraft: draft, draftArtifact, publicationDecision })]);
+    expect(errors).toEqual([]); expect(published).toEqual([]);
+    expect(getState()).toMatchObject({ isGenerating: false, currentBrief: null, lastGeneratedBrief: null });
+    expect(reader.read).toHaveBeenCalledTimes(1);
+    expect(generateBriefMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('a typed incomplete draft still emits the provider interruption outcome, never a publication', async () => {
+    generateBriefMock.mockResolvedValue({ body: { getReader: () => ({
+      read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(`data: ${JSON.stringify({
+        outcome: 'incomplete', error: 'Provider stream ended early.', code: 'E_PROVIDER_INCOMPLETE',
+        draft: 'Retained partial text', draftArtifact: { id: 'partial-draft' },
+      })}\n\n`) }), cancel: jest.fn().mockResolvedValue(undefined),
+    }) } });
+    const drafts = [], errors = [], published = [];
+    capture('generation-draft', drafts); capture('generation-error', errors); capture('brief-generated', published);
+    await startGeneration();
+    expect(errors).toEqual([expect.objectContaining({ outcome: 'incomplete', code: 'E_PROVIDER_INCOMPLETE', recoverableDraft: 'Retained partial text' })]);
+    expect(drafts).toEqual([]); expect(published).toEqual([]);
+    expect(getState().currentBrief).toBeNull();
+  });
+
   test('a lost stream retains the server-provided attempt identity for exact status recovery', async () => {
     generateBriefMock.mockResolvedValue({ body: { getReader: () => ({
       read: jest.fn().mockResolvedValueOnce({ done: false, value: encode('data: {"generationId":"generation-exact-id","statusUrl":"/api/brief/status"}\n\ndata: {"text":"Unfinished draft"}\n\n') })

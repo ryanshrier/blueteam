@@ -78,7 +78,8 @@ describe('buildSystemPrompt — pack-driven brief frame + persona', () => {
     expect(p).toContain('one accountable function, its own observable completion criterion, and a feasible recommended target');
     expect(p).toContain('Do not promise completed investigation or restoration by the containment deadline without a basis');
     expect(p).toContain('Keep actual restoration open');
-    expect(p).toContain('Different targets require separate clauses and action references');
+    expect(p).toContain('Write each action only once in its judgment');
+    expect(p).toContain('Do not author a separate Required decisions row or action-ID mapping');
     expect(p).toContain('Remove repeated explanations and optional metrics first');
     expect(p).toContain('Word targets never justify removing a necessary qualification');
   });
@@ -167,7 +168,8 @@ describe('buildSystemPrompt — key-judgment fields', () => {
     expect(p).toContain('When the operator must decide or initiate the first defensive response');
     expect(p).toContain('not a prediction horizon, incident duration, evidence age, source deadline, or action-completion target');
     expect(p).toContain('Recommended target dates remain on the individual actions');
-    expect(p).toContain('CISA FCEB remediation due July 16, 2026');
+    expect(p).toContain('Captured CISA KEV dates are supplied separately by the application, with FCEB-only scope');
+    expect(p).toContain('do not repeat those dates in authored prose');
     expect(p).toContain('recommended target {Month D, YYYY}');
     expect(p).toContain('not a sourced mandate');
     expect(p).toContain('Never invent a time of day or timezone');
@@ -228,7 +230,7 @@ describe('buildSystemPrompt / buildUserPrompt - immutable edition clock', () => 
     expect(user).toContain('for 2026-07-06 (Monday)');
     expect(system).toContain('only a captured, already-observed publication timestamp');
     expect(user).toContain('in Pacific/Kiritimati');
-    expect(user).toContain('Use the provided Published date exactly');
+    expect(user).toContain('Use the provided Published calendar day for source dates');
   });
 });
 
@@ -342,7 +344,7 @@ describe('buildUserPrompt — current-source grounding contract', () => {
       headlines: [headline], continuityContext: '', groundTruth: '',
       config: { horizons: {} }, groundingManifest,
     });
-    expect(p).toContain('URL: unavailable — cite this source as plain [Source Name, Date] only; do not construct a URL');
+    expect(p).toContain('URL: unavailable — cite [S1.1]; the application keeps this source linkless');
     expect(p).not.toContain(BRIEF_GROUNDING_REGRESSION.inventedColdFusionUrl);
     expect(groundingManifest.cves).toEqual(new Set(['CVE-2026-48282']));
     for (const cve of BRIEF_GROUNDING_REGRESSION.continuityCves) {

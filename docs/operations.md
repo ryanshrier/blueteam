@@ -9,7 +9,7 @@ BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and
 ## Start, stop, and restart
 
 ```bash
-git clone --branch v1.4.1 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.2 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -70,6 +70,8 @@ New editions require the provider's terminal event and a completed stop reason, 
 
 After a browser connection fails, use **Check generation status** before starting another attempt. Recovery follows the generation ID announced for that request; an unrelated recent edition is not proof it completed. If the connection failed before an ID arrived, inspect generation status and History. Status checks make no provider call.
 
+A complete response needing factual correction or editorial review appears as a generated draft with a **Review saved draft** action. Its job remains `draft-ready` across restarts and the scheduler does not purchase another response for that edition. Open, edit, save, and recheck the draft against its captured sources without another model call. Missing or malformed hidden bookkeeping and harmless citation display differences are notes; unsupported claims, unsafe source links, contradictory dates, and required security-control reviews still prevent publication. Incomplete streams remain explicitly marked incomplete.
+
 An existing reserved scheduled edition is recovered only when its receipt, completion flags, date, and timezone verify. Missing, corrupt, or mismatched artifacts return `E_SCHEDULE_INTEGRITY`; no new provider call starts and the original is preserved. Restore a known-good matching Markdown/receipt pair before retrying.
 
 Opening a completed Briefing's **Print Edition** reuses that saved assessment. The Print Edition is rendered locally in the browser, and printing or saving it as a PDF uses the browser's print pipeline. Viewing or exporting the Print Edition does not make another model request.
@@ -127,6 +129,33 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 ## Upgrade and rollback
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
+
+### From v1.4.0 or v1.4.1 to v1.4.2
+
+The October 23, 2026 patch requires no database migration or configuration change;
+SQLite remains at schema 11. Stop the service, back up `data/`, `briefs/` (including
+hidden files), `reviews/`, configuration and protected secrets together, install
+v1.4.2 and restart. Existing Custom provider modules remain compatible.
+
+New generations record publication policy 2 and composition version 1. The app
+renders captured source IDs as citations, builds executive decisions from the
+judgment actions, and adds federal deadline wording from captured catalog facts.
+Hidden metadata is optional. Unsupported factual claims, conflicting captured
+dates, invalid source identities and incomplete generation still require
+correction; uncertain score/action associations become notes.
+
+Reading archived editions preserves their saved wording and retained check
+policy. Explicit draft rechecks use captured inputs without another model call.
+An unchanged draft containing a known but unrendered source ID may receive a new
+repair revision; the original remains available. Legacy drafts keep their action
+and deadline format. For new composition-version-1 drafts, edits rebuild the
+shared presentation from the same captured inputs. Restarting alone does not
+rewrite existing drafts or editions.
+
+After startup, verify health and reopen a saved edition and any retained drafts.
+To roll back, stop the service and restore the previous code and its matching
+pre-upgrade state/configuration backup together; preserve a separate protected
+copy of newly created state before restoring.
 
 ### From v1.3.2 to v1.4.0
 

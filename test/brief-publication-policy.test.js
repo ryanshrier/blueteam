@@ -32,6 +32,9 @@ test.each([
   ['APPLICABILITY_ACTION_UNCONDITIONAL', 'trust'], ['INDEPENDENCE_UNESTABLISHED', 'trust'],
   ['ACTION_SUMMARY_OWNER_CONFLICT', 'trust'],
   ['FACT_CVE_WINDOW_UNVERIFIED', 'trust'], ['FACT_EVENT_TIMELINE_UNSUPPORTED', 'trust'],
+  ['BRIEF_METADATA_INVALID', 'structure'], ['ACTION_SUMMARY_MAPPING_INVALID', 'structure'],
+  ['PRIORITY_COVERAGE_MISSING', 'review'], ['PRIORITY_COVERAGE_INVALID', 'review'],
+  ['KEV_DEADLINE_AMBIGUOUS', 'trust'], ['CITATION_DISPLAY_MISMATCH', 'note'],
 ])('retains routine findings as notes without retrying or holding: %s', (code, severity) => {
   const issue = { code, severity, message: 'Editorial concern.' };
   const result = publicationDecision({ valid: false, hardFail: true, trustFail: true,

@@ -6,8 +6,10 @@ Run `npm run check:brief-eval` for the offline evaluation. It exercises the real
 generation route, prompt construction, validation, corrective retry, receipt,
 and attempt accounting against seven authored collections. Provider responses are
 scripted; no API key or provider network request is needed. The suite also runs in
-CI and exercises both the Anthropic event contract and the real OpenAI Responses
-stream adapter with scripted HTTP responses.
+CI and exercises the production Anthropic request adapter, the real OpenAI
+Responses stream adapter with scripted HTTP responses, and a Custom normalized
+stream fixture. The native Anthropic request uses the same thinking hook in
+production and evaluation.
 
 The collections cover tactical, operational, and strategic evidence, conflicting
 reports about two CVEs, a promotional article opening with a useful feed excerpt,
@@ -16,6 +18,50 @@ before contacting the provider. The complementary case requires preserving the
 CVE, affected range, and fixed release through generation and frozen replay.
 A separate case requires a malformed first draft to receive one corrective retry
 and accounts for both attempts.
+
+## Offline Custom conformance and recorded output
+
+Run `npm run check:brief-eval -- --provider custom` for the scripted Custom
+contract. It checks full corrective conversations, system instructions, requested
+effort, unchanged output caps, actual-model/usage recording, and rejected missing
+or unsupported completion. Pure stream tests separately cover cancellation and
+uncooperative iterators. These fixtures exercise the application boundary; they
+do not certify an installed Bob or other operator-supplied wrapper.
+
+To inspect recorded normalized output against one or more of the **same synthetic
+collections**, use:
+
+```bash
+npm run check:brief-eval -- --provider custom --replay-file .internal/provider-replay.json --output .internal/provider-replay-results
+```
+
+The file is a bounded JSON document (at most 4 MiB), with this shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "model": "recorded-model",
+  "cases": [{
+    "id": "tactical",
+    "attempts": [[
+      { "type": "content_block_delta", "delta": { "text": "The exact recorded report, including any HTML comment." } },
+      { "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "input_tokens": 100, "output_tokens": 200 } },
+      { "type": "message_stop" }
+    ]]
+  }]
+}
+```
+
+Use actual case IDs from `test/fixtures/brief-evaluation.js`; the example report
+text above is a format illustration and will not pass briefing checks. Each
+case contains one or two recorded attempt-event arrays. Missing retries are not
+invented, and missing terminal events remain incomplete. Replay never imports
+`AI_PROVIDER_MODULE`, invokes a CLI, or calls a provider; `--live --provider custom`
+is rejected. Recorded output does not establish which controls the original
+adapter honored, so replay records capability/version and request effort as
+unknown. Reports separate publication blockers/review from advisory notes and
+charge no new provider usage. For production editions with captured evidence,
+use retained edition replay below instead of pairing them with synthetic inputs.
 
 ## Retained edition replay
 
@@ -308,9 +354,10 @@ diagnostics; neither is silently relabeled as a production benchmark.
 
 ### Action consistency, priority coverage, and extraction regressions
 
-Executive decisions reference canonical actions (`S1.A1` means the first action
-of the first judgment). Checks compare the referenced response, assigned owner,
-and target within its judgment; a different story's date cannot satisfy that
+Executive decisions may include optional canonical action mappings (`S1.A1`
+means the first action of the first judgment). Checks compare recognized visible
+responses, assigned owners, and targets; missing or invalid bookkeeping is an
+advisory note and falls back to prose checks. A different story's date cannot satisfy that
 association. Different containment and recovery targets remain separate summary
 decisions. Contradictory dates block publication. Where bounded prose checks
 cannot establish an action association, the draft requires an explicit review;
@@ -323,14 +370,18 @@ Scoped cross-functional work, log preservation, and mentions of a recovery plan
 do not alone trigger this bounded prose check. Prompts target 1,200–1,800 words
 for a full six-signal edition while retaining decision-changing qualifications.
 
-New generations capture a bounded priority list from selected evidence and ask
-for covered, duplicate, or deferred dispositions. Covered items must reference
-real judgments or Watchlist entries with supporting exact citations and visible
-event identity. Unexplained, unsupported, or deferred priority items require
-review against the saved evidence. Ranking alone does not mandate inclusion.
+New generations capture a bounded priority list from selected evidence. Optional
+covered, duplicate, or deferred dispositions are checked against actual prose;
+without them, the application derives coverage only from one unambiguous real
+judgment or Watchlist entry with visible event identity and a substantive retained
+citation. Missing/invalid bookkeeping and valid reasoned deferrals are notes.
+Explicit unsupported coverage assertions still require review against the saved
+evidence. Ranking alone does not mandate inclusion.
 Version 2 groups justified same-event reports before applying the eight-event
-cap. Material overflow and unresolved important KEV leads require review;
-bounded named overflow remains in the receipt. Version 1 receipts retain their
+cap. Material overflow is a note, and an unmentioned unresolved lead does not
+create a publication hold just because its hidden disposition is absent. Claiming
+coverage for a lead without a usable passage still requires review. Bounded named
+overflow remains in the receipt. Version 1 receipts retain their
 original diagnostics-only overflow policy, and older receipts without a coverage
 contract are unevaluated. Federal remediation dates
 retain their FCEB scope and never establish local exposure or a local deadline.

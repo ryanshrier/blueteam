@@ -37,7 +37,10 @@ describe('action-specific executive decisions', () => {
     const text = draft('Infrastructure — verify AhsayCBS deployment and restrict access if deployed — recommended target October 10, 2026.');
     expect(issues(text)).toEqual([expect.objectContaining({ code: 'ACTION_SUMMARY_CONFLICT', message: expect.stringContaining('Signal 2') })]);
     expect(issues(text, mapping('S2.A1'))).toEqual([expect.objectContaining({ code: 'ACTION_SUMMARY_CONFLICT' })]);
-    expect(issues(text, mapping('S1.A1'))).toEqual([expect.objectContaining({ code: 'ACTION_SUMMARY_MAPPING_INVALID' })]);
+    expect(issues(text, mapping('S1.A1'))).toEqual([
+      expect.objectContaining({ code: 'ACTION_SUMMARY_MAPPING_INVALID', severity: 'note' }),
+      expect.objectContaining({ code: 'ACTION_SUMMARY_CONFLICT', severity: 'trust' }),
+    ]);
   });
 
   test.each(['Infrastructure / Incident response', 'Infrastructure and Incident response', 'Infrastructure & Incident response'])('allows a concise paired decision with one shared target: %s', owners => {
@@ -97,7 +100,9 @@ describe('action-specific executive decisions', () => {
     [{ decision: 1, actionIds: ['S2.A1'] }, { decision: 1, actionIds: ['S2.A1'] }],
   ])('rejects malformed, missing or ambiguous supplied mappings: %j', executiveActions => {
     const text = draft('Infrastructure — verify AhsayCBS deployment — recommended target October 9, 2026.');
-    expect(issues(text, executiveActions).map(issue => issue.code)).toContain('ACTION_SUMMARY_MAPPING_INVALID');
+    expect(issues(text, executiveActions)).toContainEqual(expect.objectContaining({ code: 'ACTION_SUMMARY_MAPPING_INVALID', severity: 'note' }));
+    const wrongTarget = text.replace('deployment — recommended target October 9, 2026.', 'deployment — recommended target October 10, 2026.');
+    expect(issues(wrongTarget, executiveActions)).toContainEqual(expect.objectContaining({ code: 'ACTION_SUMMARY_CONFLICT', severity: 'trust' }));
   });
 
   test('an unparseable decision cannot use an empty mapping to bypass checks', () => {

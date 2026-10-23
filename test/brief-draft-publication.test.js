@@ -12,6 +12,7 @@ import { createPublicationLookup } from '../lib/brief-publication.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { buildPriorityCoverage } from '../lib/brief-coverage.js';
 import { repairBriefFormatting, validateBrief } from '../lib/validation.js';
+import { assembleBrief } from '../lib/brief-assembly.js';
 import { BRIEF_EVALUATION_CASES, referenceBrief } from './fixtures/brief-evaluation.js';
 
 const getClient = jest.fn(() => null);
@@ -53,7 +54,7 @@ afterEach(async () => {
   await new Promise(resolve => server.close(resolve));
   rmSync(dir, { recursive: true, force: true });
 });
-function draft({ text = content, scheduled = false, generatedAt = '2026-09-05T12:00:00Z', checkPriorityCoverage = false, bindPriorityCoverage = false, partial = true } = {}) {
+function draft({ text = content, scheduled = false, generatedAt = '2026-09-05T12:00:00Z', checkPriorityCoverage = false, bindPriorityCoverage = false, coverageIndex = 1, partial = true } = {}) {
   const groundingManifest = buildGroundingManifest({ headlines: item.headlines });
   const validation = validateBrief(text, '2026-09-05', { publication: true, editorialStandard: 2, groundingManifest, kevSet: new Set(), kevCatalogLoaded: true });
   const manifest = buildGenerationManifest({ run: { headlines: item.headlines }, config: {}, editionContext: { date: '2026-09-05', timezone: 'UTC', scheduled }, groundingManifest });
@@ -66,7 +67,7 @@ function draft({ text = content, scheduled = false, generatedAt = '2026-09-05T12
   });
   if (bindPriorityCoverage) {
     manifest.briefingMetadata = { schemaVersion: 1, executiveActions: [{ decision: 1, actionIds: ['S1.A1'] }],
-      coverage: [{ priorityId: 'P1', status: 'covered', section: 'judgment', index: 1, sourceIds: ['S1.1'] }] };
+      coverage: [{ priorityId: 'P1', status: 'covered', section: 'judgment', index: coverageIndex, sourceIds: ['S1.1'] }] };
     manifest.briefingMetadataContentSha256 = sha256(text);
     manifest.briefingMetadataIssues = [];
   }
@@ -133,15 +134,15 @@ describe('explicit repair publication', () => {
     expect((await (await fetch(`${base}/brief/status`)).json()).publicationRevision).toBe(after.publicationRevision);
   });
 
-  test('priority coverage requires exact-copy, exact-findings editorial review and preserves its scope', async () => {
-    const artifact = draft({ checkPriorityCoverage: true });
+  test('an unsupported coverage assertion requires exact-copy, exact-findings editorial review and preserves its scope', async () => {
+    const artifact = draft({ checkPriorityCoverage: true, bindPriorityCoverage: true, coverageIndex: 99 });
     expect(artifact.manifest.priorityCoverage.items).toHaveLength(1);
     const held = await post(artifact, requestFor(artifact));
     expect(held.status).toBe(422);
     const state = await held.json();
     expect(state.publicationDecision.blockers).toEqual([]);
     const issueCodes = [...new Set(state.publicationDecision.reviewIssues.map(issue => issue.code))].sort();
-    expect(issueCodes).toContain('PRIORITY_COVERAGE_MISSING');
+    expect(issueCodes).toContain('PRIORITY_COVERAGE_UNSUPPORTED');
     const editorialReview = { reviewer: 'Fixture editor', reason: 'Reviewed the priority source and the scoped omission against the captured evidence.',
       contentSha256: artifact.revisions.at(-1).sha256, issueCodes };
     expect((await post(artifact, requestFor(artifact, { securityControlReview: editorialReview }))).status).toBe(422);
@@ -155,7 +156,17 @@ describe('explicit repair publication', () => {
     expect(receipt.repairedDraft.operatorReview).toMatchObject({ scope: 'briefing-editorial', issueCodes,
       contentSha256: artifact.revisions.at(-1).sha256, inputSha256: artifact.manifestSha256 });
     expect(receipt.priorityCoverage).toEqual(artifact.manifest.priorityCoverage);
-    expect(receipt.publicationValidation.issues.some(issue => issue.code === 'PRIORITY_COVERAGE_MISSING')).toBe(true);
+    expect(receipt.publicationValidation.issues.some(issue => issue.code === 'PRIORITY_COVERAGE_UNSUPPORTED')).toBe(true);
+    expect(getClient).not.toHaveBeenCalled(); expect(getFreshRun).not.toHaveBeenCalled();
+  });
+  test('visible supported coverage can publish without hidden bookkeeping or editorial approval', async () => {
+    const artifact = draft({ checkPriorityCoverage: true, partial: false });
+    const response = await post(artifact, requestFor(artifact));
+    expect(response.status).toBe(200);
+    const published = await response.json();
+    const receipt = readGenerationManifest(dir, published.filename);
+    expect(receipt.repairedDraft.operatorReview).toBeFalsy();
+    expect(receipt.publicationValidation.priorityCoverage.items.some(item => item.outcome === 'covered')).toBe(true);
     expect(getClient).not.toHaveBeenCalled(); expect(getFreshRun).not.toHaveBeenCalled();
   });
   test('cached accounting recovery discovers a new commit and still rechecks the archive content', async () => {
@@ -184,7 +195,8 @@ describe('explicit repair publication', () => {
       publicationValidation: { partial: false, sourceCheckStatus: 'checked-supported-forms' },
       providerAttempts: artifact.manifest.providerAttempts, costEstimate: artifact.manifest.costEstimate });
     expect(receipt.grounding).toEqual(artifact.manifest.grounding);
-    expect(readFileSync(join(dir, result.filename), 'utf8')).toBe(content);
+    expect(readFileSync(join(dir, result.filename), 'utf8')).toBe(repairBriefFormatting(
+      assembleBrief(content, validationSourceFromManifest(artifact.manifest)).content));
     expect(await (await post(artifact, payload)).json()).toMatchObject({ published: true, filename: result.filename, replayed: true });
     expect(archives()).toEqual([result.filename]);
     expect(webhook).toHaveBeenCalledTimes(1);

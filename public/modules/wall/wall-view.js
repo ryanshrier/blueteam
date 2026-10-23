@@ -1531,7 +1531,7 @@ export function judgmentHtml(s, briefDate = '') {
         ${s.assessment ? `<p class="nb-jbody"><span class="nb-clamp nb-clamp-4">${escapeHtml(s.assessment)}</span></p>` : ''}
         ${certainty.basis ? `<p class="nb-jbody nb-certainty-basis"><strong>${certainty.label} basis:</strong> ${escapeHtml(certainty.basis)}</p>` : ''}
         ${s.forecast ? `<p class="nb-jbody"><strong>Forecast:</strong> ${escapeHtml(s.forecast)}</p>` : ''}
-        ${[['What happened', s.whatHappened], ['Defender impact', s.defenderImpact], ['Relevance', s.relevance]].some(([, text]) => text) ? `<details class="nb-authored-context"><summary>Supporting context</summary>${[['What happened', s.whatHappened], ['Defender impact', s.defenderImpact], ['Relevance', s.relevance]].filter(([, text]) => text).map(([label, text]) => `<p class="nb-jbody"><strong>${label}:</strong> ${escapeHtml(text)}</p>`).join('')}</details>` : ''}
+        ${[['What happened', s.whatHappened], ['Federal remediation', s.federalRemediation], ['Defender impact', s.defenderImpact], ['Relevance', s.relevance]].some(([, text]) => text) ? `<details class="nb-authored-context"><summary>Supporting context</summary>${[['What happened', s.whatHappened], ['Federal remediation', s.federalRemediation], ['Defender impact', s.defenderImpact], ['Relevance', s.relevance]].filter(([, text]) => text).map(([label, text]) => `<p class="nb-jbody"><strong>${label}:</strong> ${escapeHtml(text)}</p>`).join('')}</details>` : ''}
         ${evidence}
       </div>`
     : '';

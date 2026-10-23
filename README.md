@@ -19,7 +19,7 @@ Wall and Wire work without API keys. Briefing generation may incur provider char
 Recommended: Node.js 24 with npm. See the full supported ranges in [Operations](docs/operations.md#runtime-support) and [Development](docs/development.md).
 
 ```bash
-git clone --branch v1.4.1 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.2 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -54,6 +54,8 @@ Enter your key after `=`. Environment keys override saved keys for the same prov
 
 Open **Briefing → Generate briefing** beside the reader controls. Generation waits for enough fresh source evidence and reports progress from collection through publication across open Briefing tabs. Wire searches, filters, and hidden items do not change its input selection.
 
+New briefings use captured source IDs to build citation labels and links, derive executive decisions from the judgment actions, and render federal remediation dates from captured catalog facts. All three providers share this processing; existing Markdown citations remain supported. Unknown sources, unsupported facts and contradictory federal dates still require correction.
+
 Automatic generation is off by default. Enable it separately in Settings and choose a time, timezone, and retry policy. Manual and scheduled runs use the selected provider and the same validation and storage pipeline. Retries can add cost; application limits are not a provider spending cap.
 
 ## Using the views
@@ -74,7 +76,7 @@ The Print Edition renders the same saved assessment locally without another mode
 |---|---|
 | ![Briefing Overview](docs/assets/screenshot-briefing-reader.jpg) | ![Print Edition](docs/assets/screenshot-print-edition.jpg) |
 
-Read the [fictional sample](https://blueteam.news/sample-briefing.html), [Markdown](docs/sample-briefing.md), [input receipt](docs/sample-briefing.manifest.json), or [PDF](docs/sample-briefing.pdf). The Overview screenshot was refreshed October 9, 2026; the other embedded screenshots were captured September 6, 2026. They show collected reporting and the reviewed September 6 edition 2, not a current assessment.
+Read the [fictional sample](https://blueteam.news/sample-briefing.html), [Markdown](docs/sample-briefing.md), [input receipt](docs/sample-briefing.manifest.json), or [PDF](docs/sample-briefing.pdf). The site hero, Overview, Full report and Print Edition show that fictional sample, captured October 22, 2026. Wire and source-evidence screenshots show public reporting captured September 6, 2026; the Wall shows the saved September 6 edition 2, captured that day. These captures illustrate the interface, not a current security assessment.
 
 See [Evidence and relevance](docs/evidence-and-relevance.md) for retention rules, review states, and limitations. Shared situation tracking and handoff acknowledgment remain [proposed work](docs/decision-desk-roadmap.md).
 
@@ -84,7 +86,7 @@ The server binds to `127.0.0.1` by default. Remote interactive access requires a
 
 Local state lives in `data/watchfloor.db`, saved assessments and input receipts in `briefs/`, editorial corrections and publication decisions in `reviews/`, and operator settings in the gitignored `data/settings.local.json`. Back up these together. Saved API keys are masked in responses but stored in plaintext. Protect the host account and backups.
 
-Upgrading from v1.3.2 to v1.4.0 migrates SQLite from schema 9 to 11 and initializes a saved-edition receipt inventory. Follow the [upgrade notes](docs/operations.md#from-v132-to-v140) before the first start, including the stopped-process backup and optional browser-decision import. Rollback requires the matching pre-upgrade state backup.
+Upgrading from v1.4.0 or v1.4.1 to v1.4.2 requires no database migration or configuration change; restart the service after upgrading. Follow the [v1.4.2 upgrade notes](docs/operations.md#from-v140-or-v141-to-v142) for retained drafts and check policies. Upgrading from v1.3.2 also migrates SQLite from schema 9 to 11 and initializes a saved-edition receipt inventory; follow the [earlier upgrade steps](docs/operations.md#from-v132-to-v140), including the stopped-process backup and optional browser-decision import. Rollback requires the matching pre-upgrade state backup.
 
 There is no product telemetry. Outbound requests go to configured feeds and enrichment sources, the selected AI provider during verification or generation, and an optional configured webhook. Generation sends selected source evidence and configured organization context. The [network boundary](docs/operations.md#network-behavior) lists the supplied data.
 

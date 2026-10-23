@@ -79,6 +79,29 @@ describe('durable generation accounting', () => {
     expect(createGenerationJobs({ ...db, sessionId: 'process-2' }).status().latest).toMatchObject({ status: 'complete', costUsd: 0.0012, attempts: [{ usageComplete: true, pricing: attempt.pricing }] });
   });
 
+  test('a generated draft survives restart without becoming a provider failure or another scheduled purchase', () => {
+    const db = storage();
+    const jobs = createGenerationJobs({ ...db, sessionId: 'first' });
+    start(jobs);
+    jobs.startAttempt('generation-1', attempt);
+    jobs.usage('generation-1', 1, { inputTokens: 100, outputTokens: 40, costUsd: 0.0006 });
+    jobs.finishAttempt('generation-1', 1, { stopReason: 'end_turn', failed: false, timedOut: false });
+    jobs.finish('generation-1', { status: 'draft-ready', code: 'E_DRAFT_REVIEW' });
+    const restarted = createGenerationJobs({ ...db, sessionId: 'second' });
+    expect(restarted.status()).toMatchObject({ active: false, latest: {
+      status: 'draft-ready', code: 'E_DRAFT_REVIEW', filename: null,
+      billing: 'provider-usage-recorded', costUsd: 0.0006,
+    } });
+    expect(() => restarted.start({ id: 'automatic-retry', editionDate: '2026-09-05',
+      scheduledJobKey: 'daily-brief:2026-09-05' })).toThrow(/draft.*already saved/i);
+    expect(() => restarted.start({ id: 'manual-retry', editionDate: '2026-09-05' })).not.toThrow();
+    const repaired = createGenerationJobs({ ...db, recoverPublished: job => job.id === 'generation-1'
+      ? { operatorRepaired: true, filename: 'brief-2026-09-05-02.md', generatedAt: '2026-09-06T12:00:00Z' } : null });
+    expect(repaired.status().jobs.find(job => job.id === 'generation-1')).toMatchObject({
+      status: 'complete', code: 'OPERATOR_REPAIRED', costUsd: 0.0006, billing: 'provider-usage-recorded',
+    });
+  });
+
   test('a failed job repaired before its ledger update recovers publication without resolving unknown billing', () => {
     const db = storage();
     const jobs = createGenerationJobs({ ...db, sessionId: 'original' });

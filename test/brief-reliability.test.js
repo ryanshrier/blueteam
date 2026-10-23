@@ -45,6 +45,14 @@ describe('one citation contract for judgment and whole-document metric checks', 
   test.each([
     '[Other publisher, September 4, 2026](https://vendor.example/advisory?id=123&utm_source=feed)',
     '[Vendor, September 3, 2026](https://vendor.example/advisory?id=123&utm_source=feed)',
+    '[Vendor](https://vendor.example/advisory?id=123&utm_source=feed)',
+  ])('retains metric evidence identified by a unique complete URL: %s', citation => {
+    const issues = check(citation);
+    expect(metricFindings(issues)).toEqual([]);
+    expect(issues.map(issue => issue.code)).toContain('CITATION_DISPLAY_MISMATCH');
+  });
+
+  test.each([
     '[Vendor, September 4, 2026](https://vendor.example/advisory?id=999)',
     '[Vendor, September 4, 2026](https://vendor.example/advisory?id=123)',
     '`[Vendor, September 4, 2026](https://vendor.example/advisory?id=123&utm_source=feed)`',

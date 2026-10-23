@@ -173,15 +173,16 @@ export async function generateBrief() {
       err.retryAfterSeconds = retryAfter;
       throw err;
     }
-    if (res.status === 503) {
-      // AI disabled (no key). Tag it so the UI can guide to Settings, not Retry.
+    if (!res.ok) {
+      // A 503 can also mean shutdown or unavailable storage. Only the explicit
+      // provider-configuration code should send the operator to AI settings.
       const body = await res.json().catch(() => ({}));
-      const err = new Error(body.error || 'AI briefing is disabled on this server.');
-      err.code = body.code || 'E002';
-      err.aiDisabled = true;
+      const err = new Error(body?.error || `Server returned ${res.status}`);
+      err.code = body?.code || `E_HTTP_${res.status}`;
+      err.status = res.status;
+      err.aiDisabled = err.code === 'E002';
       throw err;
     }
-    if (!res.ok) throw new Error(`Server returned ${res.status}`);
     return res;
   } finally { clearTimeout(timer); }
 }

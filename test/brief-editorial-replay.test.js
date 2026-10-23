@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { applyBriefReview, savedBriefReview } from '../lib/brief-review.js';
 import { canonicalizeExecutiveActions, canonicalActions, compareEditionInputs, editorialIssues } from '../lib/brief-editorial.js';
+import { renderBriefCitations } from '../lib/brief-citations.js';
 import { selectSourcePassage } from '../lib/evidence-quality.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { validateBrief, hasTrustCriticalFailure } from '../lib/validation.js';
@@ -179,6 +180,36 @@ test('an unrelated independently sourced record cannot justify this judgment\'s 
   const entry = '**Confidence:** High — independent reporting confirms the event.\n**What happened:** [Publisher, 2026-09-05](https://example.test/report)';
   const records = [{ url: 'https://example.test/report', passage: 'Vendor statement repeated.' }, { url: 'https://example.test/other', passage: 'Independent observations of another event.', independence: { verified: true } }];
   expect(editorialIssues('', [entry], { records }).map(issue => issue.code)).toContain('INDEPENDENCE_UNESTABLISHED');
+});
+
+describe('editorial evidence uses exact rendered citation destinations', () => {
+  const entry = citation => `**Confidence:** High — independent reporting confirms the event.
+**Assessment:** Researchers observed exploitation at scale.
+**What happened:** Researchers documented the activity. ${citation}`;
+  const evidence = url => ({ id: 'S1.1', label: 'Publisher', date: '2026-09-05', url,
+    passage: 'Independent researchers observed exploitation at scale.', independence: { verified: true } });
+  const relevant = (text, records) => editorialIssues('', [entry(text)], { records }).filter(issue => ['INDEPENDENCE_UNESTABLISHED', 'FACT_SCALE_UNSUPPORTED'].includes(issue.code));
+
+  test.each([
+    'https://example.test/report?x=1&y=2',
+    'https://example.test/report(confirmed)?x=1&y=2',
+    'https://example.test/report?literal=&amp;&y=2',
+  ])('keeps app-rendered citations bound to their captured source: %s', url => {
+    const record = evidence(url);
+    const rendered = renderBriefCitations('[S1.1]', { members: [record] }).content;
+    expect(relevant(rendered, [record])).toEqual([]);
+  });
+
+  test.each([
+    ['https://example.test/report-more', 'https://example.test/report'],
+    ['https://example.test/report?x=1&y=20', 'https://example.test/report?x=1&y=2'],
+    ['https://example.test/report#other', 'https://example.test/report#observed'],
+    ['https://example.test/report?literal=&amp;', 'https://example.test/report?literal=&'],
+  ])('does not borrow evidence through a prefix or altered destination: %s', (citedUrl, recordUrl) => {
+    const record = evidence(recordUrl);
+    const rendered = renderBriefCitations('[S1.1]', { members: [evidence(citedUrl)] }).content;
+    expect(relevant(rendered, [record]).map(issue => issue.code)).toEqual(['INDEPENDENCE_UNESTABLISHED', 'FACT_SCALE_UNSUPPORTED']);
+  });
 });
 
 describe('source independence claim polarity', () => {

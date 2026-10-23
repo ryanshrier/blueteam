@@ -22,4 +22,5 @@ test.each([
   expect(result.content).toBe('# Report');
   expect(result.metadata).toBeNull();
   expect(result.issues.map(issue => issue.code)).toEqual(['BRIEF_METADATA_INVALID']);
+  expect(result.issues[0]).toMatchObject({ severity: 'note', message: expect.stringContaining('no hidden record is needed') });
 });

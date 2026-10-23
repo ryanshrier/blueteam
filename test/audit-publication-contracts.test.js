@@ -109,9 +109,10 @@ describe('authored content and publication coverage', () => {
     expect(codes(audit(`${a}: CVSS 5.0.`, [source(`${a}: CVSS 5.0. An update is available.`)], '\n## CONVERGENCE\nA common cause links every attack.'))).toContain('CONVERGENCE_FORMAT_INVALID');
     expect(codes(audit(`${a}: CVSS 5.0.`, [source(`${a}: CVSS 5.0. An update is available.`)], '\n## CONVERGENCE\nNo supported intersection was found in the retained source evidence.'))).not.toContain('CONVERGENCE_FORMAT_INVALID');
   });
-  test.each(['WATCHLIST', 'DEVELOPING SITUATIONS', 'CONVERGENCE'])('%s citations retain exact publisher and date', section => {
+  test.each(['WATCHLIST', 'DEVELOPING SITUATIONS', 'CONVERGENCE'])('%s citation display errors retain uniquely identified source evidence', section => {
     const result = audit(`${a}: CVSS 5.0.`, [source(`${a}: CVSS 5.0. An update is available.`)], `\n## ${section}\n- Review [Wrong publisher, 2020-01-01](https://vendor.example/advisory).`);
-    expect(codes(result)).toContain('CITATION_IDENTITY_INVALID');
+    expect(codes(result)).toContain('CITATION_DISPLAY_MISMATCH');
+    expect(codes(result)).not.toContain('CITATION_IDENTITY_INVALID');
   });
   test('mixed title-only citations and cosmetic warnings stay advisory', () => {
     const item = BRIEF_EVALUATION_CASES[0];

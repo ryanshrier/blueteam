@@ -33,7 +33,8 @@ The pair has CVSS v3.1 9.8. ${citation}
     expect(issue.message).toContain('Signal 2');
     expect(issue.message).toContain('captured evidence');
     expect(issue.message).toContain('or omit the score');
-    expect(publicationDecision(result).blockers).toContainEqual(issue);
+    expect(publicationDecision(result).notes).toContainEqual(issue);
+    expect(publicationDecision(result).blockers).not.toContainEqual(issue);
   });
 
   test('long lines retain the offending metric in the bounded repair excerpt', () => {

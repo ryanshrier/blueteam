@@ -52,17 +52,18 @@ describe('retained CISA metric tables at the publication boundary', () => {
     },
   );
 
-  test('a current real table still requires its exact supplied citation', () => {
+  test('a current real table requires an identified citation, while display dates remain advisory', () => {
     expect(codes(audit('CVE-2026-75925 CVSS 9.6.', [ixon], '')))
       .toEqual(expect.arrayContaining(['CVE_CVSS_MISMATCH', 'CVSS_UNSUPPORTED']));
-    expect(codes(audit('CVE-2026-75925 CVSS 9.6.', [ixon], citation.replace('September 3', 'September 4'))))
-      .toEqual(expect.arrayContaining(['CITATION_IDENTITY_INVALID', 'CVSS_UNSUPPORTED']));
+    const displayError = audit('CVE-2026-75925 CVSS 9.6.', [ixon], citation.replace('September 3', 'September 4'));
+    expect(codes(displayError)).toContain('CITATION_DISPLAY_MISMATCH');
+    expect(hasTrustCriticalFailure(displayError.issues)).toBe(false);
   });
 
-  test('metric rows cannot be distributed among multiple CVEs in one source', () => {
+  test('metric rows with multiple possible CVEs keep an unverified association note', () => {
     const source = { ...ixon, description: `${ixon.description} Also references CVE-2026-99999.` };
-    expect(codes(audit('CVE-2026-75925 CVSS 9.6.', [source]))).toContain('CVE_CVSS_MISMATCH');
-    expect(codes(audit('CVE-2026-99999 CVSS 9.4.', [source]))).toContain('CVE_CVSS_MISMATCH');
+    expect(codes(audit('CVE-2026-75925 CVSS 9.6.', [source]))).toContain('CVE_CVSS_UNVERIFIED');
+    expect(codes(audit('CVE-2026-99999 CVSS 9.4.', [source]))).toContain('CVE_CVSS_UNVERIFIED');
   });
 
   test('a different cited CVE cannot borrow IXON table scores', () => {

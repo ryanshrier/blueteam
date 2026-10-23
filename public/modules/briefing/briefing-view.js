@@ -18,6 +18,7 @@ import { fetchInputReceipt, enrichCitationTitles, openInputReceipt } from './bri
 import { attachEditorialReview, attachReaderLimits, openOriginalEdition, readerPresentation, editionNotice, editionNoticeHtml } from './brief-review.js';
 import { formatEditionIdentity } from '../core/brief-date.js';
 import { openDraftReview, draftPublicationLabel } from './brief-drafts.js';
+import { draftOutcomePresentation } from './draft-outcome.js';
 
 let initialized = false;
 let contentRenderToken = 0;
@@ -122,6 +123,10 @@ function leaveDocument(content) {
     const el = document.getElementById(id);
     if (el) el.textContent = '';
   }
+  for (const id of ['briefPublicationState', 'briefReviewState']) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  }
   reflectDocumentActions();
 }
 
@@ -177,7 +182,23 @@ export function generationFailureModel(payload) {
     accumulatedText: structured ? (payload.accumulatedText || '') : '',
     recoverableDraft: draft.trim() ? draft : '',
     draftArtifact: structured && payload.draftArtifact?.id ? payload.draftArtifact : null,
+    outcome: structured && typeof payload.outcome === 'string' ? payload.outcome : '',
+    validation: structured ? payload.validation || null : null,
+    publicationDecision: structured ? payload.publicationDecision || null : null,
   };
+}
+
+function generationFindingsHtml(failure) {
+  const decision = failure.publicationDecision;
+  const groups = decision ? [
+    { label: 'Required fix', items: decision.blockers },
+    { label: 'Review requested', items: decision.reviewIssues },
+    { label: 'Optional note', items: decision.notes },
+  ] : [{ label: '', items: failure.validation?.issues }];
+  const findings = groups.flatMap(({ label, items }) => (Array.isArray(items) ? items : [])
+    .filter(issue => typeof issue?.message === 'string' && issue.message.trim())
+    .map(issue => `<li>${label ? `<strong>${label}:</strong> ` : ''}${escapeHtml(issue.message)}</li>`));
+  return findings.length ? `<details class="brief-review-summary" open><summary>Draft findings · ${findings.length}</summary><ul>${findings.join('')}</ul></details>` : '';
 }
 
 /** Keep local collection/request failures distinct from provider failures. */
@@ -189,7 +210,7 @@ export function generationErrorMessage({ message, code }) {
   }
   // Structured publication and local request-limit messages already identify
   // their cause. Generic rate/network heuristics would erase that distinction.
-  if (code === 'E006' || code === 'E_API_RATE' || code === 'E_PARTIAL_GENERATION' || code === 'E_VALIDATION' || /^E_PROVIDER/.test(code || '') || [
+  if (code === 'E006' || code === 'E_DRAFT_REVIEW' || code === 'E_API_RATE' || code === 'E_PARTIAL_GENERATION' || code === 'E_VALIDATION' || /^E_PROVIDER/.test(code || '') || [
     'E_GENERATION_ACTIVE', 'E_GENERATION_COOLDOWN',
     'E_GENERATION_RATE', 'E_GENERATION_DAILY_LIMIT',
   ].includes(code)) return message || 'The Briefing request could not proceed.';
@@ -593,22 +614,21 @@ function setupStoreListeners() {
     setMeta(`${formatBriefPublication(getState().currentBrief)}${partial ? ' · partial (generation timed out)' : ''} · ${readingTime(text)} ${prov}`);
   });
 
-  on('generation-error', (payload) => {
-    // A failure must surface even when the operator has navigated away from
-    // the Briefing view; silently swallowing it left them discovering the failure
-    // (or worse, a stale/empty state with no explanation) only when they returned.
-    // Payload is a string for transient errors, or a structured failure. The
+  const showGenerationOutcome = payload => {
+    // Retained work and failures must surface even after navigation. The
+    // payload is a string for transient errors or a structured outcome. The
     // recoverable draft, when present, is the server-selected final attempt —
     // never substitute the SSE accumulator, which may contain multiple retries.
     const failure = generationFailureModel(payload);
     const {
       aiDisabled, streamLost, accumulatedText, recoverableDraft,
     } = failure;
+    const draftPresentation = draftOutcomePresentation(failure);
     const msg = generationErrorMessage(failure);
-    announce(aiDisabled ? 'AI Briefing is off'
+    announce(aiDisabled ? 'AI Briefing is unavailable'
       : streamLost ? 'Connection lost — generation may still complete on the server'
       : failure.code === 'E_EVIDENCE' ? 'Briefing did not start'
-      : 'Draft not published');
+      : draftPresentation.label);
 
     // The durable job status owns recovery. Never infer success from an
     // unrelated archive entry or start another paid request automatically.
@@ -617,17 +637,7 @@ function setupStoreListeners() {
       // Off-view: no DOM to paint an inline error into — a toast is the only signal
       // the operator gets until they return to the Briefing.
       generationStatus?.refresh();
-      showToast(aiDisabled ? 'AI Briefing is off — add a key in Settings.' : msg, 'error');
-      return;
-    }
-    if (failure.draftArtifact && !streamLost && getState().currentBrief?.filename && eligibleEdition(getState().currentBrief)) {
-      // The failed new attempt must not displace the last published reading copy.
-      // Its durable recovery notice remains beside that copy after navigation.
-      showingGeneration = false;
-      recoveryGenerationId = null;
-      generationStatus?.refresh();
-      showToast('New draft saved · review it to publish. The current briefing is unchanged.');
-      navigate('/briefing?latest=1');
+      showToast(aiDisabled ? 'AI Briefing is unavailable — check provider status in Settings.' : msg, draftPresentation.neutral ? 'info' : 'error');
       return;
     }
     leaveDocument(content);
@@ -661,22 +671,22 @@ function setupStoreListeners() {
       });
       return;
     }
-    if (recoverableDraft) {
-      // This draft failed the server's all-or-nothing publication gate. Render
-      // it through the no-live-links draft sanitizer, label it unmistakably,
-      // and keep it out of currentBrief/export/history state.
+    if (recoverableDraft || failure.draftArtifact) {
+      // A retained draft is a separate outcome from publication. Keep it out
+      // of currentBrief/export/history while exposing the next useful action.
       content.innerHTML = `
-        <div class="error-message recoverable-draft-notice" role="alert">
-          <strong>Draft not published</strong>
+        <div class="${draftPresentation.neutral ? 'brief-review-summary' : 'error-message'} recoverable-draft-notice" role="${draftPresentation.neutral ? 'status' : 'alert'}">
+          <strong>${escapeHtml(draftPresentation.label)}</strong>
           <p>${escapeHtml(msg)}</p>
-          <p class="recoverable-draft-caution">Unvalidated draft · review only. No edition was published.</p>
+          <p class="recoverable-draft-caution">${escapeHtml(draftPresentation.description)}</p>
           ${failure.draftArtifact ? '<button class="btn-primary" id="reviewDraft">Review saved draft</button>' : ''}
-          <button class="btn-ghost" id="retryGen">Generate again</button>
+          ${draftPresentation.canRegenerate ? '<button class="btn-ghost" id="retryGen">Generate again</button>' : ''}
         </div>
-        <section class="recoverable-draft" aria-label="Unpublished briefing draft">
-          <p class="recoverable-draft-label brief-draft-label">Unpublished draft · review only</p>
+        ${generationFindingsHtml(failure)}
+        ${recoverableDraft ? `<section class="recoverable-draft" aria-label="Unpublished briefing draft">
+          <p class="recoverable-draft-label brief-draft-label">Unpublished draft</p>
           ${renderDraftMarkdown(recoverableDraft)}
-        </section>
+        </section>` : ''}
       `;
       document.getElementById('retryGen')?.addEventListener('click', requestBriefGeneration);
       document.getElementById('reviewDraft')?.addEventListener('click', event => {
@@ -691,7 +701,9 @@ function setupStoreListeners() {
       </div>
     `;
     document.getElementById('retryGen')?.addEventListener('click', requestBriefGeneration);
-  });
+  };
+  on('generation-error', showGenerationOutcome);
+  on('generation-draft', showGenerationOutcome);
 }
 
 async function handleRoute(data = resolveLocation(window.location.pathname).data) {
@@ -830,8 +842,8 @@ async function handleRoute(data = resolveLocation(window.location.pathname).data
   document.getElementById('emptyGenerate')?.addEventListener('click', requestBriefGeneration);
 }
 
-// No-key guided setup: a Generate that 503s is a dead end. Send the operator to
-// Settings to add a key instead of offering a Retry that re-fails.
+// Explicitly unavailable AI setup needs provider diagnostics. Custom providers
+// are configured on the server and may not use the built-in API key fields.
 function renderAiOffState(content) {
   aiEnabled = false;
   aiKnown = true;
@@ -839,9 +851,9 @@ function renderAiOffState(content) {
   content.innerHTML = `
     <div class="empty-state">
       <p class="empty-kicker">Daily Threat Landscape</p>
-      <h2>AI Briefing is off</h2>
-      <p>Choose Anthropic or OpenAI (Codex) and add its API key in Settings to generate briefings. The Wire and the Wall keep running without one.</p>
-      <button class="btn-primary" id="aiOffSettings">Add a key in Settings →</button>
+      <h2>AI Briefing is unavailable</h2>
+      <p>Check the selected provider’s status in Settings. Anthropic and OpenAI use an API key; Custom providers use a server module and its configured credentials. The Wire and the Wall keep running.</p>
+      <button class="btn-primary" id="aiOffSettings">Check provider in Settings →</button>
     </div>
   `;
   document.getElementById('aiOffSettings')?.addEventListener('click', () => navigate('/settings'));
@@ -1457,7 +1469,11 @@ function handleExport(event) {
 function setMeta(text) {
   const el = document.getElementById('briefMeta');
   const host = document.getElementById('briefInputManifest');
-  const brief = getState().currentBrief;
+  const selected = getState().currentBrief;
+  const content = document.getElementById('briefContent');
+  // The selected published edition survives generation in store. Only the
+  // document actually rendered here may supply its masthead and receipt tools.
+  const brief = selected?.content && content?._validatedBriefContent === selected.content ? selected : null;
   if (el) el.textContent = brief?.content
     ? `${brief.filename === latestFilename ? 'Current published briefing' : latestFilename ? 'Archived briefing' : 'Saved briefing'} · ${formatEditionIdentity(brief.filename)}`
     : text;

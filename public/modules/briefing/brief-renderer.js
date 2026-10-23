@@ -94,7 +94,7 @@ export function scopedApprovalText(presentation) {
 
 /** Plain-text handoff from a saved judgment. Keep the authored action intact:
  * its owner and target may be embedded in prose and must not be guessed. */
-export function decisionCopyText({ title = '', action = '', recommendations = [], decisionWindow = '', certainty = '', sources = [], editionUrl = '', editionLabel = '', disposition, review, presentation, signal, sourceContent = '' } = {}) {
+export function decisionCopyText({ title = '', action = '', recommendations = [], decisionWindow = '', federalRemediation = '', certainty = '', sources = [], editionUrl = '', editionLabel = '', disposition, review, presentation, signal, sourceContent = '' } = {}) {
   const actions = recommendations.filter(value => typeof value === 'string' && value.trim());
   if ((!String(action).trim() && !actions.length) || !/^https?:\/\//i.test(editionUrl)) return '';
   const lines = [title ? `Decision — ${title}` : 'Decision', ''];
@@ -118,6 +118,7 @@ export function decisionCopyText({ title = '', action = '', recommendations = []
   if (action) lines.push(`Act now: ${action}`);
   if (actions.length) lines.push('Recommended actions:', ...actions.map(value => `- ${value}`));
   if (decisionWindow) lines.push(`Decision window: ${decisionWindow}`);
+  if (federalRemediation) lines.push(`Federal remediation: ${federalRemediation}`);
   if (certainty) lines.push(certainty);
   const seen = new Set();
   const cited = sources.filter(source => {
@@ -146,6 +147,19 @@ export function authoredText(element) {
 }
 
 export function decisionCardContent(card) {
+  // This field may contain a list of per-CVE dates. Keep its whole value in a
+  // copied decision, separately labelled from the organization's action target.
+  const federal = [];
+  let inFederal = false;
+  for (const element of card.children || []) {
+    const text = authoredText(element);
+    if (/^Federal remediation:/i.test(text)) inFederal = true;
+    else if (inFederal && (element.dataset?.briefField
+      || /\b(?:c-action|brief-recommended-actions|brief-judgment-meta|brief-certainty|assessment-meta|brief-judgment-tools)\b/.test(element.className || '')
+      || /^H[1-6]$/.test(element.tagName)
+      || (element.tagName === 'P' && /^[A-Z][\w /-]+:/.test(text)))) inFederal = false;
+    if (inFederal) federal.push(text.replace(/^Federal remediation:\s*/i, ''));
+  }
   return {
     title: authoredText(card.querySelector('h3')),
     action: authoredText(card.querySelector('.c-action-text')),
@@ -155,6 +169,7 @@ export function decisionCardContent(card) {
         : [authoredText(element).replace(/^Recommended actions:?\s*/i, '')]
     ).filter(Boolean),
     decisionWindow: card.querySelector('.bjm-window')?.dataset.decisionWindow || '',
+    federalRemediation: federal.join(' '),
     certainty: authoredText(card.querySelector('.brief-certainty')),
     sources: [...card.querySelectorAll('.brief-cite-link')].map(link => ({
       href: link.dataset.sourceUrl || link.getAttribute('href') || '', label: link.dataset.sourceLabel || '',
@@ -212,7 +227,7 @@ function attachAssessmentMetadata(card) {
 // the old export-only splitter knew about judgments but left Developing and
 // Convergence packed into visually dense, pagination-hostile paragraphs.
 const BRIEF_FIELD_LABELS = new Set([
-  'assessment', 'confidence', 'forecast', 'what happened', 'defender impact', 'impact',
+  'assessment', 'confidence', 'forecast', 'what happened', 'federal remediation', 'defender impact', 'impact',
   'relevance', 'recommended actions', 'decision window', 'the line',
   'revises if', 'increases if', 'decreases if', 'act now',
   'trajectory', 'watch criteria', 'the intersection', 'the cascade', 'the move', 'confirmation', 'action rationale',

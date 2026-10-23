@@ -1,5 +1,6 @@
 import { escapeHtml } from '../core/sanitize.js';
 import { formatEventTime } from '../core/brief-date.js';
+import { draftOutcomePresentation } from './draft-outcome.js';
 
 // Read only the bounded server accounting record. Never recover a draft or start
 // provider work from a navigation, status refresh, or interrupted browser stream.
@@ -24,6 +25,8 @@ export function generationStatusModel(data, generationId = '') {
   const jobs = (data.jobs || [data.latest]).filter(Boolean);
   const activeJob = jobs.find(item => item.status === 'running');
   const job = generationId ? jobs.find(item => item?.id === generationId) : activeJob || data.latest;
+  const draftPresentation = pendingDraft ? draftOutcomePresentation({ draftArtifact: pendingDraft,
+    ...(job?.id === pendingDraft.id ? { code: job.code, outcome: job.outcome } : {}) }) : null;
   // Older servers can report the active lock before its durable job is visible.
   // Do not present the previous completion as the currently running attempt.
   if (!generationId && data.active === true && job?.status !== 'running') return {
@@ -40,6 +43,8 @@ export function generationStatusModel(data, generationId = '') {
   const messages = {
     running: phases[job.phase] || 'Generation is running. The archive updates after publication.',
     complete: `${attempt} published an edition.`,
+    'draft-ready': `${draftOutcomePresentation({ code: job.code, outcome: job.outcome,
+      draftArtifact: job.id === pendingDraft?.id ? pendingDraft : null }).label}. No edition was published.`,
     failed: job.code === 'E006'
       ? `${attempt} failed publication checks. No edition was published.`
       : `${attempt} did not publish an edition.`,
@@ -58,8 +63,11 @@ export function generationStatusModel(data, generationId = '') {
       : cost ? `Estimated API cost ${cost}.` : 'Estimated API cost unavailable.';
   const stamp = job.completedAt || job.startedAt;
   const date = formatEventTime(stamp);
+  const kind = job.status === 'failed' && job.id === pendingDraft?.id && draftPresentation?.neutral
+    ? 'draft-ready' : job.status;
   return {
-    kind: job.status, active: data.active === true || Boolean(activeJob), phase: phases[job.phase] ? job.phase : '', jobId: job.id || '', targeted: Boolean(generationId), message: messages[job.status], billing, date, pendingDraft,
+    kind, active: data.active === true || Boolean(activeJob), phase: phases[job.phase] ? job.phase : '', jobId: job.id || '', targeted: Boolean(generationId),
+    message: kind === 'draft-ready' && draftPresentation?.neutral ? `${draftPresentation.label}. No edition was published.` : messages[job.status], billing, date, pendingDraft, draftPresentation,
     edition: /^\d{4}-\d{2}-\d{2}$/.test(job.editionDate || '') ? job.editionDate : '',
     code: typeof job.code === 'string' ? job.code.slice(0, 128) : '',
     filename: job.status === 'complete' && typeof job.filename === 'string' ? job.filename : '',
@@ -70,7 +78,11 @@ export function generationStatusModel(data, generationId = '') {
 function statusHtml(model) {
   if (!model) return '';
   const details = [model.edition ? `Requested edition ${model.edition}` : '', model.date, model.code ? `Status ${model.code}` : ''].filter(Boolean);
-  if (model.pendingDraft && model.kind !== 'running') return `<div class="brief-attempt-summary"><strong>New draft awaiting review${model.pendingDraft.editionDate ? ` · ${escapeHtml(model.pendingDraft.editionDate)}` : ''}</strong><p>Your saved work is unpublished. Latest and Wall continue using the current published briefing.</p></div><div class="brief-attempt-actions"><button type="button" class="btn-primary" data-review-draft="${escapeHtml(model.pendingDraft.id)}">Review draft</button><details><summary>Generation details</summary><p>${escapeHtml(model.message || '')}</p>${model.billing ? `<p>${escapeHtml(model.billing)}</p>` : ''}<p>${details.map(escapeHtml).join(' · ')}</p>${model.kind === 'unavailable' ? '<button type="button" class="btn-ghost-sm" data-refresh-generation>Retry status check</button>' : ''}</details></div>`;
+  if (model.pendingDraft && model.kind !== 'running') {
+    const draft = model.draftPresentation || draftOutcomePresentation({ draftArtifact: model.pendingDraft });
+    const label = draft.kind ? draft.label : 'Saved draft · unpublished';
+    return `<div class="brief-attempt-summary"><strong>${escapeHtml(label)}${model.pendingDraft.editionDate ? ` · ${escapeHtml(model.pendingDraft.editionDate)}` : ''}</strong><p>${escapeHtml(draft.description)} Latest and Wall continue using the current published briefing.</p></div><div class="brief-attempt-actions"><button type="button" class="btn-primary" data-review-draft="${escapeHtml(model.pendingDraft.id)}">Review draft</button><details><summary>Generation details</summary><p>${escapeHtml(model.message || '')}</p>${model.billing ? `<p>${escapeHtml(model.billing)}</p>` : ''}<p>${details.map(escapeHtml).join(' · ')}</p>${model.kind === 'unavailable' ? '<button type="button" class="btn-ghost-sm" data-refresh-generation>Retry status check</button>' : ''}</details></div>`;
+  }
   const body = `<div class="brief-attempt-summary"><strong>${model.targeted ? 'Interrupted generation attempt' : 'Latest generation attempt'}</strong><p>${escapeHtml(model.message)}</p>
     ${model.billing ? `<p class="brief-attempt-billing">${escapeHtml(model.billing)}</p>` : ''}</div>
     <div class="brief-attempt-actions">

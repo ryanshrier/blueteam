@@ -5,7 +5,7 @@ import {
   buildGroundingManifest, citationUrlKey, safeSourceUrl, sourceUrlKey,
   isAllowedSourceUrl, findUnallowlistedMarkdownUrls, delinkUnallowlistedMarkdownUrls,
 } from '../lib/grounding.js';
-import { validateBrief, hasTrustCriticalFailure } from '../lib/validation.js';
+import { validateBrief, hasTrustCriticalFailure, normalizeBriefCitations, publicationDecision } from '../lib/validation.js';
 import { BRIEF_EVALUATION_CASES, referenceBrief, EVAL_DATE } from './fixtures/brief-evaluation.js';
 
 const original = 'https://example.test/article?id=123&lang=en';
@@ -129,6 +129,98 @@ describe('publication citation regression', () => {
     expect(result.valid).toBe(true);
     expect(result.issues).toEqual([]);
     expect(result.judgmentEvidence[0]).toEqual({ signal: 1, sourceIds: ['S1.1'] });
+  });
+
+  test.each(['Vendor', 'Synthetic Vendor', 'Wrong publisher, 2030-01-01', 'Synthetic Vendor, 2026-09-03'])(
+    'a unique complete captured URL retains evidence despite display label %s', label => {
+      const changed = baseline.replace(`[${first.source}, September 4, 2026]`, `[${label}]`);
+      const result = validate(changed);
+      expect(result.judgmentEvidence[0]).toEqual({ signal: 1, sourceIds: ['S1.1'] });
+      expect(publicationDecision(result).canPublish).toBe(true);
+      expect(result.issues.filter(issue => issue.code === 'CITATION_DISPLAY_MISMATCH')).toHaveLength(1);
+      expect(result.issues.map(issue => issue.code)).not.toEqual(expect.arrayContaining(['CVE_CITATION_MISMATCH', 'VERSION_UNSUPPORTED']));
+      expect(result.warnings.join(' ')).not.toContain('Future source citation date');
+      const normalized = normalizeBriefCitations(changed, manifest);
+      if (label.startsWith('Wrong publisher')) {
+        expect(normalized).toBe(changed); // unfamiliar link prose is never discarded
+        return;
+      }
+      expect(normalized).toContain(`[${first.source}, 2026-09-04](${first.link})`);
+      expect(normalizeBriefCitations(normalized, manifest)).toBe(normalized);
+      expect(validate(normalized).issues).toEqual([]);
+    },
+  );
+
+  test('normalization leaves equivalent display dates, complete URL bytes and unrelated prose unchanged', () => {
+    expect(normalizeBriefCitations(baseline, manifest)).toBe(baseline);
+    const url = 'https://example.test/advisory?a=1&b=2#scope';
+    const evidence = manifestFor(url);
+    const text = `A supported claim [Vendor](https://example.test/advisory?a=1&amp;b=2#scope).\r\n`;
+    expect(normalizeBriefCitations(text, evidence)).toBe(text.replace('[Vendor]', '[Vendor, 2026-09-04]'));
+  });
+
+  test.each(['\n', '\r\n'])('normalization protects rendered code, HTML, image and escaped examples (%j)', newline => {
+    const short = `[Vendor](${first.link})`;
+    const examples = [`\`${short}\``, `\`\`\`md${newline}${short}${newline}\`\`\``, `    ${short}`,
+      `<!-- ${short} -->`, `!${short}`, `\\${short}`];
+    const text = [...examples, `Actual ${short}.`].join(newline + newline);
+    const normalized = normalizeBriefCitations(text, manifest);
+    for (const example of examples) expect(normalized).toContain(example);
+    expect(normalized).toContain(`Actual [${first.source}, 2026-09-04](${first.link}).`);
+  });
+
+  test('reference-style citations resolve safely without rewriting their shared reference definitions', () => {
+    const text = baseline.replace(citation.trim(), '[Vendor][source]') + `\n[source]: ${first.link}\n`;
+    expect(publicationDecision(validate(text)).canPublish).toBe(true);
+    expect(normalizeBriefCitations(text, manifest)).toBe(text);
+  });
+
+  test.each(['[source]', ''])('reference-style future display dates use captured chronology (%s)', suffix => {
+    const label = '[Synthetic Vendor, September 6, 2026]';
+    const definition = suffix ? 'source' : 'Synthetic Vendor, September 6, 2026';
+    const text = baseline.replace(citation.trim(), `${label}${suffix}`) + `\n[${definition}]: ${first.link}\n`;
+    const result = validate(text);
+    expect(publicationDecision(result).canPublish).toBe(true);
+    expect(result.warnings.join(' ')).not.toContain('Future source citation date');
+    expect(normalizeBriefCitations(text, manifest)).toBe(text);
+  });
+
+  test('normalization cannot erase a false metric authored inside link text', () => {
+    const claim = `[CVE-2026-12345 CVSS 10.0](${first.link})`;
+    const text = baseline.replace(citation.trim(), claim);
+    expect(normalizeBriefCitations(text, manifest)).toBe(text);
+    expect(validate(text).issues.map(issue => issue.code)).toContain('CVSS_UNSUPPORTED');
+  });
+
+  test('a shortened label cannot hide a genuinely future captured publication', () => {
+    const future = { ...first, date: '2026-09-06' };
+    const result = validateBrief(baseline.replace(citation.trim(), `[Vendor](${first.link})`), EVAL_DATE, {
+      publication: true, groundingManifest: buildGroundingManifest({ headlines: [future, ...item.headlines.slice(1)] }),
+    });
+    expect(result.warnings.join(' ')).toContain('Future source citation date');
+    expect(hasTrustCriticalFailure(result.issues)).toBe(true);
+  });
+
+  test('multiple captured identities at one URL still require unambiguous provenance', () => {
+    const secondCapture = { ...first, source: 'Another capture', date: '2026-09-03' };
+    const duplicateManifest = buildGroundingManifest({ headlines: [...item.headlines, secondCapture] });
+    const text = baseline.replace(citation.trim(), `[Vendor](${first.link})`);
+    const result = validateBrief(text, EVAL_DATE, { publication: true, groundingManifest: duplicateManifest });
+    expect(result.issues.map(issue => issue.code)).toContain('CITATION_IDENTITY_INVALID');
+    expect(result.judgmentEvidence[0].sourceIds).toEqual([]);
+    expect(normalizeBriefCitations(text, duplicateManifest)).toBe(text);
+    const exact = validateBrief(baseline, EVAL_DATE, { publication: true, groundingManifest: duplicateManifest });
+    expect(exact.judgmentEvidence[0].sourceIds).toEqual(['S1.1']);
+  });
+
+  test('unlinked fallback still requires the complete captured publisher/date and no available URL', () => {
+    const noUrl = buildGroundingManifest({ headlines: [{ ...first, link: '' }, ...item.headlines.slice(1)] });
+    for (const label of ['Vendor', `${first.source}, 2026-09-03`, 'Other, 2026-09-04']) {
+      const result = validateBrief(baseline.replace(citation.trim(), `[${label}]`), EVAL_DATE, { publication: true, groundingManifest: noUrl });
+      expect(result.issues.map(issue => issue.code)).toEqual(expect.arrayContaining([
+        label === 'Vendor' ? 'JUDGMENT_CITATION_MISSING' : 'CITATION_IDENTITY_INVALID',
+      ]));
+    }
   });
 
   test.each([

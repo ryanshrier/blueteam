@@ -46,9 +46,7 @@ describe('new publication integrity', () => {
 
   test.each([
     ['citation omitted', draft.replace(citation, ''), 'JUDGMENT_CITATION_MISSING'],
-    ['wrong publisher URL', draft.replace('](https://vendor.example/advisory)', '](https://other.example/passwords)'), 'CITATION_IDENTITY_INVALID'],
-    ['wrong publication date', draft.replace('September 4, 2026]', 'September 1, 2026]'), 'CITATION_IDENTITY_INVALID'],
-    ['source identity invented', draft.replace('[Vendor,', '[Imaginary source,'), 'CITATION_IDENTITY_INVALID'],
+    ['unrelated captured URL', draft.replace('](https://vendor.example/advisory)', '](https://other.example/passwords)'), 'CVE_CITATION_MISMATCH'],
     ['live URL removed', draft.replace(citation, '[Vendor, September 4, 2026]'), 'CITATION_IDENTITY_INVALID'],
     ['globally present unrelated CVE', draft.replace('fixed CVE-2026-12345', 'fixed CVE-2026-54321'), 'CVE_CITATION_MISMATCH'],
     ['invented score', draft.replace('CVSS 5.0.', 'CVSS 10.0.'), 'CVSS_UNSUPPORTED'],
@@ -57,6 +55,16 @@ describe('new publication integrity', () => {
     const result = audit(text);
     expect(result.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code, severity: 'trust' })]));
     expect(hasTrustCriticalFailure(result.issues)).toBe(true);
+  });
+
+  test.each([
+    draft.replace('September 4, 2026]', 'September 1, 2026]'),
+    draft.replace('[Vendor,', '[Imaginary source,'),
+  ])('keeps citation display mistakes advisory when the full URL identifies the captured source', text => {
+    const result = audit(text);
+    expect(result.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'CITATION_DISPLAY_MISMATCH', severity: 'note' })]));
+    expect(hasTrustCriticalFailure(result.issues)).toBe(false);
+    expect(result.judgmentEvidence[0].sourceIds).toEqual(['S1.1']);
   });
 
   test.each(['Assessment', 'What happened', 'Defender impact', 'Confidence', 'The line'])('blocks an empty %s field', label => {

@@ -82,14 +82,16 @@ decisions, including those whose signals are no longer in the feed.
 `routes/brief.js`:
 
 1. grounds the request in the current scored signals and a deterministic KEV facts block;
-2. streams output from the selected Anthropic or OpenAI provider to the browser over server-sent events;
-3. checks required sections, citation allowlists and dates, KEV claims, and other source constraints;
+2. streams output from the selected Anthropic, OpenAI or Custom provider to the browser over server-sent events;
+3. assembles captured source IDs into citations, derives executive decisions from judgment actions, renders captured federal deadlines, then checks required sections and factual constraints;
 4. performs one corrective retry after a blocking validation failure;
 5. blocks publication while structural or trust failures remain, or when the provider response lacks its terminal event or reports an incomplete stop, while preserving non-blocking warnings for operator review;
 6. saves the completed Briefing as Markdown under `briefs/`; and
 7. indexes it in SQLite FTS5 for search.
 
 These checks reduce structural and grounding failures; they do not establish that every generated claim follows from its source. OpenAI uses the Responses API with the selected model, including Codex models. Corrective retries stay with that provider and model. Anthropic retains its configured model and key fallbacks.
+
+`lib/brief-assembly.js` is the shared provider-independent composition step. It accepts ordinary Markdown, preserves unsupported or ambiguous material for validation, and runs before the saved content is hashed. New receipts record its composition version. Archive readers consume the persisted Markdown; they never rebuild a historical edition from today's catalog or parser output. Edited drafts from the new composition version can rebuild repeated presentation against their original captured inputs without a model call.
 
 New publication writes a bounded versioned JSON input receipt before the Markdown
 archive completion marker. The receipt embeds source member passages, selected

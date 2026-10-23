@@ -118,6 +118,7 @@ describe('Briefing generation failure state', () => {
       draftArtifact: null,
       streamLost: false,
       generationId: '',
+      outcome: '', validation: null, publicationDecision: null,
       accumulatedText: 'attempt oneattempt two',
       recoverableDraft: '# Attempt two only',
     });

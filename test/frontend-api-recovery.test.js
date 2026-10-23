@@ -53,3 +53,26 @@ test('error headers with a stalled JSON body remain bounded and preserve the HTT
   await jest.advanceTimersByTimeAsync(15_000);
   await result;
 });
+
+test.each([
+  [503, 'E_SHUTTING_DOWN', 'Server is shutting down', false],
+  [503, 'E_DRAFT_STORAGE', 'Retained drafts could not be read.', false],
+  [500, 'E_GENERATION_LEDGER', 'Generation accounting could not be saved.', false],
+  [503, 'E002', 'Configure the selected provider and check its status in Settings.', true],
+])('generation HTTP %s preserves %s without assuming missing credentials', async (status, code, message, aiDisabled) => {
+  const { generateBrief } = await import('../public/modules/core/api.js');
+  globalThis.fetch = jest.fn().mockResolvedValue({ ok: false, status, json: async () => ({ code, error: message }) });
+  await expect(generateBrief()).rejects.toMatchObject({ code, message, status, aiDisabled });
+});
+
+test.each([null, {}, 'not an error object'])('an unclassified 503 does not disable AI: %p', async body => {
+  const { generateBrief } = await import('../public/modules/core/api.js');
+  globalThis.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503, json: async () => body });
+  await expect(generateBrief()).rejects.toMatchObject({ code: 'E_HTTP_503', status: 503, aiDisabled: false, message: 'Server returned 503' });
+});
+
+test('a non-JSON 503 stays a server failure instead of an AI setup failure', async () => {
+  const { generateBrief } = await import('../public/modules/core/api.js');
+  globalThis.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503, json: async () => { throw new SyntaxError('HTML response'); } });
+  await expect(generateBrief()).rejects.toMatchObject({ code: 'E_HTTP_503', aiDisabled: false });
+});

@@ -38,7 +38,7 @@ describe('generation input receipt', () => {
     const manifest = receipt();
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.generationId).toMatch(/^[a-f0-9-]{36}$/);
-    expect(manifest.generationSettings).toMatchObject({ thinkingEffort: 'low', maxTokens: 16000 });
+    expect(manifest.generationSettings).toMatchObject({ validationPolicyVersion: 2, thinkingEffort: 'low', maxTokens: 16000 });
     expect(manifest.selectedEvidence[0].passage).toMatchObject({ kind: 'article-excerpts', text: 'The vendor confirmed affected versions. '.repeat(60).trim(), quality: { status: 'substantive', substantive: true, reasons: ['retained-body-detail'] } });
     expect(manifest.selectedEvidence[0].sourceRevisions).toEqual([]);
     expect(manifest.selectedEvidence[0].sourceParts.find(part => part.kind === 'article-excerpts')).toMatchObject({ sourceRevisions: [], retrievedAt: '', passageSha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
@@ -75,7 +75,9 @@ describe('generation input receipt', () => {
     expect(manifest.providerAttempts[0].messagesSha256).not.toBe(manifest.providerAttempts[1].messagesSha256);
     expect(JSON.stringify(manifest)).not.toContain('sk-ant-very-private');
     recordValidation(manifest, 'draft', { valid: false, warnings: ['Missing source'] });
-    expect(manifest.validation).toEqual([{ draftSha256: sha256('draft'), valid: false, warnings: ['Missing source'], issues: [], coverage: null, editorialReviewStatus: 'not-reviewed' }]);
+    expect(manifest.validation).toEqual([{ draftSha256: sha256('draft'), validationPolicyVersion: 1, valid: false, warnings: ['Missing source'], issues: [], coverage: null, editorialReviewStatus: 'not-reviewed' }]);
+    recordValidation(manifest, 'rechecked', { validationPolicyVersion: 2, valid: true, warnings: [], issues: [] });
+    expect(manifest.validation[1].validationPolicyVersion).toBe(2);
   });
 
   test('bounds inputs before generation instead of silently discarding selected evidence', () => {
