@@ -381,6 +381,53 @@ describe('POST /api/brief — happy path SSE framing', () => {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
+  test('interrupted text retains its incomplete status after reloading the draft', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'brief-interrupted-reload-'));
+    let failedCheckpoint = false;
+    setMetaMock.mockImplementation((key, value) => {
+      const attempt = JSON.parse(value).jobs.at(-1)?.attempts.at(-1);
+      if (failedCheckpoint || attempt?.usage?.inputTokens > 0) {
+        failedCheckpoint = true;
+        throw new Error('disk full');
+      }
+      generationMetadata.set(key, value);
+    });
+    const stream = jest.fn(async function* () {
+      yield { type: 'content_block_delta', delta: { text: GOOD_BRIEF } };
+      yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 100, output_tokens: 50 } };
+      yield { type: 'message_stop' };
+    });
+    try {
+      ctx = await makeServer({ getAiClient: () => ({ provider: 'fixture', stream }), historyDir: dir });
+      const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      const failure = events.find(event => event.error);
+      expect(failure).toMatchObject({ code: 'E_GENERATION_LEDGER', outcome: 'incomplete', draftArtifact: { partial: true } });
+      const drafts = await (await fetch(`${ctx.base}/api/brief/drafts`)).json();
+      expect(drafts.items).toEqual([expect.objectContaining({ id: failure.draftArtifact.id, partial: true })]);
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(saveBriefMock).not.toHaveBeenCalled();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('a completed draft survives a publication storage error without becoming a provider failure', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'brief-storage-recovery-'));
+    saveBriefMock.mockImplementation(() => { throw Object.assign(new Error('write failed'), { code: 'ENOSPC' }); });
+    const stream = jest.fn(textStream(GOOD_BRIEF));
+    try {
+      ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream), historyDir: dir });
+      const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      expect(events.some(event => event.briefComplete)).toBe(false);
+      expect(events.find(event => event.error)).toMatchObject({ code: 'ENOSPC', outcome: 'draft-ready',
+        draftArtifact: { partial: false, canPublish: true } });
+      const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+      expect(status.latest).toMatchObject({ status: 'draft-ready' });
+      const drafts = await (await fetch(`${ctx.base}/api/brief/drafts`)).json();
+      expect(drafts.items).toEqual([expect.objectContaining({ partial: false, canPublish: true })]);
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test('emits progress events then a briefComplete payload with the full brief', async () => {
     ctx = await makeServer({ getAnthropic: () => fakeAnthropic(textStream(GOOD_BRIEF)) });
     const res = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
@@ -816,6 +863,87 @@ describe('POST /api/brief — corrective retry recovery', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
+  test('a shortened label on an exact captured URL is normalized without another provider attempt', async () => {
+    const url = 'https://example.test/captured-change';
+    getFreshRunMock.mockResolvedValue({ headlines: [{ title: 'A headline', description: 'The source reports a change.',
+      horizon: 1, source: 'Feed A', date: '2026-07-01', link: url }], stats: { enriched: 1 } });
+    const text = GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', `[Feed](${url})`);
+    const stream = jest.fn(textStream(text));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(complete).toBeDefined();
+    expect(complete.text).toContain(url);
+    expect(complete.text).not.toContain(`[Feed](${url})`);
+    expect(complete.validation.trustFail).toBe(false);
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(saveBriefMock.mock.calls[0][2].manifest.judgmentEvidence[0].sourceIds).toEqual(['S1.1']);
+  });
+
+  test('malformed optional bookkeeping does not purchase a corrective generation', async () => {
+    const stream = jest.fn(textStream(`${GOOD_BRIEF}\n<!-- briefing-metadata {broken} -->`));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(complete).toBeDefined();
+    expect(complete.text).not.toContain('briefing-metadata');
+    expect(complete.validation).toMatchObject({ hardFail: false, trustFail: false });
+    expect(stream).toHaveBeenCalledTimes(1);
+  });
+
+  test('a material review is a completed draft, with no publication or paid retry', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'blueteam-review-ready-'));
+    try {
+      const text = GOOD_BRIEF.replaceAll('verify applicability', 'turn off MFA for all employees');
+      const stream = jest.fn(textStream(text));
+      ctx = await makeServer({ historyDir: directory, getAnthropic: () => fakeAnthropic(stream) });
+      const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      const saved = events.find(event => event.outcome === 'review-requested');
+      expect(saved).toMatchObject({ code: 'E_DRAFT_REVIEW', awaitingReview: true,
+        publicationDecision: { blockers: [], requiresReview: true, canPublish: false },
+        validation: { partial: false }, draftArtifact: { id: expect.any(String) } });
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(saveBriefMock).not.toHaveBeenCalled();
+      expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+      expect(events.some(event => event.briefComplete)).toBe(false);
+      const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+      expect(status).toMatchObject({ active: false, latest: { status: 'draft-ready', code: 'E_DRAFT_REVIEW',
+        attempts: [{ status: 'complete', usageComplete: true }] } });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  test('a required repair does not ask the provider to fix auxiliary bookkeeping notes', async () => {
+    const requests = [];
+    const stream = jest.fn(async params => {
+      requests.push(structuredClone(params));
+      return textStream(requests.length === 1
+        ? `${GOOD_BRIEF.replace('## BLUF', '## OVERVIEW')}\n<!-- briefing-metadata {broken} -->`
+        : GOOD_BRIEF)();
+    });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(requests[1].messages.at(-1).content).toContain('Located blocking findings:');
+    expect(requests[1].messages.at(-1).content).not.toMatch(/BRIEF_METADATA_INVALID|bookkeeping was ignored/);
+    expect(events.some(event => event.briefComplete)).toBe(true);
+  });
+
+  test('a factual repair receives the prior optional action record with the complete conversation', async () => {
+    const metadata = { schemaVersion: 1, executiveActions: [{ decision: 1, actionIds: ['S1.A1'] }], coverage: [] };
+    const envelope = `\n<!-- briefing-metadata\n${JSON.stringify(metadata)}\n-->`;
+    const requests = [];
+    const stream = jest.fn(async params => {
+      requests.push(structuredClone(params));
+      return textStream((requests.length === 1 ? GOOD_BRIEF.replace('## BLUF', '## OVERVIEW') : GOOD_BRIEF) + envelope)();
+    });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(requests[1].messages.map(message => message.role)).toEqual(['user', 'assistant', 'user']);
+    expect(requests[1].messages[1].content).toContain(JSON.stringify(metadata));
+    expect(events.some(event => event.briefComplete)).toBe(true);
+  });
+
   test('retains the original draft and one-attempt cost when no viable corrective budget remains', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'blueteam-retry-budget-'));
     try {
@@ -1084,7 +1212,7 @@ describe('POST /api/brief — grounding publication gate', () => {
 
   test('convergence recovery requires citations in the failed field or explicit omission of unsupported analysis', () => {
     const guidance = correctiveGuidance([{ code: 'CONVERGENCE_EVIDENCE_WEAK' }]);
-    expect(guidance).toContain('**The intersection:** paragraph itself');
+    expect(guidance).toContain('cite both substantive sources in **The intersection:** using their complete captured URLs');
     expect(guidance).toContain('Do not attach citations to a mechanism they do not establish');
     expect(guidance).toContain('No supported intersection is established');
     expect(guidance).not.toContain('Score repair');
@@ -1095,7 +1223,7 @@ describe('POST /api/brief — grounding publication gate', () => {
     const guidance = correctiveGuidance([{ code: 'CVE_CVSS_AMBIGUOUS' }, { code: 'CVE_CITATION_MISMATCH' }]);
     expect(guidance).toContain('one explicit pair per clause');
     expect(guidance).toContain('An NVD-only score requires the supplied NVD citation');
-    expect(guidance).toContain('Add the exact supplied publisher/date/URL citation');
+    expect(guidance).toContain("Cite its complete captured URL in this judgment's What happened field");
     expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Do not broaden affected versions');
     expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Missing captured support does not establish that the claim is false');
   });
@@ -1827,6 +1955,9 @@ describe('local module briefing generation', () => {
     expect(manifest.generationSettings).toMatchObject({ thinkingEffort: 'low',
       thinkingConfiguration: { requestedEffort: 'low', configuredBy: 'adapter-default', requestEffort: null } });
     expect(manifest.providerAttempts[0].thinkingConfiguration).toEqual(manifest.generationSettings.thinkingConfiguration);
+    expect(manifest.generationSettings.providerContract).toEqual({ version: null, capabilities: {
+      systemPrompt: null, conversation: null, outputTokenLimit: null, reasoningEffort: null, cancellation: null, externalTools: null } });
+    expect(manifest.providerAttempts[0].providerContract).toEqual(manifest.generationSettings.providerContract);
   });
 
   test('retains final-only usage in receipt, cost estimate and durable status', async () => {

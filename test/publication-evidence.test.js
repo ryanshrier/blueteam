@@ -45,8 +45,9 @@ describe('publisher calendar dates shared by prompting and validation', () => {
     const result = auditClaim('CVE-2026-1234 CVSS 9.8.', [source]);
     expect(hasTrustCriticalFailure(result.issues)).toBe(false);
     expect(result.judgmentEvidence).toEqual([{ signal: 1, sourceIds: ['S1.1'] }]);
-    expect(auditClaim('CVE-2026-1234 CVSS 9.8.', [source], citation.replace('September 4', 'September 5')).issues)
-      .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'CITATION_IDENTITY_INVALID' })]));
+    const displayError = auditClaim('CVE-2026-1234 CVSS 9.8.', [source], citation.replace('September 4', 'September 5'));
+    expect(displayError.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'CITATION_DISPLAY_MISMATCH' })]));
+    expect(hasTrustCriticalFailure(displayError.issues)).toBe(false);
   });
 
   test('prompt labels use the canonical citation day and retain the original timestamp separately', () => {

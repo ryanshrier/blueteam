@@ -70,6 +70,8 @@ New editions require the provider's terminal event and a completed stop reason, 
 
 After a browser connection fails, use **Check generation status** before starting another attempt. Recovery follows the generation ID announced for that request; an unrelated recent edition is not proof it completed. If the connection failed before an ID arrived, inspect generation status and History. Status checks make no provider call.
 
+A complete response needing factual correction or editorial review appears as a generated draft with a **Review saved draft** action. Its job remains `draft-ready` across restarts and the scheduler does not purchase another response for that edition. Open, edit, save, and recheck the draft against its captured sources without another model call. Missing or malformed hidden bookkeeping and harmless citation display differences are notes; unsupported claims, unsafe source links, contradictory dates, and required security-control reviews still prevent publication. Incomplete streams remain explicitly marked incomplete.
+
 An existing reserved scheduled edition is recovered only when its receipt, completion flags, date, and timezone verify. Missing, corrupt, or mismatched artifacts return `E_SCHEDULE_INTEGRITY`; no new provider call starts and the original is preserved. Restore a known-good matching Markdown/receipt pair before retrying.
 
 Opening a completed Briefing's **Print Edition** reuses that saved assessment. The Print Edition is rendered locally in the browser, and printing or saving it as a PDF uses the browser's print pipeline. Viewing or exporting the Print Edition does not make another model request.

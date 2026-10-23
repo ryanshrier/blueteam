@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Resolve citations by a unique complete captured URL and repair their display labels without changing destinations or claims. Keep unsafe URLs, ambiguous identities, and unsupported facts blocked.
+- Separate explicitly internal patch targets from federal deadline claims; preserve checks for contradictory captured federal dates.
+- Make generated action/coverage bookkeeping optional, derive supported coverage from visible citations, and retain unchanged bindings during edits. Malformed hidden records cannot bypass the visible action and evidence checks.
+- Present completed drafts needing correction or review separately from provider failures. Preserve optional metadata through factual repair, retain draft status across restarts, and avoid repeat scheduled purchases.
+- Share Anthropic request configuration between production and evaluation, retain declared provider capabilities in receipts, and add Custom offline conformance checks and normalized-event replay. Existing Custom adapters remain compatible; unspecified capabilities stay unknown.
+
 ## 1.4.1 — 2026-10-22
 
 This patch removes unnecessary briefing publication holds and fixes unchanged

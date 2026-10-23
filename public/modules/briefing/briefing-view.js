@@ -18,6 +18,7 @@ import { fetchInputReceipt, enrichCitationTitles, openInputReceipt } from './bri
 import { attachEditorialReview, attachReaderLimits, openOriginalEdition, readerPresentation, editionNotice, editionNoticeHtml } from './brief-review.js';
 import { formatEditionIdentity } from '../core/brief-date.js';
 import { openDraftReview, draftPublicationLabel } from './brief-drafts.js';
+import { draftOutcomePresentation } from './draft-outcome.js';
 
 let initialized = false;
 let contentRenderToken = 0;
@@ -177,6 +178,9 @@ export function generationFailureModel(payload) {
     accumulatedText: structured ? (payload.accumulatedText || '') : '',
     recoverableDraft: draft.trim() ? draft : '',
     draftArtifact: structured && payload.draftArtifact?.id ? payload.draftArtifact : null,
+    outcome: structured && typeof payload.outcome === 'string' ? payload.outcome : '',
+    validation: structured ? payload.validation || null : null,
+    publicationDecision: structured ? payload.publicationDecision || null : null,
   };
 }
 
@@ -189,7 +193,7 @@ export function generationErrorMessage({ message, code }) {
   }
   // Structured publication and local request-limit messages already identify
   // their cause. Generic rate/network heuristics would erase that distinction.
-  if (code === 'E006' || code === 'E_API_RATE' || code === 'E_PARTIAL_GENERATION' || code === 'E_VALIDATION' || /^E_PROVIDER/.test(code || '') || [
+  if (code === 'E006' || code === 'E_DRAFT_REVIEW' || code === 'E_API_RATE' || code === 'E_PARTIAL_GENERATION' || code === 'E_VALIDATION' || /^E_PROVIDER/.test(code || '') || [
     'E_GENERATION_ACTIVE', 'E_GENERATION_COOLDOWN',
     'E_GENERATION_RATE', 'E_GENERATION_DAILY_LIMIT',
   ].includes(code)) return message || 'The Briefing request could not proceed.';
@@ -593,22 +597,21 @@ function setupStoreListeners() {
     setMeta(`${formatBriefPublication(getState().currentBrief)}${partial ? ' · partial (generation timed out)' : ''} · ${readingTime(text)} ${prov}`);
   });
 
-  on('generation-error', (payload) => {
-    // A failure must surface even when the operator has navigated away from
-    // the Briefing view; silently swallowing it left them discovering the failure
-    // (or worse, a stale/empty state with no explanation) only when they returned.
-    // Payload is a string for transient errors, or a structured failure. The
+  const showGenerationOutcome = payload => {
+    // Retained work and failures must surface even after navigation. The
+    // payload is a string for transient errors or a structured outcome. The
     // recoverable draft, when present, is the server-selected final attempt —
     // never substitute the SSE accumulator, which may contain multiple retries.
     const failure = generationFailureModel(payload);
     const {
       aiDisabled, streamLost, accumulatedText, recoverableDraft,
     } = failure;
+    const draftPresentation = draftOutcomePresentation(failure);
     const msg = generationErrorMessage(failure);
     announce(aiDisabled ? 'AI Briefing is off'
       : streamLost ? 'Connection lost — generation may still complete on the server'
       : failure.code === 'E_EVIDENCE' ? 'Briefing did not start'
-      : 'Draft not published');
+      : draftPresentation.label);
 
     // The durable job status owns recovery. Never infer success from an
     // unrelated archive entry or start another paid request automatically.
@@ -617,16 +620,16 @@ function setupStoreListeners() {
       // Off-view: no DOM to paint an inline error into — a toast is the only signal
       // the operator gets until they return to the Briefing.
       generationStatus?.refresh();
-      showToast(aiDisabled ? 'AI Briefing is off — add a key in Settings.' : msg, 'error');
+      showToast(aiDisabled ? 'AI Briefing is off — add a key in Settings.' : msg, draftPresentation.neutral ? 'info' : 'error');
       return;
     }
     if (failure.draftArtifact && !streamLost && getState().currentBrief?.filename && eligibleEdition(getState().currentBrief)) {
-      // The failed new attempt must not displace the last published reading copy.
+      // An unpublished attempt must not displace the last published reading copy.
       // Its durable recovery notice remains beside that copy after navigation.
       showingGeneration = false;
       recoveryGenerationId = null;
       generationStatus?.refresh();
-      showToast('New draft saved · review it to publish. The current briefing is unchanged.');
+      showToast(`${draftPresentation.label}. The saved draft is available for review.`, draftPresentation.neutral ? 'info' : 'error');
       navigate('/briefing?latest=1');
       return;
     }
@@ -661,22 +664,21 @@ function setupStoreListeners() {
       });
       return;
     }
-    if (recoverableDraft) {
-      // This draft failed the server's all-or-nothing publication gate. Render
-      // it through the no-live-links draft sanitizer, label it unmistakably,
-      // and keep it out of currentBrief/export/history state.
+    if (recoverableDraft || failure.draftArtifact) {
+      // A retained draft is a separate outcome from publication. Keep it out
+      // of currentBrief/export/history while exposing the next useful action.
       content.innerHTML = `
-        <div class="error-message recoverable-draft-notice" role="alert">
-          <strong>Draft not published</strong>
+        <div class="${draftPresentation.neutral ? 'brief-review-summary' : 'error-message'} recoverable-draft-notice" role="${draftPresentation.neutral ? 'status' : 'alert'}">
+          <strong>${escapeHtml(draftPresentation.label)}</strong>
           <p>${escapeHtml(msg)}</p>
-          <p class="recoverable-draft-caution">Unvalidated draft · review only. No edition was published.</p>
+          <p class="recoverable-draft-caution">${escapeHtml(draftPresentation.description)}</p>
           ${failure.draftArtifact ? '<button class="btn-primary" id="reviewDraft">Review saved draft</button>' : ''}
-          <button class="btn-ghost" id="retryGen">Generate again</button>
+          ${draftPresentation.canRegenerate ? '<button class="btn-ghost" id="retryGen">Generate again</button>' : ''}
         </div>
-        <section class="recoverable-draft" aria-label="Unpublished briefing draft">
-          <p class="recoverable-draft-label brief-draft-label">Unpublished draft · review only</p>
+        ${recoverableDraft ? `<section class="recoverable-draft" aria-label="Unpublished briefing draft">
+          <p class="recoverable-draft-label brief-draft-label">Unpublished draft</p>
           ${renderDraftMarkdown(recoverableDraft)}
-        </section>
+        </section>` : ''}
       `;
       document.getElementById('retryGen')?.addEventListener('click', requestBriefGeneration);
       document.getElementById('reviewDraft')?.addEventListener('click', event => {
@@ -691,7 +693,9 @@ function setupStoreListeners() {
       </div>
     `;
     document.getElementById('retryGen')?.addEventListener('click', requestBriefGeneration);
-  });
+  };
+  on('generation-error', showGenerationOutcome);
+  on('generation-draft', showGenerationOutcome);
 }
 
 async function handleRoute(data = resolveLocation(window.location.pathname).data) {

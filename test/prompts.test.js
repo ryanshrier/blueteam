@@ -228,7 +228,7 @@ describe('buildSystemPrompt / buildUserPrompt - immutable edition clock', () => 
     expect(user).toContain('for 2026-07-06 (Monday)');
     expect(system).toContain('only a captured, already-observed publication timestamp');
     expect(user).toContain('in Pacific/Kiritimati');
-    expect(user).toContain('Use the provided Published date exactly');
+    expect(user).toContain('Use the provided Published calendar day for source dates');
   });
 });
 

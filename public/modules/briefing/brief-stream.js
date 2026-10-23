@@ -4,7 +4,7 @@ import { getState, setState, emit } from '../core/store.js';
 import { generateBrief } from '../core/api.js';
 
 /** Read an SSE response, dispatching text/progress/completion events. */
-export async function readSSEStream(response, { onText, onProgress, onComplete, onReset, onIdentity }) {
+export async function readSSEStream(response, { onText, onProgress, onComplete, onDraft, onReset, onIdentity }) {
   const decoder = new TextDecoder();
   let buffer = '';
   let accumulated = '';
@@ -64,11 +64,19 @@ export async function readSSEStream(response, { onText, onProgress, onComplete, 
           // raised by the consumers below (including their own SyntaxErrors).
           continue;
         }
+        if (['review-requested', 'checks-required', 'draft-ready', 'incomplete', 'provider-failed'].includes(data.outcome)
+          && (data.draftArtifact?.id || typeof data.draft === 'string')) {
+          if (onDraft) onDraft(data);
+          logicalEnd = true;
+          break;
+        }
         if (data.error) {
           const failure = new Error(data.error);
           if (data.code) failure.code = data.code;
           if (data.validation) failure.validation = data.validation;
           if (data.draftArtifact?.id) failure.draftArtifact = data.draftArtifact;
+          if (data.publicationDecision) failure.publicationDecision = data.publicationDecision;
+          if (data.outcome) failure.outcome = data.outcome;
           // Publication-gate failures can carry the server's authoritative
           // unpublished draft. Keep it distinct from `accumulated`: retries
           // stream more than one attempt through the same SSE connection, so
@@ -104,7 +112,7 @@ export async function readSSEStream(response, { onText, onProgress, onComplete, 
     failure.accumulatedText = accumulated;
     throw failure;
   }
-  // `briefComplete` / `[DONE]` is the protocol's logical end. Do not perform
+  // Publication, a retained-draft outcome, or `[DONE]` ends the protocol. Do not perform
   // another read after it: a proxy that resets the already-finished socket must
   // not turn a validated success into a second, contradictory stream-lost error.
   // Release the reader because the physical response may linger after the marker.
@@ -127,7 +135,7 @@ export async function startGeneration() {
   if (getState().isGenerating) return;
   setState({ isGenerating: true });
 
-  let completed = false;
+  let settled = false;
   let generationId = null;
 
   try {
@@ -139,15 +147,24 @@ export async function startGeneration() {
       onText: (accumulated, chunk) => emit('brief-streaming', { accumulated, chunk }),
       onReset: () => emit('brief-stream-reset'),
       onProgress: (progressMsg, stage) => emit('generation-progress', { progressMsg, stage }),
+      onDraft: data => {
+        settled = true;
+        setState({ isGenerating: false });
+        emit(['incomplete', 'provider-failed'].includes(data.outcome) ? 'generation-error' : 'generation-draft', {
+          message: data.message || data.error || '', outcome: data.outcome, code: data.code || '',
+          recoverableDraft: data.draft || '', draftArtifact: data.draftArtifact || null,
+          validation: data.validation || null, publicationDecision: data.publicationDecision || null, generationId,
+        });
+      },
       onComplete: (data) => {
         const text = data.text || '';
         if (text.trim().length < 100) {
-          completed = true;
+          settled = true;
           setState({ isGenerating: false });
           emit('generation-error', 'Generation returned empty content — the model may be unavailable or rate-limited.');
           return;
         }
-        completed = true;
+        settled = true;
         const timestamp = data.timestamp || null;
         const brief = {
           filename: data.filename || null, content: text, timestamp, generatedAt: timestamp,
@@ -170,10 +187,9 @@ export async function startGeneration() {
       },
     });
 
-    // A clean EOF without briefComplete is still incomplete. It may be a proxy
-    // close while the server continues, so retain the draft, poll History, and
-    // never claim it was validated, saved, or ready.
-    requireBriefComplete(completed, fullText);
+    // A clean EOF without a publication or retained-draft outcome is incomplete.
+    // It may be a proxy close while the server continues; do not infer a result.
+    requireBriefComplete(settled, fullText);
   } catch (err) {
     setState({ isGenerating: false });
     // Carry the AI-disabled flag so the view can offer a Settings path, not Retry.
@@ -191,6 +207,8 @@ export async function startGeneration() {
       accumulatedText: err.accumulatedText || '',
       recoverableDraft: err.recoverableDraft || '',
       validation: err.validation || null,
+      publicationDecision: err.publicationDecision || null,
+      outcome: err.outcome || '',
       draftArtifact: err.draftArtifact || null,
       generationId,
     });

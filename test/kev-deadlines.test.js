@@ -1,5 +1,5 @@
 import { describe, expect, test } from '@jest/globals';
-import { captureKevTiming, repairBriefFormatting, validateBrief } from '../lib/validation.js';
+import { captureKevTiming, repairBriefFormatting, validateBrief, publicationDecision } from '../lib/validation.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 
 const cves = ['CVE-2026-83548', 'CVE-2026-83549'];
@@ -141,6 +141,36 @@ describe('captured CISA KEV remediation dates', () => {
       .toEqual([expect.objectContaining({ code: 'KEV_DEADLINE_MISMATCH' })]);
     expect(deadlineIssues('CISA KEV CVE-2026-83548 is not patched, FCEB remediation due September 16, 2026.'))
       .toEqual([expect.objectContaining({ code: 'KEV_DEADLINE_MISMATCH' })]);
+  });
+
+  test.each([
+    'CVE-2026-83548 is in CISA KEV. Our recommended internal goal is to patch by September 8, 2026.',
+    'CVE-2026-83548 is in CISA KEV; our organizational target is to remediate by September 8, 2026.',
+    'For CVE-2026-83548 in CISA KEV, the proposed internal target is to fix by September 8, 2026.',
+    'CVE-2026-83548 is in CISA KEV and our recommended internal goal is to patch by September 8, 2026.',
+    'CVE-2026-83548 is in CISA KEV. The team\'s recommended plan is to patch by September 8, 2026.',
+  ])('does not confuse an explicitly internal recommendation with a federal date: %s', claim => {
+    expect(deadlineIssues(claim)).toEqual([]);
+  });
+
+  test.each([
+    'CVE-2026-83548 is in CISA KEV. Our recommended internal target is September 8, 2026; FCEB remediation due September 16, 2026.',
+    'CVE-2026-83548 is in KEV. Our internal goal discussion says CISA remediation due September 16, 2026.',
+    'CVE-2026-83548 is in KEV. Our recommended internal target is to patch by September 16, 2026 according to CISA.',
+    'CVE-2026-83548 is in KEV. Our recommended target is to remediate by September 16, 2026, as mandated by CISA.',
+    'CVE-2026-83548 is in KEV. Our recommended target is to remediate by September 16, 2026, per CISA.',
+    'CVE-2026-83548 is in KEV. Our recommended target is to remediate by September 16, 2026 under the CISA requirement.',
+    'CVE-2026-83548 is in KEV. Our recommended target is to remediate by September 16, 2026, according to guidance from CISA.',
+    'CVE-2026-83548 is in KEV. Our internal target is September 8, 2026, but CISA requires us to patch by September 16, 2026.',
+  ])('an internal goal cannot excuse an explicit conflicting federal deadline: %s', claim => {
+    expect(deadlineIssues(claim).map(issue => issue.code)).toEqual(['KEV_DEADLINE_MISMATCH']);
+  });
+
+  test('an unresolved association remains visible without claiming a factual contradiction', () => {
+    const issues = deadlineIssues('CVE-2026-83548 and CVE-2026-83549 are related; FCEB remediation due September 5, 2026.');
+    expect(issues.map(issue => issue.code)).toEqual(['KEV_DEADLINE_AMBIGUOUS']);
+    expect(publicationDecision({ issues })).toMatchObject({ blockers: [], reviewIssues: [], notes: issues, canPublish: true });
+    expect(publicationDecision({ issues: deadlineIssues('CISA KEV CVE-2026-83548 remediation due September 16, 2026.') }).canPublish).toBe(false);
   });
 
   test('date-only records do not support invented federal clock times', () => {

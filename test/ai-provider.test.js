@@ -2,7 +2,8 @@ import { describe, expect, jest, test } from '@jest/globals';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createAiProvider, createOpenAiClient, DEFAULT_OPENAI_MODEL, loadProviderModule } from '../lib/ai-provider.js';
+import { createAiProvider, createAnthropicClient, createOpenAiClient, configureAnthropicRequest,
+  providerCapabilities, PROVIDER_CONTRACT_VERSION, DEFAULT_OPENAI_MODEL, loadProviderModule } from '../lib/ai-provider.js';
 
 const openaiKey = ['sk', 'proj', 'fixture-openai-credential'].join('-');
 const anthropicKey = ['sk', 'ant', 'fixture-anthropic-credential'].join('-');
@@ -52,9 +53,81 @@ describe('live AI provider configuration', () => {
     expect(manager.rotateKey('openai')).toBeNull();
     settings = { ...settings, aiProvider: 'anthropic' };
     manager.refresh();
-    expect(manager.rotateKey('anthropic')).toEqual({ key: 'secondary' });
+    expect(manager.rotateKey('anthropic')).toMatchObject({ provider: 'anthropic', model: 'claude-sonnet-5', stream: expect.any(Function) });
     expect(manager.rotateKey('anthropic')).toBeNull();
     expect(manager.getStatus()).toMatchObject({ source: 'env:secondary', rotated: true });
+  });
+});
+
+describe('explicit provider controls', () => {
+  test('native Anthropic preserves the complete request and normalized SDK events', async () => {
+    const events = [
+      { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'private reasoning' } },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Final report <!-- briefing-metadata {} -->' } },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 42 } },
+      { type: 'message_stop' },
+    ];
+    const stream = jest.fn(async function* () { yield* events; });
+    const client = createAnthropicClient({ messages: { stream } });
+    const request = { model: client.model, system: 'Authoritative system instructions.', max_tokens: 1234,
+      messages: [{ role: 'user', content: 'Captured facts.' }, { role: 'assistant', content: 'Previous draft.' }, { role: 'user', content: 'Repair the identified citation.' }] };
+    client.configureRequest(request, { effort: 'low' });
+    const options = { signal: new AbortController().signal, timeout: 30000, maxRetries: 0 };
+    expect(await Array.fromAsync(client.stream(request, options))).toEqual(events);
+    expect(stream).toHaveBeenCalledWith(request, options);
+    expect(request).toMatchObject({ thinking: { type: 'adaptive' }, output_config: { effort: 'low' } });
+    expect(client.contractVersion).toBe(PROVIDER_CONTRACT_VERSION);
+    expect(providerCapabilities(client)).toEqual({ systemPrompt: true, conversation: true,
+      outputTokenLimit: true, reasoningEffort: true, cancellation: true, externalTools: false });
+  });
+
+  test('Anthropic recovery and fallback configure supported fields through the same hook', () => {
+    const request = { model: 'claude-sonnet-5', reasoning: { effort: 'high' } };
+    configureAnthropicRequest(request, { effort: 'high' });
+    expect(request).toEqual({ model: 'claude-sonnet-5', thinking: { type: 'adaptive' }, output_config: { effort: 'high' } });
+    configureAnthropicRequest(request, { effort: 'off' });
+    expect(request).toEqual({ model: 'claude-sonnet-5', thinking: { type: 'disabled' } });
+    request.model = 'claude-haiku-4-5';
+    configureAnthropicRequest(request, { effort: 'low' });
+    expect(request).toEqual({ model: 'claude-haiku-4-5' });
+  });
+
+  test('manager carries native model selection and one-shot key rotation into explicit adapters', () => {
+    const factory = jest.fn(key => ({ messages: { stream: jest.fn(() => key) } }));
+    const manager = createAiProvider({ getSettings: () => ({ aiProvider: 'anthropic' }),
+      getAnalysisSettings: () => ({ preferredModel: 'claude-opus-4-7', model: 'claude-haiku-4-5' }),
+      env: { ANTHROPIC_API_KEY: anthropicKey, ANTHROPIC_API_KEY_SECONDARY: 'secondary' }, anthropicFactory: factory });
+    const first = manager.getClient();
+    expect(first).toMatchObject({ provider: 'anthropic', model: 'claude-opus-4-7', fallbackModel: 'claude-haiku-4-5' });
+    expect(first.stream({}, {})).toBe(anthropicKey);
+    const second = first.rotateKey();
+    expect(second.stream({}, {})).toBe('secondary');
+    expect(second.rotateKey()).toBeNull();
+    expect(manager.getClient()).toBe(second);
+  });
+
+  test('native model choices follow hot-reloaded analysis settings without resetting the SDK or key rotation', () => {
+    let analysis = { preferredModel: 'claude-sonnet-5', model: 'claude-haiku-4-5' };
+    const factory = jest.fn(() => ({ messages: { stream: jest.fn() } }));
+    const manager = createAiProvider({ getSettings: () => ({ aiProvider: 'anthropic' }), getAnalysisSettings: () => analysis,
+      env: { ANTHROPIC_API_KEY: anthropicKey, ANTHROPIC_API_KEY_SECONDARY: 'secondary' }, anthropicFactory: factory });
+    const client = manager.getClient().rotateKey();
+    analysis = { preferredModel: 'claude-haiku-4-5', model: 'claude-opus-4-7' };
+    expect(client).toMatchObject({ model: 'claude-haiku-4-5', fallbackModel: 'claude-opus-4-7' });
+    expect(providerCapabilities(client).reasoningEffort).toBe(false);
+    expect(manager.getClient()).toBe(client);
+    expect(client.rotateKey()).toBeNull();
+    expect(factory).toHaveBeenCalledTimes(2);
+  });
+
+  test('undeclared custom capabilities remain unknown and unrecognized fields are not retained', () => {
+    expect(Object.values(providerCapabilities({}))).toEqual(Array(6).fill(null));
+    expect(providerCapabilities({ capabilities: { conversation: true, reasoningEffort: false,
+      cancellation: 'yes', secret: 'private' } })).toEqual({ systemPrompt: null, conversation: true,
+      outputTokenLimit: null, reasoningEffort: false, cancellation: null, externalTools: null });
+    expect(providerCapabilities(createOpenAiClient(openaiKey, 'gpt-4.1')).reasoningEffort).toBe(false);
+    expect(providerCapabilities(createAnthropicClient({}), 'claude-haiku-4-5').reasoningEffort).toBe(false);
+    expect(providerCapabilities(createOpenAiClient(openaiKey), 'gpt-4.1').reasoningEffort).toBe(false);
   });
 });
 

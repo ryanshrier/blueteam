@@ -67,7 +67,7 @@ async function runDraftChecks() {
   };
   const hash = async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(byte => byte.toString(16).padStart(2, '0')).join('');
   const control = { code: 'SECURITY_CONTROL_CHANGE', severity: 'trust', message: 'Review disabling an alert for a scoped maintenance window.', sourceIds: ['source-1'], location: { line: 5, excerpt: 'Suppress this one alert during the documented maintenance window.' } };
-  const coverage = { code: 'PRIORITY_COVERAGE_MISSING', severity: 'review', message: 'A priority advisory has no coverage disposition. Review its saved evidence and explain the omission.', sourceIds: ['source-1'], location: { line: 1 } };
+  const coverage = { code: 'PRIORITY_COVERAGE_UNSUPPORTED', severity: 'review', message: 'A claimed priority coverage association is unsupported. Review its saved evidence and the visible report.', sourceIds: ['source-1'], location: { line: 1 } };
   const blocker = { code: 'SOURCE_UNSUPPORTED', severity: 'trust', message: 'This claim is not supported by captured evidence.', sourceIds: ['source-1'], location: { line: 3, excerpt: 'Unsupported claim.' } };
   const note = { code: 'STYLE_NOTE', severity: 'structure', message: 'Consider shortening the heading.', location: { line: 1 } };
   const decision = content => ({ blockers: content.includes('[BLOCKED]') ? [blocker] : [], reviewIssues: [...(content.includes('[CONTROL]') ? [control] : []), ...(content.includes('[COVERAGE]') ? [coverage] : [])], notes: [note], canPublish: !/\[(BLOCKED|CONTROL|COVERAGE)\]/.test(content), requiresReview: /\[(CONTROL|COVERAGE)\]/.test(content) });
@@ -248,7 +248,7 @@ async function runDraftChecks() {
     check(!q('.draft-current-evidence').textContent.includes('unconfirmed')&&q('.draft-captured-evidence > summary').textContent==='Captured evidence · 2 sources','Historical prose does not join accepted evidence or inflate source counts');
     check(q('[data-control-review]').textContent.includes('editorial') && !q('[name="confirmed"]').checked, 'Coverage review is explicitly identified and not preapproved');
     fillReview(); await act('[data-draft-publish]');
-    check(published?.filename && calls.at(-1).body.editorialReview?.issueCodes.join(',') === 'PRIORITY_COVERAGE_MISSING'
+    check(published?.filename && calls.at(-1).body.editorialReview?.issueCodes.join(',') === 'PRIORITY_COVERAGE_UNSUPPORTED'
       && !calls.at(-1).body.securityControlReview, 'Coverage review publishes only with its exact findings and copy');
 
     await make('mixed', basic + '\n\n[CONTROL] [COVERAGE]'); await open('mixed');

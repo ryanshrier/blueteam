@@ -673,11 +673,11 @@ test('a publication failure replaces the stale generating screen-reader announce
   setState({ isGenerating: false });
   const message = 'Draft was not published because source verification still failed after one corrective retry. Refresh the landscape data or correct the source input, then generate again.';
   emit('generation-error', { code: 'E006', message, recoverableDraft: 'Unvalidated final draft' });
-  expect(elements.get('briefSrLive').textContent).toBe('Draft not published');
+  expect(elements.get('briefSrLive').textContent).toBe('Draft generated · checks need attention');
   const tree = parseDocument(elements.get('briefContent').innerHTML);
   const notice = DomUtils.findOne(node => /\brecoverable-draft-notice\b/.test(node.attribs?.class || ''), tree.children);
   const paragraphs = DomUtils.findAll(node => node.name === 'p', notice.children).map(DomUtils.textContent);
-  expect(paragraphs).toEqual([message, 'Unvalidated draft · review only. No edition was published.']);
+  expect(paragraphs).toEqual([message, 'Resolve the required findings before publishing. No edition was published.']);
   expect(getState().currentBrief.filename).toBe(oldBrief().filename);
   expect(elements.get('genStatus').textContent).toBe('');
 });
@@ -696,9 +696,49 @@ test('a recoverable new draft returns to the published briefing with a persisten
   await flush();
   expect(navigate).toHaveBeenCalledWith('/briefing?latest=1');
   expect(getState().currentBrief.filename).toBe(oldBrief().filename);
-  expect(elements.get('briefAttemptStatus').innerHTML).toContain('New draft awaiting review');
+  expect(elements.get('briefAttemptStatus').innerHTML).toContain('Saved draft · unpublished');
   expect(elements.get('briefAttemptStatus').innerHTML).toContain('data-review-draft="failed-new"');
-  expect(showToast).toHaveBeenCalledWith('New draft saved · review it to publish. The current briefing is unchanged.');
+  expect(showToast).toHaveBeenCalledWith('Draft generated · checks need attention. The saved draft is available for review.', 'info');
+});
+
+test.each([
+  ['review-requested', 'E_DRAFT_REVIEW', 'Draft generated · review requested'],
+  ['checks-required', 'E006', 'Draft generated · checks need attention'],
+])('a saved %s draft offers review without regeneration or a false publication', async (outcome, code, label) => {
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true, currentBrief: null });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  emit('generation-draft', { outcome, code, message: 'The saved findings need attention.',
+    recoverableDraft: 'Retained briefing prose', draftArtifact: { id: 'saved-draft' } });
+  const html = elements.get('briefContent').innerHTML;
+  expect(elements.get('briefSrLive').textContent).toBe(label);
+  expect(html).toContain('role="status"');
+  expect(html).toContain('Review saved draft');
+  expect(html).toContain('No edition was published');
+  expect(html).not.toContain('Generate again');
+  expect(html).not.toContain('Unvalidated draft');
+  expect(getState().currentBrief).toBeNull();
+  expect(getState().lastGeneratedBrief).toBeNull();
+  expect(navigate).not.toHaveBeenCalled();
+});
+
+test('an incomplete saved draft still identifies the interruption and leaves retry available', async () => {
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true, currentBrief: null });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  emit('generation-error', { outcome: 'incomplete', code: 'E_PROVIDER_INCOMPLETE',
+    message: 'The provider stream ended before completion.', recoverableDraft: 'Partial prose', draftArtifact: { id: 'partial-draft' } });
+  const html = elements.get('briefContent').innerHTML;
+  expect(elements.get('briefSrLive').textContent).toBe('Incomplete draft saved');
+  expect(html).toContain('role="alert"');
+  expect(html).toContain('The provider stream ended before completion.');
+  expect(html).toContain('Review saved draft');
+  expect(html).toContain('Generate again');
+  expect(getState().currentBrief).toBeNull();
 });
 
 test('stream, progress, completion and failure cannot repaint a selected historical edition', async () => {

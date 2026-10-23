@@ -7,7 +7,7 @@ import { saveRejectedBrief, readBriefDraft, revalidateBriefDraft, validationMani
 import { createPublicationLookup, publishDraftEdition, verifyPublicationReplay } from '../lib/brief-publication.js';
 import { readGenerationManifest, sha256 } from '../lib/generation-manifest.js';
 import { replayBriefArchive } from '../lib/brief-replay.js';
-import { repairBriefFormatting } from '../lib/validation.js';
+import { repairBriefFormatting, publicationDecision } from '../lib/validation.js';
 
 let dir;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'draft-metadata-')); });
@@ -27,6 +27,22 @@ const save = (extra = {}, content = prose) => saveRejectedBrief(dir, { content,
   validation: { valid: false, warnings: ['Initial rejection'], issues: [] } });
 const repair = (saved, content, validate = checks) => revalidateBriefDraft(dir, saved.id,
   { baseRevision: saved.revisions.at(-1).number, ...(content !== undefined ? { content } : {}) }, validate);
+
+const mappedProse = `## BLUF
+A retained report for the current shift.
+## EXECUTIVE SUMMARY
+- **Required decisions:** Infrastructure — verify Acme Gateway deployment — recommended target October 10, 2026.
+## KEY JUDGMENTS
+### Signal 1 — [Horizon 1] Acme Gateway response
+**What happened:** Acme Gateway received an update. [Vendor, October 9, 2026](https://vendor.example/acme)
+**Recommended actions:**
+- Infrastructure — verify Acme Gateway deployment — recommended target October 10, 2026.
+**Decision window:** Current shift
+## WATCHLIST
+- Watch for updated vendor advice.
+`;
+const mappedRecord = { schemaVersion: 1, executiveActions: [{ decision: 1, actionIds: ['S1.A1'] }],
+  coverage: [{ priorityId: 'P1', status: 'covered', section: 'judgment', index: 1, sourceIds: ['S1.1'] }] };
 
 describe('draft generator-record normalization', () => {
   test.each(['\n', '\r\n'])('unchanged original prose preserves exact bytes and bound metadata across repeated rechecks (%j)', newline => {
@@ -119,10 +135,60 @@ describe('draft generator-record normalization', () => {
     expect(metadata).toBeNull();
   });
 
+  test('an unrelated prose edit preserves unchanged action and coverage bindings with a new exact hash', () => {
+    const saved = save({ briefingMetadata: mappedRecord, briefingMetadataIssues: [], briefingMetadataContentSha256: sha256(mappedProse) }, mappedProse);
+    const edited = mappedProse.replace('current shift', 'next shift');
+    const updated = repair(saved, edited);
+    const current = updated.revisions.at(-1);
+    expect(current.briefingMetadata).toEqual(mappedRecord);
+    expect(current.briefingMetadataContentSha256).toBe(sha256(current.content));
+    expect(updated.manifest).toEqual(saved.manifest);
+    expect(repair(updated).revisions).toEqual(updated.revisions);
+  });
+
+  test('editing a canonical action discards its affected action and entry bindings', () => {
+    const original = mappedProse.replace('## WATCHLIST', `### Signal 2 — [Horizon 1] Other response
+**Recommended actions:**
+- Operations — verify another deployment — recommended target October 10, 2026.
+**Decision window:** Current shift
+## WATCHLIST`);
+    const saved = save({ briefingMetadata: mappedRecord, briefingMetadataContentSha256: sha256(original) }, original);
+    const edited = original.replace('- Infrastructure — verify Acme Gateway deployment', '- Infrastructure — inventory Acme Gateway deployment');
+    const updated = repair(saved, edited);
+    expect(updated.revisions.at(-1).briefingMetadata).toBeNull();
+    expect(updated.manifest.briefingMetadata).toEqual(mappedRecord);
+  });
+
+  test('a changed decision invalidates only its mapping while keeping unchanged cited coverage', () => {
+    const saved = save({ briefingMetadata: mappedRecord, briefingMetadataContentSha256: sha256(mappedProse) }, mappedProse);
+    const edited = mappedProse.replace('**Required decisions:** Infrastructure — verify', '**Required decisions:** Infrastructure — inventory');
+    const updated = repair(saved, edited);
+    expect(updated.revisions.at(-1).briefingMetadata).toEqual({ ...mappedRecord, executiveActions: [] });
+  });
+
+  test('a new judgment at the same position cannot inherit old action and coverage references', () => {
+    const saved = save({ briefingMetadata: mappedRecord, briefingMetadataContentSha256: sha256(mappedProse) }, mappedProse);
+    const edited = mappedProse.replace('### Signal 1 — [Horizon 1] Acme Gateway response', '### Signal 1 — [Horizon 1] Different product response');
+    const updated = repair(saved, edited);
+    expect(updated.revisions.at(-1).briefingMetadata).toBeNull();
+  });
+
+  test('manual edits canonicalize known citation labels using captured sources without changing unchanged bytes', () => {
+    const original = mappedProse.replace('[Vendor, October 9, 2026]', '[Vendor, 2026-10-08]');
+    const saved = save({ grounding: { sources: [{ id: 'S1.1', label: 'Vendor Security', date: '2026-10-09',
+      publishedAt: '2026-10-09', url: 'https://vendor.example/acme', passage: 'Acme Gateway received an update with documented release changes.',
+      cves: [] }], urls: ['https://vendor.example/acme'], cves: [] } }, original);
+    expect(repair(saved).revisions.at(-1).content).toBe(original);
+    const updated = repair(saved, original.replace('current shift', 'next shift'));
+    expect(updated.revisions.at(-1).content).toContain('[Vendor Security, 2026-10-09](https://vendor.example/acme)');
+    expect(updated.manifest.grounding).toEqual(saved.manifest.grounding);
+  });
+
   test('malformed envelopes are stripped but their findings survive reload, ordinary edits and rechecks', () => {
     const first = repair(save(), `${prose}\n<!-- briefing-metadata {broken} -->`);
     expect(first.revisions.at(-1).content).toBe(prose);
     expect(draftValidation(first).issues.map(issue => issue.code)).toEqual(['BRIEF_METADATA_INVALID']);
+    expect(publicationDecision(draftValidation(first))).toMatchObject({ canPublish: true, requiresReview: false, blockers: [] });
     const changed = repair(readBriefDraft(dir, first.id), `${prose}\nAn unrelated editorial change.`);
     expect(validationManifestForDraft(changed).briefingMetadata).toBeNull();
     expect(draftValidation(changed).issues.map(issue => issue.code)).toEqual(['BRIEF_METADATA_INVALID']);
@@ -133,11 +199,13 @@ describe('draft generator-record normalization', () => {
     expect(draftValidation(corrected).issues).toEqual([]);
   });
 
-  test('an invalid envelope from initial generation is not forgotten on an unrelated repair', () => {
+  test('a retained legacy malformed envelope becomes an advisory diagnostic on recheck', () => {
     const invalid = { code: 'BRIEF_METADATA_INVALID', severity: 'structure', message: 'The captured envelope was malformed.' };
     const saved = save({ briefingMetadata: null, briefingMetadataIssues: [invalid], briefingMetadataContentSha256: sha256(prose) });
     const updated = repair(saved, `${prose}\nAn unrelated correction.`);
-    expect(draftValidation(updated).issues).toEqual([expect.objectContaining(invalid)]);
+    expect(draftValidation(updated).issues).toEqual([expect.objectContaining({ code: invalid.code, severity: 'note' })]);
+    expect(publicationDecision(draftValidation(updated))).toMatchObject({ canPublish: true, requiresReview: false });
+    expect(updated.manifest.briefingMetadataIssues).toEqual([invalid]);
   });
 
   test('replacing the bookkeeping with an explicitly empty valid record cannot restore the original mapping', () => {

@@ -20,6 +20,44 @@ test('saved failed publication accounting presents the cost without publishing a
   expect(model.billing).toContain('$0.3776');
 });
 
+test.each(['draft-ready', 'failed'])('review-only saved work has a neutral terminal state with %s accounting', async status => {
+  const pending = { id: 'review-draft', status: 'draft', blockerCount: 0, requiresReview: true };
+  const data = { persistence: 'ok', active: false, latest: { id: pending.id, status, code: 'E_DRAFT_REVIEW', billing: 'provider-usage-recorded' },
+    draftRecovery: { items: [pending] } };
+  expect(generationStatusModel(data)).toMatchObject({ kind: 'draft-ready', filename: '', poll: false });
+  const el = host(); const load = jest.fn().mockResolvedValue(data);
+  const ui = mountGenerationStatus(el, { load });
+  await ui.refresh();
+  expect(el.innerHTML).toContain('Draft generated · review requested');
+  expect(el.innerHTML).toContain('No edition was published');
+  expect(el.innerHTML).not.toContain('failed');
+  expect(el.innerHTML).not.toContain('Open published briefing');
+  expect(el.innerHTML).not.toContain('Generate again');
+  ui.stop();
+});
+
+test('pending drafts cannot relabel an unrelated provider failure as successful generation', () => {
+  const pending = { id: 'older-draft', status: 'draft', requiresReview: true };
+  const model = generationStatusModel({ persistence: 'ok', active: false,
+    latest: { id: 'failed-new', status: 'failed', code: 'E_PROVIDER_FAILURE' }, draftRecovery: { items: [pending] } });
+  expect(model).toMatchObject({ kind: 'failed', jobId: 'failed-new', filename: '', pendingDraft: pending });
+  expect(model.message).toContain('did not publish');
+});
+
+test('incomplete retained work remains explicit after navigation', () => {
+  const pending = { id: 'partial-draft', status: 'draft', requiresReview: true };
+  const model = generationStatusModel({ persistence: 'ok', active: false,
+    latest: { id: pending.id, status: 'failed', code: 'E_PARTIAL_GENERATION' }, draftRecovery: { items: [pending] } });
+  expect(model).toMatchObject({ kind: 'failed', draftPresentation: { kind: 'incomplete', label: 'Incomplete draft saved' } });
+});
+
+test('retained partial status overrides an older source-failure code after reload', () => {
+  const pending = { id: 'old-partial', status: 'draft', partial: true, blockerCount: 1 };
+  const model = generationStatusModel({ persistence: 'ok', active: false,
+    latest: { id: pending.id, status: 'failed', code: 'E006' }, draftRecovery: { items: [pending] } });
+  expect(model).toMatchObject({ kind: 'failed', draftPresentation: { kind: 'incomplete', label: 'Incomplete draft saved' } });
+});
+
 test('pending draft is actionable after remount without replacing or misidentifying a published briefing', async () => {
   const pending = { id: 'pending-id', status: 'draft', editionDate: '2026-10-09' };
   const data = { ...failed(), draftRecovery: { items: [pending], latest: pending, count: 1 } };
