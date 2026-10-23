@@ -4,7 +4,7 @@
   "capturedAt": "2026-07-24T12:00:00Z",
   "application": {
     "name": "blueteam-news",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "implementationSha256": {
       "prompts": "80c643706b1db89a51295b7c78ad1298b7014042843d6c9b4dac8193050a2e47",
       "grounding": "d773acd74d4b05bef20ee21d38d540ae7ba8f644444b5a4b012a7125a8a95db5",
@@ -536,7 +536,7 @@
   ],
   "generatedAt": "2026-07-24T12:00:00Z",
   "synthetic": true,
-  "syntheticRegeneratedAt": "2026-10-23T02:36:24.495Z",
+  "syntheticRegeneratedAt": "2026-10-23T11:09:17.187Z",
   "syntheticNote": "Authored fictional demonstration; no provider was called. Edition, source, collection, capturedAt, and generatedAt dates describe the July 24, 2026 scenario, not a real collection or generation. syntheticRegeneratedAt records when this sample receipt was rebuilt and checked against the recorded application implementation. Passing supported checks does not verify real-world events or complete analyst review.",
   "filename": "brief-2026-07-24-01.md",
   "outputSha256": "7e6d0cbf6133fc131b0d8513192f2809c3696f467cd35d00631179cecb11c7d3",

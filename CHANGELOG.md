@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.4.2 — 2026-10-23
+
+This patch reduces draft-checking friction across Anthropic, OpenAI and Custom
+providers while keeping factual safeguards. The app now renders citations,
+executive actions and federal deadline context from shared captured inputs.
 
 - Assemble citation labels/links from captured source IDs, executive decisions from the leading judgments' complete actions, and federal remediation wording from exact captured KEV dates. Use the same tolerant Markdown pipeline for Anthropic, OpenAI and Custom; preserve factual checks and legacy citation support.
 - Record composition version 1 in new generation receipts. Edited drafts from these runs rebuild shared presentation without a provider call; explicit rechecks can render previously unrendered source IDs into a new repair revision. Archive reads preserve the saved copy. Federal date context stays visible in the Briefing, Wall, copied decisions and print.
@@ -12,6 +16,23 @@
 - Make generated action/coverage bookkeeping optional, derive supported coverage from visible citations, and retain unchanged bindings during edits. Malformed hidden records cannot bypass the visible action and evidence checks.
 - Present completed drafts needing correction or review separately from provider failures. Preserve optional metadata through factual repair, retain draft status across restarts, and avoid repeat scheduled purchases.
 - Share Anthropic request configuration between production and evaluation, retain declared provider capabilities in receipts, and add Custom offline conformance checks and normalized-event replay. Existing Custom adapters remain compatible; unspecified capabilities stay unknown.
+- Reposition the project site around the daily edition, refresh the sample front-page, Overview, Full report, Print Edition and social-card captures, and correct the description of server-stored Wire decisions. Preserve responsive, accessibility and asset-budget checks.
+- Update DOMPurify to 3.4.17 and the ip-address override to 10.7.4 to address dependency security advisories found during release validation.
+
+### Upgrade notes
+
+No database migration or configuration change is required from v1.4.0 or v1.4.1;
+SQLite remains at schema 11. Back up the stopped service and restart after
+upgrading. Existing Custom adapters remain compatible, and no hidden metadata
+record or strict JSON output is required.
+
+New generations record publication policy 2 and composition version 1. Archive
+reads preserve the saved wording and retained check policy. Explicit draft
+rechecks use captured inputs without a provider call; a previously unrendered
+known source ID can create a new repair revision while preserving the original.
+Legacy drafts do not adopt the new action/deadline composition. Keep `briefs/`,
+its hidden files, `reviews/`, the database and configuration together in backups.
+For rollback, restore the previous code with its matching pre-upgrade state.
 
 ## 1.4.1 — 2026-10-22
 

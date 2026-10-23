@@ -6,7 +6,7 @@
   font-style: normal;
   font-weight: 200 800;
   font-display: swap;
-  src: url("assets/fonts/newsreader-latin-wght-normal.woff2?v=1.4.1") format("woff2");
+  src: url("assets/fonts/newsreader-latin-wght-normal.woff2?v=1.4.2") format("woff2");
 }
 
 @font-face {
@@ -14,7 +14,7 @@
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("assets/fonts/inter-latin-wght-normal.woff2?v=1.4.1") format("woff2");
+  src: url("assets/fonts/inter-latin-wght-normal.woff2?v=1.4.2") format("woff2");
 }
 
 @font-face {
@@ -22,7 +22,7 @@
   font-style: normal;
   font-weight: 100 800;
   font-display: swap;
-  src: url("assets/fonts/jetbrains-mono-latin-wght-normal.woff2?v=1.4.1") format("woff2");
+  src: url("assets/fonts/jetbrains-mono-latin-wght-normal.woff2?v=1.4.2") format("woff2");
 }
 
 :root {
@@ -401,6 +401,9 @@ em { color: var(--ink); }
   object-position: center top;
 }
 
+.workflow-visual { margin-top: 30px; }
+.workflow-visual img { width: 100%; height: auto; }
+
 /* Focused previews keep full screenshots available through the image links. */
 .preview-focus { position: relative; }
 .preview-focus img { position: absolute; max-width: none; height: auto; aspect-ratio: auto; }
@@ -408,7 +411,7 @@ em { color: var(--ink); }
 .evidence-preview img { width: 142.857143%; left: -20.892857%; top: -1.904762%; }
 .briefing-preview, .print-preview { aspect-ratio: 8 / 5; }
 .briefing-preview img { position: static; width: 100%; }
-.print-preview img { width: 165.104167%; left: -31.041667%; top: -20.78125%; }
+.print-preview img { position: static; width: 100%; }
 
 .screenshot-caption, .hero-media-caption, .surface-proof figcaption, .briefing-format-copy {
   display: block;
@@ -666,6 +669,7 @@ body:has(.product-viewer[open]) { overflow: hidden; }
   .topbar { min-height: 62px; }
   .brand-name { font-size: 18px; }
   .hero { padding-top: 32px; }
+  .hero.hero-grid { grid-template-areas: "copy" "media" "proof"; }
   .hero-head { font-size: clamp(36px, 9vw, 46px); margin-bottom: 16px; }
   .hero-sub { font-size: 16.5px; }
   .cta-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }

@@ -9,7 +9,7 @@ BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and
 ## Start, stop, and restart
 
 ```bash
-git clone --branch v1.4.1 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.2 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -129,6 +129,33 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 ## Upgrade and rollback
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
+
+### From v1.4.0 or v1.4.1 to v1.4.2
+
+The October 23, 2026 patch requires no database migration or configuration change;
+SQLite remains at schema 11. Stop the service, back up `data/`, `briefs/` (including
+hidden files), `reviews/`, configuration and protected secrets together, install
+v1.4.2 and restart. Existing Custom provider modules remain compatible.
+
+New generations record publication policy 2 and composition version 1. The app
+renders captured source IDs as citations, builds executive decisions from the
+judgment actions, and adds federal deadline wording from captured catalog facts.
+Hidden metadata is optional. Unsupported factual claims, conflicting captured
+dates, invalid source identities and incomplete generation still require
+correction; uncertain score/action associations become notes.
+
+Reading archived editions preserves their saved wording and retained check
+policy. Explicit draft rechecks use captured inputs without another model call.
+An unchanged draft containing a known but unrendered source ID may receive a new
+repair revision; the original remains available. Legacy drafts keep their action
+and deadline format. For new composition-version-1 drafts, edits rebuild the
+shared presentation from the same captured inputs. Restarting alone does not
+rewrite existing drafts or editions.
+
+After startup, verify health and reopen a saved edition and any retained drafts.
+To roll back, stop the service and restore the previous code and its matching
+pre-upgrade state/configuration backup together; preserve a separate protected
+copy of newly created state before restoring.
 
 ### From v1.3.2 to v1.4.0
 
