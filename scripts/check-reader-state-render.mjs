@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createFixtureApp } from './serve-visual-fixtures.mjs';
 import { CdpConnection, findBrowser, launchBrowser } from './check-landing-render.mjs';
+import { createFixtureRequestGuard } from './fixture-request-guard.mjs';
 import { briefPresentation } from '../lib/brief-reading-checks.js';
 
 const actionContent = `# Shared action fixture
@@ -81,7 +82,7 @@ const server = app.listen(0, '127.0.0.1');
 await new Promise((done, reject) => { server.once('listening', done); server.once('error', reject); });
 const origin = `http://127.0.0.1:${server.address().port}`;
 const output = process.env.READER_SCREENSHOT_DIR ? resolve(process.env.READER_SCREENSHOT_DIR) : null;
-let browser, connection;
+let browser, connection, requestGuard;
 const errors = [];
 try {
   const path = findBrowser(); assert(path, 'Chrome/Chromium/Edge required. Set CHROME_PATH.');
@@ -91,18 +92,15 @@ try {
   await Promise.all([connection.call('Page.enable'), connection.call('Runtime.enable')]);
   await connection.call('Page.bringToFront');
   connection.on('Runtime.exceptionThrown', event => errors.push(event.exceptionDetails?.exception?.description || event.exceptionDetails?.text));
-  connection.on('Fetch.requestPaused', event => {
-    const local = event.request.url.startsWith(`${origin}/`) && !event.request.url.startsWith(`${origin}/api/`);
-    if (!local) errors.push(`Unexpected request: ${event.request.url}`);
-    void connection.call(local ? 'Fetch.continueRequest' : 'Fetch.failRequest', { requestId:event.requestId, ...(!local ? {errorReason:'BlockedByClient'}:{}) }).catch(error=>errors.push(error.message));
-  });
-  await connection.call('Fetch.enable', { patterns:[{urlPattern:'*',requestStage:'Request'}] });
+  requestGuard = createFixtureRequestGuard(connection, { origin, errors });
+  await requestGuard.enable();
   for (const width of [1280,390]) {
     await connection.call('Emulation.setDeviceMetricsOverride', { width,height:900,deviceScaleFactor:1,mobile:width<600 });
     const loaded = connection.waitFor('Page.loadEventFired');
     await connection.call('Page.navigate', { url:`${origin}/reader-state-fixture` }); await loaded;
     const result = await connection.call('Runtime.evaluate', { awaitPromise:true,returnByValue:true,expression:`(${runReaderChecks.toString()})(${JSON.stringify(actionFixture)})` });
     assert(!result.exceptionDetails, result.exceptionDetails?.exception?.description);
+    await requestGuard.settle();
     assert.deepEqual(errors, [], 'No browser exceptions or real API / external requests');
     if (output) {
       await mkdir(output, {recursive:true});
@@ -114,9 +112,12 @@ try {
       }
     }
     await connection.call('Runtime.evaluate',{expression:'window.__finishReaderState()'});
+    await requestGuard.settle();
+    assert.deepEqual(errors, [], 'No browser exceptions or real API / external requests after reader cleanup');
     console.log(`PASS reader state ${width}px: ${result.result.value.checks} checks; shared exceptions, current/history, evidence jump, exact qualifications, safe record links`);
   }
 } finally {
+  requestGuard?.dispose();
   connection?.close(); if(browser) await browser.close();
   server.closeAllConnections(); await new Promise(done=>server.close(done));
 }
