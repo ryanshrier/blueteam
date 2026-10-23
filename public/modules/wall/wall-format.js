@@ -93,7 +93,28 @@ export function executiveTargetModel(value) {
 
 const ACTION_CONTEXT_PREFIX = /^(?:Condition|Dependencies|Initiation|Evidence\s*\/\s*artifact|Completion criterion|Recovery):\s*/i;
 
-function splitExecutiveDecisions(text) {
+function canonicalExecutiveClauses(value) {
+  const text = String(value || '').trim();
+  const clauses = [];
+  let start = 0;
+  // App-composed actions end with an explicit target. Internal semicolons and
+  // prose labels such as "... immediately. Dependencies:" stay with that action;
+  // they must not be interpreted by the permissive legacy Owner: grammar.
+  const targets = /(?:\s*[—–]\s*|\s+-\s+)recommended\s+target\s+([^;]+)(?:;\s*|$)/gi;
+  for (const match of text.matchAll(targets)) {
+    const end = match.index + match[0].length;
+    const clause = text.slice(start, end).replace(/;\s*$/, '').trim();
+    if (!/^([^;—–:\n]{1,100}?)(?:\s*[—–]\s*|\s+-\s+)(.+)$/.test(clause)
+      || !looksLikeDeadline(match[1])) return null;
+    clauses.push(clause);
+    start = end;
+  }
+  // Only select this path for a complete canonical sequence. Preserve all
+  // unfamiliar or archived text through the existing tolerant parser.
+  return clauses.length && !text.slice(start).trim() ? clauses : null;
+}
+
+function legacyExecutiveClauses(text) {
   const clauses = [];
   for (const fragment of String(text || '').split(/\s*;\s*/).map(value => value.trim()).filter(Boolean)) {
     // Canonical fallback summaries retain action context labels. They qualify
@@ -115,6 +136,11 @@ function splitExecutiveDecisions(text) {
     if (!clauses.length || newOwner || previousComplete) clauses.push(fragment);
     else clauses[clauses.length - 1] += `; ${fragment}`;
   }
+  return clauses;
+}
+
+function splitExecutiveDecisions(text) {
+  const clauses = canonicalExecutiveClauses(text) || legacyExecutiveClauses(text);
   return clauses.map(clause => {
     // The brief contract uses spaced em dashes, but archived/imported editions
     // also contain en dashes, unspaced typographic dashes, spaced hyphens, and

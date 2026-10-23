@@ -265,13 +265,18 @@ export function render(main) {
               <button type="button" data-export="json" disabled title="Download the currently filtered signals as JSON">JSON <small>Structured data</small></button>
             </div>
           </section>
-              <p class="wire-retention-note" id="wireDecisionStatus" role="status">Loading server decisions…</p>
-              <button type="button" class="btn-ghost" id="wireRefreshDecisions">Refresh decisions</button>
-              <button type="button" class="btn-ghost" id="wireSavedDecisions">Browse saved decisions and history</button>
-              <button type="button" class="btn-ghost" id="wireExportDecisions">Export server decisions (JSON)</button>
-              <button type="button" class="btn-ghost" id="wireExportBrowserDecisions">Export retained browser decisions (JSON)</button>
-              <button type="button" class="btn-ghost" id="wireImportDecisions">Import saved decisions (JSON)</button>
-              <input type="file" id="wireDecisionFile" accept="application/json,.json" hidden>
+              <section class="wire-decision-tools" aria-labelledby="wireDecisionHeading">
+                <p class="wire-export-label" id="wireDecisionHeading">Saved decisions</p>
+                <p class="wire-retention-note" id="wireDecisionStatus" role="status">Loading server decisions…</p>
+                <div class="wire-decision-actions">
+                  <button type="button" class="btn-ghost" id="wireRefreshDecisions">Refresh decisions</button>
+                  <button type="button" class="btn-ghost" id="wireSavedDecisions">Browse saved decisions and history</button>
+                  <button type="button" class="btn-ghost" id="wireExportDecisions">Export server decisions (JSON)</button>
+                  <button type="button" class="btn-ghost" id="wireExportBrowserDecisions">Export retained browser decisions (JSON)</button>
+                  <button type="button" class="btn-ghost" id="wireImportDecisions">Import saved decisions (JSON)</button>
+                </div>
+                <input type="file" id="wireDecisionFile" accept="application/json,.json" hidden>
+              </section>
             </div>
           </details>
         </div>

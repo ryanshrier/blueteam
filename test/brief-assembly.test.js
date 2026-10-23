@@ -3,6 +3,7 @@ import { assembleBrief } from '../lib/brief-assembly.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { validateBrief, publicationDecision } from '../lib/validation.js';
 import { BRIEF_EVALUATION_CASES, referenceBrief, EVAL_DATE } from './fixtures/brief-evaluation.js';
+import { sha256 } from '../lib/generation-manifest.js';
 
 const item = BRIEF_EVALUATION_CASES[0];
 const kevSet = new Set(['CVE-2026-12345']);
@@ -21,6 +22,8 @@ describe('shared brief assembly', () => {
     expect(result.content).toContain('CVE-2026-12345: FCEB remediation due 2026-09-19');
     expect(result.content).toContain('recommended target September 8, 2026');
     expect(result.content).not.toContain('[S1.1]');
+    expect(result.actionRecords.contentSha256).toBe(sha256(result.content));
+    expect(result.actionRecords.actions[0].owner).toBe('Operations');
     expect(assembleBrief(result.content, source).content).toBe(result.content);
     const checks = validateBrief(result.content, EVAL_DATE, source);
     expect(publicationDecision(checks).blockers).toEqual([]);

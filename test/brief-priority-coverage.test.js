@@ -2,7 +2,7 @@ import { describe, expect, test } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { buildPriorityCoverage, validatePriorityCoverage, formatPriorityCoverageInstructions,
-  PRIORITY_COVERAGE_MAX_ITEMS, PRIORITY_COVERAGE_REVIEW_CODES, PRIORITY_COVERAGE_NOTE_CODES } from '../lib/brief-coverage.js';
+  rebindCoverageDispositions, PRIORITY_COVERAGE_MAX_ITEMS, PRIORITY_COVERAGE_REVIEW_CODES, PRIORITY_COVERAGE_NOTE_CODES } from '../lib/brief-coverage.js';
 
 const headline = (overrides = {}) => ({
   title: 'Acme Gateway actively exploited through CVE-2026-1234',
@@ -136,6 +136,8 @@ describe('bounded priority event selection', () => {
     expect(prompt).not.toContain('<system>');
     expect(prompt).toContain('accounting limit alone does not require operator review');
     expect(prompt).toContain('A valid reasoned deferral records an editorial selection decision');
+    expect(prompt).toContain('Use section "watchlist" for a watchlist bullet and "developing" for a developing-situation entry.');
+    expect(prompt).toContain('You do not need to enumerate every CVE or create an action for each one');
     expect(prompt).not.toContain('Deferred events remain subject to editorial review');
     expect(formatPriorityCoverageInstructions(null)).toBe('');
   });
@@ -151,14 +153,16 @@ describe('verified priority dispositions', () => {
     const derived = validatePriorityCoverage(report(passage), state);
     expect(derived.issues).toEqual([]);
     expect(derived.notes).toEqual([]);
-    expect(derived.items).toEqual([{ ...covered(), basis: 'visible-citation', outcome: 'covered' }]);
+    expect(derived.items).toEqual([expect.objectContaining({ ...covered(), basis: 'visible-citation', outcome: 'covered',
+      associations: [{ section: 'judgment', index: 1, sourceIds: ['S1.1'], coveredCves: ['CVE-2026-1234'], identityBasis: 'cve' }],
+      coveredCves: ['CVE-2026-1234'], missingCves: [] })]);
     expect(validatePriorityCoverage('', { priorityCoverage: { ...state.priorityCoverage, items: [] }, dispositions: [] }).issues).toEqual([]);
   });
 
   test('validates one exact source in a specific real judgment', () => {
     const checked = validatePriorityCoverage(report(passage), { ...setup(), dispositions: [covered()] });
     expect(checked.issues).toEqual([]);
-    expect(checked.items).toEqual([{ ...covered(), outcome: 'covered' }]);
+    expect(checked.items).toEqual([expect.objectContaining({ ...covered(), outcome: 'covered' })]);
   });
 
   test('accepts a valid watchlist entry without requiring another judgment', () => {
@@ -236,7 +240,7 @@ describe('verified priority dispositions', () => {
     const checked = validatePriorityCoverage('', { ...setup(), dispositions: 'invented' });
     expect(checked.issues.every(issue => issue.severity === 'review' && PRIORITY_COVERAGE_REVIEW_CODES.includes(issue.code))).toBe(true);
     expect(checked.notes.every(note => note.severity === 'note' && PRIORITY_COVERAGE_NOTE_CODES.includes(note.code))).toBe(true);
-    expect(PRIORITY_COVERAGE_NOTE_CODES).toEqual(['PRIORITY_COVERAGE_OVERFLOW', 'PRIORITY_COVERAGE_DEFERRED', 'PRIORITY_EVIDENCE_DEFERRED', 'PRIORITY_COVERAGE_MISSING', 'PRIORITY_COVERAGE_INVALID']);
+    expect(PRIORITY_COVERAGE_NOTE_CODES).toEqual(['PRIORITY_COVERAGE_OVERFLOW', 'PRIORITY_COVERAGE_DEFERRED', 'PRIORITY_EVIDENCE_DEFERRED', 'PRIORITY_COVERAGE_MISSING', 'PRIORITY_COVERAGE_INVALID', 'PRIORITY_COVERAGE_PARTIAL']);
     expect(PRIORITY_COVERAGE_NOTE_CODES.some(code => PRIORITY_COVERAGE_REVIEW_CODES.includes(code))).toBe(false);
   });
 });
@@ -265,6 +269,121 @@ describe('retained October 21 generation — capacity does not imply missing cov
     expect(checked.issues).toEqual([]);
     expect(checked.items.some(item => item.basis === 'visible-citation')).toBe(true);
     expect(checked.notes.every(note => PRIORITY_COVERAGE_NOTE_CODES.includes(note.code))).toBe(true);
+  });
+});
+
+describe('version 3 coverage across report entries', () => {
+  const ids = ['CVE-2026-96652', 'CVE-2026-96654', 'CVE-2026-96655', 'CVE-2026-96656', 'CVE-2026-106931', 'CVE-2026-110936'];
+  const roundup = headline({ title: 'CISA adds six known exploited vulnerabilities',
+    description: `CISA has added six vulnerabilities to its known exploited vulnerabilities catalog: ${ids.join(', ')}. The affected products include Plex, SiteGuard and Siemens Software Center. Operators should verify deployment and evaluate vendor mitigations; catalog inclusion does not establish local compromise.`,
+    link: 'https://cisa.example/six-vulnerabilities' });
+  const state = setup([roundup]);
+  const citation = '[CISA](https://cisa.example/six-vulnerabilities)';
+  const splitReport = (first = ids.slice(0, 2), second = [ids[4]], third = []) => [
+    '## KEY JUDGMENTS', '### Signal 1 — Endpoint review', `Siemens Software Center ${third.join(', ')}. ${third.length ? citation : ''}`,
+    '## DEVELOPING SITUATIONS', '### Plex inventory triage', `Plex ${first.join(', ')} requires inventory verification. ${citation}`,
+    '### SiteGuard command injection', `SiteGuard ${second.join(', ')} has limited campaign detail. ${citation}`,
+  ].join('\n');
+
+  test('records a six-CVE roundup discussed in two developing entries as partial, not missing or fully covered', () => {
+    const result = validatePriorityCoverage(splitReport(), state);
+    expect(result.schemaVersion).toBe(3);
+    expect(result.issues).toEqual([]);
+    expect(result.items[0]).toMatchObject({ priorityId: 'P1', outcome: 'partial', basis: 'visible-citation',
+      coveredCves: [ids[0], ids[1], ids[4]], missingCves: [ids[2], ids[3], ids[5]],
+      associations: [
+        { section: 'developing', index: 1, sourceIds: ['S1.1'], coveredCves: [ids[0], ids[1]] },
+        { section: 'developing', index: 2, sourceIds: ['S1.1'], coveredCves: [ids[4]] },
+      ] });
+    expect(result.notes).toEqual([expect.objectContaining({ code: 'PRIORITY_COVERAGE_PARTIAL', severity: 'note',
+      location: { scope: 'document' }, coveredCves: [ids[0], ids[1], ids[4]], missingCves: [ids[2], ids[3], ids[5]] })]);
+    expect(result.diagnostics.outcomeCounts).toEqual({ covered: 0, partial: 1, missing: 0, deferred: 0, duplicate: 0, unsupported: 0 });
+  });
+
+  test('unions all six identities across judgments, developing entries and watchlist without requiring metadata', () => {
+    const brief = splitReport(ids.slice(0, 2), [ids[4]], [ids[5]])
+      + `\n## WATCHLIST — NEXT 72 HOURS\n- Plex ${ids[2]}, ${ids[3]}: watch for remediation guidance. ${citation}`;
+    const result = validatePriorityCoverage(brief, state);
+    expect(result.items[0]).toMatchObject({ outcome: 'covered', coveredCves: ids, missingCves: [] });
+    expect(result.items[0].associations.map(item => item.section)).toEqual(['judgment', 'watchlist', 'developing', 'developing']);
+    expect(result.notes).toEqual([]);
+    expect(result.issues).toEqual([]);
+  });
+
+  test('repeated discussions do not double-count a CVE or erase missing identities', () => {
+    const result = validatePriorityCoverage(splitReport([ids[0]], [ids[0]], [ids[0]]), state);
+    expect(result.items[0]).toMatchObject({ outcome: 'partial', coveredCves: [ids[0]], missingCves: ids.slice(1) });
+    expect(result.items[0].associations).toHaveLength(3);
+  });
+
+  test('valid explicit bindings can start in developing and are completed from other visible entries', () => {
+    const dispositions = [covered({ section: 'developing' })];
+    const partial = validatePriorityCoverage(splitReport(), { ...state, dispositions });
+    expect(partial.items[0]).toMatchObject({ status: 'covered', section: 'developing', index: 1, outcome: 'partial' });
+    expect(partial.issues).toEqual([]);
+    const complete = validatePriorityCoverage(splitReport(ids.slice(0, 4), [ids[4]], [ids[5]]), { ...state, dispositions });
+    expect(complete.items[0].outcome).toBe('covered');
+    expect(complete.notes).toEqual([]);
+    expect(rebindCoverageDispositions(splitReport(), `${splitReport()}\n## END\n`, dispositions)).toEqual(dispositions);
+    expect(rebindCoverageDispositions(splitReport(), splitReport([ids[0]]), dispositions)).toEqual([]);
+  });
+
+  test('exact citation and each identity must occur together in a real rendered entry', () => {
+    const brief = `## DEVELOPING SITUATIONS\n### Plex\nPlex ${ids.join(', ')}.\n### Links\n${citation}`;
+    const result = validatePriorityCoverage(brief, state);
+    expect(result.items[0].outcome).toBe('missing');
+    expect(result.issues).toEqual([]);
+    const claimed = validatePriorityCoverage(brief, { ...state, dispositions: [covered({ section: 'developing' })] });
+    expect(codes(claimed)).toEqual(['PRIORITY_COVERAGE_UNSUPPORTED']);
+  });
+
+  test.each([
+    ['fenced code', `\`\`\`md\n${splitReport()}\n\`\`\``],
+    ['citation labels', `## DEVELOPING SITUATIONS\n### Review\n[${ids.join(', ')}](https://cisa.example/six-vulnerabilities)`],
+    ['hidden HTML', `## DEVELOPING SITUATIONS\n### Review\n<span hidden>${ids.join(', ')}</span> ${citation}`],
+    ['comments', `## DEVELOPING SITUATIONS\n### Review\n<!-- ${ids.join(', ')} --> ${citation}`],
+  ])('does not count identity text in %s', (_, brief) => {
+    expect(validatePriorityCoverage(brief, state).items[0].outcome).toBe('missing');
+  });
+
+  test('visible inline code identities count, while an extended CVE identifier does not match a shorter one', () => {
+    const brief = `## DEVELOPING SITUATIONS\n### Inventory\nReview \`${ids[0]}\` and ${ids[1]}9. ${citation}`;
+    expect(validatePriorityCoverage(brief, state).items[0]).toMatchObject({ outcome: 'partial', coveredCves: [ids[0]] });
+  });
+
+  test('a cited source must itself retain the named identity, even when another source in the event contains it', () => {
+    const h = headline({ sourceMembers: [headline({ source: 'Second Publisher', link: 'https://second.example/report',
+      title: 'Acme Gateway separate issue', passage: headline().description.replaceAll('CVE-2026-1234', 'CVE-2026-5678') })] });
+    const splitState = setup([h]);
+    const checked = validatePriorityCoverage(report('CVE-2026-5678 needs inventory review. [Vendor](https://vendor.example/advisories/acme?id=1#details)'), splitState);
+    expect(checked.items[0].outcome).toBe('missing');
+    const valid = validatePriorityCoverage(report('CVE-2026-5678 needs inventory review. [Second Publisher](https://second.example/report)'), splitState);
+    expect(valid.items[0]).toMatchObject({ outcome: 'partial', coveredCves: ['CVE-2026-5678'], missingCves: ['CVE-2026-1234'] });
+  });
+
+  test('a shared CVE does not transfer coverage to a separate development with a different retained source', () => {
+    const events = setup([headline(), headline({ title: 'Acme Gateway new patch bypass for CVE-2026-1234', link: 'https://vendor.example/new-bypass' })]);
+    const result = validatePriorityCoverage(report(passage), events);
+    expect(result.items.map(item => item.outcome)).toEqual(['covered', 'missing']);
+    expect(result.notes).toEqual([expect.objectContaining({ code: 'PRIORITY_COVERAGE_MISSING', priorityId: 'P2' })]);
+    expect(result.issues).toEqual([]);
+  });
+
+  test('title discussion associates a multi-CVE event without claiming unseen identities are covered', () => {
+    const result = validatePriorityCoverage(report(`CISA has added exploited vulnerabilities to its catalog; assess applicability. ${citation}`), state);
+    expect(result.items[0]).toMatchObject({ outcome: 'partial', coveredCves: [], missingCves: ids });
+    expect(result.items[0].associations[0].identityBasis).toBe('title');
+  });
+
+  test.each([1, 2])('retains v%s unique-entry accounting instead of silently reclassifying archived checks', version => {
+    const legacy = { ...state, priorityCoverage: { ...state.priorityCoverage, schemaVersion: version } };
+    expect(validatePriorityCoverage(splitReport(), legacy).items[0].outcome).toBe('missing');
+    const repeated = report(`${ids[0]}. ${citation}`, `- ${ids[0]}. ${citation}`);
+    expect(validatePriorityCoverage(repeated, legacy).items[0].outcome).toBe('missing');
+    expect(validatePriorityCoverage(repeated, state).items[0].outcome).toBe('partial');
+    const one = validatePriorityCoverage(report(`${ids[0]}. ${citation}`), legacy);
+    expect(one.items[0].outcome).toBe('covered');
+    expect(one.items[0].associations).toBeUndefined();
   });
 });
 

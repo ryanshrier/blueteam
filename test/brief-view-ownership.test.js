@@ -86,7 +86,8 @@ beforeEach(() => {
     'briefGenerateInput', 'briefCopyLink', 'briefExport', 'briefHistory', 'briefSearch', 'genStatus', 'briefSrLive', 'briefAttemptStatus', 'briefLatestNotice',
     'briefAiDisclosure', 'briefGenerationMeta', 'briefPublicationState', 'briefReviewState']
     .map(id => [id, element()]));
-  global.document = { getElementById: id => elements.get(id) || elements.get('briefContent')?.querySelector(`#${id}`) || null, createElement: element, querySelectorAll: () => [] };
+  global.document = { getElementById: id => elements.get(id) || elements.get('briefContent')?.querySelector(`#${id}`) || null, createElement: element, querySelector: () => null, querySelectorAll: () => [],
+    addEventListener: jest.fn(), removeEventListener: jest.fn() };
   global.window = { location: { pathname: '/briefing', search: '', hash: '', origin: 'https://desk.example',
     get href() { return `${this.origin}${this.pathname}${this.search}${this.hash}`; },
   }, addEventListener: jest.fn(), scrollTo: jest.fn() };
@@ -427,6 +428,35 @@ test('closing Edition tools after Decision summary restores focus only when its 
   expect(summary.focus).not.toHaveBeenCalled();
 });
 
+test('Edition tools outside dismissal follows the current mount and stops on unmount', () => {
+  const listeners = new Map();
+  document.addEventListener = (name, handler) => {
+    if (!listeners.has(name)) listeners.set(name, new Set());
+    listeners.get(name).add(handler);
+  };
+  document.removeEventListener = (name, handler) => listeners.get(name)?.delete(handler);
+  const outsideClick = () => listeners.get('click')?.forEach(handler => handler({ target: {} }));
+  const first = { open: true, contains: () => false };
+  elements.set('briefEditionTools', first);
+  render(element());
+  outsideClick();
+  expect(first.open).toBe(false);
+
+  first.open = true;
+  const current = { open: true, contains: () => false };
+  elements.set('briefEditionTools', current);
+  render(element());
+  outsideClick();
+  expect(first.open).toBe(true);
+  expect(current.open).toBe(false);
+
+  current.open = true;
+  unmount();
+  outsideClick();
+  expect(current.open).toBe(true);
+  expect([...listeners.values()].every(handlers => handlers.size === 0)).toBe(true);
+});
+
 test('resuming a selected edition refreshes review status and avoids a newly excluded default', async () => {
   fetchBrief.mockResolvedValueOnce({ content: oldBrief().content,
     disposition: { status: 'review-required', eligibleForLatest: false } });
@@ -612,16 +642,15 @@ test('the first publication revision reconciles an archive response started befo
   expect(elements.get('briefHistory').innerHTML).toContain(completed().filename);
 });
 
-test('generation and draft controls are visible outside Edition tools', () => {
+test('generation stays visible while draft review belongs to Edition tools', () => {
   const main = element();
   render(main);
   const dom = parseDocument(main.innerHTML);
-  for (const id of ['briefGenerate', 'briefDrafts']) {
-    const node = DomUtils.findOne(item => item.attribs?.id === id, dom.children, true);
-    expect(node).toBeTruthy();
-    for (let parent = node.parent; parent; parent = parent.parent) expect(parent.name).not.toBe('details');
-  }
-  expect(main.innerHTML).toContain('Review drafts');
+  const generate = DomUtils.findOne(item => item.attribs?.id === 'briefGenerate', dom.children, true);
+  expect(generate).toBeTruthy();
+  for (let parent = generate.parent; parent; parent = parent.parent) expect(parent.name).not.toBe('details');
+  const tools = DomUtils.findOne(item => item.attribs?.id === 'briefEditionTools', dom.children, true);
+  expect(DomUtils.findOne(item => item.attribs?.id === 'briefDrafts', tools.children, true)).toBeTruthy();
 });
 
 test('returning after an off-view failure shows durable outcome and cost beside the unchanged saved edition', async () => {

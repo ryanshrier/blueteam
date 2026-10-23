@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "id": "bob-shell-v1",
+  "model": "cli-default",
+  "command": "bob",
+  "args": ["run", "--mode", "ask", "--format", "stream-json", "--workspace", "{workspace}"],
+  "input": { "transport": "stdin", "format": "transcript" },
+  "env_allow": ["BOB_API_KEY", "PATH", "SystemRoot"],
+  "env_required": ["BOB_API_KEY"],
+  "capabilities": {
+    "systemPrompt": false,
+    "conversation": false,
+    "outputTokenLimit": false,
+    "reasoningEffort": false,
+    "externalTools": false
+  },
+  "tools": {
+    "disabled_args": ["--disable-mcp", "--disable-subagents", "--disable-tool-groups", "read,edit,execute,mcp,skill,todo,subagent,mode"]
+  },
+  "output": {
+    "format": "ndjson",
+    "text": { "path": "last_message", "when": [{ "path": "type", "equals": "result" }], "mode": "final" },
+    "fail_on": [
+      { "when": [{ "path": "type", "equals": "tool_use" }], "reason": "CLI attempted a forbidden tool call." },
+      { "when": [{ "path": "type", "equals": "tool_result" }], "reason": "CLI returned a forbidden tool result." },
+      { "when": [{ "path": "type", "equals": "error" }], "reason": "CLI reported an error or resource limit." },
+      { "when": [{ "path": "type", "equals": "result" }, { "path": "status", "equals": "error" }], "reason": "CLI reported an unsuccessful terminal result." },
+      { "when": [{ "path": "stats.tool_calls", "exists": true }, { "path": "stats.tool_calls", "not_equals": 0 }], "reason": "CLI reported unexpected tool activity." }
+    ],
+    "done": [{ "when": [{ "path": "type", "equals": "result" }, { "path": "status", "equals": "success" }], "reason": "end_turn" }],
+    "usage": {
+      "input_tokens": "stats.input_tokens",
+      "output_tokens": "stats.output_tokens",
+      "cached_input_tokens": "stats.cache_read_tokens",
+      "cost": { "path": "stats.session_costs", "unit": "Bobcoins" }
+    }
+  },
+  "limits": { "silence_timeout_ms": 60000, "total_timeout_ms": 180000 },
+  "restarts": 0,
+  "health_args": ["--version"]
+}

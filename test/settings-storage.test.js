@@ -299,10 +299,10 @@ test('an Anthropic environment key does not lock OpenAI settings or verification
   fire('discardKey');
 });
 
-test('custom modules hide key controls, preserve typed drafts, and check status without submitting keys', async () => {
+test.each(['custom', 'cli'])('%s providers hide key controls, preserve typed drafts, and check status without submitting keys', async provider => {
   render(main); await flush();
   fill('apiKey', 'sk-ant-fixture');
-  nodes.get('#aiProvider').value = 'custom'; fire('aiProvider', 'change');
+  nodes.get('#aiProvider').value = provider; fire('aiProvider', 'change');
   expect(nodes.get('#keyInputWrap').hidden).toBe(true);
   expect(nodes.get('#apiKeyLabel').hidden).toBe(true);
   expect(nodes.get('#apiKey').disabled).toBe(true);
@@ -313,13 +313,28 @@ test('custom modules hide key controls, preserve typed drafts, and check status 
   expect(nodes.get('#verifyKey').disabled).toBe(false);
   verifyKey.mockResolvedValue({ valid: null, note: 'Module loaded; no health hook.', version: '1.0.0' });
   fire('verifyKey'); await flush();
-  expect(verifyKey).toHaveBeenCalledWith('', 'custom', undefined);
+  expect(verifyKey).toHaveBeenCalledWith('', provider, undefined);
   expect(nodes.get('#keyFeedback').textContent).toBe('Module loaded; no health hook. · 1.0.0');
   expect(saveSettings).not.toHaveBeenCalled();
   fire('saveKey'); await flush();
-  expect(saveSettings).toHaveBeenCalledWith({ aiProvider: 'custom' });
+  expect(saveSettings).toHaveBeenCalledWith({ aiProvider: provider });
   nodes.get('#aiProvider').value = 'anthropic'; fire('aiProvider', 'change');
   expect(nodes.get('#apiKey').value).toBe('sk-ant-fixture');
   expect(nodes.get('#keyInputWrap').hidden).toBe(false);
+  fire('discardKey');
+});
+
+test('CLI profile failures render as text and installed status does not imply authentication', async () => {
+  fetchSettings.mockResolvedValue({ ai: { provider: 'cli', enabled: false, error: 'Invalid <profile> configuration.',
+    providers: { cli: { enabled: false, error: 'Invalid <profile> configuration.' } } }, watchProfile: {}, briefSchedule: {} });
+  render(main); await flush();
+  expect(nodes.get('#aiStatus').textContent).toContain('Invalid <profile> configuration.');
+  expect(nodes.get('#aiStatus').innerHTML).toBe('');
+  expect(nodes.get('#keyHelp').innerHTML).toContain('AI_CLI_PROFILE');
+  expect(nodes.get('#verifyKey').title).toContain('authentication and generation readiness remain unverified');
+  verifyKey.mockResolvedValue({ valid: null, note: 'CLI installed; authentication and generation readiness are unverified.' });
+  fire('verifyKey'); await flush();
+  expect(nodes.get('#keyFeedback').textContent).toContain('unverified');
+  expect(nodes.get('#keyInputWrap').hidden).toBe(true);
   fire('discardKey');
 });

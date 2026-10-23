@@ -261,6 +261,8 @@ export async function runProductionSmoke() {
     assert.equal(await evaluate(independent, `document.querySelector('#wireInspector [name="note"]').value`), committed.decision.note);
 
     await navigate(first, '/briefing', '!!document.querySelector("#briefDrafts")');
+    await evaluate(first, `document.querySelector('#briefEditionTools > summary').click()`);
+    assert.equal(await evaluate(first, `document.querySelector('#briefDrafts').getBoundingClientRect().height >= 44`), true, 'Draft review is reachable inside Edition tools');
     await evaluate(first, `document.querySelector('#briefDrafts').click()`);
     await waitFor(first, `!!document.querySelector('[data-draft-id="${seed.artifact.id}"]')`);
     await evaluate(first, `document.querySelector('[data-draft-id="${seed.artifact.id}"]').click()`);
@@ -270,7 +272,9 @@ export async function runProductionSmoke() {
     // still performs all real checks and writes a verifiable archive/receipt.
     await evaluate(first, `document.querySelector('[data-draft-save]').click()`);
     await waitFor(first, 'document.querySelector(".draft-review-note")?.textContent.includes("Draft saved")', 'Draft saved on the production server');
-    await evaluate(first, `document.querySelector('[data-draft-close]').click(); document.querySelector('#briefDrafts').click()`);
+    await evaluate(first, `document.querySelector('[data-draft-close]').click()`);
+    assert.equal(await evaluate(first, `document.querySelector('#briefEditionTools').open && document.activeElement.id === 'briefDrafts'`), true, 'Closing draft review restores focus inside Edition tools');
+    await evaluate(first, `document.querySelector('#briefDrafts').click()`);
     await waitFor(first, `!!document.querySelector('[data-draft-id="${seed.artifact.id}"]')`);
     await evaluate(first, `document.querySelector('[data-draft-id="${seed.artifact.id}"]').click()`);
     await waitFor(first, '!!document.querySelector("#draftRepair")');

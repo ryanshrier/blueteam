@@ -75,3 +75,24 @@ test('toolbar export and filters dismiss on outside focus and Escape while prese
   cleanup();
   expect(handlers.size).toBe(0);
 });
+
+test.each(['focusin', 'click'])('toolbar disclosures preserve a dialog return target during outside %s', eventName => {
+  const handlers = new Map();
+  const opener = {};
+  const summary = { focus: jest.fn() };
+  const panel = { open: true, contains: node => node === opener, querySelector: () => summary };
+  let modal = { open: true };
+  const doc = { activeElement: opener, querySelector: () => modal,
+    addEventListener: (name, handler) => handlers.set(name, handler), removeEventListener: name => handlers.delete(name) };
+  const cleanup = bindDisclosureDismissal([panel], doc);
+  handlers.get(eventName)({ target: { name: 'Dialog control' } });
+  expect(panel.open).toBe(true);
+  expect(summary.focus).not.toHaveBeenCalled();
+
+  modal = null;
+  handlers.get('focusin')({ target: opener });
+  expect(panel.open).toBe(true);
+  handlers.get(eventName)({ target: { name: 'Another page control' } });
+  expect(panel.open).toBe(false);
+  cleanup();
+});

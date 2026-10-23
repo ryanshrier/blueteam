@@ -1,6 +1,6 @@
 // Editorial overview of a saved edition. Current reporting has its own clock
 // and request lifecycle; it never mutates the edition or its assessment times.
-import { parseBrief, judgmentCertainty, stripMd, sourceCitations, section } from '/vendor/brief-schema.js';
+import { parseBrief, parseBlufProse, judgmentCertainty, stripMd, sourceCitations, section } from '/vendor/brief-schema.js';
 import { escapeHtml } from '../core/sanitize.js';
 import { assessmentSources } from '../core/assessment-meta.js';
 import { formatBriefPublication, formatBriefPublishedAt, formatBriefLabel } from '../core/brief-date.js';
@@ -17,7 +17,7 @@ export function overviewModel(brief = {}) {
   // An entry must also match this parsed heading; never reuse a stale summary.
   const presentation = brief.review?.presentation?.status === 'reviewed' ? brief.review.presentation : null;
   return { ...parsed, preface, publication: formatBriefPublication(brief),
-    editionLead: presentation?.bluf || parsed.bluf,
+    editionLead: presentation?.bluf || parseBlufProse(content),
     judgments: parsed.stories.map((story, index) => {
       const edited = presentation?.judgments?.find(item => item.index === index && item.originalTitle === story.title);
       return { ...story, anchor: `judgment-${index + 1}`,
@@ -97,7 +97,7 @@ function judgment(story, featured = false, savedMetadata = null, filename = '', 
     ${featured ? '<p class="brief-overview-label">Featured story</p>' : ''}
     <h2 id="overview-${escapeHtml(story.anchor)}" tabindex="-1"><a data-overview-open href="${escapeHtml(reportHref(filename, story.anchor))}">${escapeHtml(story.displayTitle || story.title)}</a></h2>
     ${overviewPassage(story)}
-    ${limits.filter(issue => ![story.claim, story.certainty?.text, story.reviewedCondition, story.reviewedSummary].some(text => text?.includes(issue.message))).map(issue => `<p class="brief-evidence-limit" data-reader-issue-id="${escapeHtml(readerIssueIdentity(issue))}"><strong>Evidence limit:</strong> ${escapeHtml(issue.message)}</p>`).join('')}
+    ${limits.filter(issue => ![story.claim, story.certainty?.text, story.reviewedCondition, story.reviewedSummary].some(text => text?.includes(issue.message))).map(issue => `<p class="brief-evidence-limit" data-reader-issue-id="${escapeHtml(readerIssueIdentity(issue))}" data-reader-issue-ids="${escapeHtml(JSON.stringify(issue.readerIssueIds))}"><strong>Evidence limit:</strong> ${escapeHtml(issue.message)}</p>`).join('')}
     <div class="brief-overview-footer">${metadata(story, savedMetadata)}${reportLink(filename, story.anchor, 'Read assessment')}</div>
   </article>`;
 }
@@ -109,7 +109,7 @@ export function renderOverview(brief = {}, { judgmentMetadata = [], developingAn
     ${brief.review?.status === 'editorially-corrected' ? `<p class="brief-overview-review">Corrected edition · <a href="#edition-record" data-open-edition-record>See changes</a></p>` : ''}</div>
     ${model.preface ? `<p class="brief-overview-preface">${escapeHtml(model.preface)}</p>` : ''}
     <section class="brief-overview-edition-note" aria-label="Edition summary"><h2 class="brief-overview-label">${featured ? 'This edition' : 'Edition summary'}</h2><p>${escapeHtml(model.editionLead || 'No edition summary recorded.')}</p>
-      ${!featured ? metadata({ citations: model.blufSources }) : ''}${reportLink(brief.filename, '', 'Read full report')}</section>
+      ${model.blufSources.length || !featured ? metadata({ citations: model.blufSources }) : ''}${reportLink(brief.filename, '', 'Read full report')}</section>
     ${featured ? `<div class="brief-overview-front">${judgment(featured, true, judgmentMetadata[0], brief.filename, readerEvidenceLimits(brief, 1))}</div>` : ''}
     ${stories.length ? `<section class="brief-overview-more" aria-label="More stories from this edition"><h2 class="brief-overview-label">More in this edition</h2><div class="brief-overview-grid">${stories.map((story, index) => judgment(story, false, judgmentMetadata[index + 1], brief.filename, readerEvidenceLimits(brief, index + 2))).join('')}</div></section>` : ''}
     ${model.developing.length ? `<section class="brief-overview-watch" aria-label="Also watching from this edition"><h2>Also watching <span>From the saved edition</span></h2><ul>${model.developing.map(item => `<li><h3>${escapeHtml(item.displayTitle)}</h3>${item.summary ? `<p class="brief-overview-watch-summary">${escapeHtml(item.summary)}</p>` : ''}${item.condition ? `<p class="brief-overview-watch-condition"><span>Watch for</span> ${escapeHtml(item.condition)}</p>` : ''}</li>`).join('')}</ul>${reportLink(brief.filename, developingAnchor, 'Read watch criteria')}</section>` : ''}

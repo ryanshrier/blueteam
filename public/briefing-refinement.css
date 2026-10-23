@@ -1,5 +1,5 @@
 /* Reader-first Briefing. Management and audit detail stay available on demand. */
-.briefing-view { max-width: 1100px; }
+.briefing-view { max-width: var(--workspace-width); }
 .briefing-masthead { max-width: none; align-items: center; gap: 12px 20px; margin-bottom: 12px; }
 .briefing-masthead .view-title { font-size: 28px; }
 .brief-document-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 0 0 8px; border-bottom: 1px solid var(--border); }
@@ -40,10 +40,10 @@
 .brief-reader-nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--brand-text); font: 600 14px/1.4 var(--font-sans); text-decoration: none; border-radius: var(--radius-sm); }
 .brief-reader-nav a:hover { background: var(--brand-dim); }
 .brief-edition-tools { position: relative; flex: 0 0 auto; }
-.brief-edition-tools > summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-secondary); font: 600 14px/1.4 var(--font-sans); cursor: pointer; list-style: none; }
+.brief-edition-tools > summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border-control); border-radius: var(--radius-control); color: var(--text-secondary); font: 600 var(--type-control)/1.4 var(--font-sans); cursor: pointer; list-style: none; }
 .brief-edition-tools > summary::-webkit-details-marker { display: none; }
 .brief-edition-tools[open] { z-index: 45; }
-.brief-edition-tools[open] > summary { background: var(--wash-soft); }
+.brief-edition-tools[open] > summary { color: var(--brand-text); border-color: var(--brand-text); background: var(--brand-dim); }
 .brief-tools-panel { display: flex; flex-direction: column; gap: 12px; position: absolute; top: calc(100% + 8px); right: 0; width: min(340px, calc(100vw - 32px)); max-height: min(70vh, 560px); overflow: auto; padding: 16px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-md); }
 .brief-review-summary, .brief-review-note { border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; margin-bottom: 20px; background: var(--wash-soft); font: 13px/1.55 var(--font-sans); }
 .brief-review-summary p { margin: 4px 0; font: inherit; }
@@ -127,6 +127,8 @@
 .brief-input-dialog { width: min(820px, calc(100vw - 24px)); max-width: calc(100vw - 24px); box-sizing: border-box; max-height: calc(100dvh - 24px); padding: 0 24px 24px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-reading); color: var(--text-primary); overflow-y: auto; overflow-wrap: anywhere; font: 15px/1.65 var(--font-sans); }
 .brief-input-dialog::backdrop { background: var(--bg-overlay); }
 .brief-input-dialog > header { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; align-items: start; gap: 16px; padding-block: 20px 14px; border-bottom: 1px solid var(--border); background: var(--bg-reading); }
+.brief-input-dialog > header > div { min-width: 0; }
+.brief-input-dialog > header > button { flex-shrink: 0; white-space: nowrap; }
 .brief-input-dialog h2 { margin: 0; font-size: 22px; line-height: 1.3; }
 .brief-input-dialog header p { margin: 5px 0 0; color: var(--text-secondary); font-size: 13px; }
 .brief-input-dialog button { min-height: 44px; }
@@ -280,7 +282,7 @@
 /* Compact edition tools. */
 .brief-tools-panel :is(button, select) { min-height: 44px; }
 .brief-tools-panel .brief-toolbar-field { max-width: none; gap: 6px; }
-.brief-tools-panel .history-select { width: 100%; }
+.brief-tools-panel .history-select { width: 100%; background: var(--bg-input); border-color: var(--border-control); border-radius: var(--radius-control); font: 400 var(--type-control)/1.4 var(--font-sans); }
 .brief-tool-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .brief-tool-review, .brief-tools-panel #briefInputManifest { font: 13px/1.6 var(--font-sans); color: var(--text-secondary); margin: 0; }
 .brief-tools-panel .brief-generate-control { border-top: 1px solid var(--border); padding-top: 12px; }
@@ -298,7 +300,6 @@
 .brief-document-bar { gap: 6px; }
 .brief-operator-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
 .brief-operator-bar button { min-height: 44px; max-width: 100%; font-size: 13px; }
-.brief-operator-bar p { margin: 0 0 0 auto; color: var(--text-secondary); font: 12px/1.5 var(--font-sans); }
 .brief-latest-notice { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; margin: 10px 0; padding: 8px 12px; border-left: 2px solid var(--brand-text); background: var(--wash-soft); font: 13px/1.5 var(--font-sans); }
 .brief-latest-notice[hidden] { display: none; }
 .brief-historical-context { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; overflow-wrap: anywhere; }
@@ -306,12 +307,11 @@
 .brief-historical-context > p { color: var(--text-secondary); font: 13px/1.6 var(--font-sans); }
 .brief-latest-notice a { display: inline-flex; align-items: center; min-height: 44px; color: var(--brand-text); }
 @media (max-width: 600px) {
-  .brief-operator-bar { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
-  .brief-operator-bar button { padding-inline: 8px; white-space: normal; }
-  .brief-operator-bar p { grid-column: 1 / -1; margin: 0; }
+  .brief-operator-bar { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .brief-operator-bar button { justify-content: center; padding-inline: 8px; white-space: normal; }
 }
 .brief-document-bar button { border-radius: var(--radius-control); }
-.briefing-view .briefing-layout { max-width: none; gap: 24px; }
+.briefing-view .briefing-layout { max-width: 1100px; gap: 24px; }
 .briefing-view .brief-content { max-width: 744px; margin-inline: auto; }
 .briefing-view .brief-content p { color: var(--text-primary); }
 .briefing-view .brief-content .brief-judgment-card { padding-block: 24px; }
@@ -377,7 +377,6 @@
 .briefing-view .recoverable-draft-notice p { font-size: 16px; margin-bottom: 14px; }
 @media (max-width: 900px) {
   .briefing-view .briefing-layout { gap: 12px; }
-  .briefing-view .brief-content { max-width: none; }
   .draft-review-workspace { display: flex; flex-direction: column; gap: 10px; }
   .draft-working-document { flex: 1; }
   .draft-reference-panel { order: -1; flex: 0 0 auto; max-height: 30dvh; padding: 0; border-left: 0; border-bottom: 1px solid var(--border); }
@@ -476,10 +475,11 @@
 .brief-overview-story > h2 a { color: inherit; }
 .brief-overview-story > h2 a:hover { color: var(--brand-text); }
 .brief-overview-story > h2:focus { outline: 2px solid var(--brand-text); outline-offset: 6px; }
-.brief-overview-feature { max-width: 850px; padding-top: 0; border-top: 0; }
+.brief-overview-feature { max-width: 1100px; padding-top: 0; border-top: 0; }
 .brief-overview-feature > h2 { font-size: clamp(30px, 2.3vw, 34px); line-height: 1.18; letter-spacing: -.025em; text-wrap: balance; }
 .brief-overview p.brief-overview-claim { color: var(--text-primary); font: 16px/1.6 var(--font-sans); overflow-wrap: anywhere; }
 .brief-overview-feature p.brief-overview-claim { font-size: 18px; }
+.brief-overview-feature > :is(.brief-overview-claim, .brief-overview-qualification) { max-width: 80ch; }
 .brief-overview p.brief-overview-condition { margin-top: 10px; color: var(--text-secondary); font: 15px/1.6 var(--font-sans); overflow-wrap: anywhere; }
 .brief-overview p.brief-overview-qualification { margin-top: 12px; color: var(--text-secondary); font: 14px/1.6 var(--font-sans); overflow-wrap: anywhere; }
 .brief-overview-qualification > span { display: block; margin-bottom: 3px; font-weight: 600; }
@@ -531,3 +531,24 @@
   .brief-overview-open, .brief-overview-wire,
   .brief-overview-evidence > summary, .brief-overview-warnings > summary { min-height: 44px; }
 }
+
+/* A shared-width masthead keeps edition controls together above the reader. */
+.briefing-view .briefing-masthead { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, auto); align-items: start; gap: 16px 32px; margin-bottom: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.briefing-actions { min-width: 0; max-width: 100%; }
+.briefing-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: start; gap: 12px; }
+.briefing-actions .brief-operator-bar { margin: 0; }
+.briefing-actions .brief-document-bar { display: flex; padding: 0; border: 0; }
+.briefing-actions .brief-document-bar button { min-height: 44px; }
+.brief-generation-hint { margin: 8px 0 0; color: var(--text-secondary); text-align: right; font: 12px/1.5 var(--font-sans); }
+@media (max-width: 1100px) {
+  .briefing-view .briefing-masthead { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .briefing-controls { gap: 8px; }
+  .briefing-actions .brief-operator-bar { flex: 1 1 100%; }
+  .briefing-actions .brief-document-bar { flex: 1 1 auto; }
+  .briefing-actions .brief-document-bar button { flex: 1; }
+  .brief-generation-hint { text-align: left; }
+}
+.briefing-actions .brief-document-bar[hidden],
+.briefing-view--archive .briefing-actions .brief-document-bar { display: none; }

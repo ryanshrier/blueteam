@@ -49,6 +49,47 @@ function reporting(overrides = {}) {
 const assessmentCards = html => [...html.matchAll(/<article\b[^>]*>([\s\S]*?)<\/article>/g)].map(match => match[1]);
 
 describe('saved overview identity and authored meaning', () => {
+  test('moves trailing publisher/date citations into accessible Sources without losing inline link meaning', () => {
+    const bluf = 'Follow the [configuration-dependent mitigation](https://saved.example/mitigation) only if exposure is verified; exploitation reporting conflicts. [CCCS, 2026-10-23](https://saved.example/cisa) [Krebs on Security, 2026-10-21](https://saved.example/krebs) [The Register, 2026-10-21](https://saved.example/register)';
+    const brief = { ...SAVED_BRIEF, content: SAVED_BRIEF.content.replace("The saved edition concerns the fictional gateway, not today's newest report.", bluf) };
+    const before = brief.content;
+    const model = overviewModel(brief);
+    expect(model.editionLead).toBe('Follow the configuration-dependent mitigation only if exposure is verified; exploitation reporting conflicts.');
+    const html = renderOverview(brief);
+    const summary = /<section class="brief-overview-edition-note"[^]*?<\/section>/.exec(html)[0];
+    expect(summary).toContain(`<p>${model.editionLead}</p>`);
+    expect(summary).toContain('<summary>Sources <span>4</span></summary>');
+    for (const [label, path] of [['configuration-dependent mitigation', 'mitigation'], ['CCCS, 2026-10-23', 'cisa'], ['Krebs on Security, 2026-10-21', 'krebs'], ['The Register, 2026-10-21', 'register']]) {
+      expect(summary).toContain(`href="https://saved.example/${path}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+    }
+    expect(brief.content).toBe(before);
+  });
+
+  test.each([
+    ['[CCCS, 2026-10-23](https://saved.example/advisory) says deployment remains unverified.', 'CCCS, 2026-10-23 says deployment remains unverified.'],
+    ['The assessment remains conditional on [the affected configuration](https://saved.example/configuration).', 'The assessment remains conditional on the affected configuration.'],
+    ['The assessment comes from [CCCS, 2026-10-23](https://saved.example/advisory)', 'The assessment comes from CCCS, 2026-10-23'],
+    ['A patch exists. [CCCS, 2026-10-23](https://saved.example/advisory) Deployment remains unverified.', 'A patch exists. CCCS, 2026-10-23 Deployment remains unverified.'],
+  ])('preserves semantic link prose and source qualifications: %s', (bluf, expected) => {
+    const brief = { ...SAVED_BRIEF, content: SAVED_BRIEF.content.replace("The saved edition concerns the fictional gateway, not today's newest report.", bluf) };
+    expect(overviewModel(brief).editionLead).toBe(expected);
+  });
+
+  test('shows one repeated claim limit per signal and retains its grouped source identities for print', () => {
+    const lines = SAVED_BRIEF.content.split('\n');
+    const assessment = lines.findIndex(line => line.startsWith('**Assessment:')) + 1;
+    const happened = lines.findIndex(line => line.startsWith('**What happened:')) + 1;
+    const issue = { code: 'CVE_CVSS_AMBIGUOUS', audience: 'reader', consequence: 'note', message: 'A score lacks an unambiguous CVE association.' };
+    const html = renderOverview({ ...SAVED_BRIEF, presentation: { schemaVersion: 1, currentChecks: { issues: [
+      { ...issue, location: { scope: 'paragraph', line: assessment } },
+      { ...issue, location: { scope: 'paragraph', line: happened } },
+    ] } } });
+    expect(html.match(/<strong>Evidence limit:<\/strong> A score lacks an unambiguous CVE association\./g)).toHaveLength(1);
+    expect(html).toContain('data-reader-issue-ids=');
+    const group = /data-reader-issue-ids="([^"]+)"/.exec(html)[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+    expect(JSON.parse(group).map(value => JSON.parse(value)[2])).toEqual([assessment, happened]);
+  });
+
   test('uses only verified presentation entries that match the current authored heading, retaining the full qualification', () => {
     const originalTitle = overviewModel(SAVED_BRIEF).judgments[0].title;
     const presentation = { status: 'reviewed', judgments: [{ index: 0, originalTitle, title: 'Reviewed display title', summary: 'Reviewed short summary.', condition: 'Only if this build is deployed.' }] };

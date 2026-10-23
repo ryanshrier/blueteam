@@ -33,7 +33,7 @@ export function render(main) {
     <div class="settings">
       <header class="settings-head">
         <h1 class="view-title">Settings</h1>
-        <p class="settings-sub">Server configuration and your reading preferences.</p>
+        <p class="view-sub">Server configuration and your reading preferences.</p>
       </header>
       <nav class="settings-index" aria-label="Settings sections">
           <label class="settings-section-picker">Section<select id="settingsSection" aria-label="Settings section"><option value="set-profile">Watch profile</option><option value="set-ai">AI Briefing</option><option value="set-schedule">Schedule</option><option value="set-wall">Wall display</option><option value="set-theme">Appearance</option><option value="systemHealth">System health</option></select></label>
@@ -51,29 +51,29 @@ export function render(main) {
         <p class="settings-note">Follow technologies and topics in Wire. A match indicates interest; check applicability to establish exposure.</p>
         <div class="settings-status" id="profileStatus" data-state="loading" role="status" aria-live="polite">Loading your profile…</div>
         <div class="settings-field-heading"><label class="settings-label" for="profileTechnologies">Technologies and watch terms</label><span class="settings-counter" id="profileTermCount">0 / 25 terms</span></div>
-        <textarea id="profileTechnologies" class="settings-input settings-textarea" rows="3" placeholder="Fortinet&#10;Microsoft 365&#10;C++" aria-describedby="profileTermsHelp" disabled></textarea>
+        <textarea id="profileTechnologies" class="settings-input settings-textarea" rows="3" placeholder="Fortinet&#10;Microsoft 365&#10;C++" aria-describedby="profileTermsHelp profileTermCount" disabled></textarea>
         <p class="settings-help" id="profileTermsHelp">One term per line · 64 characters per term.</p>
         <div class="profile-grid">
-          <label><span class="settings-label">Sectors</span><textarea id="profileSectors" class="settings-input settings-textarea" rows="2" placeholder="Healthcare" disabled></textarea></label>
-          <label><span class="settings-label">Operating regions</span><textarea id="profileRegions" class="settings-input settings-textarea" rows="2" placeholder="North America&#10;Europe" disabled></textarea></label>
+          <label><span class="settings-label">Sectors</span><textarea id="profileSectors" class="settings-input settings-textarea" rows="2" placeholder="Healthcare" aria-describedby="profileScopeHelp" disabled></textarea></label>
+          <label><span class="settings-label">Operating regions</span><textarea id="profileRegions" class="settings-input settings-textarea" rows="2" placeholder="North America&#10;Europe" aria-describedby="profileScopeHelp" disabled></textarea></label>
         </div>
-        <p class="settings-help">One per line: up to 20 sectors or 100 regions; 128 characters each.</p>
+        <p class="settings-help" id="profileScopeHelp">One per line: up to 20 sectors or 100 regions; 128 characters each.</p>
         <details class="profile-details">
           <summary>Questions, exclusions, and analytical horizons</summary>
           <label class="settings-label" for="profileQuestions">Intelligence questions and topics</label>
-          <textarea id="profileQuestions" class="settings-input settings-textarea" rows="3" placeholder="Has the vendor changed the affected versions?" disabled></textarea>
-          <p class="settings-help">Up to 100 questions, 300 characters each. Guides Briefing and matches related Wire reporting by text overlap. Question relevance does not establish local exposure.</p>
+          <textarea id="profileQuestions" class="settings-input settings-textarea" rows="3" placeholder="Has the vendor changed the affected versions?" aria-describedby="profileQuestionsHelp" disabled></textarea>
+          <p class="settings-help" id="profileQuestionsHelp">Up to 100 questions, 300 characters each. Guides Briefing and matches related Wire reporting by text overlap. Question relevance does not establish local exposure.</p>
           <label class="settings-label" for="profileExclusions">Lower-interest topics</label>
-          <textarea id="profileExclusions" class="settings-input settings-textarea" rows="2" placeholder="Product marketing" disabled></textarea>
-          <p class="settings-help">One per line, up to 25. Exclusions are advisory: Wire keeps matching reporting visible, and urgent threats remain eligible.</p>
-          <fieldset class="profile-horizons" id="profileHorizons" tabindex="-1"><legend class="settings-label">Preferred analytical horizons</legend>
+          <textarea id="profileExclusions" class="settings-input settings-textarea" rows="2" placeholder="Product marketing" aria-describedby="profileExclusionsHelp" disabled></textarea>
+          <p class="settings-help" id="profileExclusionsHelp">One per line, up to 25. Exclusions are advisory: Wire keeps matching reporting visible, and urgent threats remain eligible.</p>
+          <fieldset class="profile-horizons" id="profileHorizons" tabindex="-1" aria-describedby="profileHorizonsHelp"><legend class="settings-label">Preferred analytical horizons</legend>
             <label><input type="checkbox" data-profile-horizon="1" disabled> Tactical</label>
             <label><input type="checkbox" data-profile-horizon="2" disabled> Operational</label>
             <label><input type="checkbox" data-profile-horizon="3" disabled> Strategic</label>
           </fieldset>
-          <p class="settings-help">Optional relevance preferences. All horizons remain visible; analytical horizon is separate from urgency.</p>
+          <p class="settings-help" id="profileHorizonsHelp">Optional relevance preferences. All horizons remain visible; analytical horizon is separate from urgency.</p>
           <label class="settings-label" for="profileTeam">Team context</label>
-          <textarea id="profileTeam" class="settings-input settings-textarea" rows="3" maxlength="512" placeholder="Mid-size security team supporting a hybrid estate" disabled></textarea>
+          <textarea id="profileTeam" class="settings-input settings-textarea" rows="3" maxlength="512" placeholder="Mid-size security team supporting a hybrid estate" aria-describedby="profileTeamCount" disabled></textarea>
           <p class="settings-counter" id="profileTeamCount">0 / 512 characters</p>
         </details>
         <div class="settings-row-actions">
@@ -94,7 +94,7 @@ export function render(main) {
         <p class="settings-note">Choose a provider for generation. Generation and key verification may incur charges. Custom modules manage their own connection; Check status runs their health hook. Wall and Wire work without a key.</p>
         <div class="settings-status" id="aiStatus" data-state="loading" role="status" aria-live="polite">Checking…</div>
         <div class="profile-grid ai-provider-fields">
-          <div><label class="settings-label" for="aiProvider">Provider</label><select id="aiProvider" class="settings-input" disabled><option value="anthropic">Anthropic</option><option value="openai">OpenAI (Codex)</option><option value="custom">Custom (local module) · Experimental</option></select></div>
+          <div><label class="settings-label" for="aiProvider">Provider</label><select id="aiProvider" class="settings-input" disabled><option value="anthropic">Anthropic</option><option value="openai">OpenAI (Codex)</option><option value="cli">CLI (JSON profile) · Experimental</option><option value="custom">Custom (local module) · Experimental</option></select></div>
           <div id="openaiModelRow" hidden><label class="settings-label" for="openaiModel">OpenAI model</label><input id="openaiModel" class="settings-input" maxlength="128" spellcheck="false" placeholder="gpt-5.3-codex" disabled><p class="settings-help">A Responses API model available to your OpenAI account. Uses API billing.</p></div>
         </div>
         <label class="settings-label" id="apiKeyLabel" for="apiKey">Anthropic API key</label>
@@ -118,7 +118,7 @@ export function render(main) {
           <span class="settings-feedback" id="keyFeedback" role="status" aria-live="polite"></span>
         </div>
         <div class="key-remove-confirm" id="keyRemoveConfirm" hidden role="group" aria-labelledby="keyRemoveMessage"><p id="keyRemoveMessage">Remove the saved key? New Briefings will be unavailable until a key is added. Saved Briefings remain readable.</p><button class="btn-ghost-sm destructive armed" id="confirmRemoveKey" type="button">Remove saved key</button><button class="btn-ghost-sm" id="cancelRemoveKey" type="button">Cancel</button></div>
-        <details class="profile-details"><summary>Storage and network details</summary><p class="settings-help">The key is saved in <code>data/settings.local.json</code> (gitignored). Generation sends prompts to the selected provider and reports model, tokens, and estimated cost. Source collection and optional webhooks have separate <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md#network-behavior" target="_blank" rel="noopener noreferrer">documented outbound paths</a>.</p></details>
+        <details class="profile-details"><summary>Storage and network details</summary><p class="settings-help">Keys entered here are saved in <code>data/settings.local.json</code> (gitignored). CLI and custom provider credentials stay in the server environment. Generation sends prompts to the selected provider and reports available model, token, and cost information. Source collection and optional webhooks have separate <a href="https://github.com/ryanshrier/blueteam/blob/main/docs/operations.md#network-behavior" target="_blank" rel="noopener noreferrer">documented outbound paths</a>.</p></details>
       </section>
 
       <section class="settings-card" aria-labelledby="set-schedule">
@@ -246,7 +246,8 @@ export function render(main) {
   providerEl.value = drafts.get('aiProvider') || 'anthropic';
   modelEl.value = drafts.get('openaiModel') || 'gpt-5.3-codex';
   const provider = () => providerEl.value;
-  const keyDraft = () => provider() === 'custom' ? null : provider() === 'openai' ? 'openaiKey' : 'key';
+  const environmentProvider = () => ['custom', 'cli'].includes(provider());
+  const keyDraft = () => environmentProvider() ? null : provider() === 'openai' ? 'openaiKey' : 'key';
   const providerStatus = () => activeAi?.providers?.[provider()]
     || (provider() === (activeAi?.provider || 'anthropic') ? activeAi : null);
   const plausibleKey = value => provider() === 'openai' ? /^sk-(?!ant-)[A-Za-z0-9_-]+$/.test(value) : /^sk-ant-[A-Za-z0-9_-]+$/.test(value);
@@ -254,8 +255,8 @@ export function render(main) {
   input.value = drafts.get(keyDraft()) || '';
 
   function syncKeyControls() {
-    const custom = provider() === 'custom';
-    const envManaged = custom || providerStatus()?.keySource === 'env';
+    const local = environmentProvider();
+    const envManaged = local || providerStatus()?.keySource === 'env';
     const changed = provider() !== (activeAi?.provider || 'anthropic')
       || (provider() === 'openai' && modelEl.value.trim() !== (activeAi?.providers?.openai?.model || 'gpt-5.3-codex'));
     providerEl.disabled = modelEl.disabled = !canEdit || keyBusy;
@@ -264,8 +265,8 @@ export function render(main) {
       || (!envManaged && Boolean(input.value.trim()) && !plausibleKey(input.value.trim()))
       || !(changed || (!envManaged && input.value.trim()));
     verifyBtn.disabled = !canEdit || !activeAi || keyBusy || !modelValid()
-      || (!custom && !input.value.trim() && !providerStatus()?.enabled);
-    if (!keyBusy) verifyBtn.textContent = custom ? 'Check status' : input.value.trim() && !envManaged ? 'Verify entered key' : 'Verify saved key';
+      || (!local && !input.value.trim() && !providerStatus()?.enabled);
+    if (!keyBusy) verifyBtn.textContent = local ? 'Check status' : input.value.trim() && !envManaged ? 'Verify entered key' : 'Verify saved key';
     clearBtn.disabled = !canEdit || envManaged || !providerStatus()?.enabled || keyBusy;
     confirmRemove.disabled = clearBtn.disabled;
     discardKey.hidden = !input.value && !changed;
@@ -289,25 +290,32 @@ export function render(main) {
   function paintProvider() {
     const openai = provider() === 'openai';
     const custom = provider() === 'custom';
+    const cli = provider() === 'cli';
+    const local = environmentProvider();
     const selected = providerStatus();
     main.querySelector('#openaiModelRow').hidden = !openai;
-    main.querySelector('#keyInputWrap').hidden = main.querySelector('#apiKeyLabel').hidden = clearBtn.hidden = custom;
-    verifyBtn.title = custom ? 'Check the local module status without generating a briefing' : 'Make one tiny test call to confirm the key works';
+    main.querySelector('#keyInputWrap').hidden = main.querySelector('#apiKeyLabel').hidden = clearBtn.hidden = local;
+    verifyBtn.title = cli ? 'Check CLI installation; authentication and generation readiness remain unverified'
+      : custom ? 'Check the local module status without generating a briefing' : 'Make one tiny test call to confirm the key works';
     main.querySelector('#apiKeyLabel').textContent = openai ? 'OpenAI API key' : 'Anthropic API key';
     input.placeholder = openai ? 'sk-…' : 'sk-ant-…';
-    main.querySelector('#keyHelp').innerHTML = custom
+    main.querySelector('#keyHelp').innerHTML = cli
+      ? 'Configure a trusted JSON profile with <code>AI_CLI_PROFILE=./local/assistant.json</code> and supply its required credentials in the server environment, then restart. This check only confirms installation. Keys are never entered or saved here.'
+      : custom
       ? 'Experimental provider support. Configure the module and credentials in the server environment. Set <code>AI_PROVIDER_MODULE=./local/generic-provider.js</code> and restart. Keys are never entered or saved here.'
       : openai
       ? 'Use an <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI API key</a>. A ChatGPT or Codex subscription login is separate. Both providers’ saved keys are retained when switching.'
       : 'Use an <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic API key</a>. Both providers’ saved keys are retained when switching.';
     main.querySelector('#keyRemoveMessage').textContent = `Remove the saved ${openai ? 'OpenAI' : 'Anthropic'} key? Generation using this provider will be unavailable. Saved Briefings remain readable.`;
     statusEl.dataset.state = activeAi?.enabled ? 'on' : 'off';
-    const activeLabel = activeAi?.provider === 'custom' ? 'Custom (local module) · Experimental' : activeAi?.provider === 'openai' ? 'OpenAI' : 'Anthropic';
+    const activeLabel = activeAi?.provider === 'cli' ? 'CLI (JSON profile) · Experimental'
+      : activeAi?.provider === 'custom' ? 'Custom (local module) · Experimental' : activeAi?.provider === 'openai' ? 'OpenAI' : 'Anthropic';
     statusEl.textContent = !activeAi ? 'Status unavailable.'
       : `Briefing ${activeAi.enabled ? 'enabled' : 'disabled'} · ${activeLabel}${activeAi.model ? ` · ${activeAi.model}` : ''}. `
-        + (custom ? selected?.enabled ? 'Local module loaded.' : 'Local module is not ready. Check status for details.'
+        + (cli ? selected?.enabled ? 'CLI profile loaded. Authentication and generation readiness are unverified.' : selected?.error || 'CLI profile is not ready. Check status for details.'
+          : custom ? selected?.enabled ? 'Local module loaded.' : 'Local module is not ready. Check status for details.'
           : selected?.enabled ? `Selected provider key ${selected.keyMasked || ''} ${selected.keySource === 'env' ? 'from .env' : 'saved'}.` : 'No key for the selected provider.');
-    setFeedback(!custom && selected?.keySource === 'env' ? 'This provider’s environment key takes precedence. Edit .env and restart to change it.' : '', { sticky: true });
+    setFeedback(!local && selected?.keySource === 'env' ? 'This provider’s environment key takes precedence. Edit .env and restart to change it.' : '', { sticky: true });
     disarmClear();
     syncKeyControls();
   }
@@ -347,7 +355,7 @@ export function render(main) {
     const patch = remove ? { [field]: '' } : {
       aiProvider: selected,
       ...(selected === 'openai' ? { openaiModel: model } : {}),
-      ...(selected !== 'custom' && value && providerStatus()?.keySource !== 'env' ? { [field]: value } : {}),
+      ...(!environmentProvider() && value && providerStatus()?.keySource !== 'env' ? { [field]: value } : {}),
     };
     keyBusy = true;
     syncKeyControls();
@@ -401,23 +409,24 @@ export function render(main) {
   confirmRemove.addEventListener('click', () => { if (!clearBtn.disabled) { disarmClear(); void save(true); } });
   discardKey.addEventListener('click', () => {
     for (const name of ['key', 'openaiKey', 'aiProvider', 'openaiModel']) drafts.set(name, null);
-    syncReveal(false); paintStatus(activeAi); (provider() === 'custom' ? providerEl : input).focus();
+    syncReveal(false); paintStatus(activeAi); (environmentProvider() ? providerEl : input).focus();
   });
 
   verifyBtn.addEventListener('click', async () => {
     if (!canEdit || keyBusy || verifyBtn.disabled) return;
-    const custom = provider() === 'custom';
-    const candidate = custom || providerStatus()?.keySource === 'env' ? '' : input.value.trim();
+    const local = environmentProvider();
+    const cli = provider() === 'cli';
+    const candidate = local || providerStatus()?.keySource === 'env' ? '' : input.value.trim();
     if (candidate && !plausibleKey(candidate)) { validateKeyInput(); return; }
     keyBusy = true;
     syncKeyControls();
-    verifyBtn.textContent = custom ? 'Checking…' : 'Verifying…';
-    setFeedback(custom ? 'Checking module status…' : 'Verifying key and model…', { sticky: true });
+    verifyBtn.textContent = local ? 'Checking…' : 'Verifying…';
+    setFeedback(cli ? 'Checking CLI installation…' : local ? 'Checking module status…' : 'Verifying key and model…', { sticky: true });
     try {
       const r = await verifyKey(candidate, provider(), provider() === 'openai' ? modelEl.value.trim() : undefined);
       if (!ownsView()) return;
-      if (custom) {
-        setFeedback(`${r.error || r.note || (r.valid === true ? 'Module is ready.' : 'Module health could not be verified.')}${r.version ? ` · ${r.version}` : ''}`, { sticky: true });
+      if (local) {
+        setFeedback(`${r.error || r.note || (cli ? 'Authentication and generation readiness are unverified.' : r.valid === true ? 'Module is ready.' : 'Module health could not be verified.')}${r.version ? ` · ${r.version}` : ''}`, { sticky: true });
       } else if (r.valid === true) {
         verifiedCandidate = candidate || null;
         setFeedback(`${candidate ? 'Entered key verified; save to activate it.' : 'Saved key verified.'}${r.note ? ` — ${r.note}` : ''}`, { sticky: Boolean(candidate) });

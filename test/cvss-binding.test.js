@@ -67,12 +67,19 @@ describe('soft wrapping retains explicit metric associations', () => {
   test.each(['\n\n', '\n**Assessment:** ', '\nAssessment: ', '\n- ', '\n### Separate issue\n', '\n---\n', '\n| '])('a hard boundary cannot supply another metric subject: %j', boundary => {
     expect(pairs(`${a} affects gateways${boundary}CVSS v3.1 9.8. ${b} affects consoles.`)[0].cve).toBeNull();
   });
-  test('the whole-document metric check preserves fields, paragraphs and judgments', () => {
-    const unbound = `${a} affects gateways.\n\nCVSS v3.1 9.8. ${b} affects consoles.`;
-    expect(audit(unbound, { field: 'Assessment' }).map(issue => issue.code))
-      .toEqual(expect.arrayContaining(['CVE_CVSS_AMBIGUOUS', 'FACT_CVSS_ASSOCIATION_UNVERIFIED']));
-    expect(audit(`${a} affects gateways.\n**Defender impact:** CVSS v3.1 9.8. ${b} affects consoles.`, { field: 'Assessment' }).map(issue => issue.code))
-      .toEqual(expect.arrayContaining(['CVE_CVSS_AMBIGUOUS', 'FACT_CVSS_ASSOCIATION_UNVERIFIED']));
+  test('field and paragraph boundaries retain one detailed association finding per unbound metric', () => {
+    for (const [claim, line] of [
+      [`${a} affects gateways.\n\nCVSS v3.1 9.8. ${b} affects consoles.`, 7],
+      [`${a} affects gateways.\n**Defender impact:** CVSS v3.1 9.8. ${b} affects consoles.`, 6],
+    ]) {
+      const issues = audit(claim, { field: 'Assessment' });
+      // The whole-document pass no longer duplicates the detailed judgment
+      // finding, which still identifies the actual metric and its source.
+      expect(issues).toEqual([expect.objectContaining({ code: 'CVE_CVSS_AMBIGUOUS',
+        sourceIds: ['S1.1'], message: expect.stringContaining('CVSS v3.1 9.8'),
+        location: expect.objectContaining({ scope: 'paragraph', line, excerpt: expect.stringContaining('CVSS v3.1 9.8') }),
+      })]);
+    }
   });
   test('paragraph grouping preserves physical starting lines and plain headings', () => {
     const text = `## KEY JUDGMENTS\n### Signal 1 — ${a}\n**Assessment:** ${a} (SSRF;\nCVSS v3.1 5.0).\n**What happened:** Update.\n\n### Signal 2 — ${b}\nCVSS v3.1 9.8.`;

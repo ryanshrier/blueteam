@@ -379,6 +379,15 @@ describe('edition print contract', () => {
     expect(additional).toContain(bodyHtml);
     expect(additional.match(/Affected builds remain uncertain\./g)).toHaveLength(2);
     expect(additional).toContain('<li>The saved receipt cannot be verified.</li>');
+    const groupedIds = renderedReaderIssueIds({ querySelectorAll: () => [
+      { dataset: { readerIssueId: identity, readerIssueIds: JSON.stringify([identity, readerIssueIdentity(sameWordsElsewhere)]) } },
+      { dataset: { readerIssueId: identity, readerIssueIds: '{malformed' } },
+    ] });
+    expect(groupedIds).toEqual([identity, readerIssueIdentity(sameWordsElsewhere)]);
+    const grouped = buildDocument({ ...input, renderedIssueIds: groupedIds,
+      presentation: { currentChecks: { issues: [inline, sameWordsElsewhere, global] } } });
+    expect(grouped.match(/Affected builds remain uncertain\./g)).toHaveLength(1);
+    expect(grouped).toContain('<li>The saved receipt cannot be verified.</li>');
   });
 
   test('corrected print copies retain correction identity and meaningful annotations without printing historical failures', () => {

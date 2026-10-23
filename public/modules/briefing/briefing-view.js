@@ -4,6 +4,7 @@ import { getState, setState, on, emit } from '../core/store.js';
 import { escapeHtml, sanitizeSearchSnippet } from '../core/sanitize.js';
 import { renderDraftMarkdown, renderMarkdown } from '../core/markdown.js';
 import { showToast } from '../core/toast.js';
+import { bindDisclosureDismissal } from '../core/disclosure.js';
 import { applySemanticStyling, extractSections, decisionCardContent, decisionCopyText } from './brief-renderer.js';
 import * as briefRenderer from './brief-renderer.js';
 import { exportBriefNewspaper } from './brief-export.js';
@@ -44,6 +45,7 @@ let latestFilename = null;
 let historyRequest = 0;
 let readingMode = 'overview';
 let stopRecentDevelopments = null;
+let stopEditionToolsDismissal = null;
 try { const saved = localStorage.getItem('briefing.readingMode'); if (['overview', 'scan', 'read'].includes(saved)) readingMode = saved === 'scan' ? 'read' : saved; } catch { /* browser storage is optional */ }
 
 export function briefGenerateModel({ enabled, known, loading, generating, accounting }) {
@@ -222,6 +224,8 @@ export function generationErrorMessage({ message, code }) {
 }
 
 export function render(main) {
+  stopEditionToolsDismissal?.();
+  stopEditionToolsDismissal = null;
   main.innerHTML = `
     <div class="briefing-view">
       <div class="brief-progress" id="briefProgress" aria-hidden="true"></div>
@@ -231,39 +235,45 @@ export function render(main) {
           <p class="view-sub" id="briefMeta"></p>
         </div>
         <span class="sr-only" id="briefSrLive" aria-live="polite"></span>
-        <details class="brief-edition-tools" id="briefEditionTools">
-          <summary>Edition tools <span aria-hidden="true">⌄</span></summary>
-          <div class="brief-tools-panel">
-            <div class="brief-tools-heading"><strong>Edition tools</strong><button type="button" class="btn-ghost" id="briefToolsClose" data-close-edition-tools>Close</button></div>
-            <section class="brief-tools-group" aria-label="Browse editions">
-            <nav class="brief-reader-nav" aria-label="Briefing navigation"><a data-brief-route href="/briefing?latest=1">Latest</a><a data-brief-route href="/briefing?archive=1">Archive</a></nav>
-            <label class="brief-toolbar-field">Edition
-              <select class="history-select" id="briefHistory"><option value="">Choose edition</option></select>
-            </label>
-            </section>
-            <section class="brief-tools-group" aria-label="Share and inspect">
-            <p class="brief-tools-label">Share and inspect</p>
-            <div class="brief-tool-actions">
-              <button class="btn-ghost brief-copylink-btn" id="briefCopyLink" type="button" aria-label="Copy link to this briefing">Copy link</button>
-              <button class="btn-ghost brief-export-btn" id="briefExport" type="button" aria-label="Open print edition preview">Print edition</button>
+        <div class="briefing-actions">
+          <div class="briefing-controls">
+            <div class="brief-operator-bar" role="group" aria-label="Briefing tasks">
+              <button class="btn-primary" id="briefGenerate" type="button" aria-describedby="briefGenerateInput" disabled>Checking AI availability…</button>
             </div>
-            <div id="briefInputManifest"></div>
-            <p id="briefReviewState" class="brief-tool-review"><a href="#edition-record" data-open-edition-record>Edition record</a></p>
-            </section>
-            <div class="brief-edition-provenance"><span id="briefGenerationMeta"></span></div>
-            <div id="briefSuccessStatus"></div>
+            <div class="brief-document-bar" role="group" aria-label="Reading mode">
+              <button type="button" class="btn-ghost" id="briefOverviewMode" data-reading-mode="overview" aria-pressed="${readingMode === 'overview'}">Overview</button>
+              <button type="button" class="btn-ghost" id="briefReadingMode" data-reading-mode="read" aria-pressed="${readingMode === 'read'}">Full report</button>
+            </div>
+            <details class="brief-edition-tools" id="briefEditionTools">
+              <summary>Edition tools <span aria-hidden="true">⌄</span></summary>
+              <div class="brief-tools-panel">
+                <div class="brief-tools-heading"><strong>Edition tools</strong><button type="button" class="btn-ghost" id="briefToolsClose" data-close-edition-tools>Close</button></div>
+                <section class="brief-tools-group" aria-label="Browse editions">
+                  <nav class="brief-reader-nav" aria-label="Briefing navigation"><a data-brief-route href="/briefing?latest=1">Latest</a><a data-brief-route href="/briefing?archive=1">Archive</a></nav>
+                  <label class="brief-toolbar-field">Edition
+                    <select class="history-select" id="briefHistory"><option value="">Choose edition</option></select>
+                  </label>
+                  <div class="brief-tool-actions">
+                    <button type="button" class="btn-ghost" id="briefDrafts">Review drafts</button>
+                  </div>
+                </section>
+                <section class="brief-tools-group" aria-label="Share and inspect">
+                  <p class="brief-tools-label">Share and inspect</p>
+                  <div class="brief-tool-actions">
+                    <button class="btn-ghost brief-copylink-btn" id="briefCopyLink" type="button" aria-label="Copy link to this briefing">Copy link</button>
+                    <button class="btn-ghost brief-export-btn" id="briefExport" type="button" aria-label="Open print edition preview">Print edition</button>
+                  </div>
+                  <div id="briefInputManifest"></div>
+                  <p id="briefReviewState" class="brief-tool-review"><a href="#edition-record" data-open-edition-record>Edition record</a></p>
+                </section>
+                <div class="brief-edition-provenance"><span id="briefGenerationMeta"></span></div>
+                <div id="briefSuccessStatus"></div>
+              </div>
+            </details>
           </div>
-        </details>
+          <p class="brief-generation-hint" id="briefGenerateInput">Uses current signals · API charges may apply</p>
+        </div>
       </header>
-      <div class="brief-operator-bar" role="group" aria-label="Briefing tasks">
-        <button class="btn-primary" id="briefGenerate" type="button" aria-describedby="briefGenerateInput" disabled>Checking AI availability…</button>
-        <button type="button" class="btn-ghost" id="briefDrafts">Review drafts</button>
-        <p id="briefGenerateInput">Uses current signals · API charges may apply</p>
-      </div>
-      <div class="brief-document-bar" role="group" aria-label="Reading mode">
-        <button type="button" class="btn-ghost" id="briefOverviewMode" data-reading-mode="overview" aria-pressed="${readingMode === 'overview'}">Overview</button>
-        <button type="button" class="btn-ghost" id="briefReadingMode" data-reading-mode="read" aria-pressed="${readingMode === 'read'}">Full report</button>
-      </div>
       <div class="brief-publication-state" id="briefPublicationState" hidden></div>
       <div class="brief-latest-notice" id="briefLatestNotice" role="status" aria-live="polite" hidden></div>
       <div id="briefAttemptSlot"><section class="brief-attempt-status" id="briefAttemptStatus" role="status" aria-live="polite" aria-label="Generation and draft tasks" hidden></section></div>
@@ -306,9 +316,8 @@ export function render(main) {
     target?.scrollIntoView({ behavior: 'auto', block: 'start' });
     history.replaceState(history.state, '', destination.pathname + destination.search + destination.hash);
   });
-  document.getElementById('briefEditionTools')?.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); }
-  });
+  const editionTools = document.getElementById('briefEditionTools');
+  if (editionTools) stopEditionToolsDismissal = bindDisclosureDismissal([editionTools]);
   document.getElementById('briefToolsClose')?.addEventListener('click', closeEditionTools);
   document.getElementById('briefGenerate')?.addEventListener('click', requestBriefGeneration);
   document.getElementById('briefDrafts')?.addEventListener('click', event => {
@@ -865,7 +874,7 @@ function renderBriefContent(content, text, { hardFail = false, checkStructure = 
   // document from an in-flight draft that happens to contain the same classes.
   content._validatedBriefContent = null;
   content.innerHTML = renderMarkdown(text);
-  applySemanticStyling(content, { decisionControls: Boolean(getState().currentBrief?.filename) });
+  applySemanticStyling(content, { decisionControls: Boolean(getState().currentBrief?.filename), presentation: getState().currentBrief?.presentation, sourceContent: text });
   attachReaderLimits(content, getState().currentBrief);
   attachEditorialReview(content, getState().currentBrief, {
     recordHost: document.getElementById('briefEditionRecord'),
@@ -1641,6 +1650,8 @@ function reflectGenerationRecovery(model) {
 // bound once for background generation events, but route/search requests started
 // by this mount must not repaint or replace state after the operator leaves.
 export function unmount() {
+  stopEditionToolsDismissal?.();
+  stopEditionToolsDismissal = null;
   historyRequest++;
   disposePrintPreview();
   stopRecentDevelopments?.();

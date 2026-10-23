@@ -620,12 +620,12 @@ describe('provider settings', () => {
     expect(getUserSettings()).toEqual({});
   });
 
-  test('custom selection persists without replacing stored provider keys', async () => {
+  test.each(['custom', 'cli'])('%s selection persists without replacing stored provider keys', async provider => {
     saveUserSettings(dir, { anthropicKey: 'sk-ant-fixture', openaiKey: 'sk-proj-fixture' });
     const refreshAi = jest.fn();
     ctx = await makeServer({ dataDir: dir, loopback: true, refreshAi });
-    expect((await post({ aiProvider: 'custom' })).status).toBe(200);
-    expect(loadUserSettings(dir)).toEqual({ aiProvider: 'custom', anthropicKey: 'sk-ant-fixture', openaiKey: 'sk-proj-fixture' });
+    expect((await post({ aiProvider: provider })).status).toBe(200);
+    expect(loadUserSettings(dir)).toEqual({ aiProvider: provider, anthropicKey: 'sk-ant-fixture', openaiKey: 'sk-proj-fixture' });
     expect(refreshAi).toHaveBeenCalledTimes(1);
   });
 
@@ -648,6 +648,46 @@ describe('provider settings', () => {
       body: JSON.stringify({ provider: 'custom', [field]: 'value' }) });
     expect(response.status).toBe(400);
     expect(verifyKey).not.toHaveBeenCalled();
+  });
+
+  test('CLI installation status uses no submitted credentials and does not persist a setting', async () => {
+    const result = { valid: null, note: 'CLI installed; authentication and generation readiness are unverified.' };
+    const verifyKey = jest.fn(async () => result);
+    ctx = await makeServer({ dataDir: dir, loopback: true, verifyKey });
+    const response = await fetch(`${ctx.base}/api/settings/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'cli' }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(result);
+    expect(verifyKey).toHaveBeenCalledWith('', 'cli');
+    expect(getUserSettings()).toEqual({});
+  });
+
+  test.each(['anthropicKey', 'openaiKey', 'openaiModel', 'cliKey', 'cliProfile', 'AI_CLI_PROFILE', 'command', 'args', 'env_allow'])('CLI settings and status reject %s before execution or persistence', async field => {
+    const verifyKey = jest.fn(), refreshAi = jest.fn();
+    ctx = await makeServer({ dataDir: dir, loopback: true, verifyKey, refreshAi });
+    const response = await post({ aiProvider: 'cli', [field]: 'value' });
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe('E_CLI_CONFIG');
+    const check = await fetch(`${ctx.base}/api/settings/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'cli', [field]: 'value' }) });
+    expect(check.status).toBe(400);
+    expect(verifyKey).not.toHaveBeenCalled();
+    expect(refreshAi).not.toHaveBeenCalled();
+    expect(getUserSettings()).toEqual({});
+  });
+
+  test('only trusted callers receive CLI configuration errors and profile identity', async () => {
+    const profileIdentity = { id: 'fixture', version: '1', sha256: 'a'.repeat(64) };
+    const status = { enabled: false, source: 'env', masked: null, provider: 'cli', error: 'Invalid CLI profile.', profileIdentity, command: 'private-path' };
+    ctx = await makeServer({ dataDir: dir, loopback: true, getAiStatus: () => ({ ...status, providers: { cli: status } }) });
+    const trusted = await (await fetch(`${ctx.base}/api/settings`)).json();
+    expect(trusted.ai).toMatchObject({ error: status.error, profileIdentity, providers: { cli: { error: status.error } } });
+    expect(JSON.stringify(trusted)).not.toContain('private-path');
+    await new Promise(resolve => ctx.server.close(resolve));
+    ctx = await makeServer({ dataDir: dir, loopback: false, getAiStatus: () => status });
+    const untrusted = await (await fetch(`${ctx.base}/api/settings`)).json();
+    expect(untrusted.ai.error).toBeUndefined();
+    expect(untrusted.ai.profileIdentity).toBeUndefined();
   });
 
   test('only trusted callers receive the other provider’s masked status', async () => {

@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.4.3 — 2026-10-23
+
+This patch makes briefings easier to read and act on, restores large CISA
+advisory feeds, and adds an experimental CLI provider configured with JSON
+profiles. Factual safeguards remain enabled; routine editorial notes stay in
+the edition record.
+
+- Compact the executive view into the leading three assessments with linked owners and recommended targets. Share exact-copy action records through the reader, copied decisions, and print while preserving complete conditions, investigation, and recovery instructions.
+- Associate material caveats with actual Markdown judgment order across Overview, the reader, copied decisions, and print. Accept generic and renumbered headings; keep stale or ambiguous findings in the edition record instead of attaching them to the wrong assessment.
+- Record source-backed coverage across judgments, Developing Situations, and Watchlist entries. Distinguish partially covered multi-CVE reports from missing or fully covered events, without requiring hidden records or an action for every CVE.
+- Accept ordinary conditional applicability and hypothetical cascade wording, remove duplicate score-association advice, and keep optional coverage notes out of reading views. Unsupported scores, contradictory facts, source identity, and completion safeguards remain enforced.
+- Separate evidence confidence, local applicability, and response urgency in generation guidance. Reduce repeated narrative before complete actions; word budgets and varied priority labels are not publication requirements. Add frozen-evidence comparison of authored revisions with action preservation and case-specific factual checks.
+- Allow bounded full-content responses from the two CISA advisory feed endpoints. Treat valid empty search results as successful queries and cache them; network and parser failures remain visible.
+- Add the experimental CLI provider with versioned JSON profiles, isolated per-attempt workspaces, bounded JSON/NDJSON parsing, process-tree cancellation, verified terminal/exit completion, and zero automatic restarts. Preserve profile identity and native cost units in receipts; uncertain outcomes prevent automatic scheduled repurchase. Assistant-specific commands and mappings remain in profiles.
+- Align Briefing, Wire, and Settings within the same outer layout, widen Overview, and preserve the full report's reading width. Move Review drafts into Edition tools, keep Generate and reading modes visible, bound mobile menus to the viewport, and improve keyboard focus, dialog controls, and Settings descriptions.
+
+### Upgrade notes
+
+No database migration or mandatory configuration change is required from v1.4.2;
+SQLite remains at schema 11. Stop the service, back up state and configuration
+together, install v1.4.3, and restart. Existing Anthropic, OpenAI, and Custom
+provider configurations continue to work. The CLI provider is opt-in: install
+the chosen executable separately, review its JSON profile, supply its required
+environment variables, and select CLI in Settings. No assistant is bundled or
+installed by BlueTeam. Profiles are trusted execution configuration, not an OS
+sandbox; fixture tests do not certify a third-party CLI's behavior or billing.
+
+New generation receipts use coverage accounting version 3 and capture shared
+action records. Historical coverage versions and publication policies remain
+recorded as before; reading an archive does not rewrite its Markdown. Keep
+`briefs/` and its hidden files, `reviews/`, the database, configuration, and any
+operator-managed profiles together in backups. See [Upgrade and rollback](docs/operations.md#upgrade-and-rollback).
+
 ## 1.4.2 — 2026-10-23
 
 This patch reduces draft-checking friction across Anthropic, OpenAI and Custom
@@ -89,7 +122,7 @@ outside this release. See [Upgrade and rollback](docs/operations.md#upgrade-and-
 
 - Preserve CVE/score associations across soft line wraps and explicit trailing CVE parentheses, while rejecting ambiguous objects and scores borrowed from adjacent vulnerabilities. Locate score blockers on the affected draft line and link their captured evidence.
 - Enforce normalized Custom provider completion reasons, retain usage reported at the end of a stream, and record how reasoning requests were configured for each attempt.
-- Bound provider iteration and cleanup waits, preserve interrupted drafts and uncertain outcomes, and prevent automatically purchasing the same scheduled attempt again after a timeout. Document CLI adapter requirements, including corrective conversations and IBM Bob output handling.
+- Bound provider iteration and cleanup waits, preserve interrupted drafts and uncertain outcomes, and prevent automatically purchasing the same scheduled attempt again after a timeout. Document CLI adapter requirements, including corrective conversations and structured output handling.
 
 ## 1.3.1 — 2026-10-09
 

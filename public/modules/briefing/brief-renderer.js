@@ -6,8 +6,9 @@ import { formatDecisionWindow, judgmentCertainty } from '/vendor/brief-schema.js
 import { TIER_NAMES } from '../core/tiers.js';
 import { assessmentSources, renderAssessmentMeta } from '../core/assessment-meta.js';
 import { formatEventTime } from '../core/brief-date.js';
-import { structureExecutiveSummary } from './brief-executive.js';
+import { sharedExecutiveGroups, structureExecutiveSummary, visibleJudgmentHeadings } from './brief-executive.js';
 import { actionRoleHtml } from './brief-action.js';
+import { readerFindingLocation, markSourceJudgmentHeadings } from './brief-finding-locations.js';
 
 export { actionRoleHtml };
 
@@ -56,22 +57,19 @@ export function readerIssueAcknowledged(issue, presentation) {
 export function readerPresentationIssues(presentation, { signal, sourceContent = '' } = {}) {
   const issues = presentation?.currentChecks?.issues;
   if (!Array.isArray(issues)) return [];
-  const lines = String(sourceContent).split('\n');
   const selected = Number.isSafeInteger(signal) && signal > 0;
   const seen = new Set();
   return issues.filter(issue => {
     if (!issue || !(issue.audience === 'reader' || ['block', 'review'].includes(issue.consequence))) return false;
-    if (selected && issue.location?.scope !== 'document') {
-      let locatedSignal = issue.signal;
-      const line = issue.location?.line;
-      if (sourceContent && Number.isSafeInteger(line) && line > 0 && line <= lines.length) {
-        const heading = lines.slice(0, line).findLast(value => /^#{2,3}\s/.test(value));
-        locatedSignal = Number(/^###\s+Signal\s+(\d+)\b/i.exec(heading || '')?.[1]) || null;
-      } else if (!locatedSignal) locatedSignal = Number(/\bSignal\s+(\d+)\b/i.exec(issue.message || '')?.[1]) || null;
-      if (locatedSignal !== signal) return false;
+    if (selected) {
+      const location = readerFindingLocation(issue, presentation, sourceContent);
+      if (location?.kind !== 'document' && (location?.kind !== 'judgment' || location.signal !== signal)) return false;
     }
     if (!issue.message) return false;
-    const key = readerIssueIdentity(issue);
+    // A copied decision needs one statement of each concern for this signal.
+    // The edition record and unscoped exports retain every source location.
+    const key = selected ? JSON.stringify([issue.location?.scope === 'document' ? 'document' : signal,
+      issue.code, issue.message, issue.consequence, readerIssueAcknowledged(issue, presentation)]) : readerIssueIdentity(issue);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -144,6 +142,20 @@ export function authoredText(element) {
     cite.replaceWith(cite.dataset.labelRetained === 'true' ? '' : (link?.dataset.sourceLabel || link?.getAttribute('href') || ''));
   });
   return clone.textContent.trim().replace(/\s+/g, ' ');
+}
+
+/** Link an existing, complete action to its exact-copy record without replacing
+ * authored markup. Comparison tolerates delimiter/layout variants, but every
+ * owner, response qualification and target must still be present in order. */
+export function actionRecordMatchesText(value, action) {
+  if (!action || !['owner', 'response', 'target'].every(key => typeof action[key] === 'string' && action[key].trim())) return false;
+  const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const normalize = text => String(text || '').normalize('NFKC').replace(/\s+-\s+/g, ' ')
+    .replace(/[;:—–]/g, ' ').replace(/\s+/g, ' ').replace(/[.;]+\s*$/, '').trim();
+  const text = String(value || '').replace(/^Recommended actions:\s*/i, '').replace(/^Act now:\s*/i, '');
+  const targetSuffix = new RegExp(`(?:[—–;]|\\s+-)\\s*(?:recommended\\s+target|target(?:\\s+date)?|due)\\s*:?\\s+${escape(action.target)}[.;]?\\s*$`, 'i');
+  if (!targetSuffix.test(text)) return false;
+  return normalize(text.replace(targetSuffix, ` — ${action.target}`)) === normalize(`${action.owner} — ${action.response} — ${action.target}`);
 }
 
 export function decisionCardContent(card) {
@@ -432,10 +444,12 @@ export function decisionWindowDuplicatesAction(windowValue, actionValues = []) {
   return !!windowKey && actionValues.some(value => normalizeDeadline(actionDeadlineSuffix(value)) === windowKey);
 }
 
-export function applySemanticStyling(container, { decisionControls = false } = {}) {
+export function applySemanticStyling(container, { decisionControls = false, presentation = null, sourceContent } = {}) {
+  markSourceJudgmentHeadings(container, sourceContent);
   // Establish one field structure for the live view, streaming snapshots, and
   // the printable edition before any later pass moves metadata or callouts.
   normalizePackedBriefFields(container);
+  const sharedActions = sharedExecutiveGroups(presentation) ? presentation.actionRecords.actions : null;
 
   // The generated dateline is visual masthead copy, not a subsection. Keep its
   // established H3 styling while removing the otherwise skipped heading level
@@ -505,9 +519,9 @@ export function applySemanticStyling(container, { decisionControls = false } = {
   const DISPLAY_META_LABELS = ['decision window'];
   const RETIRED_LABELS = ['revises if', 'increases if', 'decreases if'];
   const asOfDate = editionDate(container);
-  container.querySelectorAll('h3').forEach(h3 => {
-    if (!/^\s*Signal\b/i.test(h3.textContent)) return;
+  visibleJudgmentHeadings(container, { legacyFallback: true }).forEach((h3, index) => {
     h3.dataset.judgment = 'true';
+    h3.dataset.signal = h3.dataset.sourceSignal || String(index + 1);
     // The ordinal is generation scaffolding, not editorial copy. Keep the title,
     // and move its tier chip into the metadata line beneath the heading.
     h3.innerHTML = h3.innerHTML.replace(/^\s*Signal\s+\d+\s*[—–:\-]?\s*/i, '');
@@ -652,7 +666,7 @@ export function applySemanticStyling(container, { decisionControls = false } = {
     }
   });
 
-  structureExecutiveSummary(container, { prefix: 'brief' });
+  structureExecutiveSummary(container, { prefix: 'brief', presentation });
 
   // 6. Judgment cards — wrap each Signal (heading + metadata bar + body +
   // the line) in a bounded card with a tier left-rule, so each judgment is a
@@ -661,7 +675,8 @@ export function applySemanticStyling(container, { decisionControls = false } = {
   container.querySelectorAll('h3').forEach(h3 => {
     if (h3.dataset.judgment !== 'true') return;
     if (h3.closest('.brief-judgment-card')) return;
-    if (!h3.id) h3.id = `judgment-${++judgmentN}`;   // deep-linkable + a TOC sub-entry
+    judgmentN += 1;
+    if (!h3.id) h3.id = `judgment-${h3.dataset.signal || judgmentN}`;   // deep-linkable + a TOC sub-entry
     const chip = h3.querySelector('.c-chip') || h3.nextElementSibling?.querySelector('.c-chip');
     const tier = chip ? ((chip.className.match(/\bh([123])\b/) || [])[1] || '') : '';
     const card = document.createElement('div');
@@ -705,6 +720,17 @@ export function applySemanticStyling(container, { decisionControls = false } = {
       const list = host.querySelector('ul, ol') || host.nextElementSibling;
       if (list && ['UL', 'OL'].includes(list.tagName)) list.classList.add('brief-recommended-actions');
     });
+    if (sharedActions) {
+      const signal = Number(card.querySelector('h3')?.dataset.signal);
+      const records = sharedActions.filter(action => action.signal === signal);
+      const rendered = [...card.querySelectorAll('.brief-recommended-actions > li, p.brief-recommended-actions')];
+      // A whole judgment must reconcile before any action receives an identity;
+      // never tag a partial or reordered list by ordinal alone.
+      if (records.length && records.length === rendered.length
+          && records.every((record, index) => record.actionIndex === index + 1 && actionRecordMatchesText(authoredText(rendered[index]), record))) {
+        rendered.forEach((element, index) => { element.dataset.actionId = records[index].id; });
+      }
+    }
     if (card.querySelector('.c-action')) return;
     let actLi = null;
     for (const li of card.querySelectorAll('li')) {
@@ -718,6 +744,7 @@ export function applySemanticStyling(container, { decisionControls = false } = {
     if (!imperative) return;
     const block = document.createElement('div');
     block.className = 'c-action';
+    if (actLi.dataset.actionId) block.dataset.actionId = actLi.dataset.actionId;
     block.innerHTML = `<span class="c-action-label">Act now</span><span class="c-action-text">${imperative}</span>`;
     const list = actLi.closest('ul, ol');
     actLi.remove();

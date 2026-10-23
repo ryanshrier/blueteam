@@ -5,6 +5,75 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createFixtureApp } from './serve-visual-fixtures.mjs';
 import { CdpConnection, findBrowser, launchBrowser } from './check-landing-render.mjs';
+import { briefPresentation } from '../lib/brief-reading-checks.js';
+
+const actionContent = `# Shared action fixture
+## BLUF
+Verify deployed inventory before choosing a response.
+## EXECUTIVE SUMMARY
+- **Threat picture:** Two deployments require different responses.
+- **Exposure:** Local applicability remains unverified.
+- **Required decisions:** An obsolete provider summary must not supply the reader action queue.
+## KEY JUDGMENTS
+### Signal 1 — [Horizon 1] Verify the gateway before remediation
+**Assessment:** Deployment determines local applicability.
+**Confidence:** Moderate — local exposure is unverified.
+**What happened:** The [Vendor advisory, 2026-10-09](https://publisher.invalid/advisory) describes an affected gateway.
+**Recommended actions:**
+- Operations — verify inventory; only if affected, isolate the gateway; Dependencies: preserve relevant logs — recommended target October 24, 2026.
+- Incident response — if compromise is confirmed, restore from a verified safe backup; retain isolation until validation completes — recommended target October 26, 2026.
+**Decision window:** 72 hours
+**The line:** Establish scope before remediation.
+### Signal 2 — [Horizon 2] Track the hosted rollout
+**Assessment:** Hosted rollout evidence remains incomplete.
+**Confidence:** Moderate — deployment breadth remains unknown.
+**What happened:** A [Vendor note, 2026-10-09](https://publisher.invalid/note) describes a staged update.
+**Recommended actions:**
+- Service owner — verify the hosted tenant update before closing the response — recommended target October 27, 2026.
+**Decision window:** 7 days
+**The line:** Confirm the tenant state.
+`;
+const actionPresentation = briefPresentation({ original: actionContent, content: actionContent,
+  manifest: { publicationValidation: { validationPolicyVersion: 2, issues: [
+    { code: 'PRIORITY_COVERAGE_PARTIAL', severity: 'review', message: 'Optional bounded coverage accounting note.' },
+    { code: 'CVE_CVSS_AMBIGUOUS', severity: 'review', signal: 1, message: 'Verify the score association against the retained advisory.',
+      location: { line: actionContent.split('\n').findIndex(line => line.startsWith('**Assessment:**')) + 1 } },
+  ] } }, disposition: { status: 'eligible', eligibleForLatest: true } });
+const mixedContent = `# Mixed provider headings
+## EXECUTIVE SUMMARY
+- **Threat:** Confirm local applicability.
+- **Required decisions:** This duplicate is replaced by shared records.
+## KEY JUDGMENTS
+> ### Signal 77 — Quoted example, not a judgment
+
+- ### Signal 88 — List example, not a judgment
+
+<h3>Signal 66 — Raw HTML example, not a judgment</h3>
+
+${[1,2,3,4].map(number => `### ${number % 2 === 0 ? `Signal ${number} — ` : ''}[Horizon 1] Service ${number}
+**Assessment:** Confirm local applicability.
+**Recommended actions:**
+- Operations — verify deployment before restricting access — recommended target October 24, 2026.
+**Decision window:** 72 hours
+`).join('\n')}
+## DEVELOPING SITUATIONS
+### Signal 99 — Supporting report outside the judgments
+**Trajectory:** Uncertain
+`;
+const mixedFinding = (heading, message, extra = {}) => ({ code: 'CVE_CVSS_AMBIGUOUS', severity: 'review', message,
+  location: { line: mixedContent.split('\n').findIndex(line => line.includes(heading)) + 2 }, ...extra });
+const firstMixedLimit = 'Service 1 score association needs verification.';
+const thirdMixedLimit = 'Service 3 deployment remains unverified.';
+const mixedIssues = [
+  mixedFinding('[Horizon 1] Service 1', firstMixedLimit, { signal: 4 }),
+  mixedFinding('[Horizon 1] Service 3', thirdMixedLimit),
+  mixedFinding('Supporting report outside', 'Supporting report requires separate confirmation.'),
+  { code: 'PRIORITY_COVERAGE_PARTIAL', severity: 'review', message: 'Optional mixed-heading coverage accounting.' },
+];
+const actionFixture = { content: actionContent, presentation: actionPresentation,
+  mixed: { content: mixedContent, presentation: briefPresentation({ original: mixedContent, content: mixedContent,
+    manifest: { publicationValidation: { validationPolicyVersion: 2, issues: mixedIssues } }, disposition: { status: 'eligible', eligibleForLatest: true } }) },
+  mixedLimits: [firstMixedLimit, thirdMixedLimit] };
 
 const app = createFixtureApp();
 app.get('/reader-state-fixture', (_req, res) => res.type('html').send(`<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,">${['fonts','tokens','app','frontend-refinement','briefing-refinement'].map(name=>`<link rel="stylesheet" href="/${name}.css">`).join('')}</head><body><main id="main" tabindex="-1"></main><div id="toastContainer"></div></body></html>`));
@@ -31,7 +100,7 @@ try {
     await connection.call('Emulation.setDeviceMetricsOverride', { width,height:900,deviceScaleFactor:1,mobile:width<600 });
     const loaded = connection.waitFor('Page.loadEventFired');
     await connection.call('Page.navigate', { url:`${origin}/reader-state-fixture` }); await loaded;
-    const result = await connection.call('Runtime.evaluate', { awaitPromise:true,returnByValue:true,expression:`(${runReaderChecks.toString()})()` });
+    const result = await connection.call('Runtime.evaluate', { awaitPromise:true,returnByValue:true,expression:`(${runReaderChecks.toString()})(${JSON.stringify(actionFixture)})` });
     assert(!result.exceptionDetails, result.exceptionDetails?.exception?.description);
     assert.deepEqual(errors, [], 'No browser exceptions or real API / external requests');
     if (output) {
@@ -51,7 +120,7 @@ try {
   server.closeAllConnections(); await new Promise(done=>server.close(done));
 }
 
-async function runReaderChecks() {
+async function runReaderChecks(actionFixture) {
   const {render,unmount}=await import('/modules/briefing/briefing-view.js');
   const {decisionCardContent,decisionCopyText}=await import('/modules/briefing/brief-renderer.js');
   const {expandReaderDisclosures}=await import('/modules/briefing/brief-export.js');
@@ -116,6 +185,8 @@ Check affected inventory before scheduling remediation.
   };
   async function show(state,hash=''){
     unmount(); current=base(); pending=state==='draft'; generation=null; newer=null; publicationRevision='initial'; archiveFailure=false;
+    if(state==='actions')Object.assign(current,actionFixture);
+    if(state==='mixed-actions')Object.assign(current,actionFixture.mixed);
     if(state==='published'){current.presentation.copy.kind='published';current.presentation.history=[];}
     if(state==='corrected'){
       current.reviewedContent=markdown; current.sourceCheckStatus='findings';
@@ -127,16 +198,19 @@ Check affected inventory before scheduling remediation.
     if(state==='invalid'){current.inputManifest.integrity='invalid';current.disposition={status:'review-required',eligibleForLatest:false,reason:'The saved input receipt does not match this edition.'};current.presentation.currentChecks.status='unavailable';}
     if(state==='unavailable'){current.review={status:'unavailable',message:'The correction digest could not be verified. Original text displayed.'};current.disposition={status:'review-required',eligibleForLatest:false};}
     history.replaceState({},'',`/briefing/${filename}${hash}`);setState({mode:'briefing',isGenerating:false,currentBrief:null});render(q('#main'));
-    await until(()=>q('#briefContent')?._validatedBriefContent===markdown&&q('#edition-record'));
+    await until(()=>q('#briefContent')?._validatedBriefContent===current.content&&q('#edition-record'));
     q('#briefOverviewMode').click();await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));scrollTo(0,0);
   }
   await show('clean');
-  for(const id of ['briefGenerate','briefDrafts']) {
-    const control=q('#'+id), box=control.getBoundingClientRect();
-    check(!control.closest('details')&&control.getClientRects().length>0,`${id}: available without opening Edition tools`);
-    check(box.height>=44&&box.left>=0&&box.right<=innerWidth+1,`${id}: touch target fits the viewport`);
-  }
-  check(!q('#briefEditionTools').open,'Primary tasks do not require open Edition tools');
+  const generate=q('#briefGenerate'), generateBox=generate.getBoundingClientRect();
+  check(!generate.closest('details')&&generate.getClientRects().length>0,'Generate is available without opening Edition tools');
+  check(generateBox.height>=44&&generateBox.left>=0&&generateBox.right<=innerWidth+1,'Generate touch target fits the viewport');
+  const tools=q('#briefEditionTools'), drafts=q('#briefDrafts');
+  check(!tools.open&&drafts.closest('details')===tools,'Draft review belongs to the closed Edition tools');
+  tools.querySelector('summary').click();
+  const draftsBox=drafts.getBoundingClientRect();
+  check(drafts.getClientRects().length>0&&draftsBox.height>=44&&draftsBox.left>=0&&draftsBox.right<=innerWidth+1,'Draft review is reachable inside Edition tools with a fitting touch target');
+  tools.querySelector('summary').click();
   check(q('#briefPublicationState').hidden,'Clean repaired edition has no material warning');
   check(q('#edition-record').textContent.includes('checks recorded for this copy')&&!q('#edition-record').textContent.includes('unavailable'),'Repaired checks are accurately recorded');
   check(!q('#edition-record').open,'Edition record is optional by default');
@@ -216,6 +290,73 @@ Check affected inventory before scheduling remediation.
   check(location.pathname===selected&&q('#briefMeta').textContent.includes('Archived briefing'),'Older draft publication is detected despite an unchanged latest job, preserving the selected document');
   check(q('#briefHistory').querySelector(`option[value="${newer.filename}"]`),'A failed archive refresh retries on focus without generation');
   check(document.documentElement.scrollWidth<=innerWidth+1,'Remote status and new-edition controls fit the viewport');
+  await show('actions');
+  q('#briefReadingMode').click();
+  const executive=q('.brief-exec-panel');
+  check(!!executive,'Shared actions render a compact executive view');
+  check(!executive.textContent.includes('obsolete provider summary'),'Executive view uses the canonical action record, not provider summary parsing');
+  check(!executive.textContent.includes('restore from a verified safe backup'),'Executive view does not duplicate full qualified actions');
+  check(executive.textContent.includes('Verify the gateway before remediation')&&executive.textContent.includes('Track the hosted rollout'),'Executive view groups by both actual assessments');
+  for(const value of ['Operations','Incident response','Service owner','October 24, 2026','October 26, 2026','October 27, 2026'])check(executive.textContent.includes(value),`Executive view retains distinct owner/target: ${value}`);
+  const links=[...executive.querySelectorAll('a')].filter(link=>link.getAttribute('href')?.startsWith('#judgment-'));
+  check(executive.querySelectorAll('.brief-exec-groups > li').length===2&&links.length>=2&&links.every(link=>q(link.getAttribute('href'))),'Each compact group links to a real complete assessment');
+  check(q('#briefContent').textContent.includes('only if affected, isolate the gateway')&&q('#briefContent').textContent.includes('retain isolation until validation completes'),'Complete conditional containment and recovery remain in the reader');
+  const actionIds=[...new Set([...q('#briefContent').querySelectorAll('[data-action-id]')].map(node=>node.dataset.actionId))].sort();
+  check(JSON.stringify(actionIds)===JSON.stringify(['S1.A1','S1.A2','S2.A1']),'Full reader actions reconcile with the shared record identities');
+  check(!q('#briefContent').textContent.includes('Optional bounded coverage accounting note.')&&q('#edition-record').textContent.includes('Optional bounded coverage accounting note.'),'Partial coverage stays quiet in the edition record');
+  check(q('#briefContent').textContent.includes('Verify the score association against the retained advisory.'),'Reader keeps the factual qualification');
+  check(document.documentElement.scrollWidth<=innerWidth+1,'Compact executive groups fit the viewport');
+  q('#briefExport').click();
+  await until(()=>q('.np-frame')?.contentDocument?.querySelector('.np-exec-panel'));
+  const printed=q('.np-frame').contentDocument, printExecutive=printed.querySelector('.np-exec-panel');
+  check(printExecutive.querySelector('.np-exec-queue').textContent===executive.querySelector('.brief-exec-queue').textContent
+    &&printExecutive.querySelector('.np-exec-facts').textContent===executive.querySelector('.brief-exec-facts').textContent,'Print and reader use the same executive groups, facts and targets');
+  for(const qualification of ['only if affected, isolate the gateway','Dependencies: preserve relevant logs','if compromise is confirmed, restore from a verified safe backup','retain isolation until validation completes'])check(printed.body.textContent.includes(qualification),`Print preserves full response qualification: ${qualification}`);
+  check(JSON.stringify([...new Set([...printed.querySelectorAll('[data-action-id]')].map(node=>node.dataset.actionId))].sort())===JSON.stringify(actionIds),'Print retains the exact reader action identities');
+  check(!printed.body.textContent.includes('Optional bounded coverage accounting note.'),'Print does not repeat optional accounting notes');
+  check(printed.body.textContent.includes('Verify the score association against the retained advisory.'),'Print retains factual qualifications');
+  q('.np-overlay').close();
+  await show('mixed-actions');
+  const mixedOverview=q('#briefOverview');
+  for(const [signal,message] of [[1,actionFixture.mixedLimits[0]],[3,actionFixture.mixedLimits[1]]]){
+    const story=mixedOverview.querySelector(`#overview-judgment-${signal}`)?.closest('article');
+    check(story?.textContent.includes(message),`Generic judgment ${signal} retains its caveat in Overview`);
+  }
+  q('#briefReadingMode').click();
+  const mixedCards=[...q('#briefContent').querySelectorAll('.brief-judgment-card')];
+  check(mixedCards.length===4,'Mixed provider heading styles produce exactly four judgment cards');
+  for(let index=0;index<4;index++){
+    const heading=mixedCards[index].querySelector('h3'),expected=`S${index+1}.A1`;
+    check(heading.id===`judgment-${index+1}`&&heading.dataset.signal===String(index+1),`Mixed heading ${index+1} has its own ordinal and anchor`);
+    check(mixedCards[index].querySelector('[data-action-id]')?.dataset.actionId===expected,`Mixed heading ${index+1} retains its own action even when recommendation text is identical`);
+  }
+  const headingIds=[...q('#briefContent').querySelectorAll('h3[id]')].map(node=>node.id);
+  check(new Set(headingIds).size===headingIds.length,'Mixed provider headings never produce duplicate anchors');
+  const outside=[...q('#briefContent').querySelectorAll('h3')].find(node=>node.textContent.includes('Supporting report outside'));
+  check(!outside?.dataset.judgment&&!outside?.closest('.brief-judgment-card'),'A Signal-looking heading outside Key judgments receives no judgment identity');
+  check([...q('#briefContent').querySelectorAll('blockquote h3, li h3')].every(node=>!node.dataset.judgment&&!node.closest('.brief-judgment-card')),'Quoted and list example headings never acquire action identities');
+  for(let index=0;index<4;index++){
+    const card=mixedCards[index],expected=index===0?actionFixture.mixedLimits[0]:index===2?actionFixture.mixedLimits[1]:null;
+    const copied=decisionCopyText({...decisionCardContent(card),editionUrl:`${location.origin}/briefing/${filename}`,
+      presentation:current.presentation,signal:index+1,sourceContent:current.content});
+    for(const message of actionFixture.mixedLimits){
+      check(card.textContent.includes(message)===(message===expected),`Judgment ${index+1} carries only its own located reader caveat`);
+      check(copied.includes(message)===(message===expected),`Decision copy ${index+1} carries only its own caveat`);
+    }
+    check(!copied.includes('Supporting report requires separate confirmation.')&&!copied.includes('Optional mixed-heading coverage accounting.'),'Decision copies exclude unrelated supporting findings and editorial bookkeeping');
+  }
+  check(!mixedOverview.textContent.includes('Optional mixed-heading coverage accounting.')&&!q('#briefContent').textContent.includes('Optional mixed-heading coverage accounting.'),'Editorial accounting stays quiet across both reading modes');
+  check(q('#edition-record').textContent.includes('Optional mixed-heading coverage accounting.'),'Quiet editorial finding remains inspectable');
+  const firstFinding=[...q('#edition-record').querySelectorAll('[data-issue-message]')].find(node=>node.dataset.issueMessage===actionFixture.mixedLimits[0]);
+  firstFinding.querySelector('[data-record-passage]').click();
+  check(document.activeElement.id==='judgment-1','Generic-heading finding jumps to the correct current assessment');
+  q('#briefExport').click();
+  await until(()=>q('.np-frame')?.contentDocument?.querySelector('.np-exec-panel'));
+  const mixedPrint=q('.np-frame').contentDocument;
+  check(JSON.stringify([...new Set([...mixedPrint.querySelectorAll('[data-action-id]')].map(node=>node.dataset.actionId))].sort())===JSON.stringify(['S1.A1','S2.A1','S3.A1','S4.A1']),'Mixed heading action identities survive print');
+  for(const message of actionFixture.mixedLimits)check(mixedPrint.body.textContent.includes(message),'Print preserves material generic-heading caveats');
+  check(!mixedPrint.body.textContent.includes('Optional mixed-heading coverage accounting.'),'Print keeps optional editorial accounting quiet');
+  q('.np-overlay').close();
   window.__showReaderState=show;window.__finishReaderState=()=>{unmount();window.fetch=originalFetch;};
   return{checks};
 }
