@@ -24,8 +24,8 @@ import {
   scheduledBriefFilename,
   scheduledBriefJobKey,
 } from '../lib/history.js';
-import { validateBrief, countHorizons, hasHardFail, hasTrustCriticalFailure, captureKevTiming, publicationDecision, normalizeBriefCitations } from '../lib/validation.js';
-import { canonicalizeExecutiveActions, compareEditionInputs } from '../lib/brief-editorial.js';
+import { validateBrief, countHorizons, hasHardFail, hasTrustCriticalFailure, captureKevTiming, publicationDecision } from '../lib/validation.js';
+import { compareEditionInputs } from '../lib/brief-editorial.js';
 import { buildPriorityCoverage } from '../lib/brief-coverage.js';
 import { applyHistoricalEvidenceContext, formatHistoricalEvidenceContext } from '../lib/evidence-continuity.js';
 import { extractBriefMetadata } from '../lib/brief-metadata.js';
@@ -33,7 +33,7 @@ import { saveBriefDisposition } from '../lib/brief-review.js';
 import { briefReadingState, loadBriefReadingState, briefPresentation, presentationSourceCheckStatus } from '../lib/brief-reading-checks.js';
 import { listBriefDrafts, readBriefDraft, saveRejectedBrief, revalidateBriefDraft, summarizeBriefDraft, validationSourceFromManifest, validDraftId, draftValidation, recordDraftPublication } from '../lib/brief-drafts.js';
 import { createPublicationLookup, verifyPublicationReplay, publishDraftEdition } from '../lib/brief-publication.js';
-import { normalizeConvergenceOpening } from '../lib/brief-schema.js';
+import { assembleBrief, BRIEF_COMPOSITION_VERSION } from '../lib/brief-assembly.js';
 import { buildGroundingManifest, delinkUnallowlistedMarkdownUrls, visibleHeadlineEvidence } from '../lib/grounding.js';
 import {
   parseJudgments, WATCHLIST_MIN_ITEMS, WATCHLIST_MAX_ITEMS,
@@ -150,23 +150,24 @@ export function correctiveGuidance(issues = []) {
   const codes = new Set(issues.map(issue => issue.code));
   const rules = [];
   if (codes.has('CONVERGENCE_EVIDENCE_WEAK')) {
-    rules.push('Convergence repair: cite both substantive sources in **The intersection:** using their complete captured URLs. Use captured publisher/date labels for clarity. Naming publishers in prose or citing them only in another field does not establish support for the connection. Do not attach citations to a mechanism they do not establish. If two substantive citations cannot support the connection, replace the entries with the plain sentence "No supported intersection is established by the current retained evidence." under CONVERGENCE, with no entry heading or fields.');
+    rules.push('Convergence repair: cite both substantive sources in **The intersection:** using their captured source IDs, for example [S1.1] [S2.1]. Existing complete captured URLs are also accepted. The application renders the labels and links. Naming publishers in prose or citing them only in another field does not establish support for the connection. Do not attach citations to a mechanism they do not establish. If two substantive citations cannot support the connection, replace the entries with the plain sentence "No supported intersection is established by the current retained evidence." under CONVERGENCE, with no entry heading or fields.');
   }
   if ([...codes].some(code => /CVSS/.test(code))) {
     rules.push('Score repair: each numeric score needs the exact source citation that supplies that CVE and score in the same judgment\'s What happened field. Write one explicit pair per clause: "CVE-YYYY-NNNN: CVSS v3.1 score N.N" (use only captured values). Do not use an unassigned list of scores or "respectively". An NVD-only score requires the supplied NVD citation; a catalog listing does not supply it. Preserve metric versions and per-record provisional status. Omit any score that the cited passage does not support.');
   }
   if (codes.has('CVE_CITATION_MISMATCH') || codes.has('VERSION_UNSUPPORTED')) {
-    rules.push('Evidence repair: a source elsewhere in the input is not automatically cited support for this judgment. Cite its complete captured URL in this judgment\'s What happened field when its passage supports the affected CVE or version; use the captured publisher/date label for clarity. Check attribution and related captured sources before changing the reporting. Missing captured support does not establish that the claim is false. Use only the retained passage and captured lookup facts; a product name or article link alone does not establish an identifier or version. Do not broaden affected versions or replace a specific supported action with generic advice. If an essential claim cannot be resolved from the captured evidence, you may omit only the judgment explicitly identified by a blocking finding, removing its dependent summary claims too. Preserve every other judgment verbatim apart from Signal numbering. If the finding cannot be tied to a specific judgment, leave it for review rather than inventing a correction or deleting unrelated coverage.');
+    rules.push('Evidence repair: a source elsewhere in the input is not automatically cited support for this judgment. Cite its captured source ID (or existing complete captured URL) in this judgment\'s What happened field when its passage supports the affected CVE or version; the application supplies its publisher/date label. Check attribution and related captured sources before changing the reporting. Missing captured support does not establish that the claim is false. Use only the retained passage and captured lookup facts; a product name or article link alone does not establish an identifier or version. Do not broaden affected versions or replace a specific supported action with generic advice. If an essential claim cannot be resolved from the captured evidence, you may omit only the judgment explicitly identified by a blocking finding, removing its dependent summary claims too. Preserve every other judgment verbatim apart from Signal numbering. If the finding cannot be tied to a specific judgment, leave it for review rather than inventing a correction or deleting unrelated coverage.');
   }
   if ([...codes].some(code => /KEV_DEADLINE/.test(code) && code !== 'KEV_DEADLINE_AMBIGUOUS')) {
-    rules.push('Deadline repair: copy the captured SYSTEM-DERIVED FACTS date for each named CVE exactly. Name the CVE explicitly beside its FCEB remediation date; do not infer a default two-week deadline or substitute a recommended internal target.');
+    rules.push('Deadline repair: remove the contradicted authored federal date claim. The application renders the captured SYSTEM-DERIVED FACTS date for each named CVE in Federal remediation, with FCEB-only scope. Do not infer a default two-week deadline or substitute a recommended internal target. Keep all supported non-deadline facts intact.');
   }
   if (codes.has('JUDGMENT_ACTION_INVALID')) {
     rules.push('Action repair: each recommended action must be a separate Markdown bullet with an owner role, an imperative and its recommended target date. Use the canonical shape "- **Owner role** — verify the applicable control — recommended target Month D, YYYY." Keep applicability conditional where deployment is unknown.');
   }
   if (codes.has('ACTION_PHASE_BUNDLE_REVIEW')) {
-    rules.push('Action scope repair: split containment or remediation, investigation, and conditional recovery into separately assignable action bullets. Give each one accountable owner, a verifiable deliverable, its own recommended target, and any dependency on an earlier action. A recovery target should identify the next achievable milestone when completion depends on investigation; do not promise a complete restoration by a containment deadline. Update the executive summary to preserve each target. Update optional action mappings if supplied, or omit uncertain mappings.');
+    rules.push('Action scope repair: split containment or remediation, investigation, and conditional recovery into separately assignable action bullets. Give each one accountable owner, a verifiable deliverable, its own recommended target, and any dependency on an earlier action. A recovery target should identify the next achievable milestone when completion depends on investigation; do not promise a complete restoration by a containment deadline. The application derives Required decisions from these actions; do not write a separate summary or hidden action mappings.');
   }
+  if ([...codes].some(code => /CITATION|SOURCE/.test(code))) rules.push('Citation repair: use a captured Evidence ID in brackets beside the supported claim. Do not guess an ID or source; the application supplies its captured publisher/date and available link.');
   return rules.join('\n');
 }
 
@@ -1092,7 +1093,7 @@ export function createBriefRouter({
       }
 
       let extractedMetadata = extractBriefMetadata(result.text);
-      const normalizeDraft = text => canonicalizeExecutiveActions(normalizeBriefCitations(normalizeConvergenceOpening(text), groundingManifest));
+      const normalizeDraft = text => assembleBrief(text, { groundingManifest, kevTiming: capturedKevTiming }).content;
       let fullBrief = normalizeDraft(extractedMetadata.content);
       const elapsed = ((performance.now() - genStart) / 1000).toFixed(1);
       let wordCount = fullBrief.trim().split(/\s+/).length;
@@ -1103,7 +1104,7 @@ export function createBriefRouter({
       const validationStarted = performance.now();
       const providerTimeBeforeValidation = phaseTimingsMs.provider;
       const genDate = editionContext.date;
-      const validationSource = { groundingManifest, kevSet: capturedKevSet, kevCatalogStatus: capturedKevStatus, kevTiming: capturedKevTiming, publication: true, editorialStandard: 2, inputDelta, editionTimezone: editionContext.timezone,
+      const validationSource = { groundingManifest, kevSet: capturedKevSet, kevCatalogStatus: capturedKevStatus, kevTiming: capturedKevTiming, publication: true, editorialStandard: 2, compositionVersion: BRIEF_COMPOSITION_VERSION, inputDelta, editionTimezone: editionContext.timezone,
         priorityCoverage, briefingMetadata: extractedMetadata.metadata, briefingMetadataIssues: extractedMetadata.issues };
       generationManifest.verification = {
         kevCatalogLoaded: validationSource.kevSet.size > 0,
@@ -1172,7 +1173,7 @@ export function createBriefRouter({
           // a concise, complete replacement.
           modelParams.messages = [{
             role: 'user',
-            content: `${userPrompt}\n\nRECOVERY INSTRUCTION: The previous attempt exhausted the configured output-token limit and was discarded.${failedChecks} Regenerate the full brief from the top in the exact same format, but be concise enough to finish every required section, including ${WATCHLIST_MIN_ITEMS}–${WATCHLIST_MAX_ITEMS} complete Watchlist bullets. Use only CVEs and URLs in the current-source input; a source marked URL unavailable must have a plain [Source Name, Date] citation with no link. Never contradict verified KEV status.`,
+            content: `${userPrompt}\n\nRECOVERY INSTRUCTION: The previous attempt exhausted the configured output-token limit and was discarded.${failedChecks} Regenerate the full brief from the top in the exact same format, but be concise enough to finish every required section, including ${WATCHLIST_MIN_ITEMS}–${WATCHLIST_MAX_ITEMS} complete Watchlist bullets. Use only CVEs and URLs in the current-source input; cite captured Evidence IDs in brackets so the application supplies labels and available links; linkless sources remain linkless. Never contradict verified KEV status.`,
           }];
         } else {
           log.warn('brief', `Corrective validation retry (${correctiveWarnings.join('; ')})`);
@@ -1183,7 +1184,7 @@ export function createBriefRouter({
             // still revalidated against the replacement, never trusted as fact.
             { role: 'assistant', content: fullBrief + (extractedMetadata.metadata
               ? `\n\n<!-- briefing-metadata\n${JSON.stringify(extractedMetadata.metadata)}\n-->` : '') },
-            { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}.\nLocated blocking findings: ${JSON.stringify(repairFindingContext(correctiveIssues, groundingManifest))}\nSource IDs refer to the captured passages above. Related source IDs are candidates to inspect, not proof of support.\n${correctiveGuidance(correctiveIssues)}\n${buildBriefFactLedger(groundingManifest, capturedKevTiming, capturedKevSet.size > 0)}\nRepair only the identified passages and summaries or actions directly dependent on them. Preserve other judgments, their priority, supported specificity, complete paired actions, citations and qualifications. Do not remove a supported metric merely to avoid an association check. Do not introduce new metrics or deadlines elsewhere while repairing a citation. Return the complete brief in the same format. Use only CVEs and URLs in the current-source input; a source marked URL unavailable must have a plain [Source Name, Date] citation with no link. Never contradict verified KEV status.` },
+            { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}.\nLocated blocking findings: ${JSON.stringify(repairFindingContext(correctiveIssues, groundingManifest))}\nSource IDs refer to the captured passages above. Related source IDs are candidates to inspect, not proof of support.\n${correctiveGuidance(correctiveIssues)}\n${buildBriefFactLedger(groundingManifest, capturedKevTiming, capturedKevSet.size > 0)}\nRepair only the identified passages and summaries or actions directly dependent on them. Preserve other judgments, their priority, supported specificity, complete paired actions, citations and qualifications. Do not remove a supported metric merely to avoid an association check. Do not introduce new metrics or deadlines elsewhere while repairing a citation. Return the complete brief in the same format. Use only CVEs and URLs in the current-source input; cite captured Evidence IDs in brackets so the application supplies labels and available links; linkless sources remain linkless. Never contradict verified KEV status.` },
           ];
         }
         const retryResult = await runProviderAttempt(client);

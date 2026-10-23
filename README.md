@@ -54,6 +54,8 @@ Enter your key after `=`. Environment keys override saved keys for the same prov
 
 Open **Briefing → Generate briefing** beside the reader controls. Generation waits for enough fresh source evidence and reports progress from collection through publication across open Briefing tabs. Wire searches, filters, and hidden items do not change its input selection.
 
+New briefings use captured source IDs to build citation labels and links, derive executive decisions from the judgment actions, and render federal remediation dates from captured catalog facts. All three providers share this processing; existing Markdown citations remain supported. Unknown sources, unsupported facts and contradictory federal dates still require correction.
+
 Automatic generation is off by default. Enable it separately in Settings and choose a time, timezone, and retry policy. Manual and scheduled runs use the selected provider and the same validation and storage pipeline. Retries can add cost; application limits are not a provider spending cap.
 
 ## Using the views

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Assemble citation labels/links from captured source IDs, executive decisions from the leading judgments' complete actions, and federal remediation wording from exact captured KEV dates. Use the same tolerant Markdown pipeline for Anthropic, OpenAI and Custom; preserve factual checks and legacy citation support.
+- Record composition version 1 in new generation receipts. Edited drafts from these runs rebuild shared presentation without a provider call; explicit rechecks can render previously unrendered source IDs into a new repair revision. Archive reads preserve the saved copy. Federal date context stays visible in the Briefing, Wall, copied decisions and print.
 - Keep newly retained drafts visible with their findings, and classify generation failures by server code so shutdown/storage errors do not send users to API-key setup. Provider setup guidance includes Custom modules.
 - Make uncertain CVE/score associations and inferred action associations or phase grouping advisory under publication policy 2. Preserve factual contradictions, unsupported scores, source identity, completion and receipt protections; record the policy version with checks.
 - Allow a corrective attempt to omit a judgment identified by a blocking finding only when every remaining judgment is preserved. Keep the single-retry limit and reject incomplete replacements or new material findings.

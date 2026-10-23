@@ -36,7 +36,8 @@ describe('NVD enrichment keeps its own publisher attribution', () => {
     expect(grounding.sources[0].evidenceText).not.toMatch(/CVSS|Vendor Product/);
     expect(grounding.members.find(record => record.id === `NVD-${cve}`)).toMatchObject({ label: 'NVD', date: '', url: nvdUrl(cve), evidenceText: primary.cveData });
     const prompt = buildUserPrompt({ headlines: [primary], groundingManifest: grounding, config: {} });
-    expect(prompt).toContain(nvdCitation(cve));
+    expect(prompt).toContain(`Citation: [NVD-${cve}]`);
+    expect(prompt).toContain(`URL: <source>${nvdUrl(cve)}</source>`);
     expect(prompt).toContain('Attribute NVD-only scores and product details to NVD');
     expect(grounding.cves.has(cve)).toBe(true);
   });

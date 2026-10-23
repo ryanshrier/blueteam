@@ -13,6 +13,73 @@ afterEach(() => { rmSync(dir, { recursive:true, force:true }); });
 const save = (content = replay.content) => saveRejectedBrief(dir, {content,manifest:replay.manifest,validation:validate(content,replay.manifest)});
 
 describe('durable rejected briefing repair', () => {
+  test('an explicit unchanged legacy recheck renders known IDs into one retained repair revision', () => {
+    const manifest = structuredClone(replay.manifest);
+    delete manifest.generationSettings?.compositionVersion;
+    const source = manifest.grounding.sources.find(record => record.id.startsWith('S'));
+    const original = `## EXECUTIVE SUMMARY\n- **Required decisions:** Preserve this legacy decision.\n\n## KEY JUDGMENTS\n### Signal 1\n**What happened:** A retained report. [${source.id}]\n**Recommended actions:**\n- Operations - verify applicability - target: September 8, 2026.`;
+    const saved = saveRejectedBrief(dir, { content: original, manifest, validation: { valid: false, warnings: [], issues: [] } });
+    let checked;
+    const updated = revalidateBriefDraft(dir, saved.id, { baseRevision: 1 }, content => {
+      checked = content;
+      return { valid: true, warnings: [], issues: [] };
+    });
+    expect(checked).not.toContain(`[${source.id}]`);
+    expect(checked).toContain('](');
+    expect(checked).toContain('**Required decisions:** Preserve this legacy decision.');
+    expect(checked).toContain('- Operations - verify applicability - target: September 8, 2026.');
+    expect(updated.revisions).toHaveLength(2);
+    expect(updated.revisions[0]).toEqual(saved.revisions[0]);
+    expect(updated.revisions[1]).toMatchObject({ number: 2, content: checked, formattingRepaired: true });
+    expect(updated.manifestSha256).toBe(saved.manifestSha256);
+    expect(updated.lastCheck.contentSha256).toBe(updated.revisions[1].sha256);
+    const repeated = revalidateBriefDraft(dir, saved.id, { baseRevision: 2 }, () => ({ valid: true, warnings: [], issues: [] }));
+    expect(repeated.revisions).toEqual(updated.revisions);
+  });
+
+  test('legacy draft edits persist rendered source IDs without adopting new action composition', () => {
+    const manifest = structuredClone(replay.manifest);
+    delete manifest.generationSettings?.compositionVersion;
+    const source = manifest.grounding.sources.find(record => record.id.startsWith('S'));
+    const original = '## EXECUTIVE SUMMARY\n- **Required decisions:** Retain the original editorial decision.\n\n## KEY JUDGMENTS\n### Signal 1\n**What happened:** A captured report warrants review.\n**Recommended actions:**\n- Operations - verify applicability - target: September 8, 2026.';
+    const saved = saveRejectedBrief(dir, { content: original, manifest, validation: { valid: false, warnings: [], issues: [] } });
+    let checked;
+    const updated = revalidateBriefDraft(dir, saved.id, {
+      baseRevision: 1, content: original.replace('warrants review.', `warrants review. [${source.id}]`),
+    }, content => {
+      checked = content;
+      return { valid: true, warnings: [], issues: [] };
+    });
+    expect(checked).not.toContain(`[${source.id}]`);
+    expect(checked).toContain('](');
+    expect(checked).toContain('**Required decisions:** Retain the original editorial decision.');
+    expect(checked).toContain('- Operations - verify applicability - target: September 8, 2026.');
+    expect(updated.revisions[1]).toMatchObject({ content: checked, formattingRepaired: true });
+    expect(readBriefDraft(dir, saved.id).revisions[1].content).toBe(checked);
+    expect(updated.revisions[0]).toEqual(saved.revisions[0]);
+    expect(updated.manifestSha256).toBe(saved.manifestSha256);
+  });
+
+  test('edited new-format drafts rebuild citation and action presentation using the same captured inputs', () => {
+    const manifest = structuredClone(replay.manifest);
+    manifest.generationSettings = { ...manifest.generationSettings, compositionVersion: 1 };
+    const source = manifest.grounding.sources.find(record => record.id.startsWith('S'));
+    const original = `## EXECUTIVE SUMMARY\n- **Threat:** A captured report requires an applicability check.\n- **Exposure:** Local deployment is unknown.\n## KEY JUDGMENTS\n### Signal 1 — [Horizon 1] Check applicability\n**What happened:** The report warrants review. [${source.id}]\n**Recommended actions:**\n- Operations - verify applicability - target: September 8, 2026.\n**Decision window:** 7 days\n## WATCHLIST\n- Await an update.`;
+    const saved = saveRejectedBrief(dir, { content: original, manifest, validation: { valid: true, warnings: [], issues: [] } });
+    let checked;
+    const updated = revalidateBriefDraft(dir, saved.id, { baseRevision: 1, content: original.replace('Await an update', 'Watch for a revised advisory') }, content => {
+      checked = content;
+      return { valid: true, warnings: [], issues: [] };
+    });
+    expect(checked).not.toContain(`[${source.id}]`);
+    expect(checked).toContain('**Required decisions:** Operations — verify applicability — recommended target September 8, 2026.');
+    expect(checked).toContain('Watch for a revised advisory');
+    expect(updated.revisions[0]).toEqual(saved.revisions[0]);
+    expect(updated.manifestSha256).toBe(saved.manifestSha256);
+    const repeated = revalidateBriefDraft(dir, saved.id, { baseRevision: 2 }, () => ({ valid: true, warnings: [], issues: [] }));
+    expect(repeated.revisions).toEqual(updated.revisions);
+  });
+
   test('only an explicit recheck adopts the current policy while preserving legacy findings and inputs', () => {
     const issue = { code: 'CVE_CVSS_AMBIGUOUS', severity: 'trust', message: 'The metric association is ambiguous.' };
     const saved = saveRejectedBrief(dir, { content: replay.content, manifest: replay.manifest,

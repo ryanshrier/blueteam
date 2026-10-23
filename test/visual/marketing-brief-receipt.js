@@ -32,7 +32,8 @@ export function buildMarketingSampleReceipt({ regeneratedAt = new Date().toISOSt
     verification: { kevCatalogLoaded: false, selectedKevCves: [], kevTiming: {} },
     costEstimate: { usd: 0, currency: 'USD', basis: 'Authored fixture; no provider calls or billed generation.' },
   });
-  Object.assign(manifest.generationSettings, { provider: 'none', maxTokens: null });
+  // This sample is authored Markdown, not output assembled from a provider.
+  Object.assign(manifest.generationSettings, { provider: 'none', maxTokens: null, compositionVersion: null });
 
   const validation = validateBrief(MARKETING_BRIEF, manifest.edition.date, validationSourceFromManifest(manifest));
   recordValidation(manifest, MARKETING_BRIEF, validation);

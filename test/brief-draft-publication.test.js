@@ -12,6 +12,7 @@ import { createPublicationLookup } from '../lib/brief-publication.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { buildPriorityCoverage } from '../lib/brief-coverage.js';
 import { repairBriefFormatting, validateBrief } from '../lib/validation.js';
+import { assembleBrief } from '../lib/brief-assembly.js';
 import { BRIEF_EVALUATION_CASES, referenceBrief } from './fixtures/brief-evaluation.js';
 
 const getClient = jest.fn(() => null);
@@ -194,7 +195,8 @@ describe('explicit repair publication', () => {
       publicationValidation: { partial: false, sourceCheckStatus: 'checked-supported-forms' },
       providerAttempts: artifact.manifest.providerAttempts, costEstimate: artifact.manifest.costEstimate });
     expect(receipt.grounding).toEqual(artifact.manifest.grounding);
-    expect(readFileSync(join(dir, result.filename), 'utf8')).toBe(content);
+    expect(readFileSync(join(dir, result.filename), 'utf8')).toBe(repairBriefFormatting(
+      assembleBrief(content, validationSourceFromManifest(artifact.manifest)).content));
     expect(await (await post(artifact, payload)).json()).toMatchObject({ published: true, filename: result.filename, replayed: true });
     expect(archives()).toEqual([result.filename]);
     expect(webhook).toHaveBeenCalledTimes(1);

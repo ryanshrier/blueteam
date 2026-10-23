@@ -53,6 +53,8 @@ try {
 
 async function runReaderChecks() {
   const {render,unmount}=await import('/modules/briefing/briefing-view.js');
+  const {decisionCardContent,decisionCopyText}=await import('/modules/briefing/brief-renderer.js');
+  const {expandReaderDisclosures}=await import('/modules/briefing/brief-export.js');
   const {setState}=await import('/modules/core/store.js');
   let checks=0, current, pending=false, generation=null, newer=null, publicationRevision='initial', archiveFailure=false;
   const check=(condition,message)=>{ checks++; if(!condition) throw new Error(message); };
@@ -70,6 +72,12 @@ Check affected inventory before scheduling remediation.
 **Confidence:** ${certainty}
 **What happened:** The [Vendor advisory, 2026-10-09](https://publisher.invalid/advisory) describes a fixed build.
 **Defender impact:** Preserve relevant logs and confirm local applicability.
+
+**Federal remediation:** Captured CISA KEV dates apply only to Federal Civilian Executive Branch (FCEB) agencies. Internal recommended targets are separate.
+
+- CVE-2026-83548: FCEB remediation due 2026-11-04. [CISA KEV catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)
+- CVE-2026-83549: FCEB remediation due 2026-11-12. [CISA KEV catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)
+
 **Recommended actions:**
 - Operations — check affected inventory — today.
 **Decision window:** 72 hours
@@ -142,6 +150,14 @@ Check affected inventory before scheduling remediation.
   q('#briefReadingMode').click();
   check(q('.brief-judgment-card').innerText.split(certainty).length===2,'Full report preserves confidence without a visible duplicate');
   check(disclosure.getClientRects().length>0&&!disclosure.closest('.briefing-layout'),'Full report uses the same shared AI disclosure');
+  const firstCard=q('.brief-judgment-card'), federal=firstCard.querySelector('[data-brief-field="federal remediation"]');
+  check(federal?.getClientRects().length>0&&federal.textContent.includes('Internal recommended targets are separate'),'Federal dates remain visible with their own scope');
+  const decision=decisionCardContent(firstCard), copied=decisionCopyText({...decision,editionUrl:`${location.origin}/briefing/${filename}`});
+  check(decision.federalRemediation.includes('CVE-2026-83548: FCEB remediation due 2026-11-04')&&decision.federalRemediation.includes('CVE-2026-83549: FCEB remediation due 2026-11-12'),'Copy preserves both exact per-CVE federal dates');
+  check(!decision.federalRemediation.includes('Operations')&&copied.includes('Federal remediation:')&&copied.includes('check affected inventory'),'Copy separates federal context from the complete internal recommendation');
+  check(decision.sources.some(source=>source.href==='https://www.cisa.gov/known-exploited-vulnerabilities-catalog'),'Copy retains the catalog citation');
+  const printable=firstCard.cloneNode(true);expandReaderDisclosures(printable);
+  check(printable.textContent.includes('FCEB remediation due 2026-11-04')&&printable.textContent.includes('FCEB remediation due 2026-11-12')&&printable.textContent.includes('Internal recommended targets are separate'),'Print content retains exact dates and scope');
   for(const state of ['superseded','invalid','unavailable']){
     await show(state);const notice=q('#briefPublicationState');const text=notice.textContent;
     check(!notice.hidden&&text.length>30,`${state}: Overview retains the exception reason`);

@@ -115,10 +115,19 @@ afterAll(() => {
   finally { rmSync(historyDir, { recursive: true, force: true }); }
 });
 
-async function execute(item, corrective = false, { provider = selectedProvider, model = selectedModel, rejectDraft = false, stopReasons = ['end_turn'], terminal = true } = {}) {
+async function execute(item, corrective = false, { provider = selectedProvider, model = selectedModel, rejectDraft = false, stopReasons = ['end_turn'], terminal = true, sharedFacts = false } = {}) {
   currentCase = item; saved = null; calls = 0; acceptedAttempts = []; localRejections = []; capturedRequests = []; metadata.clear();
   const draftText = () => {
     let draft = referenceBrief(item);
+    if (sharedFacts) {
+      const sources = buildGroundingManifest({ headlines: item.headlines }).members;
+      draft = draft.replace(/\[[^\]\n]+\]\((https?:\/\/[^)]+)\)/g, (citation, url) => {
+        const source = sources.find(record => record.url === url);
+        return source ? `[${source.id.toLowerCase()}]` : citation;
+      }).replace(/^- \*\*Required decisions:\*\*[^\n]*\n/m, '')
+        .replaceAll(' — recommended target ', ' - target: ')
+        .replaceAll('Operations — document', 'Operations - document');
+    }
     if (rejectDraft || (corrective && calls === 1)) draft = draft.replace('## BLUF', '## MISSING OPENING');
     return draft;
   };
@@ -299,6 +308,22 @@ test.each(evaluatedCases)('$id: $description', async item => {
   expect(capturedRequests[0]).toMatchObject({ model: 'claude-sonnet-5', max_tokens: 8000,
     thinking: { type: 'adaptive' }, output_config: { effort: 'low' } });
   expect(row.receipt.providerAttempts[0].thinkingConfiguration).toEqual({ requestedEffort: 'low', configuredBy: 'adapter-hook', requestEffort: 'low' });
+});
+
+(observed ? test.skip : test).each(['anthropic', 'openai', 'custom'])('%s composes source IDs and tolerant action facts without hidden metadata or a retry', async provider => {
+  const model = provider === 'openai' ? DEFAULT_OPENAI_MODEL : provider === 'anthropic' ? 'claude-sonnet-5' : 'custom-replay';
+  const row = await execute(BRIEF_EVALUATION_CASES[0], false, { provider, model, sharedFacts: true });
+  expect(row.published).toBe(true);
+  expect(row.providerAttempts).toBe(1);
+  expect(row.citedHorizons).toEqual([1, 2, 3]);
+  expect(row.receipt.generationSettings.compositionVersion).toBe(1);
+  expect(row.receipt.briefingMetadata).toBeNull();
+  expect(saved.text).not.toMatch(/\[s\d+\.\d+\]/i);
+  expect(saved.text).toContain('[Synthetic Vendor, 2026-09-04](https://example.test/evaluation/vendor)');
+  expect(saved.text).toContain('**Required decisions:** Operations — document applicability');
+  expect(saved.text).toContain('— recommended target September 8, 2026');
+  expect(row.blockers).toEqual([]);
+  expect(row.issues.filter(issue => issue.code.startsWith('ACTION_SUMMARY'))).toEqual([]);
 });
 
 (observed ? test.skip : test).each(BRIEF_EVALUATION_CASES)('custom normalized adapter: $id', async item => {

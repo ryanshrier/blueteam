@@ -28,6 +28,15 @@ import { createBriefGenerationTracker } from '../lib/brief-lifecycle.js';
 import { BRIEF_GROUNDING_REGRESSION } from './fixtures/brief-grounding-regression.js';
 import { buildGenerationManifest, generationManifestFilename, sha256 } from '../lib/generation-manifest.js';
 import { createOpenAiClient } from '../lib/ai-provider.js';
+import { assembleBrief } from '../lib/brief-assembly.js';
+import { validationSourceFromManifest } from '../lib/brief-drafts.js';
+
+// Publication persists app-composed Markdown; assertions below still inspect
+// retry counts, findings and immutable source inputs independently.
+const assembled = text => {
+  const manifest = saveBriefMock.mock.calls.at(-1)?.[2]?.manifest;
+  return assembleBrief(text, manifest ? validationSourceFromManifest(manifest) : {}).content;
+};
 
 const getConfigMock = jest.fn();
 const getFreshRunMock = jest.fn();
@@ -613,7 +622,7 @@ describe('POST /api/brief - scheduled job idempotency and edition context', () =
       filename: 'brief-2026-07-02-00.md',
       jobKey: 'daily-brief:2026-07-02',
     });
-    expect(saveBriefMock).toHaveBeenCalledWith('/fake/history', GOOD_BRIEF, expect.objectContaining({
+    expect(saveBriefMock).toHaveBeenCalledWith('/fake/history', assembled(GOOD_BRIEF), expect.objectContaining({
       date: '2026-07-02',
       scheduled: true,
       manifest: expect.objectContaining({ schemaVersion: 1, generationId: expect.any(String) }),
@@ -863,11 +872,12 @@ describe('POST /api/brief — corrective retry recovery', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
-  test('a shortened label on an exact captured URL is normalized without another provider attempt', async () => {
+  test.each(['short-label', 'id-with-uncaptured-url'])('citation presentation is repaired without another provider attempt: %s', async style => {
     const url = 'https://example.test/captured-change';
     getFreshRunMock.mockResolvedValue({ headlines: [{ title: 'A headline', description: 'The source reports a change.',
       horizon: 1, source: 'Feed A', date: '2026-07-01', link: url }], stats: { enriched: 1 } });
-    const text = GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', `[Feed](${url})`);
+    const text = GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', style === 'short-label'
+      ? `[Feed](${url})` : '[S1.1](https://uncaptured.example/guessed)');
     const stream = jest.fn(textStream(text));
     ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
@@ -875,6 +885,9 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(complete).toBeDefined();
     expect(complete.text).toContain(url);
     expect(complete.text).not.toContain(`[Feed](${url})`);
+    expect(complete.text).not.toContain('https://uncaptured.example/guessed');
+    expect(complete.text).not.toContain('[S1.1]');
+    expect(saveBriefMock.mock.calls[0][1]).toBe(complete.text);
     expect(complete.validation.trustFail).toBe(false);
     expect(stream).toHaveBeenCalledTimes(1);
     expect(saveBriefMock.mock.calls[0][2].manifest.judgmentEvidence[0].sourceIds).toEqual(['S1.1']);
@@ -954,13 +967,13 @@ describe('POST /api/brief — corrective retry recovery', () => {
       const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
       const blocked = events.find(event => event.error);
       expect(stream).toHaveBeenCalledTimes(1);
-      expect(blocked).toMatchObject({ draft: original, tokens: 300, awaitingReview: true });
+      expect(blocked).toMatchObject({ draft: assembled(original), tokens: 300, awaitingReview: true });
       expect(blocked.validation.warnings).toEqual(expect.arrayContaining([expect.stringContaining('without another provider charge')]));
       expect(saveBriefMock).not.toHaveBeenCalled();
       const artifact = await (await fetch(`${ctx.base}/api/brief/drafts/${blocked.draftArtifact.id}`)).json();
       expect(artifact.manifest.recovery).toMatchObject({ status: 'not-attempted', reason: 'insufficient-time', minimumMs: 30_000 });
       expect(artifact.manifest.providerAttempts).toHaveLength(1);
-      expect(artifact.revisions.at(-1).content).toBe(original);
+      expect(artifact.revisions.at(-1).content).toBe(assembled(original));
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
@@ -988,11 +1001,11 @@ describe('POST /api/brief — corrective retry recovery', () => {
 
     expect(stream).toHaveBeenCalledTimes(1);
     expect(events.some(event => event.error)).toBe(false);
-    expect(complete).toMatchObject({ text: firstDraft, tokens: 300 });
+    expect(complete).toMatchObject({ text: assembled(firstDraft), tokens: 300 });
     expect(saveBriefMock).toHaveBeenCalledTimes(1);
     expect(saveBriefMock).toHaveBeenCalledWith(
       '/fake/history',
-      firstDraft,
+      assembled(firstDraft),
       expect.objectContaining({
         scheduled: false,
         manifest: expect.objectContaining({
@@ -1013,7 +1026,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
     expect(stream).toHaveBeenCalledTimes(2);
     expect(events.filter(event => event.error)).toEqual([]);
-    expect(events.find(event => event.briefComplete)?.text).toBe(correctedDraft);
+    expect(events.find(event => event.briefComplete)?.text).toBe(assembled(correctedDraft));
     const manifest = saveBriefMock.mock.calls[0][2].manifest;
     expect(manifest.validation[0].issues).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'VERSION_UNSUPPORTED' }),
@@ -1033,7 +1046,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
     expect(stream).toHaveBeenCalledTimes(1);
     expect(events.filter(event => event.error)).toEqual([]);
-    expect(events.find(event => event.briefComplete)?.text).toBe(draft);
+    expect(events.find(event => event.briefComplete)?.text).toBe(assembled(draft));
     expect(saveBriefMock.mock.calls[0][2].manifest.publicationValidation).toMatchObject({
       validationPolicyVersion: 2, hardFail: false, trustFail: false,
       issues: expect.arrayContaining([expect.objectContaining({ code: 'CVE_CVSS_AMBIGUOUS' })]),
@@ -1067,7 +1080,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
 
     expect(calls).toBe(2);
     expect(blocked).toBeTruthy();
-    expect(blocked.draft).toBe(firstDraft);
+    expect(blocked.draft).toBe(assembled(firstDraft));
     expect(blocked.error).toContain('Corrective retry failed: gateway timeout (524)');
     expect(blocked.validation.warnings).toContain('Corrective retry failed: gateway timeout (524)');
     expect(blocked.tokens).toBe(370);
@@ -1096,7 +1109,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
     const blocked = events.find(event => event.code === 'E006');
     expect(stream).toHaveBeenCalledTimes(2);
-    expect(blocked).toMatchObject({ draft: original, tokens: 600 });
+    expect(blocked).toMatchObject({ draft: assembled(original), tokens: 600 });
     expect(blocked.validation.warnings).toContain('Ungrounded CVE(s) in no source headline: CVE-2099-99999');
     expect(requests[1].messages.at(-1).content).toContain('Repair only the identified passages');
     expect(events.some(event => event.briefComplete)).toBe(false);
@@ -1134,12 +1147,12 @@ describe('POST /api/brief — corrective retry recovery', () => {
       { maxTokens: 16000, thinking: { type: 'adaptive' }, effort: 'low' },
       { maxTokens: 16000, thinking: { type: 'disabled' }, effort: undefined },
     ]);
-    expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
+    expect(events.find(event => event.briefComplete)?.text).toBe(assembled(GOOD_BRIEF));
     expect(events.find(event => event.progress?.includes('requesting a shorter draft'))?.reset).toBe(true);
     expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
     expect(saveBriefMock).toHaveBeenCalledWith(
       '/fake/history',
-      GOOD_BRIEF,
+      assembled(GOOD_BRIEF),
       expect.objectContaining({ scheduled: false }),
     );
     expect(saveBriefMock.mock.calls[0][2].manifest.providerAttempts.map(attempt => attempt.thinkingConfiguration)).toEqual([
@@ -1176,7 +1189,7 @@ describe('POST /api/brief — output-token publication gate', () => {
       { maxTokens: 16000, effort: 'low', messageCount: 1 },
       { maxTokens: 16000, effort: undefined, messageCount: 1 },
     ]);
-    expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
+    expect(events.find(event => event.briefComplete)?.text).toBe(assembled(GOOD_BRIEF));
     expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
     expect(saveBriefMock).toHaveBeenCalledTimes(1);
   });
@@ -1206,7 +1219,7 @@ describe('POST /api/brief — output-token publication gate', () => {
       { effort: 'low', messageCount: 1 },
       { effort: undefined, messageCount: 1 },
     ]);
-    expect(events.find(event => event.briefComplete)?.text).toBe(GOOD_BRIEF);
+    expect(events.find(event => event.briefComplete)?.text).toBe(assembled(GOOD_BRIEF));
     expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
     expect(saveBriefMock).toHaveBeenCalledTimes(1);
   });
@@ -1226,7 +1239,7 @@ describe('POST /api/brief — output-token publication gate', () => {
     const blocked = events.find(event => event.code === 'E_PARTIAL_GENERATION');
 
     expect(blocked).toMatchObject({
-      draft: GOOD_BRIEF,
+      draft: assembled(GOOD_BRIEF),
       tokens: 32200,
       validation: expect.objectContaining({ hardFail: false, trustFail: false }),
     });
@@ -1249,7 +1262,7 @@ describe('POST /api/brief — grounding publication gate', () => {
 
   test('convergence recovery requires citations in the failed field or explicit omission of unsupported analysis', () => {
     const guidance = correctiveGuidance([{ code: 'CONVERGENCE_EVIDENCE_WEAK' }]);
-    expect(guidance).toContain('cite both substantive sources in **The intersection:** using their complete captured URLs');
+    expect(guidance).toContain('cite both substantive sources in **The intersection:** using their captured source IDs');
     expect(guidance).toContain('Do not attach citations to a mechanism they do not establish');
     expect(guidance).toContain('No supported intersection is established');
     expect(guidance).not.toContain('Score repair');
@@ -1260,7 +1273,7 @@ describe('POST /api/brief — grounding publication gate', () => {
     const guidance = correctiveGuidance([{ code: 'CVE_CVSS_AMBIGUOUS' }, { code: 'CVE_CITATION_MISMATCH' }]);
     expect(guidance).toContain('one explicit pair per clause');
     expect(guidance).toContain('An NVD-only score requires the supplied NVD citation');
-    expect(guidance).toContain("Cite its complete captured URL in this judgment's What happened field");
+    expect(guidance).toContain("Cite its captured source ID (or existing complete captured URL) in this judgment's What happened field");
     expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Do not broaden affected versions');
     expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Missing captured support does not establish that the claim is false');
     expect(guidance).toContain('omit only the judgment explicitly identified by a blocking finding');
@@ -1306,7 +1319,7 @@ describe('POST /api/brief — grounding publication gate', () => {
     expect(JSON.stringify(requests[0].messages)).toContain('FCEB remediation due 2026-09-05');
     expect(JSON.stringify(requests[1].messages)).toContain('contradicts the captured CISA KEV date 2026-09-05');
     if (corrected) {
-      expect(events.find(event => event.briefComplete)?.text).toBe(correct);
+      expect(events.find(event => event.briefComplete)?.text).toBe(assembled(correct));
       const manifest = saveBriefMock.mock.calls[0][2].manifest;
       expect(manifest.verification.kevTiming).toEqual(Object.fromEntries(cves.map(cve => [cve, {
         dateAdded: '2026-09-02', dueDate: '2026-09-05', scope: 'FCEB', precision: 'day',
@@ -1320,6 +1333,39 @@ describe('POST /api/brief — grounding publication gate', () => {
       expect(indexBriefMock).not.toHaveBeenCalled();
       expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
     }
+  });
+
+  test('source IDs and per-CVE federal dates are rendered from the captured snapshot without a corrective attempt', async () => {
+    const cves = ['CVE-2026-83548', 'CVE-2026-83549'];
+    getKEVSetMock.mockReturnValue(new Set(cves));
+    getKEVDueDatesMock.mockReturnValue({
+      [cves[0]]: { date_added: '2026-06-30', due_date: '2026-07-15' },
+      [cves[1]]: { date_added: '2026-07-01', due_date: '2026-07-22' },
+    });
+    const claim = `${cves.join(' and ')} are listed in the captured CISA KEV catalog.`;
+    getFreshRunMock.mockResolvedValue({ headlines: [{ title: cves.join(' and '), source: 'Feed A',
+      description: claim, horizon: 1 }], stats: { enriched: 1 } });
+    const raw = GOOD_BRIEF.replace('The source reports a change.', claim)
+      .replaceAll('[Feed A, date unavailable]', '[S1.1]')
+      .replace(/^- \*\*Required decisions:\*\*[^\n]*\n/m, '');
+    const stream = jest.fn(async () => {
+      getKEVDueDatesMock.mockReturnValue({ [cves[0]]: { due_date: '2099-01-01' } });
+      return textStream(raw)();
+    });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(complete).toBeDefined();
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(complete.text).toContain('**Required decisions:** Operations — verify applicability');
+    expect(complete.text).toContain('[Feed A, date unavailable]');
+    expect(complete.text).not.toContain('[S1.1]');
+    expect(complete.text).toContain('**Federal remediation:**');
+    expect(complete.text).toContain(`${cves[0]}: FCEB remediation due 2026-07-15`);
+    expect(complete.text).toContain(`${cves[1]}: FCEB remediation due 2026-07-22`);
+    expect(complete.text).toContain('recommended target July 3, 2026');
+    expect(complete.text).not.toContain('2099-01-01');
+    expect(saveBriefMock.mock.calls[0][2].manifest.generationSettings.compositionVersion).toBe(1);
   });
 
   test.each([
@@ -1354,7 +1400,7 @@ describe('POST /api/brief — grounding publication gate', () => {
     expect(complete.tokens).toBe(600);
     expect(saveBriefMock).toHaveBeenCalledWith(
       '/fake/history',
-      GOOD_BRIEF,
+      assembled(GOOD_BRIEF),
       expect.objectContaining({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), scheduled: false }),
     );
   });
@@ -2070,7 +2116,7 @@ describe('OpenAI briefing generation', () => {
     ctx = await makeServer({ getAiClient: () => createOpenAiClient(key, 'gpt-5.3-codex', fetchImpl) });
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
     const complete = events.find(event => event.briefComplete);
-    expect(complete).toMatchObject({ model: 'gpt-5.3-codex', tokens: 300, text: GOOD_BRIEF });
+    expect(complete).toMatchObject({ model: 'gpt-5.3-codex', tokens: 300, text: assembled(GOOD_BRIEF) });
     expect(complete.costUsd).toBeCloseTo((80 * 1.75 + 20 * 0.175 + 200 * 14) / 1e6, 9);
     const request = JSON.parse(fetchImpl.mock.calls[0][1].body);
     expect(request).toMatchObject({ model: 'gpt-5.3-codex', stream: true, store: false, max_output_tokens: 16000, reasoning: { effort: 'low' } });
@@ -2342,14 +2388,14 @@ describe('retained rejected drafts — HTTP recovery without provider calls', ()
     ctx = await makeServer({ historyDir: dir, getAnthropic: () => fakeAnthropic(stream) });
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
     const failure = events.find(event => event.draftArtifact);
-    expect(failure).toMatchObject({ draft: wrong, sourceCheckStatus: 'findings', editorialReviewStatus: 'not-reviewed' });
+    expect(failure).toMatchObject({ draft: assembled(wrong), sourceCheckStatus: 'findings', editorialReviewStatus: 'not-reviewed' });
     const calls = stream.mock.calls.length;
     const list = await fetch(`${ctx.base}/api/brief/drafts`).then(response => response.json());
     expect(list.items).toEqual([expect.objectContaining({ id: failure.draftArtifact.id, revisionCount: 1 })]);
     const response = await fetch(`${ctx.base}${failure.draftArtifact.url}`);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     const original = await response.json();
-    expect(original.revisions[0].content).toBe(wrong);
+    expect(original.revisions[0].content).toBe(assembled(wrong));
     expect(original.revisions[0].validation.issues.every(issue => issue.location.line > 0)).toBe(true);
     const repairedResponse = await fetch(`${ctx.base}${failure.draftArtifact.url}/revalidate`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({content: GOOD_BRIEF,baseRevision:1}),
