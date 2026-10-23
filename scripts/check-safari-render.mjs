@@ -172,8 +172,21 @@ try {
   await navigate(origin + '/briefing?scenario=handoff&theme=light&capture&reducedMotion');
   await until('document.querySelectorAll(".brief-judgment-card").length === 3 && !document.querySelector("#briefExport").disabled');
   await record('briefing');
+  // Retain native event ordering when a disclosure action fails before its
+  // dialog opens. A later iframe timeout alone cannot explain lost activation.
+  await client.execute(`window.__safariPrintEvents = [];
+    for (const type of ['pointerdown', 'pointerup', 'focusin', 'click', 'toggle', 'cancel', 'close']) {
+      document.addEventListener(type, event => {
+        const describe = node => node ? (node.id || node.tagName) : null;
+        window.__safariPrintEvents.push({ type, target:describe(event.target), active:describe(document.activeElement),
+          toolsOpen:document.querySelector('#briefEditionTools')?.open,
+          dialogOpen:!!document.querySelector('.np-overlay[open]') });
+        if (window.__safariPrintEvents.length > 60) window.__safariPrintEvents.shift();
+      }, true);
+    }`);
   await client.click('#briefEditionTools > summary');
   await client.click('#briefExport');
+  report.printActivation = await client.execute('return window.__safariPrintEvents;');
   await until('document.querySelector(".np-frame")?.contentDocument?.querySelector(".np-colophon") && !document.querySelector(".np-ov-print").disabled');
   assert(await client.execute('return document.querySelector(".np-overlay-reading-note").textContent.includes("Continuous reading preview") && document.querySelector(".np-frame").title.includes("continuous reading preview");'), 'Safari preview distinguishes continuous reading from print pagination');
   const edition = await client.execute(`const frame = document.querySelector('.np-frame'); const doc = frame.contentDocument; return {
@@ -259,6 +272,10 @@ try {
   report.status = 'failed'; report.failure = error.stack || String(error);
   if (client?.sessionId) {
     try { report.failurePage = await client.execute(`return { url:location.href, title:document.title,
+      errors:window.__fixtureErrors || [], printEvents:window.__safariPrintEvents || [],
+      activeElement:document.activeElement?.outerHTML?.slice(0, 1000),
+      toolsOpen:document.querySelector('#briefEditionTools')?.open,
+      printDialog:document.querySelector('.np-overlay')?.outerHTML?.slice(0, 1000),
       images:[...document.images].map(i=>({src:i.currentSrc || i.src, complete:i.complete, width:i.naturalWidth})),
       styles:[...document.querySelectorAll('link[rel="stylesheet"]')].map(e=>({href:e.href, loaded:!!e.sheet})),
       resources:performance.getEntriesByType('resource').map(e=>({name:e.name,type:e.initiatorType,bytes:e.decodedBodySize})) };`); } catch { /* Keep the initial failure. */ }
