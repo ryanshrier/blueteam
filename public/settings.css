@@ -20,18 +20,8 @@
 .icon-btn svg { width: 19px; height: 19px; }
 
 .settings { max-width: var(--workspace-width); margin: 0 auto; padding: 0 0 48px; display: grid; grid-template-columns: 190px minmax(0, 880px); gap: 0 32px; align-items: start; }
-.settings-head { grid-column: 1 / -1; }
+.settings-head { grid-column: 1 / -1; margin-bottom: var(--rhythm-section); }
 .settings-content { min-width: 0; }
-
-.settings-head { margin-bottom: 24px; }
-.settings-head h1 {
-  font-size: var(--type-page);
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--text-primary);
-  margin: 0 0 6px;
-}
-.settings-sub { color: var(--text-tertiary); font-size: var(--type-sm); margin: 0; }
 
 .settings-card {
   background: transparent;
@@ -164,15 +154,14 @@
 
 .settings-help { max-width: 70ch; color: var(--text-secondary); font-size: var(--type-sm); line-height: 1.6; margin: 10px 0 0; overflow-wrap: anywhere; }
 .settings-help code { font-family: var(--font-mono); color: var(--text-secondary); }
-.settings-sub a,
 .settings-help a { color: var(--brand-text); text-decoration: none; }
-.settings-sub a:hover,
 .settings-help a:hover { text-decoration: underline; }
 
 .settings-row-actions { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }
 .settings-row-actions > .btn-primary { min-height: 44px; }
+.settings-row-actions > .settings-feedback:not(:empty) { flex-basis: 100%; }
 .settings-card[data-dirty="true"] > .settings-row-actions { position: sticky; bottom: 12px; z-index: 6; padding: 12px; margin-inline: -12px; background: var(--bg-elevated); border: 1px solid var(--border-control); box-shadow: var(--shadow-sm); }
-.profile-save-state { display: block; margin-top: 4px; min-height: 1.5em; font-size: var(--type-sm); color: var(--text-secondary); }
+.profile-save-state { display: block; min-height: 1.5em; font-size: var(--type-sm); color: var(--text-secondary); }
 .profile-save-state[data-dirty="true"] { color: var(--warn); }
 .settings-counter { font: 500 var(--type-sm)/1.5 var(--font-sans); color: var(--text-secondary); margin: 6px 0; }
 .settings-counter.over-limit { color: var(--h1); }
@@ -244,6 +233,8 @@
 }
 .seg-btn:hover { color: var(--text-primary); }
 .seg-btn.active { background: var(--brand); color: var(--ink-on-brand); }
+/* The segmented group's clipped corners also clip an outer focus ring. */
+.seg-btn:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; box-shadow: none; }
 
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
 /* A 44px tap target with a 34px colour disc inside — keeps the compact paint while
@@ -365,8 +356,8 @@
 @media (max-width: 560px) {
   /* .app-main already owns the phone gutter. Dropping Settings' second nested
      gutter keeps the card's inputs above their usable minimum at 320px wide. */
-  .settings { padding: 4px 0 64px; }
-  .settings-head { margin-bottom: 12px; }
+  .settings { padding: 0 0 64px; }
+  .settings-head { margin-bottom: 16px; }
   .settings-card { padding: 18px 0; }
   .key-input-wrap { flex-basis: 100%; min-width: 0; }
   .settings-row-actions { align-items: flex-start; flex-wrap: wrap; }

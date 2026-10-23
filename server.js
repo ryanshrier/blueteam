@@ -186,10 +186,10 @@ configureRankingBenchmark({ directory: join(DATA_DIR, 'ranking-benchmark') });
 // successful insert and the cache fallback; startup still never waits on it.
 const bootKevWarmup = COLLECTION_DISABLED ? Promise.resolve() : refreshKEV().catch(err => log.warn('kev', `Boot KEV warm-up failed: ${err.message}`));
 
-// Provider selection and credentials can change without restarting the server.
+// Settings can switch providers live. CLI profiles and credentials load once at startup.
 loadUserSettings(DATA_DIR);
 const providerModule = await loadProviderModule(process.env, __dirname);
-const ai = createAiProvider({ getSettings: getUserSettings, getAnalysisSettings: () => getConfig().analysisSettings || {}, providerModule });
+const ai = createAiProvider({ getSettings: getUserSettings, getAnalysisSettings: () => getConfig().analysisSettings || {}, providerModule, cwd: __dirname });
 const refreshAi = () => ai.refresh();
 const getAiStatus = () => ai.getStatus();
 if (!ai.getClient()) log.warn('env', ai.getStatus().error || 'Selected AI provider is not configured — AI briefing disabled');

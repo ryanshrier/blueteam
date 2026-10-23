@@ -84,6 +84,34 @@ describe('buildSystemPrompt — pack-driven brief frame + persona', () => {
     expect(p).toContain('Word targets never justify removing a necessary qualification');
   });
 
+  test('keeps prioritization evidence-based without manufacturing urgency or confidence variety', () => {
+    setDomainPack(cyberPack);
+    const p = buildSystemPrompt(cfg);
+    expect(p).toContain('confidence in the cited account, known local applicability, and urgency of the first response');
+    expect(p).toContain('Apply the band to the assessment actually written');
+    expect(p).toContain('All items may share a confidence band or decision window when justified');
+    expect(p).toContain('do not make urgent work wait merely because another item ranks first');
+    expect(p).toContain('Unknown deployment can require a this-shift check');
+    expect(p).toContain('Catalog membership alone does not determine the local response window');
+    expect(p).toContain('do not defer a timely applicability check when credible exploitation leaves exposure unresolved');
+    expect(p).not.toContain('Choose the smallest honest bucket');
+    expect(p).not.toContain('name that exact CVE in the this-shift action');
+  });
+
+  test('budgets the whole report while retaining complete technical and recovery deliverables', () => {
+    setDomainPack(cyberPack);
+    const p = buildSystemPrompt(cfg);
+    expect(p).toContain('Budget the whole report, including actions and supporting sections');
+    expect(p).toContain('never truncate actions or drop an investigation or recovery phase to meet a word count');
+    expect(p).toContain('Aim for 25–40 words');
+    expect(p).toContain('Usually use 45–80 words for What happened');
+    expect(p).toContain('exceed that guidance whenever scope, conditions, dependencies, investigation or recovery require it');
+    expect(p).toContain('Do not shorten an action by replacing its technical steps with "follow guidance"');
+    expect(p).toContain('Omit a line that merely repeats unknown local applicability');
+    expect(p).toContain('Retain a repeated topic only when the trigger adds an escalation or reassessment condition');
+    expect(p).not.toContain('not yet actionable, worth tracking');
+  });
+
   test('phase examples remain separately assignable through the existing action parser', () => {
     setDomainPack(cyberPack);
     const p = buildSystemPrompt(cfg);
@@ -235,6 +263,21 @@ describe('buildSystemPrompt / buildUserPrompt - immutable edition clock', () => 
 });
 
 describe('buildSystemPrompt / buildUserPrompt — untrusted input handling', () => {
+  test('collection critical tags remain triage hints instead of unsupported local response mandates', () => {
+    const p = buildUserPrompt({
+      headlines: [{
+        source: 'Vendor', title: 'Critical update', horizon: 1, urgency: 'critical',
+        description: 'The vendor published an update. Local deployment is not established.',
+        link: 'https://example.com/update',
+      }],
+      continuityContext: '', groundTruth: '', config: cfg,
+    });
+    expect(p).toContain('Collection priority: critical [triage hint, not a local exposure finding or response deadline');
+    expect(p).not.toContain('[CRITICAL]');
+    expect(p).toContain('Keep evidence confidence, local applicability and response timing separate');
+    expect(p).toContain('preserve every material qualification, investigation and recovery requirement');
+  });
+
   test('the system prompt instructs the model to treat <source> content as data, not instructions', () => {
     const p = buildSystemPrompt(cfg);
     expect(p).toMatch(/<source>/);

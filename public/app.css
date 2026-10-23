@@ -2113,6 +2113,11 @@ a.source-link:hover { border-bottom-color: var(--brand-text); }
 .brief-exec-action-task { min-width: 0; }
 .brief-exec-action-task:last-child { grid-column: 2 / -1; }
 .brief-exec-action-task strong { display: block; margin-bottom: 4px; }
+.brief-content .brief-exec-groups > li { grid-template-columns: 24px minmax(0, 1fr); }
+.brief-exec-group-title { display: inline-block; font-weight: 600; line-height: 1.45; text-decoration: none; }
+.brief-exec-owner { display: block; margin-top: 6px; color: var(--text-secondary); font: 400 var(--type-xs)/1.5 var(--font-sans); }
+.brief-exec-group-detail { display: inline-block; margin-top: 5px; font: 500 var(--type-xs)/1.5 var(--font-sans); }
+.brief-content .brief-exec-qualifications { margin: 7px 0 0; color: var(--text-secondary); font: 400 var(--type-xs)/1.5 var(--font-sans); }
 .brief-content .brief-exec-action-task p { margin: 0; line-height: 1.55; }
 .brief-exec-action-due { color: var(--text-secondary); font: 500 var(--type-xs)/1.5 var(--font-sans); }
 .brief-exec-due-label { display: block; margin-bottom: 3px; color: var(--text-muted); }

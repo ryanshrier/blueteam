@@ -129,7 +129,14 @@ export function collectEditionWarnings(contentEl, persisted = [], presentation =
 
 export function renderedReaderIssueIds(root) {
   return [...new Set([...(root?.querySelectorAll?.('[data-reader-issue-id]') || [])]
-    .map(node => node.dataset?.readerIssueId).filter(Boolean))];
+    .flatMap(node => {
+      const identity = node.dataset?.readerIssueId;
+      try {
+        const grouped = JSON.parse(node.dataset?.readerIssueIds || 'null');
+        if (Array.isArray(grouped)) return [identity, ...grouped.filter(value => typeof value === 'string')];
+      } catch { /* legacy or malformed grouping retains the individual identity */ }
+      return [identity];
+    }).filter(Boolean))];
 }
 
 // Operate only on the export clone. The reader groups corrections in its top
@@ -286,10 +293,9 @@ export function exportBriefNewspaper({
   // export callers may still provide packed fields.
   normalizePackedBriefFields(clone);
 
-  // Turn the three generated prose bullets into a compact decision brief. The
-  // same pure model powers the Wall, so both surfaces agree on owners, actions,
-  // and whether one shared due date can be printed once.
-  structureExecutiveSummary(clone);
+  // Reuse the reader's exact-copy action groups. Direct/legacy export callers
+  // use the same shared record projection, with prose parsing as a fallback.
+  structureExecutiveSummary(clone, { presentation });
 
   // The brief opens with `# {pack title}` + a dateline `### {pack subtitle} · DATE · WEEKDAY`.
   // The nameplate is built from those fields, so a non-cyber edition prints its own
@@ -864,6 +870,10 @@ body{
 .np-exec-action-index{ font:12px/1.5 var(--mono); color:var(--ink-3); padding-top:2px; }
 .np-exec-action-task{ min-width:0; }
 .np-exec-action-task strong{ display:block; margin-bottom:4px; font:650 15px/1.4 var(--sans); }
+.np-exec-groups > li{ grid-template-columns:24px minmax(0,1fr); }
+.np-exec-group-title{ display:inline-block; font:650 15px/1.4 var(--sans); text-decoration:none; }
+.np-exec-group-detail{ display:inline-block; margin-top:5px; font:12px/1.5 var(--sans); color:var(--ink-3); }
+.np-exec-qualifications{ margin:8px 0 0 !important; font:12px/1.5 var(--sans); color:var(--ink-3); }
 .np-exec-action-task p{ margin:0; font-size:16px; line-height:1.45; color:var(--ink-2); }
 .np-exec-owner{ display:block; margin-top:6px; font:12px/1.5 var(--sans); color:var(--ink-3); }
 .np-exec-action-due{ font:12px/1.5 var(--sans); color:var(--ink-2); }
@@ -946,6 +956,7 @@ body{
   /* Block flow keeps a complete action and its owner together reliably when
      Chromium paginates a list; the screen grid remains unchanged. */
   .np-exec-actions > li{ display:block; position:relative; padding-left:32px; padding-right:152px; }
+  .np-exec-groups > li{ padding-right:0; }
   .np-exec-action-index{ position:absolute; left:0; top:12px; }
   .np-exec-action-due{ position:absolute; right:0; top:12px; width:132px; }
   .np-exec-owner{ break-before:avoid-page; page-break-before:avoid; }

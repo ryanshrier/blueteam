@@ -439,6 +439,40 @@ describe('fetchNewsContext — feed ingest front door', () => {
     expect(getFeedHealth().feeds['Example RSS']).toBe('ok');
   });
 
+  test.each([
+    'https://www.cisa.gov/cybersecurity-advisories/all.xml',
+    'https://www.cisa.gov/ics/advisories/advisories.xml',
+  ])('accepts a full-content CISA feed above the ordinary body limit: %s', async url => {
+    const xml = `<rss><channel><item><title>CISA full advisory</title><description>${'Advisory details. '.repeat(350_000)}</description><link>https://www.cisa.gov/news-events/advisories/test</link></item></channel></rss>`;
+    const bytes = Buffer.byteLength(xml);
+    expect(bytes).toBeGreaterThan(4_000_000);
+    safeFetchMock.mockResolvedValue(fakeResponse({ headers: { 'content-length': '150000', 'content-encoding': 'gzip' } }));
+    readCappedMock.mockImplementation(async (_res, cap) => {
+      if (bytes > cap) throw new Error('blocked: response too large');
+      return xml;
+    });
+    const results = await fetchNewsContext([{ url, source: url, horizon: 1 }]);
+    expect(results).toHaveLength(1);
+    expect(results[0].passage.length).toBeLessThanOrEqual(FEED_FIELD_LIMITS.descriptionRaw);
+    expect(results[0].passageTruncated).toBe(true);
+    expect(readCappedMock).toHaveBeenCalledWith(expect.anything(), 16_000_000);
+    expect(getFeedHealth().feeds[url]).toBe('ok');
+  });
+
+  test.each([
+    'https://www.cisa.gov/other.xml',
+    'https://sub.www.cisa.gov/cybersecurity-advisories/all.xml',
+    'https://www.cisa.gov.example.com/cybersecurity-advisories/all.xml',
+    'https://example.com/ics/advisories/advisories.xml',
+    'http://www.cisa.gov/ics/advisories/advisories.xml',
+    'https://www.cisa.gov:8443/ics/advisories/advisories.xml',
+  ])('keeps the ordinary response bound outside the exact CISA endpoints: %s', async url => {
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue(RSS_FIXTURE);
+    await fetchNewsContext([{ url, source: url, horizon: 1 }]);
+    expect(readCappedMock).toHaveBeenCalledWith(expect.anything(), 4_000_000);
+  });
+
   test('retains the original bounded feed passage and identifier beyond the display summary', async () => {
     const passage = `${'Context sentence. '.repeat(28)}Affected versions now include 1.4.`;
     safeFetchMock.mockResolvedValue(fakeResponse());
@@ -981,6 +1015,37 @@ describe('fetchSearchResults — bounded Google News ingress', () => {
   beforeEach(() => {
     getExternalCacheMock.mockReset().mockReturnValue(null);
     setExternalCacheMock.mockReset();
+  });
+
+  test.each([
+    '<rss><channel><title>No matching stories</title></channel></rss>',
+    '<rss><channel><item><title>Old story</title><pubDate>Thu, 01 Jan 2015 12:00:00 GMT</pubDate></item></channel></rss>',
+  ])('caches a valid search with no current results without reporting a failure', async xml => {
+    const originalPack = getDomainPack();
+    try {
+      setDomainPack({ id: 'search-empty-test', label: 'Fixture', feeds: { searchQueries: [{ q: 'empty search', horizon: 2 }] } });
+      safeFetchMock.mockReset().mockResolvedValue(fakeResponse());
+      readCappedMock.mockReset().mockResolvedValue(xml);
+      expect(await fetchSearchResults({})).toEqual([]);
+      expect(getFeedHealth().search).toMatchObject({ queries: 1, results: 0, failures: 0 });
+      expect(setExternalCacheMock).toHaveBeenCalledWith(expect.stringMatching(/^search:/), '[]', expect.objectContaining({ ttlMs: 3_600_000 }));
+      getExternalCacheMock.mockReturnValue({ body: '[]', expired: false, fetched_at: new Date().toISOString() });
+      expect(await fetchSearchResults({})).toEqual([]);
+      expect(safeFetchMock).toHaveBeenCalledTimes(1);
+      expect(getFeedHealth().search.failures).toBe(0);
+    } finally { setDomainPack(originalPack); }
+  });
+
+  test('does not cache an HTML error document as an empty successful query', async () => {
+    const originalPack = getDomainPack();
+    try {
+      setDomainPack({ id: 'search-error-shape', label: 'Fixture', feeds: { searchQueries: [{ q: 'blocked search', horizon: 2 }] } });
+      safeFetchMock.mockReset().mockResolvedValue(fakeResponse());
+      readCappedMock.mockReset().mockResolvedValue('<html><body>Service unavailable</body></html>');
+      expect(await fetchSearchResults({})).toEqual([]);
+      expect(getFeedHealth().search.failures).toBe(1);
+      expect(setExternalCacheMock).not.toHaveBeenCalled();
+    } finally { setDomainPack(originalPack); }
   });
 
   test('bounds title/source/date fields and drops credential-bearing publisher links', async () => {

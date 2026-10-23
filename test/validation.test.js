@@ -675,6 +675,18 @@ describe('validateBrief — voice', () => {
     expect(issues.some(isMaterialReviewIssue)).toBe(false);
   });
 
+  test('three BLUF sentences plus terminal citations do not invent a fourth sentence or bypass factual checks', () => {
+    const opening = 'CVE-2099-99999 needs exposure verification. Follow the [configuration-dependent mitigation](https://saved.example/mitigation) only if applicable. Exploitation reporting conflicts.';
+    const citations = '[CCCS, 2026-10-23](https://saved.example/cccs) [Krebs on Security, 2026-10-21](https://saved.example/krebs) [The Register, 2026-10-21](https://saved.example/register)';
+    const brief = makeBrief().replace('One sharp judgment.', `${opening} ${citations}`);
+    const result = validateBrief(brief, '2026-10-23', { publication: true, headlines: [] });
+    expect(result.warnings.filter(message => message.startsWith('BLUF is'))).toEqual([]);
+    expect(result.warnings.join('\n')).toMatch(/Ungrounded CVE\(s\).*CVE-2099-99999/);
+    expect(result.warnings.join('\n')).toMatch(/Unverifiable source link\(s\)/);
+    expect(result.issues.some(issue => issue.code === 'GROUNDING' && issue.message.startsWith('Unverifiable source link'))).toBe(true);
+    expect(parseBluf(brief, Infinity)).toContain('CCCS, 2026-10-23');
+  });
+
   test('the shared word target has soft tolerance without imposing a hard length gate', () => {
     const assess = count => validateBrief(makeBrief().replace('One sharp judgment.', `${'Evidence '.repeat(count - 1)}matters.`));
     expect(assess(BLUF_MAX_WORDS + 10).warnings.filter(message => message.startsWith('BLUF is'))).toEqual([]);

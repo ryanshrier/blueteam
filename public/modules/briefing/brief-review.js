@@ -1,6 +1,7 @@
 import { escapeHtml } from '../core/sanitize.js';
 import { formatEventTime } from '../core/brief-date.js';
 import { readerIssueIdentity, readerIssueAcknowledged } from './brief-renderer.js';
+import { readerFindingLocation } from './brief-finding-locations.js';
 
 /** Read the server's current-copy contract, without turning historical checks
  * into a claim about this revision. The fallback supports older saved editions. */
@@ -43,28 +44,31 @@ export function editionNoticeHtml(brief) {
 }
 
 function locatedTarget(content, brief, issue) {
-  const line = Number(issue?.location?.line);
-  if (!Number.isSafeInteger(line) || line < 1) return null;
-  const heading = String(brief.content || '').split('\n').slice(0, line).findLast(value => /^#{2,3}\s/.test(value));
-  const signal = /^###\s+Signal\s+(\d+)\b/.exec(heading || '');
-  if (signal) return content.querySelector(`#judgment-${signal[1]}`);
-  const label = (heading || '').replace(/^#{2,3}\s+/, '').replace(/\*\*/g, '').trim();
-  return [...content.querySelectorAll('h2, h3')].find(node => node.textContent.trim() === label) || null;
+  const location = readerFindingLocation(issue, readerPresentation(brief), brief.content);
+  if (!location || location.kind === 'document') return null;
+  if (location.kind === 'judgment') return content.querySelector(`#judgment-${location.signal}`);
+  const matches = [...content.querySelectorAll('h2, h3')].filter(node => node.textContent.trim() === location.label);
+  return matches.length === 1 ? matches[0] : null;
 }
 
 export function readerEvidenceLimits(brief = {}, signal = null) {
-  const lines = String(brief.content || '').split('\n');
   const seen = new Set();
+  const grouped = new Map();
   const presentation = readerPresentation(brief);
-  return (presentation.currentChecks?.issues || []).filter(issue => {
+  for (const issue of presentation.currentChecks?.issues || []) {
     const identity = readerIssueIdentity(issue);
-    if (issue.audience !== 'reader' || readerIssueAcknowledged(issue, presentation) || !issue.message || seen.has(identity)) return false;
-    const line = Number(issue.location?.line);
-    const heading = Number.isSafeInteger(line) && line > 0 && line <= lines.length ? lines.slice(0, line).findLast(value => /^#{2,3}\s/.test(value)) : '';
-    const locatedSignal = Number(/^###\s+Signal\s+(\d+)\b/.exec(heading || '')?.[1]) || null;
-    if (signal !== null && locatedSignal !== signal) return false;
-    seen.add(identity); return true;
-  });
+    if (!(issue.audience === 'reader' || ['block', 'review'].includes(issue.consequence)) || readerIssueAcknowledged(issue, presentation) || !issue.message || seen.has(identity)) continue;
+    const location = readerFindingLocation(issue, presentation, brief.content);
+    if (signal !== null && location?.kind !== 'document' && (location?.kind !== 'judgment' || location.signal !== signal)) continue;
+    seen.add(identity);
+    // Assessment and What happened can repeat the same claim. Display its
+    // limit once beside this section, while retaining all identities for print
+    // and all original locations/excerpts in the edition record.
+    const key = location?.line ? JSON.stringify([location.line, issue.code, issue.message, issue.consequence]) : identity;
+    if (grouped.has(key)) grouped.get(key).readerIssueIds.push(identity);
+    else grouped.set(key, { ...issue, readerIssueIds: [identity] });
+  }
+  return [...grouped.values()];
 }
 
 export function attachReaderLimits(content, brief) {
@@ -75,6 +79,7 @@ export function attachReaderLimits(content, brief) {
     const note = (content.ownerDocument || globalThis.document).createElement('p');
     note.className = 'brief-evidence-limit';
     note.dataset.readerIssueId = identity;
+    note.dataset.readerIssueIds = JSON.stringify(issue.readerIssueIds);
     note.innerHTML = `<strong>Evidence limit:</strong> ${escapeHtml(issue.message)}`;
     target.after?.(note);
   }
@@ -82,11 +87,22 @@ export function attachReaderLimits(content, brief) {
 
 function findingsHtml(content, brief, checks, { current = false } = {}) {
   const issues = checks?.issues || [];
-  const messages = [...new Set([...(checks?.warnings || []), ...issues.map(issue => issue.message)].filter(Boolean))];
-  return messages.length ? `<ul>${messages.map(message => {
-    const issue = issues.find(item => item.message === message);
+  const seen = new Set();
+  const entries = issues.filter(issue => {
+    if (!issue?.message) return false;
+    const key = JSON.stringify([readerIssueIdentity(issue), issue.location?.excerpt, issue.consequence]);
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+  for (const message of new Set(checks?.warnings || [])) {
+    if (message && !entries.some(issue => issue.message === message)) entries.push({ message });
+  }
+  return entries.length ? `<ul>${entries.map(issue => {
+    const message = issue.message;
     const target = current && locatedTarget(content, brief, issue);
-    return `<li data-issue-message="${escapeHtml(message)}">${escapeHtml(message)}${current && readerIssueAcknowledged(issue, readerPresentation(brief)) ? ' <span>Specific review recorded</span>' : ''}${target?.id ? ` <a href="#${escapeHtml(target.id)}" data-record-passage>View passage</a>` : ''}${issue?.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`;
+    const label = { note: 'Optional note', block: 'Required fix', review: 'Review finding' }[issue.consequence];
+    const line = issue.location?.scope !== 'document' && Number.isSafeInteger(issue.location?.line) && issue.location.line > 0 ? issue.location.line : null;
+    return `<li data-issue-message="${escapeHtml(message)}">${label ? `<strong>${label}:</strong> ` : ''}${escapeHtml(message)}${current && readerIssueAcknowledged(issue, readerPresentation(brief)) ? ' <span>Specific review recorded</span>' : ''}${target?.id ? ` <a href="#${escapeHtml(target.id)}" data-record-passage>View passage</a>` : ''}${line ? ` <span>Line ${line}</span>` : ''}${issue?.location?.scope !== 'document' && issue?.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`;
   }).join('')}</ul>` : '';
 }
 
@@ -117,7 +133,7 @@ export function attachEditorialReview(content, brief = {}, { recordHost = null, 
   const approvalHtml = approval.status === 'recorded' ? `<section><h3>${approval.scope === 'security-control-change' ? 'Specific security-control review' : approval.scope === 'briefing-editorial' ? 'Specific editorial review' : 'Publication decision recorded'}</h3><p>${escapeHtml([approval.reviewer, formatEventTime(approval.reviewedAt)].filter(Boolean).join(' · '))}</p>${approval.reason ? `<p>${escapeHtml(approval.reason)}</p>` : ''}${approval.scope === 'briefing-editorial' ? '<p>This approval applies only to the findings marked with a specific review in this copy.</p>' : ''}</section>`
     : ['stale', 'unavailable'].includes(approval.status) ? '<p>A previous approval could not be applied to this copy.</p>' : '';
   const history = (presentation.history || []).map(item => `<details><summary>${escapeHtml(item.label || 'Earlier edition record')}</summary>${findingsHtml(content, brief, item)}<p>These records describe an earlier revision or historical metadata.</p></details>`).join('');
-  record.innerHTML = `<summary>Edition record</summary><span id="editorial-review" aria-hidden="true"></span><p>${checkLabel}</p>${current ? `<section><h3>Notes for this copy</h3>${current}</section>` : ''}${extraNotes.length ? `<section><h3>Display notes</h3>${findingsHtml(content, brief, { warnings: extraNotes })}</section>` : ''}
+  record.innerHTML = `<summary>Edition record</summary><span id="editorial-review" aria-hidden="true"></span><p>${checkLabel}</p>${current ? `<section><h3>Checks for this copy</h3>${current}</section>` : ''}${extraNotes.length ? `<section><h3>Display notes</h3>${findingsHtml(content, brief, { warnings: extraNotes })}</section>` : ''}
     ${review?.status === 'editorially-corrected' ? `<section><h3>Correction record</h3><p>${escapeHtml([review.reviewer, formatEventTime(review.reviewedAt)].filter(Boolean).join(' · '))}</p><p>${escapeHtml(review.scope || '')}</p>${annotations}<button type="button" class="btn-ghost-sm" data-review-original>View original edition</button></section>` : ''}
     ${approvalHtml}${history}${presentation.operationalNotes?.length ? `<details><summary>Publication processing</summary><ul>${presentation.operationalNotes.map(note => `<li>${escapeHtml(note.message || '')}</li>`).join('')}</ul></details>` : ''}
     ${presentation.copy?.contentSha256 || review?.originalSha256 ? `<details><summary>Revision identity</summary>${presentation.copy?.contentSha256 ? `<p>Displayed copy SHA-256: <code>${escapeHtml(presentation.copy.contentSha256)}</code></p>` : ''}${presentation.copy?.originalSha256 || review?.originalSha256 ? `<p>Original edition SHA-256: <code>${escapeHtml(presentation.copy?.originalSha256 || review.originalSha256)}</code></p>` : ''}</details>` : ''}`;

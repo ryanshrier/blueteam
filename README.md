@@ -19,7 +19,7 @@ Wall and Wire work without API keys. Briefing generation may incur provider char
 Recommended: Node.js 24 with npm. See the full supported ranges in [Operations](docs/operations.md#runtime-support) and [Development](docs/development.md).
 
 ```bash
-git clone --branch v1.4.2 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.3 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -34,6 +34,8 @@ Install dependencies on the machine and Node major that will run the service. SQ
 In **Settings**, choose **Anthropic** or **OpenAI (Codex)**, enter that provider's API key, and save. Both built-in provider keys can be stored so you can switch providers. For OpenAI, select a model available to your API account; the default is `gpt-5.3-codex`. Verify makes a small billable request to test the key; OpenAI verification also checks the selected model.
 
 **Custom (local module) is experimental.** Set `AI_PROVIDER_MODULE=./local/generic-provider.js` to load an operator-supplied adapter; its contract may change. Modules run trusted code with the server's permissions and read credentials from the environment. Settings provides an optional module health check instead of key verification. See the [local provider contract](docs/configuration.md#local-provider-modules).
+
+**CLI (JSON profile)** is an experimental built-in provider for non-interactive assistant CLIs. Set `AI_PROVIDER=cli` and `AI_CLI_PROFILE` to a version 1 JSON profile, supply its required environment variables, restart, and select CLI in Settings. The runner preserves the full conversation, validates structured completion and process exit, and never restarts automatically. Profiles in `config/cli-profiles/` contain the executable-specific details. See [CLI provider setup and profile format](docs/cli-provider.md).
 
 You can also copy `.env.example` to `.env` and set one provider:
 
@@ -54,7 +56,7 @@ Enter your key after `=`. Environment keys override saved keys for the same prov
 
 Open **Briefing → Generate briefing** beside the reader controls. Generation waits for enough fresh source evidence and reports progress from collection through publication across open Briefing tabs. Wire searches, filters, and hidden items do not change its input selection.
 
-New briefings use captured source IDs to build citation labels and links, derive executive decisions from the judgment actions, and render federal remediation dates from captured catalog facts. All three providers share this processing; existing Markdown citations remain supported. Unknown sources, unsupported facts and contradictory federal dates still require correction.
+New briefings use captured source IDs to build citation labels and links, derive executive decisions from the judgment actions, and render federal remediation dates from captured catalog facts. All providers share this processing; existing Markdown citations remain supported. Unknown sources, unsupported facts and contradictory federal dates still require correction.
 
 Automatic generation is off by default. Enable it separately in Settings and choose a time, timezone, and retry policy. Manual and scheduled runs use the selected provider and the same validation and storage pipeline. Retries can add cost; application limits are not a provider spending cap.
 
@@ -86,7 +88,7 @@ The server binds to `127.0.0.1` by default. Remote interactive access requires a
 
 Local state lives in `data/watchfloor.db`, saved assessments and input receipts in `briefs/`, editorial corrections and publication decisions in `reviews/`, and operator settings in the gitignored `data/settings.local.json`. Back up these together. Saved API keys are masked in responses but stored in plaintext. Protect the host account and backups.
 
-Upgrading from v1.4.0 or v1.4.1 to v1.4.2 requires no database migration or configuration change; restart the service after upgrading. Follow the [v1.4.2 upgrade notes](docs/operations.md#from-v140-or-v141-to-v142) for retained drafts and check policies. Upgrading from v1.3.2 also migrates SQLite from schema 9 to 11 and initializes a saved-edition receipt inventory; follow the [earlier upgrade steps](docs/operations.md#from-v132-to-v140), including the stopped-process backup and optional browser-decision import. Rollback requires the matching pre-upgrade state backup.
+Upgrading from v1.4.2 to v1.4.3 requires no database migration or mandatory configuration change; restart the service after upgrading. Follow the [v1.4.3 upgrade notes](docs/operations.md#from-v142-to-v143) for shared action records, coverage accounting, and the optional CLI provider. When upgrading from v1.4.0 or v1.4.1, also read the [v1.4.2 notes](docs/operations.md#from-v140-or-v141-to-v142) for retained drafts and check policies. Upgrading from v1.3.2 migrates SQLite from schema 9 to 11 and initializes a saved-edition receipt inventory; follow the [earlier upgrade steps](docs/operations.md#from-v132-to-v140), including the stopped-process backup and optional browser-decision import. Rollback requires the matching pre-upgrade state backup.
 
 There is no product telemetry. Outbound requests go to configured feeds and enrichment sources, the selected AI provider during verification or generation, and an optional configured webhook. Generation sends selected source evidence and configured organization context. The [network boundary](docs/operations.md#network-behavior) lists the supplied data.
 

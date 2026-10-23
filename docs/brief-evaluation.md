@@ -26,7 +26,7 @@ contract. It checks full corrective conversations, system instructions, requeste
 effort, unchanged output caps, actual-model/usage recording, and rejected missing
 or unsupported completion. Pure stream tests separately cover cancellation and
 uncooperative iterators. These fixtures exercise the application boundary; they
-do not certify an installed Bob or other operator-supplied wrapper.
+do not certify an installed assistant CLI or operator-supplied wrapper.
 
 To inspect recorded normalized output against one or more of the **same synthetic
 collections**, use:
@@ -81,6 +81,31 @@ Older receipts cannot reconstruct excluded candidates. Selection regression
 fixtures separately exercise the bounded candidate pool and investigation budget.
 Use the editorial rubric below to inspect decision-changing detail and paired
 responses when comparing repaired drafts; fewer findings alone is not improvement.
+
+### Comparing a shorter authored revision
+
+To compare an offline edit with a captured edition and its frozen evidence:
+
+```bash
+npm run check:brief-replay -- --baseline .tmp/original.md --candidate .tmp/revision.md --manifest briefs/brief-2026-10-23-01.manifest.json --expectations .tmp/revision-expectations.json --output .tmp/editorial-comparison.json
+```
+
+The baseline must match the receipt's output hash. The expectations file binds
+`originalSha256` to that same baseline and supplies `assertions`, each with an
+`id` and `contains` or `excludes` phrases. Optional `judgment` (one-based),
+`section`, and `field` scope a phrase to its original context. Both versions must
+satisfy these case-specific assertions. They are authored review aids, not a
+general semantic checker or a new publication rule.
+
+Comparison reports current factual findings, complete shared action records,
+removed citation URLs, section word counts, and confidence/response-window
+distributions with each judgment's rationale. Visible body counts exclude the
+duplicated executive action row in both versions. A passing comparison requires
+unchanged complete action records, bound passing assertions, and no current
+factual block or review hold. Missing assertions cannot certify a comparison;
+removed citation URLs still need review. The report never publishes the edit or
+rewrites the archive. An authored revision is not a new provider response, and
+shorter text or more varied labels alone is not evidence of better decisions.
 
 ## Optional live evaluation
 
@@ -278,8 +303,10 @@ Corrective generation gets one bounded attempt. Its request prioritizes blocking
 findings, includes captured source references, and asks for changes limited to
 the affected passages and dependent summaries/actions. The replacement must
 resolve material findings without introducing new ones. A complete draft cannot
-be replaced by an incomplete response or one with fewer judgments. Output-limit
-recovery can still request a shorter complete edition. Both attempts remain in
+be replaced by an incomplete response. A repair may remove a judgment only when
+a blocking finding unambiguously identifies that judgment, and every surviving
+judgment remains unchanged apart from numbering. Output-limit recovery can still
+request a shorter complete edition. Both attempts remain in
 cost accounting; each evaluated candidate records its recovery decision in the
 receipt's validation history.
 
@@ -354,27 +381,48 @@ diagnostics; neither is silently relabeled as a production benchmark.
 
 ### Action consistency, priority coverage, and extraction regressions
 
-Executive decisions may include optional canonical action mappings (`S1.A1`
-means the first action of the first judgment). Checks compare recognized visible
-responses, assigned owners, and targets; missing or invalid bookkeeping is an
-advisory note and falls back to prose checks. A different story's date cannot satisfy that
-association. Different containment and recovery targets remain separate summary
-decisions. Contradictory dates block publication. Where bounded prose checks
-cannot establish an action association, the draft requires an explicit review;
-a model-supplied reference is not proof of semantic equivalence.
+For new editions, the application builds executive decisions from the complete
+visible actions when it can parse their owners, responses, conditions, and
+targets. It abstains when it cannot do so reliably. Optional canonical mappings
+(`S1.A1` means the first action of the first judgment) remain supported for legacy
+prose checks. Missing or invalid bookkeeping is an advisory note. A different
+story's date cannot satisfy an action association. Different containment and
+recovery targets remain separate summary decisions. Contradictory dates block
+publication. Under validation policy 2, uncertain action associations are notes;
+a model-supplied reference is not proof of semantic equivalence. Historical
+receipts retain their recorded policy until an explicit recheck.
+
+The reader and print edition use shared action records bound to the exact saved
+Markdown. Their executive view groups the first three assessments, with each
+owner and recommended target linked to the complete assessment. Full actions,
+including exposure conditions, dependencies, separate recovery targets, and
+inline citations, remain in the assessment body. The compact view is an index
+to those recommendations, not a shortened instruction to act. Records are
+captured for new generations and repairs and verified against the visible text
+before use. Older editions can derive the same presentation without rewriting
+their archived Markdown or changing their publication policy. Ambiguous actions
+retain the complete legacy presentation; no hidden provider record is required.
 
 An action that actually instructs multiple containment, investigation, or recovery
-phases requires `ACTION_PHASE_BUNDLE_REVIEW`. Split those phases into separately
+phases can produce the advisory `ACTION_PHASE_BUNDLE_REVIEW` note under policy 2.
+Consider splitting those phases into separately
 owned deliverables and achievable targets, naming dependencies when needed.
 Scoped cross-functional work, log preservation, and mentions of a recovery plan
 do not alone trigger this bounded prose check. Prompts target 1,200–1,800 words
 for a full six-signal edition while retaining decision-changing qualifications.
+That budget is guidance, never a publication limit. Generation instructions cut
+repeated narrative before action conditions, technical steps, investigation, or
+recovery work. They distinguish evidence confidence, local applicability, and
+the first warranted response; a critical collection tag or KEV entry cannot
+alone determine local urgency. An exploited issue with unknown local exposure
+can still warrant a this-shift applicability check. Identical confidence bands
+or response windows remain valid when supported; there is no diversity quota.
 
 New generations capture a bounded priority list from selected evidence. Optional
 covered, duplicate, or deferred dispositions are checked against actual prose;
-without them, the application derives coverage only from one unambiguous real
-judgment or Watchlist entry with visible event identity and a substantive retained
-citation. Missing/invalid bookkeeping and valid reasoned deferrals are notes.
+without them, the application derives coverage from visible event identities and
+exact substantive retained citations. Missing/invalid bookkeeping and valid
+reasoned deferrals are notes.
 Explicit unsupported coverage assertions still require review against the saved
 evidence. Ranking alone does not mandate inclusion.
 Version 2 groups justified same-event reports before applying the eight-event
@@ -383,8 +431,37 @@ create a publication hold just because its hidden disposition is absent. Claimin
 coverage for a lead without a usable passage still requires review. Bounded named
 overflow remains in the receipt. Version 1 receipts retain their
 original diagnostics-only overflow policy, and older receipts without a coverage
-contract are unevaluated. Federal remediation dates
+contract are unevaluated.
+
+Version 3 accumulates source-backed associations across judgments, Developing
+Situations, and Watchlist entries. A multi-CVE roundup can be partially covered:
+the record names associated and remaining CVEs instead of reporting the entire
+event missing or treating one mentioned CVE as complete coverage. The same exact
+retained source must both support the identity and appear in that entry's
+citations. A related CVE cited from another source does not silently establish
+coverage of the roundup. Partial coverage is quiet editorial accounting, not a
+publication hold or a requirement to write an action for every CVE. Counts keep
+covered, partial, missing, deferred, duplicate, and unsupported outcomes separate.
+Version 1 and 2 receipts preserve their original single-entry accounting.
+These are bounded identity/citation associations, not proof that prose entails
+every fact in a source. Federal remediation dates
 retain their FCEB scope and never establish local exposure or a local deadline.
+
+Applicability and cascade checks accept ordinary exposure conditions and
+hypothetical wording; they do not require a particular opening verb or the word
+"hypothesis". Unclear CVE-to-score association remains an advisory uncertainty,
+while unsupported scores and explicit metric mismatches still block publication.
+Repeated identical advice has one summary message, with each affected passage
+retained in the detailed findings. Optional coverage bookkeeping belongs in the
+edition record rather than every copied action.
+
+Material reader caveats follow the actual top-level Markdown judgment order in
+Overview, the full reader, copied decisions, and print. Generic or renumbered
+headings do not require a literal `Signal N` label; quoted, nested, code, and raw
+HTML examples cannot create assessment identities. Current findings bind to the
+displayed copy hash and source line. Stale or ambiguous locations remain in the
+edition record instead of being attached to a guessed assessment. This changes
+presentation association, not factual publication policy.
 
 Article extraction excludes advertisement and related-story containers before
 excerpting. Quality checks reject off-topic promotional text and unrelated

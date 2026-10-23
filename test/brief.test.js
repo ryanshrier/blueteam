@@ -2045,6 +2045,93 @@ describe('local module briefing generation', () => {
     expect(manifest.providerAttempts[0].providerContract).toEqual(manifest.generationSettings.providerContract);
   });
 
+  test.each([undefined, { amount: 0, unit: 'credits' }, { amount: 1.25, unit: 'credits' }, { amount: 0.02, unit: 'USD' }])('CLI receipts preserve reported units and never infer USD: %j', async providerCost => {
+    const profileIdentity = { id: 'fixture-cli', version: 1, sha256: 'a'.repeat(64) };
+    const costUsd = providerCost?.unit === 'USD' ? providerCost.amount : null;
+    const client = { provider: 'cli', model: 'gpt-5.3-codex', contractVersion: 1, profileIdentity,
+      stream: jest.fn(async function* (_params, options) {
+        expect(options.maxRetries).toBe(0);
+        yield { type: 'message_start', message: { model: 'gpt-5.3-codex', usage: { input_tokens: 100 } } };
+        yield { type: 'content_block_delta', delta: { text: GOOD_BRIEF } };
+        yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {
+          output_tokens: 30, provider_cost: providerCost, ...(costUsd !== null ? { cost_usd: costUsd } : {}),
+        } };
+        yield { type: 'message_stop' };
+      }),
+    };
+    ctx = await makeServer({ getAiClient: () => client });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(client.stream).toHaveBeenCalledTimes(1);
+    expect(events.find(event => event.briefComplete)).toMatchObject({ costUsd, tokens: 130 });
+    const manifest = saveBriefMock.mock.calls[0][2].manifest;
+    expect(manifest.generationSettings.providerContract).toMatchObject({ version: 1, profileIdentity });
+    expect(manifest.providerAttempts[0]).toMatchObject({ provider: 'cli', responseModel: 'gpt-5.3-codex',
+      providerContract: { version: 1, profileIdentity }, costUsd, usage: { inputTokens: 100, outputTokens: 30 } });
+    expect(manifest.providerAttempts[0].providerCost).toEqual(providerCost);
+    expect(manifest.costEstimate.usd).toBe(costUsd);
+    const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+    expect(status.latest).toMatchObject({ costUsd, billing: 'provider-usage-recorded' });
+    expect(status.latest.attempts[0].providerContract.profileIdentity).toEqual(profileIdentity);
+    expect(status.latest.attempts[0].providerCost).toEqual(providerCost);
+    expect(status.latest.attempts[0].costUsd).toBe(costUsd);
+  });
+
+  test('CLI normalized stream retains the last valid cost checkpoint and actual model', async () => {
+    const onUsage = jest.fn();
+    const stream = async function* () {
+      yield { type: 'message_start', message: { model: 'actual-cli-model', usage: {
+        input_tokens: 17, provider_cost: { amount: 0.5, unit: 'credits', rawLog: 'private' },
+      } } };
+      yield { type: 'message_delta', usage: { provider_cost: { amount: Infinity, unit: 'credits' } } };
+      yield { type: 'message_delta', usage: { provider_cost: { amount: 0, unit: 'credits' } } };
+      yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: {
+        output_tokens: 29, provider_cost: { amount: 3, unit: 'x'.repeat(33) },
+      } };
+      yield { type: 'message_stop' };
+    };
+    const result = await streamWithRecovery({ provider: 'cli', stream }, {}, { onUsage });
+    expect(result).toMatchObject({ error: null, responseModel: 'actual-cli-model', terminalReceived: true,
+      usage: { input_tokens: 17, output_tokens: 29, provider_cost: { amount: 0, unit: 'credits' } } });
+    expect(onUsage.mock.calls[1][0].provider_cost).toEqual({ amount: 0.5, unit: 'credits' });
+    expect(JSON.stringify(onUsage.mock.calls)).not.toContain('private');
+  });
+
+  test('a CLI timeout during stream setup is still recorded as a timeout', async () => {
+    const error = Object.assign(new Error('CLI startup timed out.'), { code: 'E_CLI_TIMEOUT', completionUncertain: true });
+    const stream = jest.fn().mockRejectedValue(error);
+    const result = await streamWithRecovery({ provider: 'cli', stream }, {});
+    expect(result).toMatchObject({ timedOut: true, error });
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(stream.mock.calls[0][1].signal.aborted).toBe(true);
+  });
+
+  test.each(['E_CLI_TIMEOUT', 'E_CLI_INCOMPLETE'])('CLI %s blocks fallback and scheduled repurchase after restart', async code => {
+    const directory = mkdtempSync(join(tmpdir(), 'blueteam-cli-uncertain-'));
+    try {
+      const stream = jest.fn(async function* () {
+        yield { type: 'message_start', message: { usage: { input_tokens: 100, provider_cost: { amount: 0.5, unit: 'credits' } } } };
+        throw Object.assign(new Error('CLI provider completion remains unknown.'), { code, status: 529, completionUncertain: true });
+      });
+      const options = { historyDir: directory, scheduledJobToken: 'fixture-token',
+        getAiClient: () => ({ provider: 'cli', model: 'gpt-5.3-codex', fallbackModel: 'other-model', stream }) };
+      const request = { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-blueteam-scheduled-token': 'fixture-token' },
+        body: JSON.stringify({ scheduledJob: { jobKey: 'daily-brief:2026-07-02', editionDate: '2026-07-02', timezone: 'local' } }) };
+      ctx = await makeServer(options);
+      await readSSE(await fetch(`${ctx.base}/api/brief`, request));
+      expect(stream).toHaveBeenCalledTimes(1);
+      const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+      expect(status.latest).toMatchObject({ status: 'failed', billing: 'unknown-final-usage', costUsd: null,
+        attempts: [{ completionUncertain: true, usageComplete: false, timedOut: code === 'E_CLI_TIMEOUT',
+          providerCost: { amount: 0.5, unit: 'credits' } }] });
+      await new Promise(resolve => ctx.server.close(resolve));
+      ctx = await makeServer(options);
+      const repeated = await readSSE(await fetch(`${ctx.base}/api/brief`, request));
+      expect(repeated.find(event => event.error)?.code).toBe('E_GENERATION_AMBIGUOUS');
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(saveBriefMock).not.toHaveBeenCalled();
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   test('retains final-only usage in receipt, cost estimate and durable status', async () => {
     const client = { provider: 'local-fixture', model: 'gpt-5.3-codex',
       configureRequest(params, { effort }) { params.reasoning = { effort }; },

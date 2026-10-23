@@ -1,6 +1,6 @@
 import { describe, test, expect } from '@jest/globals';
 import {
-  parseBluf, parseSignalTitles,
+  parseBluf, parseBlufProse, parseSignalTitles,
   parseBrief, parseJudgments, parseExecBullets, parseDeveloping, parseConvergence,
   BLUF_MAX_WORDS, DECISION_WINDOW_VALUES, TRAJECTORY_VALUES,
   normalizeDecisionWindow, formatDecisionWindow, judgmentCertainty,
@@ -80,6 +80,12 @@ describe('parseSignalTitles', () => {
 });
 
 describe('parseBluf', () => {
+  test('prose-only reading preserves factual identifiers and meaningful links while default parsing remains compatible', () => {
+    const content = '## BLUF\nCVE-2026-12345 affects version 3.1. Follow the [vendor condition](https://saved.example/condition) only if exposed. Scope remains unverified. [Vendor, 2026-10-23](https://saved.example/advisory) [CERT, 2026-10-23](https://saved.example/cert)';
+    expect(parseBlufProse(content)).toBe('CVE-2026-12345 affects version 3.1. Follow the vendor condition only if exposed. Scope remains unverified.');
+    expect(parseBluf(content, Infinity)).toContain('Vendor, 2026-10-23 CERT, 2026-10-23');
+  });
+
   test('returns the BLUF first paragraph', () => {
     expect(parseBluf(SAMPLE_BRIEF, Infinity)).toContain('Edge device exploitation has shifted');
   });

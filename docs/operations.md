@@ -9,7 +9,7 @@ BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and
 ## Start, stop, and restart
 
 ```bash
-git clone --branch v1.4.2 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.3 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -129,6 +129,32 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 ## Upgrade and rollback
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
+
+### From v1.4.2 to v1.4.3
+
+No database migration or mandatory configuration change is required; SQLite
+remains at schema 11. Stop the service, back up `data/`, `briefs/` (including
+hidden files), `reviews/`, configuration, and protected secrets together, install
+v1.4.3, and restart. Existing API and Custom provider configurations still work.
+
+The reader derives its compact executive view from complete visible actions and
+binds caveats to the displayed copy. New receipts capture shared action records
+and coverage accounting version 3; older coverage versions and recorded
+publication policies remain intact. Archive reads do not rewrite saved Markdown.
+Routine editorial notes remain available in the edition record, while factual
+contradictions and unsupported claims still require correction.
+
+The experimental CLI provider is optional. Review its trusted JSON profile and
+separately installed executable, provide the required environment variables, set
+`AI_PROVIDER=cli` and `AI_CLI_PROFILE`, restart, and select CLI in Settings if a
+different provider was previously saved. Back up operator-managed profiles with
+configuration. There are no automatic CLI restarts; an uncertain remote outcome
+requires review before another manual attempt. See [CLI provider profiles](cli-provider.md).
+
+After startup, check collection health, reopen a saved edition and retained
+draft, and verify the selected provider. A CLI installation check does not verify
+authentication or generation readiness. Rollback requires the previous code
+and its matching pre-upgrade state/configuration backup.
 
 ### From v1.4.0 or v1.4.1 to v1.4.2
 

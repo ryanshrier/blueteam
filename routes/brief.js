@@ -34,6 +34,7 @@ import { briefReadingState, loadBriefReadingState, briefPresentation, presentati
 import { listBriefDrafts, readBriefDraft, saveRejectedBrief, revalidateBriefDraft, summarizeBriefDraft, validationSourceFromManifest, validDraftId, draftValidation, recordDraftPublication } from '../lib/brief-drafts.js';
 import { createPublicationLookup, verifyPublicationReplay, publishDraftEdition } from '../lib/brief-publication.js';
 import { assembleBrief, BRIEF_COMPOSITION_VERSION } from '../lib/brief-assembly.js';
+import { captureBriefActionRecords, briefActionRecords } from '../lib/brief-composition.js';
 import { buildGroundingManifest, delinkUnallowlistedMarkdownUrls, visibleHeadlineEvidence } from '../lib/grounding.js';
 import {
   parseJudgments, WATCHLIST_MIN_ITEMS, WATCHLIST_MAX_ITEMS,
@@ -53,6 +54,7 @@ import { log } from '../lib/logger.js';
 import { recordStorageOutcome } from '../lib/storage-health.js';
 import { createGenerationJobs, registerGenerationJobs } from '../lib/generation-jobs.js';
 import { configureAnthropicRequest, supportsAnthropicAdaptiveThinking, providerCapabilities } from '../lib/ai-provider.js';
+import { normalizeProviderCost, normalizeProviderContract } from '../lib/provider-accounting.js';
 import { localhostBaseUrl, normalizePublicBaseUrl } from '../lib/public-url.js';
 import {
   deferBriefGenerationAccounting,
@@ -102,10 +104,10 @@ export function estimateCostUsd(model, inputTokens, outputTokens, at = new Date(
 /** Preserve the rates for each paid attempt; fallback models have different prices. */
 export function estimateAttemptCosts(attempts) {
   if (!Array.isArray(attempts) || !attempts.length) return null;
-  const costs = attempts.map(attempt => attempt.costUsd ?? estimateCostUsd(
+  const costs = attempts.map(attempt => attempt.costUsd ?? (attempt.provider === 'cli' ? null : estimateCostUsd(
     attempt.responseModel || attempt.model, attempt.usage?.inputTokens, attempt.usage?.outputTokens,
     undefined, attempt.usage?.cachedInputTokens, attempt.usage?.cacheWriteInputTokens,
-  ));
+  )));
   return costs.some(cost => cost == null) ? null : costs.reduce((sum, cost) => sum + cost, 0);
 }
 
@@ -321,6 +323,10 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
     stream = streamResult;
   } catch (err) {
     clearTimeout(genTimeout);
+    if (client.provider === 'cli' && err?.code === 'E_CLI_TIMEOUT') {
+      abortController.abort();
+      return { text: fullText, error: err, timedOut: true, usage, stopReason };
+    }
     return { text: fullText, error: timedOut ? null : err, timedOut, usage };
   }
 
@@ -353,6 +359,8 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
       })) {
         if (Number.isFinite(value) && value >= 0) usage[field] = value;
       }
+      const providerCost = normalizeProviderCost(reportedUsage?.provider_cost);
+      if (providerCost) usage.provider_cost = providerCost;
       if (event.type === 'message_delta' && event.delta?.stop_reason) {
         stopReason = event.delta.stop_reason;
       }
@@ -373,6 +381,7 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
   } catch (err) {
     if (!timedOut) {
       streamError = err;
+      if (client.provider === 'cli' && err?.code === 'E_CLI_TIMEOUT') timedOut = true;
       abortController.abort();
       abortStream(stream);
       log.warn('stream', `Stream interrupted: ${err.message}${err.status ? ` (HTTP ${err.status})` : ''}`);
@@ -540,7 +549,9 @@ export function createBriefRouter({
   // Independent of ledger ordering: repairing an older or pruned job can
   // publish the newest edition. A new server lifecycle also changes this token.
   let publicationRevision = randomUUID();
-  const publicDraft = artifact => artifact ? { ...artifact, publicationDecision: publicationDecision(draftValidation(artifact)) } : null;
+  const publicDraft = artifact => artifact ? { ...artifact,
+    actionRecords: briefActionRecords(artifact.revisions.at(-1).content, artifact.revisions.at(-1).actionRecords),
+    publicationDecision: publicationDecision(draftValidation(artifact)) } : null;
   const reconcileDraft = artifact => {
     if (!artifact) return null;
     const found = publications.findDraft(artifact);
@@ -939,8 +950,8 @@ export function createBriefRouter({
 
       const preferredModel = client.model || s.preferredModel || 'claude-sonnet-5';
       const fallbackModel = client.fallbackModel || (typeof client.stream === 'function' ? preferredModel : s.model || 'claude-haiku-4-5');
-      const providerContract = { version: Number.isSafeInteger(client.contractVersion) && client.contractVersion > 0 ? client.contractVersion : null,
-        capabilities: providerCapabilities(client) };
+      const providerContract = normalizeProviderContract({ version: client.contractVersion,
+        capabilities: providerCapabilities(client), profileIdentity: client.profileIdentity });
       Object.assign(generationManifest.generationSettings, { provider, preferredModel, fallbackModel, providerContract });
       let modelUsed = preferredModel;
       // One wall-clock budget covers stream setup, key rotation, model
@@ -975,10 +986,10 @@ export function createBriefRouter({
         providerAttemptCount++;
         const attempt = recordProviderAttempt(generationManifest, modelParams);
         attempt.provider = provider;
-        attempt.providerContract = { version: Number.isSafeInteger(client.contractVersion) && client.contractVersion > 0 ? client.contractVersion : null,
-          capabilities: providerCapabilities(client, modelParams.model) };
+        attempt.providerContract = normalizeProviderContract({ version: client.contractVersion,
+          capabilities: providerCapabilities(client, modelParams.model), profileIdentity: client.profileIdentity });
         attempt.thinkingConfiguration = thinkingConfiguration(modelParams, requestedThinkingEffort, client);
-        attempt.pricing = { asOf: '2026-09-05', perMillionTokens: modelPrice(attempt.model) };
+        attempt.pricing = provider === 'cli' ? null : { asOf: '2026-09-05', perMillionTokens: modelPrice(attempt.model) };
         jobs.startAttempt(generationJobId, attempt);
         res.locals.briefGenerationAttempted = true;
         const attemptStarted = performance.now();
@@ -987,7 +998,8 @@ export function createBriefRouter({
           onChunk,
           onUsage: (usage, responseModel) => jobs.usage(generationJobId, attempt.attempt, {
             inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, responseModel,
-            costUsd: usage.cost_usd ?? estimateCostUsd(responseModel || attempt.model, usage.input_tokens, usage.output_tokens, undefined, usage.cached_input_tokens, usage.cache_write_input_tokens),
+            providerCost: usage.provider_cost,
+            costUsd: usage.cost_usd ?? (provider === 'cli' ? null : estimateCostUsd(responseModel || attempt.model, usage.input_tokens, usage.output_tokens, undefined, usage.cached_input_tokens, usage.cache_write_input_tokens)),
           }),
         });
         attempt.durationMs = Math.round(performance.now() - attemptStarted);
@@ -995,18 +1007,22 @@ export function createBriefRouter({
         attempt.stopReason = outcome.stopReason || null;
         attempt.responseModel = outcome.responseModel || null;
         attempt.timedOut = outcome.timedOut;
+        if (outcome.error?.completionUncertain === true) attempt.completionUncertain = true;
         attempt.failed = Boolean(outcome.error);
         if (outcome.error) attempt.failureReason = safeErrorMsg(outcome.error);
         attempt.usage = { inputTokens: outcome.usage?.input_tokens || 0, outputTokens: outcome.usage?.output_tokens || 0 };
         if (outcome.usage?.cached_input_tokens !== undefined) attempt.usage.cachedInputTokens = outcome.usage.cached_input_tokens;
         if (outcome.usage?.cache_write_input_tokens !== undefined) attempt.usage.cacheWriteInputTokens = outcome.usage.cache_write_input_tokens;
         if (outcome.usage?.reasoning_tokens !== undefined) attempt.usage.reasoningTokens = outcome.usage.reasoning_tokens;
+        const providerCost = normalizeProviderCost(outcome.usage?.provider_cost);
+        if (providerCost) attempt.providerCost = providerCost;
         const reportedCost = outcome.usage?.cost_usd;
         attempt.pricing = reportedCost !== undefined ? { currency: 'USD', basis: 'Provider-reported cost' }
-          : { asOf: '2026-10-09', currency: 'USD', perMillionTokens: modelPrice(attempt.responseModel || attempt.model, attempt.usage.inputTokens), basis: 'Standard API list-rate estimate', ...client.pricing };
-        attempt.costUsd = reportedCost ?? estimateCostUsd(attempt.responseModel || attempt.model, attempt.usage.inputTokens, attempt.usage.outputTokens, undefined, attempt.usage.cachedInputTokens, attempt.usage.cacheWriteInputTokens);
-        jobs.usage(generationJobId, attempt.attempt, { ...attempt.usage, responseModel: attempt.responseModel, costUsd: attempt.costUsd });
-        jobs.finishAttempt(generationJobId, attempt.attempt, { stopReason: attempt.stopReason, failed: attempt.failed, timedOut: attempt.timedOut });
+          : provider === 'cli' ? (providerCost ? { unit: providerCost.unit, basis: 'Provider-reported cost' } : null)
+            : { asOf: '2026-10-09', currency: 'USD', perMillionTokens: modelPrice(attempt.responseModel || attempt.model, attempt.usage.inputTokens), basis: 'Standard API list-rate estimate', ...client.pricing };
+        attempt.costUsd = reportedCost ?? (provider === 'cli' ? null : estimateCostUsd(attempt.responseModel || attempt.model, attempt.usage.inputTokens, attempt.usage.outputTokens, undefined, attempt.usage.cachedInputTokens, attempt.usage.cacheWriteInputTokens));
+        jobs.usage(generationJobId, attempt.attempt, { ...attempt.usage, responseModel: attempt.responseModel, costUsd: attempt.costUsd, providerCost });
+        jobs.finishAttempt(generationJobId, attempt.attempt, { stopReason: attempt.stopReason, failed: attempt.failed, timedOut: attempt.timedOut, completionUncertain: attempt.completionUncertain });
         jobs.setPhase(generationJobId, 'validating');
         return outcome;
       };
@@ -1036,7 +1052,7 @@ export function createBriefRouter({
       // fallback: if the primary key is dead, a different model on the same dead
       // key won't help. rotateKey() returns the secondary-key client, or null
       // when none is configured / it was already rotated (so this never loops).
-      if (result.error && (result.error.status === 401 || result.error.status === 403)
+      if (result.error && !result.timedOut && !result.error.completionUncertain && (result.error.status === 401 || result.error.status === 403)
           && (typeof client.rotateKey === 'function' || (typeof client.stream !== 'function' && typeof rotateKey === 'function'))) {
         const rotated = typeof client.rotateKey === 'function' ? client.rotateKey() : rotateKey(provider);
         if (rotated) {
@@ -1059,7 +1075,7 @@ export function createBriefRouter({
 
       // Model fallback on immediate availability failures (a still-erroring key
       // after rotation falls through to here and swaps the model, as before)
-      if (result.error && preferredModel !== fallbackModel) {
+      if (result.error && !result.timedOut && !result.error.completionUncertain && preferredModel !== fallbackModel) {
         const status = result.error.status;
         if (status === 401 || status === 403 || status === 404 || status === 529) {
           log.warn('brief', `${preferredModel} unavailable (${result.error.message}) — falling back to ${fallbackModel}`);
@@ -1271,6 +1287,7 @@ export function createBriefRouter({
       generationManifest.briefingMetadata = extractedMetadata.metadata;
       generationManifest.briefingMetadataIssues = extractedMetadata.issues;
       generationManifest.briefingMetadataContentSha256 = sha256(fullBrief);
+      generationManifest.actionRecords = captureBriefActionRecords(fullBrief);
       generationManifest.publicationValidation = { validationPolicyVersion: validation.validationPolicyVersion, valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial, coverage: validation.coverage,
         priorityCoverage: validation.priorityCoverage, sourceQuality: validation.sourceQuality,
         sourceCheckStatus: hardFail || trustFail ? 'findings' : 'passed-supported-checks', editorialReviewStatus: 'not-reviewed' };

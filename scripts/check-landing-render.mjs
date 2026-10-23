@@ -18,6 +18,9 @@ import { fileURLToPath } from 'node:url';
 const ROOT = process.cwd();
 const DOCS = join(ROOT, 'docs');
 const TIMEOUT_MS = 15_000;
+// A cold browser process on a shared CI runner may need longer than an
+// individual DevTools command. Keep command/check deadlines unchanged.
+const BROWSER_STARTUP_TIMEOUT_MS = 45_000;
 const errors = [];
 
 function delay(milliseconds) {
@@ -280,7 +283,7 @@ export async function launchBrowser(browserPath) {
   }
 
   const activePortFile = join(profile, 'DevToolsActivePort');
-  const deadline = Date.now() + TIMEOUT_MS;
+  const deadline = Date.now() + BROWSER_STARTUP_TIMEOUT_MS;
   let activePort;
   while (Date.now() < deadline) {
     // On Windows, Edge may exit its launcher successfully after handing this
@@ -296,7 +299,7 @@ export async function launchBrowser(browserPath) {
   }
   if (!activePort) {
     child.kill();
-    throw new Error(`Browser did not expose DevTools in time:\n${stderr}`);
+    throw new Error(`Browser did not expose DevTools within ${BROWSER_STARTUP_TIMEOUT_MS}ms (${browserPath}; pid=${child.pid}; exit=${child.exitCode}; signal=${child.signalCode}):\n${stderr || '(no browser stderr)'}`);
   }
 
   const [port, browserSocketPath] = activePort.trim().split(/\r?\n/);

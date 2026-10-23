@@ -113,6 +113,35 @@ describe('executiveSummaryModel', () => {
     ]);
     expect(model.commonDeadline).toBe('');
   });
+  test('keeps the fresh October 23 identity response intact when an internal sentence introduces Dependencies', () => {
+    // Actual adjacent actions from the live edition. The second action's
+    // internal semicolon previously invented an owner ending in "Dependencies"
+    // and detached the real Identity security owner's target.
+    const incident = 'scope execution and accessible secrets; retrieve and verify the hunting guidance referenced by the cited reports, then examine startup files, /tmp/.pc_once_*, /tmp/remote_code_loader.lock, and associated traffic. Start preservation this shift; deliver initial findings with retention gaps and credential scope';
+    const identity = 'revoke exposed sessions and rotate credentials accessible to executed affected workloads; prioritize privileged cloud and developer access immediately. Dependencies: incident-response scope and service-owner coordination; track unknown secrets as exceptions and verify old credentials fail, escalating blocked revocations';
+    const recovery = 'prepare clean workload recovery for executed affected installations. Dependencies: incident-response findings, verified clean artifacts, and change approval; record malware-removal or rebuild evidence requirements, recovery owner, and feasible restoration target, retaining isolation until validated';
+    const target = 'recommended target October 24, 2026';
+    const tail = `Incident response — ${incident} — ${target}; Identity security — ${identity} — ${target}; Infrastructure — ${recovery} — ${target}.`;
+    expect(executiveSummaryModel([{ lead: 'Required decisions', tail }]).decisions).toEqual([
+      { owner: 'Incident response', action: incident, deadline: target },
+      { owner: 'Identity security', action: identity, deadline: target },
+      { owner: 'Infrastructure', action: recovery, deadline: target },
+    ]);
+  });
+  test('retains legacy Owner: records when recommended targets are present', () => {
+    const tail = 'Infrastructure: verify exposure; Dependencies: vendor guidance — recommended target October 23, 2026; Identity security: rotate affected credentials — recommended target October 24, 2026.';
+    expect(executiveSummaryModel([{ lead: 'Required decisions', tail }]).decisions).toEqual([
+      { owner: 'Infrastructure', action: 'verify exposure; Dependencies: vendor guidance', deadline: 'recommended target October 23, 2026' },
+      { owner: 'Identity security', action: 'rotate affected credentials', deadline: 'recommended target October 24, 2026' },
+    ]);
+  });
+  test('an incomplete canonical sequence preserves trailing unstructured response text', () => {
+    const tail = 'Infrastructure — verify exposure — recommended target October 23, 2026; Review the exception immediately';
+    expect(executiveSummaryModel([{ lead: 'Required decisions', tail }]).decisions).toEqual([
+      { owner: 'Infrastructure', action: 'verify exposure', deadline: 'recommended target October 23, 2026' },
+      { owner: 'Unassigned', action: 'Review the exception immediately', deadline: '' },
+    ]);
+  });
   test('an orphan action context label never becomes an invented owner', () => {
     const model = executiveSummaryModel([{ lead: 'Required decisions:', tail: 'Condition: only affected deployments; Operations — verify applicability — recommended target September 8, 2026.' }]);
     expect(model.decisions[0]).toEqual({ owner: 'Unassigned', action: 'Condition: only affected deployments', deadline: '' });

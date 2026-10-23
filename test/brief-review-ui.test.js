@@ -1,5 +1,6 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { attachEditorialReview, editionNotice, editionNoticeHtml, readerPresentation, readerEvidenceLimits } from '../public/modules/briefing/brief-review.js';
+import { attachEditorialReview, attachReaderLimits, editionNotice, editionNoticeHtml, readerPresentation, readerEvidenceLimits } from '../public/modules/briefing/brief-review.js';
+import { decisionCopyText, readerIssueIdentity } from '../public/modules/briefing/brief-renderer.js';
 
 function reader() {
   const targets = [
@@ -8,9 +9,9 @@ function reader() {
     { id:'judgment-1', tagName:'H3', textContent:'Signal 1 — Conditional recovery', after:jest.fn() },
   ];
   const inserted = [];
-  const document = { createElement:tagName=>({ tagName:tagName.toUpperCase(), attributes:{}, setAttribute(name,value){ this.attributes[name] = value; } }) };
+  const document = { createElement:tagName=>({ tagName:tagName.toUpperCase(), attributes:{}, dataset:{}, setAttribute(name,value){ this.attributes[name] = value; } }) };
   const content = { ownerDocument:document, innerHTML:'<p>Unchanged reviewed reading copy.</p><aside class="brief-validation-warning">Unresolved check remains visible.</aside>',
-    querySelectorAll:selector=>selector === '[id]' ? targets : [], querySelector:()=>null, prepend:node=>inserted.unshift(node) };
+    querySelectorAll:selector=>['[id]', 'h2, h3'].includes(selector) ? targets : [], querySelector:selector=>targets.find(target => selector === `#${target.id}`) || null, prepend:node=>inserted.unshift(node) };
   return { content, targets, inserted };
 }
 
@@ -78,5 +79,54 @@ describe('one consolidated reader review disclosure', () => {
       { message:'Unknown old check.', audience:'unclassified', location:{ line:3 } },
     ] } } };
     expect(readerEvidenceLimits(brief,1).map(issue=>issue.message)).toEqual(['Current material limit.']);
+  });
+
+  test('repeated claim limits appear once per signal while every source location remains in the edition record', () => {
+    const { content, inserted, targets } = reader();
+    const issue = { code:'CVE_CVSS_AMBIGUOUS', audience:'reader', consequence:'note', message:'Signal 1 CVSS v4.0 9.2 has no unambiguous CVE association.' };
+    const first = { ...issue, location:{ scope:'paragraph', line:3, excerpt:'Assessment: a CVSS v4.0 9.2 issue.' } };
+    const repeated = { ...issue, location:{ scope:'paragraph', line:4, excerpt:'What happened: CVSS v4.0 9.2 was reported.' } };
+    const differentMetric = { ...issue, message:'Signal 1 CVSS v3.1 7.5 has no unambiguous CVE association.', location:{ scope:'paragraph', line:4 } };
+    const otherSignal = { ...issue, location:{ scope:'paragraph', line:6, excerpt:'Assessment in a different signal.' } };
+    const bookkeeping = { code:'PRIORITY_COVERAGE_MISSING', audience:'operator', consequence:'note', message:'Optional coverage accounting.', location:{ scope:'document' } };
+    const brief = { content:'## KEY JUDGMENTS\n### Signal 1 — First\nAssessment\nWhat happened\n### Signal 2 — Second\nAssessment',
+      presentation:{ schemaVersion:1, currentChecks:{ status:'checked', issues:[first, repeated, differentMetric, otherSignal, bookkeeping], warnings:[issue.message] } } };
+    const before = JSON.stringify(brief);
+    const limits = readerEvidenceLimits(brief, 1);
+    expect(limits).toHaveLength(2);
+    expect(limits[0].readerIssueIds).toEqual([readerIssueIdentity(first), readerIssueIdentity(repeated)]);
+    expect(readerEvidenceLimits(brief, 2)).toHaveLength(1);
+    expect(readerEvidenceLimits(brief)).toHaveLength(3);
+    attachReaderLimits(content, brief);
+    expect(targets[2].after).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(targets[2].after.mock.calls[0][0].dataset.readerIssueIds)).toEqual(limits[0].readerIssueIds);
+    const copied = decisionCopyText({ action:'Verify exposure.', signal:1, sourceContent:brief.content,
+      editionUrl:'https://desk.test/briefing/brief-2026-10-23.md', presentation:brief.presentation });
+    expect(copied.split(issue.message)).toHaveLength(2);
+    expect(copied).toContain(differentMetric.message);
+    expect(copied).not.toContain(bookkeeping.message);
+    attachEditorialReview(content, brief);
+    const html = inserted[0].innerHTML;
+    for (const location of [first.location, repeated.location, otherSignal.location]) {
+      expect(html).toContain(`Line ${location.line}`);
+      expect(html).toContain(location.excerpt);
+    }
+    expect(html).toContain('<strong>Optional note:</strong>');
+    expect(html).toContain(bookkeeping.message);
+    expect(JSON.stringify(brief)).toBe(before);
+  });
+
+  test('consequence labels retain blocking and review findings, and do not label unknown legacy messages optional', () => {
+    const { content, inserted } = reader();
+    attachEditorialReview(content, { presentation:{ schemaVersion:1, currentChecks:{ status:'checked', issues:[
+      { code:'CVE_CVSS_MISMATCH', consequence:'block', message:'The score conflicts with the captured source.' },
+      { code:'PRIORITY_EVIDENCE_UNRESOLVED', consequence:'review', message:'Review unresolved evidence.' },
+      { code:'LEGACY_NOTE', message:'Legacy finding with no retained consequence.' },
+    ] } } });
+    const html = inserted[0].innerHTML;
+    expect(html).toContain('<strong>Required fix:</strong> The score conflicts');
+    expect(html).toContain('<strong>Review finding:</strong> Review unresolved');
+    expect(html).not.toContain('Optional note:');
+    expect(html).toContain('Legacy finding with no retained consequence.');
   });
 });

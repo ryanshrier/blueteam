@@ -4,6 +4,13 @@ const originalFetch = globalThis.fetch;
 beforeEach(() => jest.resetModules());
 afterEach(() => { globalThis.fetch = originalFetch; jest.useRealTimers(); });
 
+test.each(['custom', 'cli'])('%s status checks never serialize a key or model override', async provider => {
+  const { verifyKey } = await import('../public/modules/core/api.js');
+  globalThis.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ valid: null }) });
+  await verifyKey('never-send-this-key', provider, 'never-send-this-model');
+  expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body)).toEqual({ provider });
+});
+
 test('fresh history bypasses a pending older read and its late result cannot poison the cache', async () => {
   const { fetchBriefs } = await import('../public/modules/core/api.js');
   let finishOld, finishFresh;

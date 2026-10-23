@@ -36,7 +36,8 @@ Copy `.env.example` to `.env` for local use. Do not commit populated secret file
 
 | Variable | Required | Description |
 |---|---|---|
-| `AI_PROVIDER` | No | Default Briefing provider: built-in `anthropic` or `openai`, or experimental `custom`. A saved Settings selection takes precedence. Without an explicit selection, a configured local module selects Custom; otherwise OpenAI is used only when an OpenAI key exists and no Anthropic key exists; otherwise Anthropic is the default. |
+| `AI_PROVIDER` | No | Default Briefing provider: built-in `anthropic`, `openai`, or `cli`, or experimental `custom`. A saved Settings selection takes precedence. Without an explicit selection, a CLI profile selects CLI, then a local module selects Custom; otherwise OpenAI is used only when an OpenAI key exists and no Anthropic key exists; otherwise Anthropic is the default. |
+| `AI_CLI_PROFILE` | For CLI | Trusted version 1 JSON profile for a non-interactive assistant CLI. Relative paths resolve from the application directory. Restart after profile or environment changes. See [CLI profiles](cli-provider.md). |
 | `AI_PROVIDER_MODULE` | For Custom | Experimental trusted local JavaScript module exporting `createClient(env)`; the contract may change. Relative paths resolve from the application directory. Restart after changing the path or module. |
 | `ANTHROPIC_API_KEY` | For Anthropic | Anthropic Briefing and verification key. `ANTHROPIC_API_KEY_PRIMARY` is accepted as an alias. |
 | `ANTHROPIC_API_KEY_SECONDARY` | No | Anthropic fallback key used after an authentication failure. |
@@ -71,7 +72,7 @@ Host validation protects the default local server from DNS-rebinding requests. P
 
 ## Local provider modules
 
-**Custom (local module) is experimental; the module contract may change.** Anthropic and OpenAI remain the built-in providers. A generic adapter is operator-supplied code, not a bundled provider integration.
+**Custom (local module) is experimental; the module contract may change.** Anthropic, OpenAI, and CLI are built-in providers. For JSON profiles with stdin and JSON/NDJSON output, use the [built-in CLI runner](cli-provider.md). Custom adapters remain operator-supplied JavaScript.
 
 Set `AI_PROVIDER=custom` and `AI_PROVIDER_MODULE=./local/generic-provider.js`, restart, and select **Custom (local module)** in Settings if a different provider was previously saved. Relative module paths resolve from the application directory. Modules run trusted code with the server's permissions, without a sandbox. Settings hides the API key field; define any credentials required by your module in the process environment or `.env`.
 
@@ -100,7 +101,7 @@ A CLI wrapper must forward `params.system` and **every** item in `params.message
 
 Parse the tool's machine-readable final result rather than its terminal presentation. Emit only the completed briefing as text; progress messages, reasoning, tool logs, and intermediate drafts are separate output. A successful process exit alone does not establish a completed model response. Normalize completion to `end_turn`, `max_tokens`, or `refusal`; an unsupported reason is an incomplete provider response. Report cumulative usage whether it arrives at the beginning or end of the stream, and report `cost_usd` only when its currency and amount are known.
 
-For IBM Bob Shell, consult the documentation matching the installed CLI version. The current [non-interactive interface](https://bob.ibm.com/docs/shell/getting-started/start-bobshell-non-interactive) documents `bob run --format json` / `stream-json`, a final result status, `last_message`, and token statistics. Its cost limit is denominated in Bobcoins; do not assume a Bob cost value is USD. Bob's unattended mode can invoke tools, so configure the wrapper's workspace, tool access, MCP, and session behavior deliberately for synthesis from the captured input. Reusing an unrelated agent session or fetching additional evidence breaks the correspondence with the application's saved input receipt.
+For supported non-interactive CLIs, prefer a JSON profile in `config/cli-profiles/` and the [built-in CLI provider](cli-provider.md). Verify launch controls and output mappings against the installed CLI version. Keep executable-specific commands, field paths, and cost units in the profile. Reusing an unrelated agent session or fetching additional evidence breaks the correspondence with the application's saved input receipt.
 
 The module must still honor cancellation, including terminating any child process it owns. The application bounds how long it waits for the stream, but cannot guarantee that arbitrary trusted module code stops external work. A timed-out scheduled attempt retains an uncertain outcome and is not automatically purchased again for the same scheduled job; inspect the job and provider usage before explicitly starting another generation.
 

@@ -31,8 +31,10 @@ The pair has CVSS v3.1 9.8. ${citation}
     expect(text.split('\n')[issue.location.line - 1]).toContain('The pair has CVSS');
     expect(issue.location.excerpt).toContain('CVSS v3.1 9.8');
     expect(issue.message).toContain('Signal 2');
-    expect(issue.message).toContain('captured evidence');
-    expect(issue.message).toContain('or omit the score');
+    expect(issue.message).toContain('CVSS v3.1 9.8');
+    expect(issue.message).toContain('bounded check could not determine which CVE');
+    expect(issue.message).toContain('Verify that association before relying on the metric');
+    expect(issue.message).not.toContain('omit the score');
     expect(publicationDecision(result).notes).toContainEqual(issue);
     expect(publicationDecision(result).blockers).not.toContainEqual(issue);
   });

@@ -150,7 +150,7 @@ Trusted clients can configure both built-in provider keys and choose which provi
 
 Send this body to `POST /api/settings`. Use `aiProvider: "anthropic"` and `anthropicKey` for Anthropic. Omitted keys remain unchanged; an empty key string removes that saved key. Both keys can be stored at once. Environment keys override saved keys for the same provider and cannot be removed through this endpoint. Saved provider/model choices override `AI_PROVIDER` and `OPENAI_MODEL` defaults. See [Configuration](configuration.md#environment-variables).
 
-`GET /api/settings` returns the effective `ai.provider`, `ai.model`, `ai.enabled`, `ai.keySource`, and masked `ai.keyMasked`. Trusted responses also include `ai.providers.anthropic`, `ai.providers.openai`, and `ai.providers.custom`. Each reports `enabled`, `keySource`, and `keyMasked`, plus `model` when available. Custom uses `keyMasked: null`; `keySource` is `"env"` when a module was loaded, otherwise `null`. Its `enabled` flag means the factory returned a valid client, not that health or credentials were verified. Raw keys, the module path, and client version are not returned here.
+`GET /api/settings` returns the effective `ai.provider`, `ai.model`, `ai.enabled`, `ai.keySource`, and masked `ai.keyMasked`. Trusted responses also include `ai.providers.anthropic`, `ai.providers.openai`, `ai.providers.custom`, and `ai.providers.cli`. Each reports `enabled`, `keySource`, and `keyMasked`, plus `model` when available. Custom and CLI use `keyMasked: null`; `keySource` is `"env"` for configured startup providers, otherwise `null`. Their `enabled` flags mean a valid client was loaded, not that health or credentials were verified. Trusted responses may also contain a sanitized initialization `error`, client `version`, and CLI `profileIdentity: { id, version, sha256 }`. Raw keys, commands, arguments, and module/profile paths are not returned.
 
 To verify OpenAI before saving:
 
@@ -167,6 +167,10 @@ Send this body to `POST /api/settings/verify`. Omit the key to use the effective
 **Custom (local module) is experimental; its contract may change.** Select it with `{ "aiProvider": "custom" }` in `POST /api/settings` after configuring `AI_PROVIDER_MODULE` in the server environment and restarting. Modules run trusted code with the server's permissions and read credentials from the environment; this API cannot set the module path or store module credentials. See the [local provider contract](configuration.md#local-provider-modules).
 
 For a module status check, send `{ "provider": "custom" }` to `POST /api/settings/verify`. Do not include `anthropicKey`, `openaiKey`, or `openaiModel`; those fields return HTTP 400 `E_KEYFMT`. The application calls the optional `health({ signal })` hook with a 15-second deadline and never calls `stream`. Results contain `valid: true | false | null` and optional `note`, `error`, and `version` strings. A missing or invalid client returns `valid: false`; a missing hook, timeout, or thrown hook error returns `valid: null`. Without a hook, the note includes the client's version when available. Hook results and diagnostics are bounded and scrubbed for common credential forms, but modules must still keep secrets out of them. The hook defines its own network behavior; the application does not perform a built-in verification request for Custom.
+
+For **CLI (JSON profile)**, configure `AI_CLI_PROFILE` at server startup and select it with `{ "aiProvider": "cli" }`. Send `{ "provider": "cli" }` to `POST /api/settings/verify` for the profile's installation check. Successful checks return `valid: null`; they do not verify credentials or generation readiness. A missing or invalid loaded client returns `valid: false`. The Settings endpoints reject CLI configuration and credential fields; the CLI verification body accepts only `provider`. See [CLI profiles](cli-provider.md) for the schema, limits, and trust boundary.
+
+CLI generation receipts include the bounded profile identity in `providerContract.profileIdentity` at generation and attempt level. Attempt receipts and generation status retain `providerCost: { amount, unit }` when available. Non-USD amounts never populate `costUsd` or trigger model-based API price estimates. An uncertain launched attempt is recorded with `completionUncertain: true` and blocks automatic scheduled repurchase.
 
 ## Watch profile and applicability
 
@@ -266,7 +270,7 @@ Use `/api/live` for process supervision and `/api/ready` for traffic readiness. 
 
 Liveness returns HTTP 200 while the process can serve HTTP. Readiness returns HTTP 503 when current pipeline, feed, or database state is degraded. When `API_SECRET` is configured, unauthenticated readiness callers receive only the overall `status`, including a reverse proxy connecting over loopback. Supply the valid bearer token for detailed diagnostics. With the default keyless loopback configuration, local callers receive the detailed payload.
 
-These probes do not invoke a Custom module's optional health hook. Use `POST /api/settings/verify` with `provider: "custom"` for that separate check; its result does not change the loaded client's enabled state.
+These probes do not invoke a Custom module's optional health hook or a CLI installation command. Use `POST /api/settings/verify` with `provider: "custom"` or `provider: "cli"` for that separate check; its result does not change the loaded client's enabled state.
 
 ## Browser request boundary
 

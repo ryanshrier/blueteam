@@ -29,6 +29,19 @@ describe('one reading-copy diagnostic presentation', () => {
     expect(result.currentChecks.issues[0]).toMatchObject({ audience: 'unclassified', message: 'Retain this finding.' });
   });
 
+  test('optional bookkeeping stays in the edition record without changing its recorded consequence', () => {
+    const codes = ['BRIEF_METADATA_INVALID', 'ACTION_SUMMARY_MAPPING_INVALID', 'PRIORITY_COVERAGE_MISSING',
+      'PRIORITY_COVERAGE_INVALID', 'PRIORITY_COVERAGE_DEFERRED', 'PRIORITY_COVERAGE_OVERFLOW', 'PRIORITY_EVIDENCE_DEFERRED', 'PRIORITY_COVERAGE_PARTIAL'];
+    const result = briefPresentation(state({ manifest: { publicationValidation: checks(codes.map(code => ({
+      code, severity: 'note', message: `${code} bookkeeping`, location: { scope: 'document' },
+    }))) } }));
+    expect(result.currentChecks.issues).toHaveLength(codes.length);
+    expect(result.currentChecks.issues.every(issue => issue.audience === 'operator' && issue.consequence === 'note')).toBe(true);
+    expect(result.currentChecks.warnings).toHaveLength(codes.length);
+    expect(issueAudience({ code: 'PRIORITY_COVERAGE_UNSUPPORTED' })).toBe('reader');
+    expect(issueAudience({ code: 'PRIORITY_EVIDENCE_UNRESOLVED' })).toBe('reader');
+  });
+
   test('current corrected findings stay separate from original and repaired-generation history', () => {
     const result = briefPresentation(state({ content: 'Corrected authored briefing', reviewed: { review: { status: 'editorially-corrected' } },
       readingChecks: { ...checks([note]), status: 'checked', checkedAt: '2026-10-09T12:00:00Z' },

@@ -14,7 +14,11 @@ import { log } from '../lib/logger.js';
 export const MAX_ANTHROPIC_KEY_BYTES = MAX_API_KEY_BYTES;
 
 function publicAiStatus(status, trusted) {
-  const keyStatus = value => ({ enabled: value.enabled, keySource: value.source, keyMasked: value.masked, model: value.model });
+  const keyStatus = value => ({ enabled: value.enabled, keySource: value.source, keyMasked: value.masked, model: value.model,
+    ...(trusted && typeof value.error === 'string' ? { error: value.error } : {}),
+    ...(trusted && typeof value.version === 'string' ? { version: value.version } : {}),
+    ...(trusted && value.profileIdentity ? { profileIdentity: { id: value.profileIdentity.id,
+      version: value.profileIdentity.version, sha256: value.profileIdentity.sha256 } } : {}) });
   const payload = { ...keyStatus(status), provider: status.provider };
   if (trusted && status.providers) payload.providers = Object.fromEntries(
     Object.entries(status.providers).map(([provider, value]) => [provider, keyStatus(value)]),
@@ -188,13 +192,16 @@ export function createSettingsRouter({
     }
     const body = req.body || {};
     const provider = body.provider ?? (Object.hasOwn(body, 'openaiKey') ? 'openai' : 'anthropic');
-    if (!['anthropic', 'openai', 'custom'].includes(provider)) return res.status(400).json({ valid: false, error: 'provider must be anthropic, openai, or custom.', code: 'E_PROVIDER' });
-    if (provider === 'custom') {
+    if (!['anthropic', 'openai', 'custom', 'cli'].includes(provider)) return res.status(400).json({ valid: false, error: 'provider must be anthropic, openai, custom, or cli.', code: 'E_PROVIDER' });
+    if (provider === 'cli' && Object.keys(body).some(field => field !== 'provider')) {
+      return res.status(400).json({ valid: false, error: 'CLI profiles and credentials are configured only in the server environment.', code: 'E_KEYFMT' });
+    }
+    if (provider === 'custom' || provider === 'cli') {
       if (['anthropicKey', 'openaiKey', 'openaiModel'].some(field => Object.hasOwn(body, field))) {
         return res.status(400).json({ valid: false, error: 'Custom modules use environment credentials and model settings only.', code: 'E_KEYFMT' });
       }
       try { return res.json(await verifyKey('', provider)); }
-      catch { return res.json({ valid: null, error: 'Module status check failed unexpectedly.' }); }
+      catch { return res.json({ valid: null, error: 'Local provider status check failed unexpectedly.' }); }
     }
     const field = provider === 'openai' ? 'openaiKey' : 'anthropicKey';
     const otherField = provider === 'openai' ? 'anthropicKey' : 'openaiKey';
@@ -214,6 +221,13 @@ export function createSettingsRouter({
 
   router.post('/settings', (req, res) => {
     const body = req.body || {};
+    if (Object.keys(body).some(field => /^(?:ai_?cli|cli)/i.test(field)
+      || ['command', 'args', 'env_allow', 'profile'].includes(field))) {
+      return res.status(400).json({ error: 'CLI profiles and credentials are configured only in the server environment.', code: 'E_CLI_CONFIG' });
+    }
+    if (body.aiProvider === 'cli' && ['anthropicKey', 'openaiKey', 'openaiModel'].some(field => Object.hasOwn(body, field))) {
+      return res.status(400).json({ error: 'CLI selection does not accept keys or model overrides. Configure the server environment and profile, then restart.', code: 'E_CLI_CONFIG' });
+    }
 
     // Validate the entire multi-field update before touching disk. A request can
     // carry the key, watch terms, and organization together; processing and
@@ -245,7 +259,7 @@ export function createSettingsRouter({
         if (error) return res.status(400).json({ error, code: 'E_KEYFMT' });
         patch[field] = body[field].trim() || undefined;
       } else if (field === 'aiProvider') {
-        if (!['anthropic', 'openai', 'custom'].includes(body[field])) return res.status(400).json({ error: 'aiProvider must be anthropic, openai, or custom.', code: 'E_PROVIDER' });
+        if (!['anthropic', 'openai', 'custom', 'cli'].includes(body[field])) return res.status(400).json({ error: 'aiProvider must be anthropic, openai, custom, or cli.', code: 'E_PROVIDER' });
         patch[field] = body[field];
       } else {
         if (typeof body[field] !== 'string' || (body[field].trim() && !validOpenaiModel(body[field].trim()))) return res.status(400).json({ error: 'openaiModel must be a model ID of 1–128 characters, or empty to reset.', code: 'E_MODEL' });

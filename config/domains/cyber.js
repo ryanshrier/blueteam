@@ -228,7 +228,7 @@ export const cyberPack = {
       actionOwners: 'the accountable function, such as infrastructure / application security / messaging / detection engineering / leadership',
       actionFormat: 'Infrastructure — verify every affected appliance — recommended target {Month D, YYYY}',
       priorityLanguage: 'Act now / Prepare / Monitor',
-      actionCatalogNote: 'If the relevant judgment carries a verified KEV CVE (see below), name that exact CVE in the this-shift action.',
+      actionCatalogNote: 'If the relevant judgment carries a verified KEV CVE (see below), name that exact CVE in its applicability or response action. Catalog membership alone does not determine the local response window; do not defer a timely applicability check when credible exploitation leaves exposure unresolved.',
       absentSpecific: 'omit an optional unsupported metric; assert absence only after checking every supplied record and state the exact scope',
       whatHappenedSpecifics: 'names, versions, CVE numbers, dates, dollar figures',
       numberExamples: 'versions, CVE IDs, dates, and counts',

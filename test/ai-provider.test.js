@@ -229,6 +229,61 @@ describe('local provider module', () => {
   });
 });
 
+describe('CLI provider selection', () => {
+  const makeClient = () => ({ provider: 'cli', model: 'fixture-model', version: '1.0', contractVersion: 1,
+    profileIdentity: { id: 'fixture', version: '1', sha256: 'a'.repeat(64) }, stream: jest.fn(),
+    health: jest.fn(async () => ({ valid: null, note: 'CLI installed; authentication and generation readiness are unverified.' })) });
+
+  test('loads the trusted profile once, selects CLI without native keys, and preserves saved selection precedence', async () => {
+    let settings = {};
+    const env = { AI_CLI_PROFILE: './trusted.json', ASSISTANT_API_KEY: 'fixture-private-key' };
+    const cli = makeClient();
+    const cliFactory = jest.fn(() => cli);
+    const manager = createAiProvider({ getSettings: () => settings, env, cliFactory, cwd: '/application' });
+    expect(cliFactory).toHaveBeenCalledWith(env, '/application');
+    expect(manager.getClient()).toBe(cli);
+    expect(manager.getStatus()).toMatchObject({ provider: 'cli', enabled: true, source: 'env', masked: null,
+      profileIdentity: cli.profileIdentity });
+    expect(JSON.stringify(manager.getStatus())).not.toContain(env.ASSISTANT_API_KEY);
+    settings = { aiProvider: 'anthropic', anthropicKey };
+    manager.refresh();
+    expect(manager.getStatus().provider).toBe('anthropic');
+    env.AI_CLI_PROFILE = './changed.json';
+    settings = { aiProvider: 'cli' };
+    manager.refresh();
+    expect(manager.getClient()).toBe(cli);
+    expect(cliFactory).toHaveBeenCalledTimes(1);
+    await expect(manager.verifyKey('ignored-key', 'cli')).resolves.toMatchObject({ valid: null, note: expect.stringContaining('unverified') });
+    expect(cli.stream).not.toHaveBeenCalled();
+    expect(manager.rotateKey('cli')).toBeNull();
+  });
+
+  test('explicit CLI without a configured profile stays disabled and explains restart setup', async () => {
+    const manager = createAiProvider({ getSettings: () => ({}), env: { AI_PROVIDER: 'cli' }, cliFactory: () => null });
+    expect(manager.getClient()).toBeNull();
+    expect(manager.getStatus()).toMatchObject({ provider: 'cli', enabled: false, source: null, masked: null });
+    await expect(manager.verifyKey('', 'cli')).resolves.toEqual({ valid: false, error: 'Set AI_CLI_PROFILE and restart to load a CLI profile.' });
+  });
+
+  test('profile failures remain disabled, redact environment credentials, and do not reload through Settings', async () => {
+    const env = { AI_PROVIDER: 'cli', AI_CLI_PROFILE: './invalid.json', ASSISTANT_TOKEN: 'fixture-private-token' };
+    const cliFactory = jest.fn(() => { throw new Error(`Invalid profile: ${env.ASSISTANT_TOKEN}`); });
+    const manager = createAiProvider({ getSettings: () => ({}), env, cliFactory });
+    manager.refresh();
+    expect(cliFactory).toHaveBeenCalledTimes(1);
+    expect(manager.getClient()).toBeNull();
+    expect(manager.getStatus()).toMatchObject({ provider: 'cli', source: 'env', error: 'Invalid profile: [REDACTED]' });
+    await expect(manager.verifyKey('', 'cli')).resolves.toEqual({ valid: false, error: 'Invalid profile: [REDACTED]' });
+  });
+
+  test('an installation check never asserts authenticated readiness', async () => {
+    const cli = makeClient();
+    cli.health.mockResolvedValue({ valid: true, version: '2.0' });
+    const manager = createAiProvider({ getSettings: () => ({ aiProvider: 'cli' }), env: {}, cliFactory: () => cli });
+    await expect(manager.verifyKey('', 'cli')).resolves.toEqual({ valid: null, version: '2.0' });
+  });
+});
+
 describe('OpenAI Responses streaming', () => {
   test.each(['off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])('configures GPT-6.1 Sol reasoning effort %s', effort => {
     const client = createOpenAiClient(openaiKey, 'gpt-6.1-sol');
