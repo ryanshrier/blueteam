@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, jest, test } from '@jest/globals';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import * as filesystem from 'node:fs/promises';
 import * as operatingSystem from 'node:os';
 import { dirname, join } from 'node:path';
@@ -19,13 +19,16 @@ jest.unstable_mockModule('node:fs/promises', () => ({
 }));
 const { createCliClient } = await import('../lib/cli-provider.js');
 const fixture = fileURLToPath(new URL('./fixtures/cli-assistant.mjs', import.meta.url));
-let directory, target, countPath;
-beforeEach(() => {
+let directory, target, canonicalTarget, countPath;
+beforeEach(async () => {
   directory = mkdtempSync(join(nativeOperatingSystem.tmpdir(), 'cybe-cli-workspace-test-'));
   target = join(directory, 'physical-temp');
   mkdirSync(target);
+  // Use native canonicalization: legacy realpathSync preserves Windows 8.3
+  // aliases such as RUNNER~1 even when the child uses the full directory name.
+  canonicalTarget = await nativeFilesystem.realpath(target);
   temporaryParent = join(directory, 'temp-alias');
-  symlinkSync(realpathSync(target), temporaryParent, process.platform === 'win32' ? 'junction' : 'dir');
+  symlinkSync(canonicalTarget, temporaryParent, process.platform === 'win32' ? 'junction' : 'dir');
   countPath = join(directory, 'launches.txt');
   failCanonicalization = false;
 });
@@ -51,7 +54,7 @@ const run = async value => {
 test('uses the physical temp path for cwd, placeholders, and isolated directories, then removes only its workspace', async () => {
   const result = await run(client());
   expect(result.cwd).toBe(result.args[0]);
-  expect(dirname(dirname(result.cwd))).toBe(realpathSync(target));
+  expect(dirname(dirname(result.cwd))).toBe(canonicalTarget);
   expect(result.env.HOME).toBe(result.args[1]);
   for (const name of ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME',
     'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'TMPDIR', 'TMP', 'TEMP']) {
@@ -59,7 +62,7 @@ test('uses the physical temp path for cwd, placeholders, and isolated directorie
   }
   expect(existsSync(countPath)).toBe(true);
   expect(existsSync(result.cwd)).toBe(false);
-  expect(realpathSync(temporaryParent)).toBe(realpathSync(target));
+  expect(await nativeFilesystem.realpath(temporaryParent)).toBe(canonicalTarget);
   expect(readdirSync(target)).toEqual([]);
 });
 
@@ -68,7 +71,7 @@ test('removes the allocated root if path canonicalization fails without launchin
   await expect(run(client())).rejects.toMatchObject({ code: 'E_CLI_SETUP', completionUncertain: false });
   expect(existsSync(countPath)).toBe(false);
   expect(readdirSync(target)).toEqual([]);
-  expect(realpathSync(temporaryParent)).toBe(realpathSync(target));
+  expect(await nativeFilesystem.realpath(temporaryParent)).toBe(canonicalTarget);
 });
 
 test('removes the canonical workspace after later setup failure without launching a child', async () => {
@@ -76,5 +79,5 @@ test('removes the canonical workspace after later setup failure without launchin
     .rejects.toMatchObject({ code: 'E_CLI_SETUP', completionUncertain: false });
   expect(existsSync(countPath)).toBe(false);
   expect(readdirSync(target)).toEqual([]);
-  expect(realpathSync(temporaryParent)).toBe(realpathSync(target));
+  expect(await nativeFilesystem.realpath(temporaryParent)).toBe(canonicalTarget);
 });

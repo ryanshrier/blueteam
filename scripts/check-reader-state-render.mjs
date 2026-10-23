@@ -89,6 +89,7 @@ try {
   const response = await fetch(`${browser.debugOrigin}/json/new?about:blank`, { method: 'PUT' });
   connection = new CdpConnection((await response.json()).webSocketDebuggerUrl);
   await Promise.all([connection.call('Page.enable'), connection.call('Runtime.enable')]);
+  await connection.call('Page.bringToFront');
   connection.on('Runtime.exceptionThrown', event => errors.push(event.exceptionDetails?.exception?.description || event.exceptionDetails?.text));
   connection.on('Fetch.requestPaused', event => {
     const local = event.request.url.startsWith(`${origin}/`) && !event.request.url.startsWith(`${origin}/api/`);
@@ -210,7 +211,20 @@ Check affected inventory before scheduling remediation.
   tools.querySelector('summary').click();
   const draftsBox=drafts.getBoundingClientRect();
   check(drafts.getClientRects().length>0&&draftsBox.height>=44&&draftsBox.left>=0&&draftsBox.right<=innerWidth+1,'Draft review is reachable inside Edition tools with a fitting touch target');
-  tools.querySelector('summary').click();
+  // Safari can focus the focusable main ancestor during a button pointer
+  // activation. Reproduce that ordering against the real mounted controls.
+  const printOpener=q('#briefExport');
+  printOpener.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:1,pointerType:'mouse'}));
+  q('#main').focus();
+  check(tools.open,'Pointer activation keeps Edition tools open when focus moves to the main ancestor');
+  printOpener.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:1,pointerType:'mouse'}));
+  printOpener.click();
+  await until(()=>q('.np-frame')?.contentDocument?.querySelector('.np-colophon'));
+  check(tools.open&&q('.np-overlay').contains(document.activeElement),'Print opens from the visible menu and owns focus');
+  q('.np-ov-close').click();
+  check(!q('.np-overlay')&&document.activeElement===printOpener&&tools.open,'Closing Print restores its visible menu control');
+  q('#main').focus();
+  check(!tools.open,'Outside focus dismisses Edition tools after pointer activation finishes');
   check(q('#briefPublicationState').hidden,'Clean repaired edition has no material warning');
   check(q('#edition-record').textContent.includes('checks recorded for this copy')&&!q('#edition-record').textContent.includes('unavailable'),'Repaired checks are accurately recorded');
   check(!q('#edition-record').open,'Edition record is optional by default');

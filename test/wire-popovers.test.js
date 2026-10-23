@@ -96,3 +96,63 @@ test.each(['focusin', 'click'])('toolbar disclosures preserve a dialog return ta
   expect(panel.open).toBe(false);
   cleanup();
 });
+
+function toolbar() {
+  const handlers = new Map();
+  const opener = {};
+  const outside = { name: 'Focusable main region' };
+  const panel = { open: true, contains: node => node === opener, querySelector: () => ({ focus: jest.fn() }) };
+  const doc = { activeElement: outside, querySelector: () => null,
+    addEventListener: (name, handler) => handlers.set(name, handler),
+    removeEventListener: (name, handler) => { if (handlers.get(name) === handler) handlers.delete(name); } };
+  const cleanup = bindDisclosureDismissal([panel], doc);
+  const dispatch = (name, props = {}) => {
+    const event = { pointerId: 1, preventDefault: jest.fn(), stopPropagation: jest.fn(), ...props };
+    handlers.get(name)?.(event);
+    return event;
+  };
+  return { panel, opener, outside, doc, dispatch, handlers, cleanup };
+}
+
+test('toolbar pointer activation survives Safari focusing an ancestor before the button click', () => {
+  const ui = toolbar();
+  ui.dispatch('pointerdown', { target: ui.opener });
+  const focus = ui.dispatch('focusin', { target: ui.outside });
+  expect(ui.panel.open).toBe(true);
+  expect(focus.preventDefault).not.toHaveBeenCalled();
+  expect(focus.stopPropagation).not.toHaveBeenCalled();
+  ui.dispatch('pointerup', { target: ui.opener });
+  ui.dispatch('click', { target: ui.opener });
+  // The control can now open its modal; its return target remains visible.
+  ui.doc.querySelector = () => ({ open: true });
+  ui.dispatch('focusin', { target: { name: 'Print dialog close button' } });
+  expect(ui.panel.open).toBe(true);
+  ui.doc.querySelector = () => null;
+  ui.dispatch('focusin', { target: ui.opener });
+  ui.dispatch('focusin', { target: ui.outside });
+  expect(ui.panel.open).toBe(false);
+  ui.cleanup();
+  expect(ui.handlers.size).toBe(0);
+});
+
+test.each(['pointerup', 'pointercancel', 'click', 'keydown'])('%s ends toolbar pointer ownership before subsequent outside focus', eventName => {
+  const ui = toolbar();
+  ui.dispatch('pointerdown', { target: ui.opener });
+  ui.dispatch(eventName, { target: ui.opener, key: 'Tab' });
+  ui.dispatch('focusin', { target: ui.outside });
+  expect(ui.panel.open).toBe(false);
+  ui.cleanup();
+});
+
+test('outside pointer activation dismisses a toolbar without intercepting the requested control', () => {
+  const ui = toolbar();
+  ui.dispatch('pointerdown', { target: ui.opener });
+  // A fresh pointer interaction supersedes an unfinished interaction.
+  ui.dispatch('pointerdown', { target: ui.outside, pointerId: 2 });
+  ui.dispatch('focusin', { target: ui.outside });
+  expect(ui.panel.open).toBe(false);
+  const click = ui.dispatch('click', { target: ui.outside });
+  expect(click.preventDefault).not.toHaveBeenCalled();
+  expect(click.stopPropagation).not.toHaveBeenCalled();
+  ui.cleanup();
+});
