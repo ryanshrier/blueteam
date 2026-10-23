@@ -1,7 +1,7 @@
 import { expect, test } from '@jest/globals';
 import { fileURLToPath } from 'node:url';
 import { createCliClient } from '../lib/cli-provider.js';
-import { applyThinking, streamWithRecovery } from '../routes/brief.js';
+import { applyThinking, safeErrorMsg, streamWithRecovery } from '../routes/brief.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/cli-assistant.mjs', import.meta.url));
 const clientFor = (reasoningEffort, scenario = 'conversation') => createCliClient({
@@ -53,4 +53,21 @@ test.each([false, undefined])('unsupported or undeclared CLI reasoning drops sta
   expect(params).not.toHaveProperty('reasoning');
   expect(transmitted).not.toHaveProperty('reasoning_effort');
   expect(transmitted.messages).toEqual(params.messages);
+});
+
+test.each([
+  ['license', 'license agreement acceptance'],
+  ['gateway524', 'gateway timeout (524)'],
+])('CLI %s diagnosis survives the generation route and public error filter', async (kind, diagnosis) => {
+  const client = createCliClient({
+    version: 1, id: 'fixture-diagnostic', model: 'fixture-model', command: process.execPath,
+    args: [fixture, 'diagnostic-stderr', kind], input: { transport: 'stdin', format: 'json' }, env_allow: [],
+    output: { format: 'json', text: { path: 'text', mode: 'final' },
+      done: [{ when: [{ path: 'status', equals: 'success' }], reason: 'end_turn' }] },
+  }, { env: {} });
+  const result = await streamWithRecovery(client, request());
+  expect(result.terminalReceived).toBe(false);
+  expect(result.error).toMatchObject({ code: 'E_CLI_EXIT', completionUncertain: true });
+  expect(safeErrorMsg(result.error)).toContain(diagnosis);
+  expect(safeErrorMsg(result.error)).not.toContain('raw-cli-diagnostic');
 });

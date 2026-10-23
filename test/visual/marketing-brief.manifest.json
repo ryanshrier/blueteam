@@ -4,7 +4,7 @@
   "capturedAt": "2026-07-24T12:00:00Z",
   "application": {
     "name": "blueteam-news",
-    "version": "1.4.3",
+    "version": "1.4.4",
     "implementationSha256": {
       "prompts": "38a733d225efd654df2b70a3d77f4a46afbd7b8ca476ea179d09a5a1cd4ca831",
       "grounding": "d773acd74d4b05bef20ee21d38d540ae7ba8f644444b5a4b012a7125a8a95db5",
