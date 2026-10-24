@@ -73,6 +73,20 @@ function names(values) {
   return (Array.isArray(values) ? values : []).map(value => typeof value === 'string' ? value : value?.name || value?.label || '').filter(Boolean);
 }
 
+// API CVE identities come from complete retained evidence, which can contain
+// identifiers omitted from the shorter display excerpt. Keep search and copied
+// investigation links on the same normalized identity set, with legacy fallbacks.
+export function signalCves(headline = {}) {
+  if (!headline || typeof headline !== 'object') return [];
+  const strings = values => Array.isArray(values) ? values : [];
+  return [...new Set([
+    ...strings(headline.cves), ...strings(headline.editorialContext?.cves),
+    headline.title, headline.description, headline.cveData, headline.kevCVE,
+    ...strings(headline.kevRecords).map(record => record?.cve),
+  ].flatMap(value => typeof value === 'string'
+    ? (value.match(/\bCVE-\d{4}-\d{3,7}\b/gi) || []).map(id => id.toUpperCase()) : []))];
+}
+
 export function matchesCluster(headline, cluster) {
   const separator = cluster.indexOf(':');
   const type = cluster.slice(0, separator);
@@ -80,7 +94,7 @@ export function matchesCluster(headline, cluster) {
   if (separator < 0 || !value) return false;
   if (type === 'actor') return names(headline.actors).some(name => name.toLowerCase() === value);
   if (type === 'vendor') return names(headline.vendors).some(name => name.toLowerCase() === value);
-  if (type === 'cve') return `${headline.title || ''} ${headline.description || ''} ${headline.cveData || ''} ${headline.kevCVE || ''}`.toLowerCase().includes(value);
+  if (type === 'cve') return signalCves(headline).includes(value.toUpperCase());
   return false;
 }
 
@@ -134,6 +148,7 @@ export function filterSignals(headlines, filters = {}, sortMode = 'relevance') {
     items = items.filter(h => {
       const hay = [h?.title, h?.description, h?.editorialContext?.title, h?.editorialContext?.product, h?.cveData, h?.kevCVE, h?.source,
         ...(h?.kevRecords || []).flatMap(record => [record.cve, record.vendor, record.product]),
+        ...signalCves(h),
         ...names(h?.vendors), ...names(h?.actors), ...names(h?.sources)]
         .filter(v => typeof v === 'string')
         .join(' ')

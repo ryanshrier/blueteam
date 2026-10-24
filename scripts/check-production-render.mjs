@@ -3,8 +3,9 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -129,6 +130,25 @@ export async function runProductionSmoke() {
     await startServer();
     const auth = { Authorization: `Bearer ${secret}` };
     assert.equal((await fetch(`${origin}/api/settings`)).status, 401, 'Real API authentication must reject missing credentials');
+    // Returning browsers must revalidate vendor bytes on each new document,
+    // including after security patches with otherwise unchanged import URLs.
+    for (const path of ['/vendor/purify.es.mjs?v=3.4.17', '/vendor/marked.esm.js?v=15.0.12']) {
+      const vendor = await fetch(origin + path);
+      assert(vendor.ok, `Vendor dependency unavailable: ${path}`);
+      assert.equal(vendor.headers.get('cache-control'), 'no-cache');
+      // Fetch adds request Cache-Control:no-cache for a caller-supplied ETag,
+      // which deliberately prevents Express from returning304. Exercise the
+      // conditional HTTP exchange directly, as a browser cache revalidation.
+      const conditional = await new Promise((done, fail) => {
+        const req = httpRequest(origin + path, { headers: { 'If-None-Match': vendor.headers.get('etag') } }, response => {
+          response.resume();
+          response.once('end', () => done({ status: response.statusCode, headers: response.headers }));
+        });
+        req.once('error', fail); req.end();
+      });
+      assert.equal(conditional.status, 304, 'Unchanged vendor bytes should revalidate cheaply');
+      assert.equal(conditional.headers['cache-control'], 'no-cache');
+    }
     browser = await launchBrowser(browserPath);
     async function page(instance = browser) {
       const target = await (await fetch(`${instance.debugOrigin}/json/new?about:blank`, { method: 'PUT' })).json();
@@ -250,13 +270,51 @@ export async function runProductionSmoke() {
 
     const { default: Database } = await import('better-sqlite3');
     const database = new Database(join(stateDir, 'data', 'watchfloor.db'), { readonly: true });
+    const backup = join(stateDir, 'decision-restore.db');
     try {
       assert.equal(database.prepare('SELECT COUNT(*) AS n FROM decisions').get().n, 3);
       assert.equal(database.prepare('SELECT COUNT(*) AS n FROM decision_revisions').get().n, 4);
+      await database.backup(backup);
     } finally { database.close(); }
+
+    // Keep a browser open through a real same-history database rollback. Its
+    // unsaved draft must survive, while the server's restored revision becomes
+    // authoritative without relaxing ordinary stale-response protections.
+    const oldEpoch = (await (await fetch(`${origin}/api/decisions`, { headers: auth })).json()).serverEpoch;
+    assert.equal(typeof oldEpoch, 'string');
+    await navigate(first, wirePath, formReady);
+    const advanced = await fetch(`${origin}/api/decisions`, { method: 'PUT',
+      headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ signal,
+        baseRevision: committed.revision, requestId: randomUUID(), decision: { ...committed.decision, note: 'Assessment newer than the backup' } }) });
+    assert.equal(advanced.status, 200);
+    await evaluate(first, `document.querySelector('#wireRefreshDecisions').click()`);
+    await waitFor(first, `${savedNote('Assessment newer than the backup')} && JSON.parse(localStorage.getItem('wire.server-decisions.v1')).some(record => record.signal === ${JSON.stringify(signal)} && record.revision === 3)`);
+    const restoredDraft = 'Unsaved assessment retained through database restore';
+    await evaluate(first, draft(restoredDraft));
     const stopped = new Promise(done => child.once('exit', done));
     child.kill('SIGTERM'); await stopped;
+    // The consistent backup is a complete SQLite file. Remove only the two
+    // fixed sidecar paths in this owned temporary fixture before replacing it.
+    await rm(join(stateDir, 'data', 'watchfloor.db-wal'), { force: true });
+    await rm(join(stateDir, 'data', 'watchfloor.db-shm'), { force: true });
+    await copyFile(backup, join(stateDir, 'data', 'watchfloor.db'));
     await startServer();
+    const restored = await (await fetch(`${origin}/api/decisions`, { headers: auth })).json();
+    assert.notEqual(restored.serverEpoch, oldEpoch, 'Restarted storage history must have a new epoch');
+    assert.equal(restored.items.find(record => record.signal === signal).revision, 2);
+    await evaluate(first, `document.querySelector('#wireRefreshDecisions').click()`);
+    await waitFor(first, `JSON.parse(localStorage.getItem('wire.server-decisions.v1') || '[]').some(record => record.signal === ${JSON.stringify(signal)} && record.revision === 2)`, 'The existing tab accepts the restored server revision');
+    assert.equal(await evaluate(first, `document.querySelector('#wireInspector [name="note"]').value`), restoredDraft);
+    assert(await evaluate(first, `JSON.parse(sessionStorage.getItem('wire.decision-drafts.v1') || '{}')[${JSON.stringify(signal)}]?.values.note === ${JSON.stringify(restoredDraft)}`), 'History resynchronization preserves the unsaved session draft');
+    await evaluate(first, submit);
+    await waitFor(first, '!!document.querySelector("#wireInspector [data-decision-rebase]")', 'Restored history offers a current conflict baseline');
+    await evaluate(first, `document.querySelector('#wireInspector [data-decision-rebase]').click()`);
+    await waitFor(first, '!document.querySelector("#wireInspector [data-decision-rebase]")');
+    await evaluate(first, submit);
+    await waitFor(first, savedNote(restoredDraft), 'The existing tab saves after reviewing the restored baseline');
+    committed = (await serverDecisions()).find(record => record.signal === signal);
+    assert.equal(committed.revision, 3);
+    assert.equal(committed.decision.note, restoredDraft);
     await navigate(independent, wirePath, formReady);
     assert.equal(await evaluate(independent, `document.querySelector('#wireInspector [name="note"]').value`), committed.decision.note);
 
@@ -299,7 +357,7 @@ export async function runProductionSmoke() {
     for (const connection of connections) assert.deepEqual(await evaluate(connection, 'window.__cspViolations'), [], 'No production CSP violations');
     assert.deepEqual(errors, [], 'No browser errors or external requests');
     assert(!/pipeline.*(?:starting|complete)|fetching.*feed/i.test(logs), 'Disabled collection must stay disabled');
-    console.log('PASS production server: authentication/CSP, settings, SQLite decisions and history, separate browsers, conflicts/imports/offline drafts, restart durability, draft publication, Wall preferences; no provider calls.');
+    console.log('PASS production server: authentication/CSP, settings, SQLite decisions and history, separate browsers, conflicts/imports/offline drafts, live-tab database restore and retained edits, draft publication, Wall preferences; no provider calls.');
   } catch (error) {
     throw new Error(`${error.message}\n${errors.join('\n')}\nServer output:\n${logs}`, { cause: error });
   } finally {

@@ -1,4 +1,5 @@
 node_modules/
+.runtime/
 .env
 .env.*
 !.env.example

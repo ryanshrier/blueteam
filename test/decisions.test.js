@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from '@jest/globals';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
@@ -8,12 +8,90 @@ import { initDB, closeDB, getDB } from '../lib/db.js';
 import { observeSources, pruneEvidence } from '../lib/evidence.js';
 import { saveDecision, getDecision, decisionId, decisionHistory, importDecisions, listDecisions } from '../lib/decisions.js';
 import { createDecisionRouter } from '../routes/decisions.js';
+import { createDecisionClient, DECISION_CACHE_KEY, persistDecisionDrafts, readDecisionDrafts } from '../public/modules/wire/decision-client.js';
 
 const signal = 'https://example.test/advisory';
 const value = extra => ({ state: 'investigate', note: 'Verify installed versions', owner: 'Endpoint', nextReview: '2026-10-12', evidence: '', evidenceBinding: [], ...extra });
 const request = extra => ({ signal, decision: value(), baseRevision: 0, requestId: randomUUID(), ...extra });
 beforeEach(() => initDB(':memory:'));
 afterEach(() => closeDB());
+
+test('every decision JSON response carries the router history epoch, including conflicts and errors', async () => {
+  const app = express(); app.use(express.json()); app.use('/api', createDecisionRouter());
+  const server = app.listen(0, '127.0.0.1'); await new Promise(done => server.once('listening', done));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  let epoch;
+  const check = async (path, options = {}) => {
+    const response = await fetch(origin + '/api/decisions' + path, { ...options,
+      ...(options.body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(options.body) } : {}) });
+    const body = await response.json();
+    epoch ||= body.serverEpoch;
+    expect(epoch).toMatch(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/);
+    expect(body.serverEpoch).toBe(epoch);
+    expect(response.headers.get('x-decision-epoch')).toBe(epoch);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    return { response, body };
+  };
+  try {
+    const created = await check('', { method: 'PUT', body: request() });
+    await check('');
+    await check('/lookup', { method: 'POST', body: { signals: [signal] } });
+    await check('/import', { method: 'POST', body: { records: [] } });
+    await check('/' + created.body.record.id);
+    await check('/' + created.body.record.id + '/history');
+    expect((await check('', { method: 'PUT', body: request() })).response.status).toBe(409);
+    expect((await check('/' + 'b'.repeat(64))).response.status).toBe(404);
+    const exported = await fetch(origin + '/api/decisions/export');
+    expect(exported.headers.get('x-decision-epoch')).toBe(epoch);
+    expect(Array.isArray(await exported.json())).toBe(true);
+  } finally { server.closeAllConnections(); await new Promise(done => server.close(done)); }
+});
+
+test('a live production client refreshes a same-history backup after router restart and can save its retained edits', async () => {
+  closeDB();
+  const dir = mkdtempSync(join(tmpdir(), 'decision-live-restore-'));
+  const file = join(dir, 'decisions.db'), backup = join(dir, 'committed-backup.db');
+  const makeStorage = () => { const data = new Map(); return { getItem: key => data.get(key) || null, setItem: (key, value) => data.set(key, value) }; };
+  const saved = makeStorage(), tab = makeStorage();
+  let server, origin;
+  const start = async () => {
+    const app = express(); app.use(express.json()); app.use('/api', createDecisionRouter());
+    server = app.listen(0, '127.0.0.1'); await new Promise(done => server.once('listening', done));
+    origin = `http://127.0.0.1:${server.address().port}`;
+  };
+  const stop = async () => { if (server) { server.closeAllConnections(); await new Promise(done => server.close(done)); server = null; } };
+  try {
+    initDB(file);
+    saveDecision(request());
+    const restored = saveDecision(request({ baseRevision: 1, decision: value({ note: 'Committed backup assessment' }) })).record;
+    await getDB().backup(backup);
+    const latest = saveDecision(request({ baseRevision: 2, decision: value({ note: 'Pre-restore assessment' }) })).record;
+    expect(latest.createdAt).toBe(restored.createdAt);
+    await start();
+    const firstEpoch = (await (await fetch(origin + '/api/decisions')).json()).serverEpoch;
+    const client = createDecisionClient({ storage: saved, fetchImpl: (path, options) => fetch(origin + path, options) });
+    await client.lookup([signal]);
+    expect(client.values().get(signal).revision).toBe(3);
+    const draft = { values: { note: 'Unsaved retained operator work' }, base: { revision: 3 }, request: { id: randomUUID() } };
+    persistDecisionDrafts(tab, new Map([[signal, draft]]));
+    const draftBytes = tab.getItem('wire.decision-drafts.v1');
+    await stop(); closeDB();
+    copyFileSync(backup, file);
+    initDB(file); await start();
+    const secondEpoch = (await (await fetch(origin + '/api/decisions')).json()).serverEpoch;
+    expect(secondEpoch).not.toBe(firstEpoch);
+    await client.lookup([signal]);
+    expect(client.values().get(signal)).toMatchObject({ revision: 2, note: 'Committed backup assessment' });
+    expect(JSON.parse(saved.getItem(DECISION_CACHE_KEY))[0].revision).toBe(2);
+    await expect(client.save(signal, value({ note: draft.values.note }), 3, draft.request.id))
+      .rejects.toMatchObject({ code: 'E_DECISION_CONFLICT', current: { revision: 2, createdAt: restored.createdAt } });
+    expect(tab.getItem('wire.decision-drafts.v1')).toBe(draftBytes);
+    expect(readDecisionDrafts(tab).get(signal).values.note).toBe(draft.values.note);
+    const result = await client.save(signal, value({ note: draft.values.note }), 2, randomUUID());
+    expect(result.record).toMatchObject({ revision: 3, createdAt: restored.createdAt, decision: { note: draft.values.note } });
+    expect(getDecision(decisionId(signal)).decision.note).toBe(draft.values.note);
+  } finally { await stop(); closeDB(); rmSync(dir, { recursive: true, force: true }); }
+});
 
 test('POST lookup retrieves existing decisions under SQLite query-only mode without creating missing records', async () => {
   const saved = saveDecision(request());

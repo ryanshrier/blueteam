@@ -582,17 +582,21 @@ function validateMetadata(file, document, manifest, releaseVersion, releaseDate)
         fail(file, `JSON-LD softwareVersion must match package and release version ${releaseVersion}`);
       }
       if (application.dateModified !== releaseDate) fail(file, `JSON-LD dateModified must be ${releaseDate}`);
-      for (const field of ['downloadUrl', 'releaseNotes', 'screenshot', 'featureList']) {
+      for (const field of ['releaseNotes', 'screenshot', 'featureList']) {
         if (!application[field] || (Array.isArray(application[field]) && application[field].length === 0)) {
           fail(file, `JSON-LD must include ${field}`);
         }
       }
       const isCandidate = /v[\d.]+ candidate/i.test(textContent(document));
-      const sourceArchive = isCandidate
-        ? `https://github.com/ryanshrier/blueteam/archive/refs/heads/codex/v${releaseVersion}-release-candidate.zip`
-        : `https://github.com/ryanshrier/blueteam/archive/refs/tags/v${releaseVersion}.tar.gz`;
-      if (application.downloadUrl !== sourceArchive) {
-        fail(file, `JSON-LD downloadUrl must match the displayed candidate/release status: ${sourceArchive}`);
+      if (isCandidate) {
+        // A prepared checkout does not establish that a remote branch/tag or
+        // archive exists. Never advertise a candidate download before release.
+        if (Object.hasOwn(application, 'downloadUrl')) fail(file, 'unpublished candidate must omit JSON-LD downloadUrl');
+      } else {
+        const sourceArchive = `https://github.com/ryanshrier/blueteam/archive/refs/tags/v${releaseVersion}.tar.gz`;
+        if (application.downloadUrl !== sourceArchive) {
+          fail(file, `released JSON-LD downloadUrl must match the release archive: ${sourceArchive}`);
+        }
       }
       for (const field of ['image', 'screenshot']) {
         if (application[field]) validateVersionedAsset(file, application[field], releaseVersion);

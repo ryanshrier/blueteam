@@ -55,7 +55,16 @@ function filterFeedItems(headlines, query) {
 // fallback) is covered separately in test/landscape-route.test.js by mounting
 // the router and asserting on emitted feed URLs.
 export function escapeXml(str) {
-  return String(str ?? '')
+  // XML1.0 forbids controls and lone surrogates even when they arrived through
+  // an entity in an otherwise valid feed. Escape markup only after filtering
+  // code points; one hostile field must not make the whole document unreadable.
+  return [...String(str ?? '')].filter(character => {
+    const point = character.codePointAt(0);
+    return point === 0x9 || point === 0xa || point === 0xd
+      || (point >= 0x20 && point <= 0xd7ff)
+      || (point >= 0xe000 && point <= 0xfffd)
+      || (point >= 0x10000 && point <= 0x10ffff);
+  }).join('')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

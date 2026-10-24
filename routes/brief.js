@@ -24,18 +24,20 @@ import {
   scheduledBriefFilename,
   scheduledBriefJobKey,
 } from '../lib/history.js';
-import { validateBrief, countHorizons, hasHardFail, hasTrustCriticalFailure, captureKevTiming, publicationDecision } from '../lib/validation.js';
+import { countHorizons, hasHardFail, hasTrustCriticalFailure, captureKevTiming, publicationDecision } from '../lib/validation.js';
+import { prepareDraftInWorker, prepareBriefInWorker, validateRetainedBriefInWorker,
+  delinkBriefInWorker, briefActionsInWorker } from '../lib/brief-validator.js';
+import { assertBriefInput } from '../lib/brief-input-limits.js';
+import { publicErrorText, publicErrorDetails, projectPublicError } from '../lib/public-errors.js';
 import { compareEditionInputs } from '../lib/brief-editorial.js';
 import { buildPriorityCoverage } from '../lib/brief-coverage.js';
 import { applyHistoricalEvidenceContext, formatHistoricalEvidenceContext } from '../lib/evidence-continuity.js';
-import { extractBriefMetadata } from '../lib/brief-metadata.js';
 import { saveBriefDisposition } from '../lib/brief-review.js';
 import { briefReadingState, loadBriefReadingState, briefPresentation, presentationSourceCheckStatus } from '../lib/brief-reading-checks.js';
-import { listBriefDrafts, readBriefDraft, saveRejectedBrief, revalidateBriefDraft, summarizeBriefDraft, validationSourceFromManifest, validDraftId, draftValidation, recordDraftPublication } from '../lib/brief-drafts.js';
+import { listBriefDrafts, readBriefDraft, saveRejectedBrief, revalidateBriefDraft, summarizeBriefDraft, validDraftId, draftValidation, recordDraftPublication } from '../lib/brief-drafts.js';
 import { createPublicationLookup, verifyPublicationReplay, publishDraftEdition } from '../lib/brief-publication.js';
-import { assembleBrief, BRIEF_COMPOSITION_VERSION } from '../lib/brief-assembly.js';
-import { captureBriefActionRecords, briefActionRecords } from '../lib/brief-composition.js';
-import { buildGroundingManifest, delinkUnallowlistedMarkdownUrls, visibleHeadlineEvidence } from '../lib/grounding.js';
+import { BRIEF_COMPOSITION_VERSION } from '../lib/brief-assembly.js';
+import { buildGroundingManifest, visibleHeadlineEvidence } from '../lib/grounding.js';
 import {
   parseJudgments, WATCHLIST_MIN_ITEMS, WATCHLIST_MAX_ITEMS,
 } from '../lib/brief-schema.js';
@@ -325,9 +327,9 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
     clearTimeout(genTimeout);
     if (client.provider === 'cli' && err?.code === 'E_CLI_TIMEOUT') {
       abortController.abort();
-      return { text: fullText, error: err, timedOut: true, usage, stopReason };
+      return { text: fullText, error: client.publicError?.(err) || projectPublicError(err), timedOut: true, usage, stopReason };
     }
-    return { text: fullText, error: timedOut ? null : err, timedOut, usage };
+    return { text: fullText, error: timedOut ? null : (client.publicError?.(err) || projectPublicError(err)), timedOut, usage };
   }
 
   try {
@@ -380,11 +382,11 @@ export async function streamWithRecovery(client, params, { timeoutMs = 180_000, 
     }
   } catch (err) {
     if (!timedOut) {
-      streamError = err;
+      streamError = client.publicError?.(err) || projectPublicError(err);
       if (client.provider === 'cli' && err?.code === 'E_CLI_TIMEOUT') timedOut = true;
       abortController.abort();
       abortStream(stream);
-      log.warn('stream', `Stream interrupted: ${err.message}${err.status ? ` (HTTP ${err.status})` : ''}`);
+      log.warn('stream', `Stream interrupted: ${streamError.message}${streamError.status ? ` (HTTP ${streamError.status})` : ''}`);
     }
   } finally {
     clearTimeout(genTimeout);
@@ -401,12 +403,10 @@ export function safeErrorMsg(err) {
   // Provider/client errors should never echo credential-shaped material to an
   // SSE client, even if an upstream library includes it in a diagnostic.
   const reason = typeof err?.reason === 'string' ? err.reason.trim() : '';
-  const msg = (reason || err?.message || '').trim()
-    .replace(/\bsk-[A-Za-z0-9_-]+/g, '[REDACTED]')
-    .replace(/\bBearer\s+[A-Za-z\d_.~+/-]+/gi, 'Bearer [REDACTED]');
+  const msg = publicErrorText((reason || err?.message || '').trim());
   if (!msg) return 'Internal server error';
   if (reason) return msg.slice(0, 300);
-  if (['E_EVIDENCE', 'E_PROVIDER_INCOMPLETE'].includes(err?.code)) return msg.slice(0, 300);
+  if (['E_EVIDENCE', 'E_PROVIDER_INCOMPLETE', 'E_BRIEF_INPUT_LIMIT', 'E_BRIEF_VALIDATION', 'E_BRIEF_VALIDATION_TIMEOUT'].includes(err?.code)) return msg.slice(0, 300);
   if (/API key|not configured|rate limit|overloaded|529|timeout|timed out|model|refus|not found|404|400|401|403|429|5\d\d/i.test(msg)) {
     return msg.slice(0, 300);
   }
@@ -501,7 +501,12 @@ function recoverScheduledPublication(historyDir, scheduledJob, reviewDirectory) 
   }
 
   const target = join(historyDir, filename);
-  if (!existsSync(target)) return null;
+  if (!existsSync(target)) {
+    if (recorded) {
+      throw Object.assign(new Error('The completed scheduled edition is missing its archive. Restore its matching Markdown and receipt before retrying.'), { code: 'E_SCHEDULE_INTEGRITY' });
+    }
+    return null;
+  }
   const reading = loadBriefReadingState(historyDir, filename, { reviewDirectory });
   const publication = reading.manifest?.publicationValidation;
   if (reading.receipt.integrity !== 'verified' || publication?.partial !== false
@@ -549,8 +554,8 @@ export function createBriefRouter({
   // Independent of ledger ordering: repairing an older or pruned job can
   // publish the newest edition. A new server lifecycle also changes this token.
   let publicationRevision = randomUUID();
-  const publicDraft = artifact => artifact ? { ...artifact,
-    actionRecords: briefActionRecords(artifact.revisions.at(-1).content, artifact.revisions.at(-1).actionRecords),
+  const publicDraft = async artifact => artifact ? { ...artifact,
+    actionRecords: await briefActionsInWorker(artifact.revisions.at(-1).content, artifact.revisions.at(-1).actionRecords).catch(() => null),
     publicationDecision: publicationDecision(draftValidation(artifact)) } : null;
   const reconcileDraft = artifact => {
     if (!artifact) return null;
@@ -581,24 +586,24 @@ export function createBriefRouter({
     try { res.json({ items: pendingDrafts() }); }
     catch { res.status(503).json({ code: 'E_DRAFT_STORAGE', error: 'Retained drafts could not be read.' }); }
   });
-  router.get('/brief/drafts/:id', recoveryAccess, (req, res) => {
+  router.get('/brief/drafts/:id', recoveryAccess, async (req, res) => {
     if (!validDraftId(req.params.id)) return res.status(400).json({ error: 'Invalid draft identifier' });
     try {
       const artifact = reconcileDraft(readBriefDraft(historyDir, req.params.id));
-      return artifact ? res.json(publicDraft(artifact)) : res.status(404).json({ code: 'E_DRAFT_UNAVAILABLE', error: 'Draft unavailable or outside the retention window.' });
+      return artifact ? res.json(await publicDraft(artifact)) : res.status(404).json({ code: 'E_DRAFT_UNAVAILABLE', error: 'Draft unavailable or outside the retention window.' });
     } catch { return res.status(409).json({ code: 'E_DRAFT_INTEGRITY', error: 'The retained draft or input digest could not be verified.' }); }
   });
-  router.post('/brief/drafts/:id/revalidate', recoveryAccess, (req, res) => {
+  router.post('/brief/drafts/:id/revalidate', recoveryAccess, async (req, res) => {
     if (!validDraftId(req.params.id)) return res.status(400).json({ error: 'Invalid draft identifier' });
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)
       || (req.body.content !== undefined && typeof req.body.content !== 'string')
       || (req.body.baseRevision !== undefined && (!Number.isSafeInteger(req.body.baseRevision) || req.body.baseRevision < 1))) return res.status(400).json({ error: 'Invalid repair revision.' });
     try {
       const existing = reconcileDraft(readBriefDraft(historyDir, req.params.id));
-      if (existing?.publication) return res.status(409).json({ code: 'E_DRAFT_PUBLISHED', error: 'This draft has already been published. Open the published edition.', artifact: publicDraft(existing) });
-      const artifact = revalidateBriefDraft(historyDir, req.params.id, req.body,
-        (content, manifest) => validateBrief(content, manifest.edition?.date, validationSourceFromManifest(manifest, content)));
-      return artifact ? res.json(publicDraft(artifact)) : res.status(404).json({ code: 'E_DRAFT_UNAVAILABLE', error: 'Draft unavailable or outside the retention window.' });
+      if (existing?.publication) return res.status(409).json({ code: 'E_DRAFT_PUBLISHED', error: 'This draft has already been published. Open the published edition.', artifact: await publicDraft(existing) });
+      const artifact = await revalidateBriefDraft(historyDir, req.params.id, req.body,
+        { prepareDraft: prepareDraftInWorker });
+      return artifact ? res.json(await publicDraft(artifact)) : res.status(404).json({ code: 'E_DRAFT_UNAVAILABLE', error: 'Draft unavailable or outside the retention window.' });
     } catch (error) { return res.status(error.code === 'E_DRAFT_CONFLICT' ? 409 : 400).json({ code: error.code || 'E_DRAFT_REVALIDATION', error: safeErrorMsg(error) }); }
   });
 
@@ -611,7 +616,7 @@ export function createBriefRouter({
   // debounces requests started within 15 seconds, including early failures.
   let generating = false;
 
-  router.post('/brief/drafts/:id/publish', recoveryAccess, (req, res) => {
+  router.post('/brief/drafts/:id/publish', recoveryAccess, async (req, res) => {
     if (!validDraftId(req.params.id)) return res.status(400).json({ error: 'Invalid draft identifier' });
     const request = req.body;
     if (!request || typeof request !== 'object' || Array.isArray(request)
@@ -631,10 +636,11 @@ export function createBriefRouter({
       } else {
         if (generating) return res.status(409).json({ error: 'Wait for the active generation before publishing this draft.', code: 'E_GENERATION_ACTIVE' });
         let validation;
-        artifact = revalidateBriefDraft(historyDir, artifact.id, request, (content, manifest) => {
-          validation = validateBrief(content, manifest.edition?.date, validationSourceFromManifest(manifest, content));
-          return validation;
-        });
+        artifact = await revalidateBriefDraft(historyDir, artifact.id, request, { prepareDraft: async payload => {
+          const prepared = await prepareDraftInWorker(payload);
+          validation = prepared.validation;
+          return prepared;
+        } });
         committed = { ...publishDraftEdition({ historyDir, reviewDir, artifact, validation, request }), replayed: false };
         publicationRevision = randomUUID();
       }
@@ -679,14 +685,14 @@ export function createBriefRouter({
           .catch(error => log.warn('brief', `Published draft notification failed: ${safeErrorMsg(error)}`));
       }
       return res.json({ published: true, filename, publication: { ...publication, eligibleForLatest: reading.disposition.eligibleForLatest },
-        isCurrent, replayed: committed.replayed, warnings, presentation, artifact: publicDraft(artifact) });
+        isCurrent, replayed: committed.replayed, warnings, presentation, artifact: await publicDraft(artifact) });
     } catch (error) {
       if (committed) return res.json({ published: true, filename: committed.filename, publication: committed.publication,
-        replayed: committed.replayed, warnings: [...warnings, 'The edition was saved; some publication details could not be refreshed.'], artifact: publicDraft(artifact) });
+        replayed: committed.replayed, warnings: [...warnings, 'The edition was saved; some publication details could not be refreshed.'], artifact: await publicDraft(artifact) });
       if (error.code === 'E_DRAFT_BLOCKED') return res.status(422).json({ error: error.message, code: error.code,
-        artifact: publicDraft(artifact), validation: draftValidation(artifact), publicationDecision: error.decision, reviewableIssues: error.decision.reviewIssues });
+        artifact: await publicDraft(artifact), validation: draftValidation(artifact), publicationDecision: error.decision, reviewableIssues: error.decision.reviewIssues });
       return res.status(error.code === 'E_DRAFT_CONFLICT' || error.code === 'E_DRAFT_PUBLISHED' ? 409 : 400)
-        .json({ error: safeErrorMsg(error), code: error.code || 'E_DRAFT_PUBLICATION', ...(artifact ? { artifact: publicDraft(artifact) } : {}) });
+        .json({ error: safeErrorMsg(error), code: error.code || 'E_DRAFT_PUBLICATION', ...(artifact ? { artifact: await publicDraft(artifact) } : {}) });
     }
   });
 
@@ -1108,9 +1114,10 @@ export function createBriefRouter({
         throw err;
       }
 
-      let extractedMetadata = extractBriefMetadata(result.text);
-      const normalizeDraft = text => assembleBrief(text, { groundingManifest, kevTiming: capturedKevTiming }).content;
-      let fullBrief = normalizeDraft(extractedMetadata.content);
+      assertBriefInput(result.text);
+      let extractedMetadata = { metadata: null, issues: [] };
+      let fullBrief = result.text;
+      let fullBriefActionRecords = null;
       const elapsed = ((performance.now() - genStart) / 1000).toFixed(1);
       let wordCount = fullBrief.trim().split(/\s+/).length;
 
@@ -1129,13 +1136,20 @@ export function createBriefRouter({
         selectedKevCves: [...groundingManifest.cves].filter(cve => validationSource.kevSet.has(cve)).sort(),
         kevTiming: capturedKevTiming,
       };
-      const audit = draft => {
-        fullBrief = normalizeDraft(draft);
-        const checked = validateBrief(fullBrief, genDate, validationSource);
+      const audit = async (draft, options = {}) => {
+        const prepared = await prepareBriefInWorker(draft, genDate, validationSource, options);
+        fullBrief = prepared.content;
+        fullBriefActionRecords = prepared.actionRecords;
+        if (options.extractMetadata) {
+          extractedMetadata = { metadata: prepared.metadata, issues: prepared.issues };
+          Object.assign(validationSource, { briefingMetadata: prepared.metadata, briefingMetadataIssues: prepared.issues });
+        }
+        const checked = prepared.validation;
         recordValidation(generationManifest, fullBrief, checked);
         return checked;
       };
-      let validation = audit(fullBrief);
+      let validation = await audit(fullBrief, { extractMetadata: true });
+      wordCount = fullBrief.trim().split(/\s+/).length;
       let warnings = validation.valid ? [] : [...validation.warnings];
       // hasHardFail is exported by lib/validation.js — the same module that
       // produces the warning strings — so this can never drift out of sync with
@@ -1147,11 +1161,11 @@ export function createBriefRouter({
 
       // Resolve a link-only failure without paying for another model call.
       // Citation prose stays intact; only an unsupported live href is removed.
-      let delinkedBrief = delinkUnallowlistedMarkdownUrls(fullBrief, groundingManifest);
+      let delinkedBrief = await delinkBriefInWorker(fullBrief, groundingManifest);
       if (delinkedBrief !== fullBrief) {
         fullBrief = delinkedBrief;
         wordCount = fullBrief.trim().split(/\s+/).length;
-        validation = audit(fullBrief);
+        validation = await audit(fullBrief);
         warnings = validation.valid ? [] : [...validation.warnings];
         hardFail = hasHardFail(validation.issues);
         trustFail = hasTrustCriticalFailure(validation.issues);
@@ -1217,10 +1231,11 @@ export function createBriefRouter({
         // finding or deletes unaffected coverage. This detects bounded regressions, not
         // arbitrary changes in meaning; keep repairs local in the request.
         if (!retryResult.error && !retryResult.timedOut && retryResult.stopReason !== 'refusal' && retryResult.text.length >= 100) {
-          const candidateMetadata = extractBriefMetadata(retryResult.text);
-          const candidate = normalizeDraft(delinkUnallowlistedMarkdownUrls(candidateMetadata.content, groundingManifest));
-          const candidateSource = { ...validationSource, briefingMetadata: candidateMetadata.metadata, briefingMetadataIssues: candidateMetadata.issues };
-          const candidateValidation = validateBrief(candidate, genDate, candidateSource);
+          assertBriefInput(retryResult.text);
+          const candidatePrepared = await prepareBriefInWorker(retryResult.text, genDate, validationSource, { extractMetadata: true, delink: true });
+          const candidateMetadata = { metadata: candidatePrepared.metadata, issues: candidatePrepared.issues };
+          const candidate = candidatePrepared.content;
+          const candidateValidation = candidatePrepared.validation;
           recordValidation(generationManifest, candidate, candidateValidation);
           const recovery = correctiveRecoveryDecision(
             { text: fullBrief, validation, partial: stoppedAtOutputLimit },
@@ -1230,6 +1245,7 @@ export function createBriefRouter({
           if (recovery.accepted) {
             result = retryResult;
             fullBrief = candidate;
+            fullBriefActionRecords = candidatePrepared.actionRecords;
             extractedMetadata = candidateMetadata;
             Object.assign(validationSource, { briefingMetadata: candidateMetadata.metadata, briefingMetadataIssues: candidateMetadata.issues });
             wordCount = fullBrief.trim().split(/\s+/).length;
@@ -1246,11 +1262,11 @@ export function createBriefRouter({
       // An unsupported URL can be made publication-safe without changing the
       // factual prose: preserve `[Source, Date]`, remove only its live href, and
       // re-audit. CVE/KEV contradictions cannot be repaired mechanically.
-      delinkedBrief = delinkUnallowlistedMarkdownUrls(fullBrief, groundingManifest);
+      delinkedBrief = await delinkBriefInWorker(fullBrief, groundingManifest);
       if (delinkedBrief !== fullBrief) {
         fullBrief = delinkedBrief;
         wordCount = fullBrief.trim().split(/\s+/).length;
-        validation = audit(fullBrief);
+        validation = await audit(fullBrief);
         warnings = validation.valid ? [] : [...validation.warnings];
         hardFail = hasHardFail(validation.issues);
         trustFail = hasTrustCriticalFailure(validation.issues);
@@ -1287,11 +1303,11 @@ export function createBriefRouter({
       generationManifest.briefingMetadata = extractedMetadata.metadata;
       generationManifest.briefingMetadataIssues = extractedMetadata.issues;
       generationManifest.briefingMetadataContentSha256 = sha256(fullBrief);
-      generationManifest.actionRecords = captureBriefActionRecords(fullBrief);
+      generationManifest.actionRecords = fullBriefActionRecords;
       generationManifest.publicationValidation = { validationPolicyVersion: validation.validationPolicyVersion, valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial, coverage: validation.coverage,
         priorityCoverage: validation.priorityCoverage, sourceQuality: validation.sourceQuality,
         sourceCheckStatus: hardFail || trustFail ? 'findings' : 'passed-supported-checks', editorialReviewStatus: 'not-reviewed' };
-      checkedRecoveryDraft = { content: fullBrief, validation: { ...validation, partial: isPartial, hardFail, trustFail } };
+      checkedRecoveryDraft = { content: fullBrief, actionRecords: fullBriefActionRecords, validation: { ...validation, partial: isPartial, hardFail, trustFail } };
       generationManifest.costEstimate = { usd: estimateAttemptCosts(generationManifest.providerAttempts), currency: 'USD', asOf: '2026-09-05', basis: 'Sum of per-attempt reported costs or API list-rate estimates' };
       const publishDecision = publicationDecision({ ...validation, partial: isPartial });
       if (!publishDecision.canPublish) {
@@ -1327,7 +1343,7 @@ export function createBriefRouter({
         if (correctiveRetryFailure) message += ` Corrective retry failed: ${correctiveRetryFailure}`;
         let draftArtifact = null;
         try {
-          const artifact = saveRejectedBrief(historyDir, { id: generationManifest.generationId, content: fullBrief, manifest: generationManifest, validation: { ...validation, partial: isPartial, hardFail, trustFail }, code });
+          const artifact = saveRejectedBrief(historyDir, { id: generationManifest.generationId, content: fullBrief, manifest: generationManifest, actionRecords: fullBriefActionRecords, validation: { ...validation, partial: isPartial, hardFail, trustFail }, code });
           draftArtifact = summarizeBriefDraft(artifact);
           recordStorageOutcome('rejected-draft');
           message += ' Open the saved draft, correct the findings, then Publish briefing; no new model call is needed.';
@@ -1483,13 +1499,14 @@ export function createBriefRouter({
           const existing = readBriefDraft(historyDir, recoveryManifest.generationId);
           if (existing) recoveredDraft = summarizeBriefDraft(existing);
           else {
-            const checked = checkedRecoveryDraft?.validation || validateBrief(retained, recoveryManifest.edition?.date, validationSourceFromManifest(recoveryManifest, retained));
+            const preparedRecovery = checkedRecoveryDraft || await validateRetainedBriefInWorker(retained, recoveryManifest);
+            const checked = preparedRecovery.validation;
             if (!checkedRecoveryDraft) {
               const failure = { code: 'GENERATION_INTERRUPTED', severity: 'structure', message: 'Generation did not complete. Review the retained content before repair.', location: { scope: 'document', line: 1, excerpt: '' } };
               checked.valid = false; checked.partial = true; checked.issues.push(failure); checked.warnings.push(failure.message);
             }
             recoveryManifest.costEstimate = { usd: estimateAttemptCosts(recoveryManifest.providerAttempts), currency: 'USD' };
-            recoveredDraft = summarizeBriefDraft(saveRejectedBrief(historyDir, { id: recoveryManifest.generationId, content: retained, manifest: recoveryManifest, validation: checked, code: err?.code || 'E_GENERATION_FAILED' }));
+            recoveredDraft = summarizeBriefDraft(saveRejectedBrief(historyDir, { id: recoveryManifest.generationId, content: retained, manifest: recoveryManifest, actionRecords: preparedRecovery.actionRecords ?? null, validation: checked, code: err?.code || 'E_GENERATION_FAILED' }));
           }
         } catch (storageError) { recordStorageOutcome('rejected-draft', storageError); }
       }
@@ -1502,7 +1519,7 @@ export function createBriefRouter({
           draft: retained, draftArtifact: recoveredDraft, awaitingReview: true, sourceCheckStatus: recoveredDraft.sourceCheckStatus, editorialReviewStatus: 'not-reviewed' }
           : /^E_PROVIDER/.test(err?.code || '') ? { outcome: 'provider-failed' } : {}),
         ...(err?.code ? { code: err.code } : {}),
-        ...(err?.details ? { details: err.details } : {}),
+        ...(publicErrorDetails(err) ? { details: publicErrorDetails(err) } : {}),
       });
       if (clientConnected) {
         try { res.end(); } catch { /* client gone */ }

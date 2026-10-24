@@ -1,4 +1,4 @@
-// Synthetic Bob wire contract. No network access or real provider credentials.
+// Synthetic Bob 2.0.5 stream wire contract. No network access or real credentials.
 import { appendFileSync, readdirSync } from 'node:fs';
 
 const [scenario, ...args] = process.argv.slice(2);
@@ -35,8 +35,7 @@ switch (scenario) {
     break;
   case 'success':
     break;
-  case 'delayed-json':
-    await new Promise(resolve => setTimeout(resolve, 1_000));
+  case 'slow-chunks':
     break;
   case 'error-result':
     result.status = 'error';
@@ -58,6 +57,7 @@ switch (scenario) {
     process.exitCode = 1;
     break;
   case 'empty-answer':
+  case 'reasoning-only':
     answer = '';
     break;
   case 'silent':
@@ -68,13 +68,20 @@ switch (scenario) {
 }
 
 if (scenario !== 'silent') {
-  if (option('--format') === 'json') {
-    // Bob's complete JSON result includes last_message. Pretty printing also
-    // ensures the runner cannot accidentally treat this as NDJSON.
-    process.stdout.write(`${JSON.stringify({ ...result, last_message: answer }, null, 2)}\n`);
-  } else if (option('--format') === 'stream-json') {
-    process.stdout.write(`${JSON.stringify({ type: 'assistant', content: answer })}\n`);
-    process.stdout.write(`${JSON.stringify(result)}\n`);
+  if (option('--format') === 'stream-json') {
+    const emit = event => process.stdout.write(`${JSON.stringify(event)}\n`);
+    emit({ type: 'message', role: 'user', content: transcript });
+    emit({ type: 'message', role: 'assistant', isReasoning: true,
+      content: 'Private reasoning must never appear in the briefing.' });
+    const chunks = answer === '' ? [] : scenario === 'inspect' ? [answer]
+      : ['The captured evidence ', 'supports this ', 'completed briefing.'];
+    for (const [index, content] of chunks.entries()) {
+      if (scenario === 'slow-chunks') await new Promise(resolve => setTimeout(resolve, 700));
+      emit({ type: 'message', role: 'assistant', content,
+        ...(index === 1 ? { isReasoning: false } : {}) });
+    }
+    // Stream results carry status and stats, without a last_message field.
+    emit(result);
   } else {
     process.stderr.write('Unsupported output format.\n');
     process.exitCode = 1;

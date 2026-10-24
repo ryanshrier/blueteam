@@ -50,6 +50,7 @@ jest.unstable_mockModule('../lib/db.js', () => ({
 jest.unstable_mockModule('../lib/user-settings.js', () => ({ getUserSettingsStatus: getUserSettingsStatusMock }));
 
 const { healthHandler, readinessHandler, livenessHandler } = await import('../lib/health.js');
+const { createGenerationJobs, registerGenerationJobs } = await import('../lib/generation-jobs.js');
 
 const DEFAULT_CONFIG = { analysisSettings: { refreshMinutes: 10 }, trustedFeeds: [{ url: 'https://a' }, { url: 'https://b' }] };
 
@@ -101,8 +102,27 @@ describe('healthHandler', () => {
     getUserSettingsStatusMock.mockReset().mockReturnValue({ status: 'ok', usingLastGood: false });
   });
   afterEach(async () => {
+    registerGenerationJobs(null);
     if (ctx?.server) await new Promise(r => ctx.server.close(r));
     try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  test('anonymous readiness caches bounded persistence checks without archive reconciliation', async () => {
+    getFeedHealthMock.mockReturnValue({ feeds: { a: 'ok' }, search: {} });
+    writeFileSync(join(dir, 'watchfloor.db'), 'x');
+    const read = jest.fn(() => JSON.stringify({ schemaVersion: 1, jobs: [{ id: 'old-job', sessionId: 'prior-process',
+      editionDate: '2026-09-05', status: 'draft-ready', attempts: [], phase: 'validating' }] }));
+    const recoverPublished = jest.fn(() => { throw new Error('Public probes must never open archives'); });
+    registerGenerationJobs(createGenerationJobs({ read, recoverPublished }));
+    ctx = await makeServer({ dataDir: dir, loopback: false, requireAuthForDetails: true });
+    for (let i = 0; i < 5; i++) {
+      const response = await fetch(`${ctx.base}/api/ready`);
+      expect(await response.json()).toEqual({ status: 'ok' });
+      expect(response.headers.get('cache-control')).toContain('no-store');
+    }
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(getFeedHealthMock).toHaveBeenCalledTimes(1);
+    expect(recoverPublished).not.toHaveBeenCalled();
   });
 
   // ── feed-health status-string contract ──

@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "id": "bob-shell-v1",
+  "id": "bob-shell-v2",
   "model": "cli-default",
   "command": "bob",
-  "args": ["run", "--accept-license", "--trust", "--mode", "ask", "--format", "json", "--workspace", "{workspace}"],
+  "args": ["run", "--accept-license", "--trust", "--mode", "ask", "--format", "stream-json", "--workspace", "{workspace}"],
   "input": { "transport": "stdin", "format": "transcript" },
   "env_allow": ["BOB_API_KEY", "PATH", "SystemRoot"],
   "env_required": ["BOB_API_KEY"],
@@ -18,8 +18,16 @@
     "disabled_args": ["--disable-mcp", "--disable-subagents", "--disable-tool-groups", "read,edit,execute,mcp,skill,todo,subagent,mode,browser,command,subtask,workflow,artifact,plan"]
   },
   "output": {
-    "format": "json",
-    "text": { "path": "last_message", "when": [{ "path": "type", "equals": "result" }], "mode": "final" },
+    "format": "ndjson",
+    "text": {
+      "path": "content",
+      "when": [
+        { "path": "type", "equals": "message" },
+        { "path": "role", "equals": "assistant" },
+        { "path": "isReasoning", "not_equals": true }
+      ],
+      "mode": "delta"
+    },
     "fail_on": [
       { "when": [{ "path": "type", "equals": "tool_use" }], "reason": "CLI attempted a forbidden tool call." },
       { "when": [{ "path": "type", "equals": "tool_result" }], "reason": "CLI returned a forbidden tool result." },

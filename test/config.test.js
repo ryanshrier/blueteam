@@ -100,6 +100,35 @@ describe('config — last-known-good on rejected reload', () => {
   });
 
   test.each([
+    { path: 'trustedFeeds', limit: 250, overrides: values => ({ trustedFeeds: values }) },
+    { path: 'alertRules', limit: 100, overrides: values => ({ alertRules: values }) },
+    { path: 'organization.watchTopics', limit: 100, overrides: values => ({ organization: { watchTopics: values } }) },
+  ])('oversized $path rejects the collection without expanding per-item diagnostics', ({ path, limit, overrides }) => {
+    writeFileSync(configPath, validConfigJSON());
+    initConfig(configPath);
+    const lastGood = getConfig();
+    const lastGoodVersion = getConfigVersion();
+
+    // Malformed elements still need validation when the collection fits. For
+    // oversized collections, allocating one issue per element before checking
+    // the limit can exhaust memory. Keep this regression small and measure the
+    // resulting diagnostics, not timing or the validator's internal methods.
+    writeFileSync(configPath, validConfigJSON(overrides([null])));
+    initConfig(configPath);
+    expect(getLastReloadError().message).toContain(`${path}.0:`);
+
+    for (const length of [limit + 1, limit * 2]) {
+      writeFileSync(configPath, validConfigJSON(overrides(Array(length).fill(null))));
+      initConfig(configPath);
+      const diagnostics = getLastReloadError().message.split('\n');
+      expect(diagnostics.length).toBe(2); // heading and one collection-level issue
+      expect(diagnostics[1].trimStart().startsWith(`${path}:`)).toBe(true);
+      expect(getConfig()).toBe(lastGood);
+      expect(getConfigVersion()).toBe(lastGoodVersion);
+    }
+  });
+
+  test.each([
     {
       label: 'feed',
       config: {

@@ -249,6 +249,12 @@ describe('routes/landscape.js — POST /refresh cooldown', () => {
 });
 
 describe('escapeXml — pure unit', () => {
+  test('removes forbidden XML code points while preserving whitespace and supplementary characters', async () => {
+    const { escapeXml } = await import('../routes/landscape.js');
+    const forbidden = ['\u0000', '\u0001', '\u0008', '\u000b', '\u000c', '\u000e', '\u001f', '\ud800', '\udfff', '\ufffe', '\uffff'];
+    const valid = '\t\n\rValid café ' + String.fromCodePoint(0x1f512, 0x10000, 0x10ffff);
+    for (const point of forbidden) expect(escapeXml(valid + point + '<&>')).toBe(valid + '&lt;&amp;&gt;');
+  });
   test('escapes the five XML-significant characters', async () => {
     const { escapeXml } = await import('../routes/landscape.js');
     expect(escapeXml(`<a href="x">'&'</a>`)).toBe('&lt;a href=&quot;x&quot;&gt;&apos;&amp;&apos;&lt;/a&gt;');

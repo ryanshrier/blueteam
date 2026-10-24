@@ -4,7 +4,7 @@ BlueTeam.News is a maintainer-led open-source project provided as-is, without a 
 
 Before opening a bug report:
 
-1. Confirm the problem occurs on the latest release with Node 22.19+ in the Node 22 line, Node 24, or Node 26.
+1. Confirm the problem occurs on the latest release with Node 22.23.4+ in the Node 22 line, Node 24.22.1+ in the Node 24 line, or Node 26.12.1+ in the Node 26 line.
 2. Run `npm install` in the affected clone and restart the server.
 3. Review [Operations and deployment](docs/operations.md#troubleshooting) and the process logs.
 4. Remove credentials and sensitive organization or threat data from any reproduction.

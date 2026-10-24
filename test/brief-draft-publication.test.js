@@ -81,6 +81,9 @@ const post = (artifact, payload, route = 'publish') => fetch(`${base}/brief/draf
 const archives = () => readdirSync(dir).filter(file => file.endsWith('.md'));
 
 describe('explicit repair publication', () => {
+  // This workflow makes several sequential HTTP requests with real workers.
+  // Its overall budget leaves room for worker startup on slower CI runners;
+  // each production worker operation still has its own five-second deadline.
   test('an untouched unformatted draft keeps coverage bindings and exact-copy approval through save, publication and replay', async () => {
     const original = referenceBrief(item).replace('The vendor confirms exploitation in original reporting.',
       'The vendor confirms exploitation in original reporting. [Synthetic Vendor, September 4, 2026](https://example.test/evaluation/vendor)')
@@ -119,7 +122,7 @@ describe('explicit repair publication', () => {
     expect(webhook).toHaveBeenCalledTimes(1);
     expect(getClient).not.toHaveBeenCalled();
     expect(getFreshRun).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 
   test('publication revision changes for a draft absent from the ledger and stays stable on replay', async () => {
     const artifact = draft();
@@ -134,6 +137,7 @@ describe('explicit repair publication', () => {
     expect((await (await fetch(`${base}/brief/status`)).json()).publicationRevision).toBe(after.publicationRevision);
   });
 
+  // Five real publication requests exercise the review gates in sequence.
   test('an unsupported coverage assertion requires exact-copy, exact-findings editorial review and preserves its scope', async () => {
     const artifact = draft({ checkPriorityCoverage: true, bindPriorityCoverage: true, coverageIndex: 99 });
     expect(artifact.manifest.priorityCoverage.items).toHaveLength(1);
@@ -158,7 +162,7 @@ describe('explicit repair publication', () => {
     expect(receipt.priorityCoverage).toEqual(artifact.manifest.priorityCoverage);
     expect(receipt.publicationValidation.issues.some(issue => issue.code === 'PRIORITY_COVERAGE_UNSUPPORTED')).toBe(true);
     expect(getClient).not.toHaveBeenCalled(); expect(getFreshRun).not.toHaveBeenCalled();
-  });
+  }, 15_000);
   test('visible supported coverage can publish without hidden bookkeeping or editorial approval', async () => {
     const artifact = draft({ checkPriorityCoverage: true, partial: false });
     const response = await post(artifact, requestFor(artifact));

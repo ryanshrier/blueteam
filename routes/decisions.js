@@ -1,12 +1,18 @@
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import { listDecisions, lookupDecisions, getDecision, decisionHistory, saveDecision, importDecisions, exportDecisions } from '../lib/decisions.js';
 
 export function createDecisionRouter() {
   const router = Router();
-  router.use('/decisions', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  // A restored database can retain IDs/timestamps while its revisions move
+  // backwards. Restarting the server creates a new history for browser reads.
+  const serverEpoch = randomUUID();
+  router.use('/decisions', (_req, res, next) => {
+    res.set({ 'Cache-Control': 'no-store', 'X-Decision-Epoch': serverEpoch }); next();
+  });
   const route = work => (req, res) => {
-    try { res.json(work(req)); }
-    catch (error) { res.status(error.status || 503).json({ error: error.status ? error.message : 'Decision storage is unavailable. Your draft has not been discarded.',
+    try { res.json({ ...work(req), serverEpoch }); }
+    catch (error) { res.status(error.status || 503).json({ serverEpoch, error: error.status ? error.message : 'Decision storage is unavailable. Your draft has not been discarded.',
       code: error.code?.startsWith('E_DECISION_') ? error.code : 'E_DECISION_STORAGE', ...(error.current ? { current: error.current } : {}) }); }
   };
   router.get('/decisions', route(req => listDecisions({ after: req.query.after || '', limit: req.query.limit === undefined ? 100 : Number(req.query.limit) })));

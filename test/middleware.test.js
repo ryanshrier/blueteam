@@ -7,7 +7,8 @@
 //     /api/refresh (the #69 CSRF fix removed their exemption)
 //   - nonce: a fresh value per request
 //   - the four rate-limiter configs: correct windowMs/max wiring
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals';
+import { EventEmitter } from 'node:events';
 import express from 'express';
 import { request as httpRequest } from 'node:http';
 import { spawnSync } from 'node:child_process';
@@ -22,6 +23,7 @@ import {
   loopbackHostGuard,
   originCheck,
   apiSecretValidationError,
+  cors,
 } from '../lib/middleware.js';
 
 // Stand up a minimal app with the real middleware wired in server.js's order
@@ -507,6 +509,67 @@ describe('nonce — a fresh value on every request', () => {
 });
 
 describe('createRateLimiters — the four limiter configs', () => {
+  test.each([
+    ['generationLimiter', 30_000, 2],
+    ['dailyGenerationLimiter', 86_400_000, 30],
+  ])('%s never refunds an old reservation into a new window', async (name, windowMs, capacity) => {
+    let clock = Date.now();
+    const now = jest.spyOn(Date, 'now').mockImplementation(() => clock);
+    const limiter = createRateLimiters()[name];
+    const request = async ({ hold = false, paid = false } = {}) => {
+      const res = Object.assign(new EventEmitter(), {
+        locals: {}, headers: {}, statusCode: 200,
+        setHeader(key, value) { this.headers[key] = value; },
+        getHeader(key) { return this.headers[key]; },
+        status(value) { this.statusCode = value; return this; },
+        send() { this.emit('finish'); return this; },
+      });
+      const req = { ip: '192.0.2.42', headers: {}, app: { get: () => false }, method: 'POST', path: '/brief', socket: { remoteAddress: '192.0.2.42' } };
+      let accepted = false;
+      await limiter(req, res, error => {
+        if (error) throw error;
+        accepted = true;
+        res.locals.briefGenerationAttempted = paid;
+        if (!hold) res.send();
+      });
+      return { accepted, res };
+    };
+    try {
+      const old = await request({ hold: true });
+      clock += windowMs + 1;
+      for (let i = 0; i < capacity; i++) expect((await request({ paid: true })).accepted).toBe(true);
+      expect((await request({ paid: true })).accepted).toBe(false);
+      old.res.send();
+      await new Promise(resolve => setImmediate(resolve));
+      expect((await request({ paid: true })).accepted).toBe(false);
+    } finally { now.mockRestore(); }
+  });
+
+  test('allowed cross-origin browsers can preflight and save decisions with PUT', async () => {
+    const prior = process.env.CORS_ORIGIN;
+    const origin = 'https://operator.example';
+    process.env.CORS_ORIGIN = origin;
+    const app = express();
+    app.use(cors(3000));
+    app.use(originCheck({ allowedOrigin: origin }));
+    app.use(express.json());
+    app.use(contentTypeCheck);
+    app.put('/api/decisions', (_req, res) => res.json({ saved: true }));
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise(resolve => server.once('listening', resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    try {
+      const preflight = await fetch(`${base}/api/decisions`, { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'PUT' } });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get('access-control-allow-methods').split(/,\s*/)).toContain('PUT');
+      expect(preflight.headers.get('access-control-allow-origin')).toBe(origin);
+      expect((await fetch(`${base}/api/decisions`, { method: 'PUT', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}' })).status).toBe(200);
+      expect((await fetch(`${base}/api/decisions`, { method: 'PUT', headers: { Origin: 'https://untrusted.example', 'Content-Type': 'application/json' }, body: '{}' })).status).toBe(403);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      if (prior === undefined) delete process.env.CORS_ORIGIN; else process.env.CORS_ORIGIN = prior;
+    }
+  });
   test('apiLimiter skips both /health and /health/', async () => {
     const app = express();
     const { apiLimiter } = createRateLimiters();

@@ -1,6 +1,7 @@
 import { fetchDiagnostics } from '../core/api.js';
 import { escapeHtml } from '../core/sanitize.js';
 import { formatEventTime } from '../core/brief-date.js';
+import { mountWebhookDeliveryReview } from './webhook-deliveries.js';
 
 const number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER ? value : null;
 const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)
@@ -185,7 +186,9 @@ export function mountSystemHealth(section) {
     <div class="system-health-actions"><button class="btn-ghost-sm" id="copyDiagnostics" type="button" disabled>Copy diagnostics</button></div>
     <details class="profile-details"><summary>About copied diagnostics</summary><p class="settings-help">Includes health counts, version, timing, and database size. Source names, URLs, secrets, organization settings, and raw error messages are excluded.</p></details>
     <p id="diagnosticsFeedback" class="settings-feedback" role="status" aria-live="polite"></p>
-    <textarea id="diagnosticsCopyFallback" class="settings-input system-health-copy" readonly hidden aria-label="Sanitized diagnostics to copy"></textarea>`;
+    <textarea id="diagnosticsCopyFallback" class="settings-input system-health-copy" readonly hidden aria-label="Sanitized diagnostics to copy"></textarea>
+    <div id="webhookDeliveryReview"></div>`;
+  const stopDeliveryReview = mountWebhookDeliveryReview(section.querySelector('#webhookDeliveryReview'));
   const status = section.querySelector('#systemHealthStatus');
   const details = section.querySelector('#systemHealthDetails');
   const refresh = section.querySelector('#refreshDiagnostics');
@@ -252,5 +255,5 @@ export function mountSystemHealth(section) {
   refresh.addEventListener('click', handleRefresh);
   copy.addEventListener('click', handleCopy);
   void controller.refresh();
-  return () => { controller.dispose(); refresh.removeEventListener('click', handleRefresh); copy.removeEventListener('click', handleCopy); };
+  return () => { controller.dispose(); stopDeliveryReview(); refresh.removeEventListener('click', handleRefresh); copy.removeEventListener('click', handleCopy); };
 }

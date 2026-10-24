@@ -9,7 +9,7 @@ BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and
 ## Start, stop, and restart
 
 ```bash
-git clone --branch v1.4.4 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.5 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -33,11 +33,13 @@ Without an AI provider key, the Wall still shows KEV changes and prioritized sig
 
 ## Runtime support
 
-Use Node 22.19 or newer in the Node 22 line, Node 24, or Node 26 and the npm version bundled with it. Other Node majors are not part of the supported matrix.
+The application pins Node 24.22.1 LTS through `.node-version` and `.nvmrc`. Windows operators can run `powershell -File .\scripts\setup-lts.ps1` from the project directory to install a verified official runtime under `.runtime/` and reinstall dependencies. This leaves other applications' system runtime in place. All application npm commands select the managed LTS runtime when invoked from an unsupported system Node. An explicitly selected supported Node 22, 24, or 26 runtime remains in use for development and CI. Use `npm run runtime:check` to see the actual executable and confirm its native binding. Direct `node server.js` rejects unsupported runtimes; direct `npm install` is also engine-strict.
+
+Use Node 22.23.4 or newer in the Node 22 line, Node 24.22.1 or newer in the Node 24 line, or Node 26.12.1 or newer in the Node 26 line, with the npm version bundled with it. Other Node majors are not part of the supported matrix.
 
 `better-sqlite3` contains a native component. Run `npm install` on the machine and Node version that will run the server; do not copy `node_modules` between operating systems, CPU architectures, or Node majors. After changing Node versions, reinstall dependencies before starting.
 
-The Node 22.19 floor comes from the supported Undici transport used for SSRF-pinned outbound requests. Do not bypass the engine check with an older Node release.
+These minimum versions include the [October 21, 2026 Node security fixes](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases), including DNS/TLS and Brotli handling. Keep deployments on the latest security patch in the chosen supported major. Updating npm dependencies does not update Node's native libraries or bundled transport.
 
 The CI policy job separately pins npm 11.18 to enforce the exact lifecycle scripts approved in `package.json`. Runtime-matrix jobs use each Node release's bundled npm, matching the documented local workflow. Normal installs do not automatically submit the dependency graph for audit; CI runs explicit full and production dependency audits.
 
@@ -118,6 +120,8 @@ Keep `reviews/` with those editions. Losing it loses corrections, approvals, and
 
 Wire decision saves require the expected server revision. Conflicts or connection failures preserve unsaved edits for review; a retry of an uncertain save uses the same request identifier. Additive imports report conflicts rather than replacing existing server records. Limits of 20,000 decisions and 1,000 revisions per decision stop new writes without evicting authored records. The server records edit history but cannot attribute edits to a named person through its shared API secret. Named accounts, permissions, and team approval workflows remain outside this single-operator deployment.
 
+After a server restart or database restore, open Wire tabs revalidate decisions against the new server history. **Refresh decisions** preserves unsaved edits. If a draft was based on a revision newer than the restored copy, review the conflict and rebase before saving. Delayed replies from the old history cannot confirm a save in the restored database.
+
 ### Evidence retention and redistribution
 
 Collection prunes source records not observed for 30 days, caps retained sources at 5,000, and keeps at most eight revisions per source across its feed representations. A source still being observed can retain an older revision until the count cap removes it. These are bounded code defaults; there is no retention-policy editor. Passages are normalized feed extracts bounded to 8,192 characters, with clipping/title-only labels where applicable. Collection or storage failures leave the Wire usable and mark retained evidence unavailable rather than inventing revisions.
@@ -130,6 +134,57 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
 
+### From v1.4.4 to v1.4.5
+
+Test the v1.4.5 release separately before replacing an installed service.
+It keeps SQLite at schema 11 and the existing 12.x `better-sqlite3` driver;
+SQLite replacement and other major dependency upgrades remain undecided.
+
+1. Stop the service and wait for shutdown to finish. Back up the effective
+   `data/`, `briefs/` including hidden receipt and draft files, `reviews/`,
+   `config.json`, operator-managed CLI profiles, and protected secret settings
+   together. Respect `BLUETEAM_STATE_DIR` and `BLUETEAM_CONFIG_PATH` if set.
+2. Preserve local source/configuration edits, then install the `v1.4.5` release
+   code from the published tag or source archive.
+3. Select Node 22.23.4+, 24.22.1+, or 26.12.1+ within those respective major
+   lines. Node 24.22.1 LTS is pinned in `.node-version` and `.nvmrc`. On Windows,
+   run `powershell -File .\scripts\setup-lts.ps1` to install the verified project
+   runtime and reinstall dependencies; it leaves the system Node installation
+   in place for other applications. With a separately selected supported
+   runtime, reinstall dependencies with its bundled npm. Do not reuse native
+   modules from a different Node major or installation.
+4. Run `npm run runtime:check` to confirm the actual executable and native
+   SQLite binding, then `npm start`. Inspect `/api/health`, collection status,
+   a retained source, a saved Briefing and a retained draft before requesting
+   billable generation.
+
+The bundled Bob profile changes from `bob-shell-v1` final JSON to
+`bob-shell-v2` and `--format stream-json`. Merge its assistant-message selectors
+and delta-output rules into operator-managed copies; copied profiles are not
+updated automatically. Keep reasoning and user messages excluded, terminal
+result/exit and usage checks enabled, silence and total limits at 180 seconds,
+and automatic restarts at zero. Bob remains separately installed. Offline
+profile tests and the installation check do not establish live authentication
+or generation readiness.
+
+Inspect **Settings → System health** for uncertain webhook deliveries. Confirm
+the recipient's state before marking delivered, abandoning, or deliberately
+retrying one. Ambiguous deliveries are never automatically replayed, and manual
+retry requires explicit duplicate-risk acknowledgement and the original
+destination. A completed scheduled generation whose matching archive is missing
+fails closed; restore its verified archive rather than buying another attempt.
+
+New receipts preserve signed destinations through exact URL identities while
+redacting sensitive display values. An older receipt that already discarded
+that identity cannot reconstruct the original signed link; it remains
+fail-closed. Original saved copies and captured inputs are retained.
+
+Open Wire tabs revalidate decisions after restart or restore while keeping
+unsaved edits. Use **Refresh decisions** and review/rebase a conflict against
+the restored revision before saving. Responses from the previous history cannot
+confirm a save in the restored database. Rollback uses the previous code,
+runtime-compatible native dependencies, and its matching complete backup.
+
 ### From v1.4.3 to v1.4.4
 
 No database migration or mandatory configuration change is required; SQLite
@@ -137,13 +192,14 @@ remains at schema 11. Stop the service, back up `data/`, `briefs/` (including
 hidden files), `reviews/`, configuration, operator-managed CLI profiles, and
 protected secrets together, install v1.4.4, and restart.
 
-The bundled Bob profile now accepts the license explicitly, trusts its fresh
-workspace, and reads `last_message` from JSON output. Review the
-`--accept-license` flag, retain `BOB_API_KEY` in the service environment, and
-merge the bundled profile changes into any operator-managed copy. Existing
-copies are not updated automatically. Bob's silence and overall timeouts are
-both 180 seconds; the application's remaining deadline still bounds the run.
-Automatic restarts remain disabled.
+The v1.4.4 bundled `bob-shell-v1` profile accepts the license explicitly,
+trusts its fresh workspace, and reads `last_message` from final JSON output.
+Review the `--accept-license` flag, retain `BOB_API_KEY` in the service
+environment, and merge the bundled profile changes into any operator-managed
+copy. Existing copies are not updated automatically. Bob's silence and overall
+timeouts are both 180 seconds; the application's remaining deadline still
+bounds the run. Automatic restarts remain disabled. The streamed
+`bob-shell-v2` profile belongs to the v1.4.5 release described above.
 
 CLI errors now include fixed diagnoses for recognized license, authentication,
 and gateway-timeout failures without returning raw stderr. An uncertain remote
@@ -426,6 +482,12 @@ Webhook payloads contain the configured event's fields. Signal alerts include ma
 Webhook payloads are persisted before sending. A 60-second worker retries transient failures with exponential backoff, at most eight attempts and seven days, within a 100-job/2 MB outbox. Redirects and permanent client errors fail visibly; a redirected login page cannot count as delivery. Each destination and material alert state has a separate identity, allowing a newly exploited or newly KEV-listed item to alert again. Existing legacy sent-title records are adopted as a baseline, without replaying past alerts.
 
 Changing the destination or disabling its event type pauses queued jobs; they are never forwarded to a different URL. Briefing retries also require the same eligible reading-copy hash. An interrupted send, uncertain transport failure, or failed success-receipt write has an ambiguous outcome and is not automatically repeated. Automatic retries are limited to proven connection-setup failures and retryable HTTP responses. Delivery is still not exactly once: a recipient can accept work before returning an error response, so recipients should deduplicate the stable `Idempotency-Key` header. Inspect **Settings → System health** for retrying, paused, failed, or ambiguous work and check the recipient before any manual resend. Outbox storage errors block new sends and require storage recovery; they do not erase queued payloads.
+
+Use **Settings → System health → Review queued webhook deliveries** to load delivery IDs and resolve work after checking the recipient. **Recipient confirms delivered** and **Abandon delivery** free queue capacity and retain bounded duplicate-protection records. A deliberate **Retry original delivery** requires acknowledgement that the recipient may receive a duplicate, and the original destination and event type must still be enabled. It retains the original payload and idempotency key and starts a fresh bounded retry window. Ambiguous deliveries are never automatically replayed merely to free capacity.
+
+Public `/api/health` and `/api/ready` responses use a five-second process-local status snapshot and do not reconcile archived publications. Authenticated generation diagnostics retain archive verification. Article parsing runs in a bounded worker with a two-second admission/execution deadline, a 2 MB input limit and DOM structure limits. Draft and generated Briefing validation also run in a bounded worker; excessive document size or markup is rejected before parsing. These limits keep liveness responsive when an upstream page or draft is malformed. Accepted generation work drains before these workers close during shutdown.
+
+When `analysisSettings.debugScoring` is enabled, `scoring-debug.log` lives under the effective state directory's `data/` folder, including when `BLUETEAM_STATE_DIR` is set. The current file and two rotated archives are each limited to 1 MiB; oversized legacy debug logs are discarded on the next write. POSIX creation modes are `0700` for the directory and `0600` for files; Windows uses the account's ACLs. Debug dumps may include source information and belong with protected operator state.
 
 `npm run check:production:render` runs the real application and Chromium against synthetic temporary state, with collection and scheduled jobs disabled and no inherited provider credentials. It checks CSP/authentication, settings persistence, cross-tab decision conflict handling, saved-draft publication, and reader navigation without a model call. CI runs it alongside the narrower rendering fixtures.
 

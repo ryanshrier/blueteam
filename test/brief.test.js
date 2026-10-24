@@ -549,6 +549,24 @@ describe('POST /api/brief - scheduled job idempotency and edition context', () =
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
+  test('a completed scheduled record with missing Markdown fails closed before provider selection', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'scheduled-missing-archive-'));
+    const getAnthropic = jest.fn(() => null);
+    getScheduledBriefJobMock.mockReturnValue({ job_key: 'daily-brief:2026-07-02', edition_date: '2026-07-02',
+      timezone: 'UTC', filename: 'brief-2026-07-02-00.md', completed_at: '2026-07-02T12:00:00Z' });
+    try {
+      ctx = await makeServer({ getAnthropic, historyDir: directory, scheduledJobToken: 'internal-test-token' });
+      const response = await fetch(`${ctx.base}/api/brief`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-blueteam-scheduled-token': 'internal-test-token' },
+        body: JSON.stringify({ scheduledJob: { jobKey: 'daily-brief:2026-07-02', editionDate: '2026-07-02', timezone: 'UTC' } }) });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'E_SCHEDULE_INTEGRITY' });
+      expect(getAnthropic).not.toHaveBeenCalled();
+      expect(getFreshRunMock).not.toHaveBeenCalled();
+      expect(saveBriefMock).not.toHaveBeenCalled();
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   test('returns an existing deterministic archive without touching the provider', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'scheduled-brief-replay-'));
     const filename = 'brief-2026-07-02-00.md';
@@ -1577,28 +1595,38 @@ describe('POST /api/brief — no API key / cooldown / in-flight lock', () => {
   // second POST that arrives WHILE a generation is still streaming must be
   // rejected even though the cooldown object itself would allow it (fresh check).
   test('a second POST while a generation is in flight is rejected with 429, independent of the cooldown', async () => {
-    let releaseFirst;
+    let releaseFirst, markStarted;
+    const released = new Promise(resolve => { releaseFirst = resolve; });
+    const started = new Promise(resolve => { markStarted = resolve; });
     const slowStream = async () => ({
       controller: { abort() {} },
       async *[Symbol.asyncIterator]() {
+        markStarted();
         yield { type: 'message_start', message: { usage: { input_tokens: 10, output_tokens: 0 } } };
         yield { type: 'content_block_delta', delta: { text: GOOD_BRIEF } };
-        await new Promise(r => { releaseFirst = r; });
+        await released;
+        yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 200 } };
+        yield { type: 'message_stop' };
       },
     });
     ctx = await makeServer({ getAnthropic: () => fakeAnthropic(slowStream), cooldownCheck: () => true });
 
-    const firstReq = fetch(`${ctx.base}/api/brief`, { method: 'POST' });
-    // Give the first request a tick to enter the handler and set the in-flight flag.
-    await new Promise(r => setTimeout(r, 50));
-
-    const second = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
-    const secondBody = await second.json();
-    releaseFirst();
-    await firstReq;
-    expect(second.status).toBe(429);
-    expect(second.headers.get('retry-after')).toBe('15');
-    expect(secondBody.code).toBe('E_GENERATION_ACTIVE');
+    const first = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
+    let firstEvents;
+    try {
+      await started;
+      const second = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
+      const secondBody = await second.json();
+      expect(second.status).toBe(429);
+      expect(second.headers.get('retry-after')).toBe('15');
+      expect(secondBody.code).toBe('E_GENERATION_ACTIVE');
+    } finally {
+      // Fetch resolves at headers. Finish and drain the first SSE response so
+      // server.close never races an active generation, even after a failed assertion.
+      releaseFirst();
+      firstEvents = await readSSE(first);
+    }
+    expect(firstEvents.some(event => event.briefComplete)).toBe(true);
   });
 });
 
