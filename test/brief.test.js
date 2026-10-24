@@ -1595,28 +1595,38 @@ describe('POST /api/brief — no API key / cooldown / in-flight lock', () => {
   // second POST that arrives WHILE a generation is still streaming must be
   // rejected even though the cooldown object itself would allow it (fresh check).
   test('a second POST while a generation is in flight is rejected with 429, independent of the cooldown', async () => {
-    let releaseFirst;
+    let releaseFirst, markStarted;
+    const released = new Promise(resolve => { releaseFirst = resolve; });
+    const started = new Promise(resolve => { markStarted = resolve; });
     const slowStream = async () => ({
       controller: { abort() {} },
       async *[Symbol.asyncIterator]() {
+        markStarted();
         yield { type: 'message_start', message: { usage: { input_tokens: 10, output_tokens: 0 } } };
         yield { type: 'content_block_delta', delta: { text: GOOD_BRIEF } };
-        await new Promise(r => { releaseFirst = r; });
+        await released;
+        yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 200 } };
+        yield { type: 'message_stop' };
       },
     });
     ctx = await makeServer({ getAnthropic: () => fakeAnthropic(slowStream), cooldownCheck: () => true });
 
-    const firstReq = fetch(`${ctx.base}/api/brief`, { method: 'POST' });
-    // Give the first request a tick to enter the handler and set the in-flight flag.
-    await new Promise(r => setTimeout(r, 50));
-
-    const second = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
-    const secondBody = await second.json();
-    releaseFirst();
-    await firstReq;
-    expect(second.status).toBe(429);
-    expect(second.headers.get('retry-after')).toBe('15');
-    expect(secondBody.code).toBe('E_GENERATION_ACTIVE');
+    const first = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
+    let firstEvents;
+    try {
+      await started;
+      const second = await fetch(`${ctx.base}/api/brief`, { method: 'POST' });
+      const secondBody = await second.json();
+      expect(second.status).toBe(429);
+      expect(second.headers.get('retry-after')).toBe('15');
+      expect(secondBody.code).toBe('E_GENERATION_ACTIVE');
+    } finally {
+      // Fetch resolves at headers. Finish and drain the first SSE response so
+      // server.close never races an active generation, even after a failed assertion.
+      releaseFirst();
+      firstEvents = await readSSE(first);
+    }
+    expect(firstEvents.some(event => event.briefComplete)).toBe(true);
   });
 });
 
