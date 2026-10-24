@@ -9,6 +9,17 @@ const start = jobs => jobs.start({ id: 'generation-1', editionDate: '2026-09-05'
 const attempt = { model: 'claude-sonnet-5', systemPromptSha256: 'a'.repeat(64), messagesSha256: 'b'.repeat(64), pricing: { asOf: '2026-09-05', perMillionTokens: { input: 2, output: 10 } }, system: 'private prompt sk-ant-secret', messages: [{ role: 'user', content: 'private sources' }] };
 
 describe('durable generation accounting', () => {
+  test('completed scheduled accounting blocks another purchase even if archive recovery is unavailable', () => {
+    const db = storage();
+    const first = createGenerationJobs({ ...db, sessionId: 'first' });
+    start(first);
+    first.finish('generation-1', { status: 'complete', filename: 'brief-2026-09-05-00.md' });
+    const restarted = createGenerationJobs({ ...db, sessionId: 'second', recoverPublished: () => null });
+    expect(() => restarted.start({ id: 'repurchase', editionDate: '2026-09-05', scheduledJobKey: 'daily-brief:2026-09-05' }))
+      .toThrow(expect.objectContaining({ code: 'E_SCHEDULE_INTEGRITY' }));
+    expect(restarted.status().jobs).toHaveLength(1);
+    expect(() => restarted.start({ id: 'manual-review', editionDate: '2026-09-05' })).not.toThrow();
+  });
   test('pre-provider work exposes its phase and a restart never invents unknown provider usage', () => {
     const db = storage();
     const first = createGenerationJobs({ ...db, sessionId: 'first' });

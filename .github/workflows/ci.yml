@@ -30,7 +30,7 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '22.19'
+          node-version: '22.23.4'
           cache: npm
 
       - name: Pin npm with lifecycle-script policy support
@@ -137,18 +137,20 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        node-version: ['22.19', '24', '26']
+        # Test each security floor and current releases; extra current-release
+        # coverage stays on Linux to avoid duplicating the entire OS matrix.
+        node-version: ['22.23.4', '24.22.1', '26.12.1', '22', '24', '26']
         include:
           - os: windows-latest
-            node-version: '22.19'
+            node-version: '22.23.4'
           - os: windows-latest
-            node-version: '24'
+            node-version: '24.22.1'
           - os: windows-latest
-            node-version: '26'
+            node-version: '26.12.1'
           - os: macos-26
-            node-version: '26'
+            node-version: '26.12.1'
           - os: macos-26-intel
-            node-version: '26'
+            node-version: '26.12.1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -157,6 +159,7 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ matrix.node-version }}
+          check-latest: true
           cache: npm
 
       - name: Install dependencies through the documented source workflow
@@ -174,6 +177,9 @@ jobs:
           PORT: '3000'
           NODE_ENV: test
 
+      - name: Verify selected runtime and native SQLite binding
+        run: npm run runtime:check
+
       - name: Run tests
         run: npm test
 
@@ -188,7 +194,7 @@ jobs:
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: npm
 
       - name: Install dependencies

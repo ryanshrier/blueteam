@@ -4,7 +4,8 @@ jest.unstable_mockModule('../lib/net.js', () => ({ safeFetch: fetchMock, readCap
 const { initDB, closeDB, getDB, getMeta, setMeta } = await import('../lib/db.js');
 const { dispatchAlerts, dispatchBriefWebhook, retryWebhookDeliveries, startWebhookDeliverySchedule, waitForWebhookDeliveryIdle } = await import('../lib/alerts.js');
 const { WEBHOOK_OUTBOX_KEY, webhookDestinationKey, enqueueWebhookBatches, drainWebhookOutbox,
-  getWebhookDeliveryStatus, _resetWebhookDeliveryForTests } = await import('../lib/alert-delivery.js');
+  getWebhookDeliveryStatus, listWebhookDeliveries, resolveWebhookDelivery, knownWebhookEventKeys,
+  _resetWebhookDeliveryForTests } = await import('../lib/alert-delivery.js');
 const config = (url = 'https://hooks.example.test/private-destination', events = 'both') => ({ analysisSettings: { webhook: { url, events, format: 'json' } } });
 const item = { title: 'Synthetic vulnerability', link: 'https://example.test/report', alertMatched: true, score: 70, horizon: 1 };
 const read = () => JSON.parse(getMeta(WEBHOOK_OUTBOX_KEY));
@@ -156,4 +157,71 @@ test('queue and retry attempts are bounded', async () => {
   expect(send).toHaveBeenCalledTimes(8);
   expect(getWebhookDeliveryStatus()).toMatchObject({ failed: 1, status: 'error' });
   expect(() => enqueueWebhookBatches({ destination, kind: 'alerts', batches: Array.from({ length: 101 }, () => ({ body: {}, keys: [] })), eventKeys: ['new'] })).toThrow(/full/);
+});
+
+test('explicit reconciliation frees a saturated ambiguous outbox without automatically repeating delivery', async () => {
+  const destination = webhookDestinationKey(config().analysisSettings.webhook.url);
+  for (let index = 0; index < 100; index++) {
+    enqueueWebhookBatches({ destination, kind: 'alerts', batches: [{ body: { index }, keys: [`event-${index}`] }], eventKeys: [`event-${index}`], now: 0 });
+  }
+  const send = jest.fn(async () => { throw Object.assign(new Error('Uncertain outcome'), { code: 'ETIMEDOUT' }); });
+  for (let index = 0; index < 20; index++) await drainWebhookOutbox(config(), send, { now: 0 });
+  const later = 100 * 86_400_000;
+  await drainWebhookOutbox(config(), send, { now: later });
+  expect(send).toHaveBeenCalledTimes(100);
+  expect(() => enqueueWebhookBatches({ destination, kind: 'alerts', batches: [{ body: {}, keys: ['new'] }], eventKeys: ['new'], now: later })).toThrow(/full/);
+  const original = read().jobs[0];
+  expect(resolveWebhookDelivery(original.id, { action: 'abandon' }, config(), { now: later })).toEqual({ resolved: true, action: 'abandon' });
+  expect(knownWebhookEventKeys().has('event-0')).toBe(true);
+  expect(read().resolutions).toEqual([{ id: original.id, action: 'abandon', resolvedAt: later }]);
+  // Even a direct repeat of the exact original batch cannot recreate it.
+  enqueueWebhookBatches({ destination, kind: 'alerts', batches: [{ body: { index: 0 }, keys: ['event-0'] }], eventKeys: ['event-0'], now: later });
+  expect(read().jobs).toHaveLength(99);
+  enqueueWebhookBatches({ destination, kind: 'alerts', batches: [{ body: {}, keys: ['new'] }], eventKeys: ['new'], now: later });
+  expect(read().jobs).toHaveLength(100);
+  expect(send).toHaveBeenCalledTimes(100);
+  expect(getWebhookDeliveryStatus()).not.toHaveProperty('errorCode');
+});
+
+test('deliberate retry requires acknowledgement and the same destination, keeps payload and key, and starts a bounded new window', async () => {
+  const destination = webhookDestinationKey(config().analysisSettings.webhook.url);
+  enqueueWebhookBatches({ destination, kind: 'alerts', batches: [{ body: { text: 'Original payload' }, keys: ['original'] }], eventKeys: ['original'], now: 0 });
+  const uncertain = jest.fn(async () => { throw Object.assign(new Error('Uncertain'), { code: 'ETIMEDOUT' }); });
+  await drainWebhookOutbox(config(), uncertain, { now: 0 });
+  const original = read().jobs[0];
+  expect(() => resolveWebhookDelivery(original.id, { action: 'retry' }, config())).toThrow(/Confirm/);
+  expect(() => resolveWebhookDelivery(original.id, { action: 'retry', acknowledgeDuplicateRisk: true }, config('https://hooks.example.test/new'))).toThrow(/original destination/);
+  const later = 100 * 86_400_000;
+  resolveWebhookDelivery(original.id, { action: 'retry', acknowledgeDuplicateRisk: true }, config(), { now: later });
+  expect(read().jobs[0]).toMatchObject({ id: original.id, body: original.body, createdAt: 0, retentionSince: later, attempts: 0, state: 'pending' });
+  const send = jest.fn(async () => ({ ok: false, status: 503 }));
+  for (let index = 0; index < 9; index++) await drainWebhookOutbox(config(), send, { now: later + index * 3_600_000 });
+  expect(send).toHaveBeenCalledTimes(8);
+  expect(send.mock.calls[0]).toEqual([config().analysisSettings.webhook.url, original.body, original.id]);
+  expect(read().jobs[0].state).toBe('failed');
+});
+
+test('resolution receipts are bounded and repeated acknowledged resolutions are idempotent', () => {
+  const destination = webhookDestinationKey(config().analysisSettings.webhook.url);
+  let last;
+  for (let index = 0; index < 505; index++) {
+    enqueueWebhookBatches({ destination, kind: 'alerts', batches: [{ body: {}, keys: [`key-${index}`] }], eventKeys: [`event-${index}`], now: index });
+    last = read().jobs[0].id;
+    resolveWebhookDelivery(last, { action: 'delivered' }, config(), { now: index });
+  }
+  expect(read().jobs).toEqual([]);
+  expect(read().resolutions).toHaveLength(500);
+  expect(read().receipts).toHaveLength(500);
+  expect(resolveWebhookDelivery(last, { action: 'delivered' }, config())).toEqual({ resolved: true, action: 'delivered' });
+  expect(() => resolveWebhookDelivery(last, { action: 'abandon' }, config())).toThrow(/no longer queued/);
+});
+
+test('review exposes safe metadata and does not reveal payloads or destinations', () => {
+  const destination = webhookDestinationKey(config().analysisSettings.webhook.url);
+  enqueueWebhookBatches({ destination, kind: 'alerts', batches: [{ body: { text: 'PRIVATE PAYLOAD' }, keys: ['private event'] }], eventKeys: ['private event'], now: 0 });
+  const rows = listWebhookDeliveries(config());
+  expect(rows).toEqual([{ id: read().jobs[0].id, kind: 'alerts', state: 'pending', attempts: 0,
+    createdAt: '1970-01-01T00:00:00.000Z', errorCode: null, canRetry: true }]);
+  expect(JSON.stringify(rows)).not.toMatch(/PRIVATE|private-destination|private event/);
+  expect(listWebhookDeliveries(config(''))[0].canRetry).toBe(false);
 });

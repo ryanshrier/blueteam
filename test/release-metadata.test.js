@@ -19,6 +19,7 @@ async function writeFixture({
   packageVersion = '1.0.3',
   lockVersion = packageVersion,
   lockRootVersion = packageVersion,
+  candidate = false,
 } = {}) {
   await mkdir(join(fixtureRoot, 'scripts'), { recursive: true });
   await mkdir(join(fixtureRoot, 'docs'), { recursive: true });
@@ -43,14 +44,14 @@ async function writeFixture({
     <script type="application/ld+json">
       { "softwareVersion": "1.0.3", "dateModified": "2026-07-28" }
     </script>
-    <span class="release-badge">v1.0.3</span>
+    <span class="release-badge">v1.0.3${candidate ? ' candidate' : ''}</span>
   `);
   await writeFile(join(fixtureRoot, 'docs', 'sitemap.xml'), `
     <urlset><url><lastmod>2026-07-28</lastmod></url></urlset>
   `);
 }
 
-function runReleaseCheck() {
+function runReleaseCheck(environment = {}) {
   return spawnSync(process.execPath, [
     join(fixtureRoot, 'scripts', 'check-release-metadata.mjs'),
   ], {
@@ -59,6 +60,7 @@ function runReleaseCheck() {
       ...process.env,
       GITHUB_REF_TYPE: '',
       GITHUB_REF_NAME: '',
+      ...environment,
     },
   });
 }
@@ -94,5 +96,25 @@ describe('release metadata check', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('package-lock.json root version is 1.0.2; expected 1.0.3');
+  });
+
+  test('accepts consistent candidate metadata for review without a release tag', async () => {
+    await writeFixture({ candidate: true });
+    expect(runReleaseCheck().status).toBe(0);
+  });
+
+  test('rejects tagging an unpublished candidate even when its version matches', async () => {
+    await writeFixture({ candidate: true });
+    const result = runReleaseCheck({ GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v1.0.3' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('A release tag cannot publish candidate labeling');
+  });
+
+  test('accepts a matching final release tag and rejects a different tag', async () => {
+    await writeFixture();
+    expect(runReleaseCheck({ GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v1.0.3' }).status).toBe(0);
+    const result = runReleaseCheck({ GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v1.0.4' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('release tag is v1.0.4; expected v1.0.3');
   });
 });

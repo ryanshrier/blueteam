@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+## 1.4.5 — 2026-10-24
+
+This patch keeps collection and Briefing repair responsive to hostile source
+text, restores decision editing after a database restore, and gives operators a
+way to reconcile uncertain webhook deliveries. It also updates security patch
+floors and switches the bundled Bob profile to streamed assistant output.
+
+- Make source-evidence classification linear and bounded. Isolate article extraction with byte, structure, memory and deadline limits so publisher content cannot monopolize the server thread.
+- Run receipt restoration, citation rendering, assembly, Markdown repair, metadata rebinding, validation and action-record derivation inside the bounded Briefing worker pipeline. Preserve immutable input snapshots and recheck persisted revisions before saving or publishing.
+- Retain exact citation URL hashes separately from redacted display values. Signed links can survive receipt replay and repair while changed destinations remain unauthorized; protected code examples stay intact.
+- Resynchronize open Wire tabs after a server restart or same-history database restore. Preserve unsaved edits, reject delayed responses and stale write acknowledgements, and retain normal revision-conflict protection.
+- Include structured CVE identities in Wire cluster filtering and search. Remove XML-forbidden code points from RSS output, and require browser revalidation of updated sanitizer and Markdown modules.
+- Keep public readiness bounded without repeated archive recovery. Store optional scoring debug output under the configured private state directory with a one-MiB limit and two rotated archives.
+- Add delivery-review controls in Settings and an authenticated reconciliation API for marking delivered, abandoning, or deliberately retrying queued webhooks. Keep original-destination and duplicate-risk checks; ambiguous sends are never automatically replayed.
+- Refuse another scheduled provider attempt when completed accounting lacks a verifiable archive. Correct generation-quota refunds across window resets and cross-origin decision-save preflights; apply consistent credential redaction to custom-provider failures.
+- Switch the bundled Bob profile to `bob-shell-v2` and `--format stream-json`. Join assistant message chunks in order while excluding user messages and reasoning; preserve result checks, usage accounting, 180-second silence and total limits, and zero automatic restarts. Add offline streaming and silence-progress coverage.
+- Update body-parser to 1.20.9, Undici to 8.12.3, and Zod to 4.6.7 for compressed-request, outbound-transport, and collection-validation security fixes.
+- Require Node 22.23.4, 24.22.1, or 26.12.1 or newer within the respective major line. Pin Node 24.22.1 LTS for the application, add a verified Windows runtime setup, select supported runtimes for npm commands, and preserve graceful shutdown while rebuilding native dependencies under the selected runtime.
+
+### Upgrade notes
+
+Read the [v1.4.5 upgrade procedure](docs/operations.md#from-v144-to-v145)
+before upgrading. The raised Node security floors require a
+supported runtime and a native-dependency reinstall. SQLite remains at schema 11
+with the existing 12.x driver; SQLite and other major dependency upgrades are
+still deferred. Stop the service and back up complete state, hidden receipt
+files, configuration and operator-managed profiles together.
+
+Merge the new Bob streaming rules into copied profiles; the upgrade does not
+replace them. Offline contract fixtures do not establish live Bob authentication
+or generation readiness. Existing receipts that redacted a signed destination
+without retaining its exact identity cannot reconstruct that destination and
+remain fail-closed. Rollback requires the prior code and its matching backup.
+
 ## 1.4.4 — 2026-10-23
 
 This patch fixes Bob Shell startup and answer extraction in the experimental

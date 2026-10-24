@@ -2,7 +2,7 @@
 
 [Back to the README](../README.md)
 
-BlueTeam.News supports Node 22.19 or newer in the Node 22 line, Node 24, and Node 26. The browser code uses vanilla ES modules, so there is no frontend compilation step.
+BlueTeam.News supports Node 22.23.4 or newer in the Node 22 line, Node 24.22.1 or newer in the Node 24 line, and Node 26.12.1 or newer in the Node 26 line. Use the latest security patch in the chosen major; these floors include the October 21, 2026 Node security fixes. The browser code uses vanilla ES modules, so there is no frontend compilation step.
 
 Use the npm bundled with a supported Node release for normal development. CI's policy job separately pins npm 11.18 so the dependency lifecycle-script allowlist is enforced; the runtime matrix intentionally uses bundled npm.
 
@@ -43,7 +43,7 @@ npm run check:release          # Version/date/tag consistency across release sur
 npm install-scripts ls --json  # Must report no unreviewed dependency scripts (npm 11.18+)
 ```
 
-Run the focused check for the area being changed, then run `npm test`. The CI policy job runs repository checks once on Linux. The runtime matrix covers Node 22.19, 24, and 26 on Linux and Windows, and Node 26 on Apple Silicon and Intel macOS. The **Release readiness** check succeeds only when repository policy, the entire runtime matrix, and the Safari job succeed, including when an upstream job fails or is skipped. Tag builds also require the `vX.Y.Z` tag to match `package.json`, the changelog, the landing page, and the sitemap date.
+Run the focused check for the area being changed, then run `npm test`. The CI policy job runs repository checks once on Linux with Node 22.23.4. The runtime matrix covers the exact Node 22.23.4, 24.22.1, and 26.12.1 floors on Linux and Windows, and Node 26.12.1 on Apple Silicon and Intel macOS. Linux also tests the latest releases in the Node 22, 24, and 26 lines; the Safari job uses Node 24.22.1. The **Release readiness** check succeeds only when repository policy, the entire runtime matrix, and the Safari job succeed, including when an upstream job fails or is skipped. Tag builds also require the `vX.Y.Z` tag to match `package.json`, the changelog, the landing page, and the sitemap date.
 
 Dependabot proposes npm and GitHub Actions updates weekly. Production and major
 dependency changes remain separate proposals; minor and patch development

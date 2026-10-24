@@ -50,9 +50,13 @@ For example, send `{}` as the body of `POST /api/brief` and `POST /api/refresh`.
 | `/api/edition` | `GET` | Active CTI profile identity: id, title, label, and regions |
 | `/api/settings` | `GET`, `POST` | Read/update the watch profile, generation schedule, provider/model selection, and separate masked Anthropic/OpenAI keys; select an environment-configured experimental Custom module |
 | `/api/settings/verify` | `POST` | Make a small billable request to verify a built-in provider key and, for OpenAI, model access; for experimental Custom, call the optional module health hook instead |
+| `/api/webhook-deliveries` | `GET` | Review safe metadata for queued deliveries; local or authenticated callers only |
+| `/api/webhook-deliveries/:id/resolve` | `POST` | Mark delivered, abandon, or deliberately retry a queued delivery |
 | `/embed` | `GET` | Headerless signal strip for an iframe; supports `tier`, `limit`, and `theme` query parameters |
 
 ## Decision records
+
+Decision-router JSON responses include an opaque `serverEpoch`, including storage-error and conflict responses. Authentication, rate-limit and other middleware failures can precede the router and omit it. The server creates a new epoch at startup; it identifies the current server history. `X-Decision-Epoch` also identifies this history on router responses and streamed exports. Browser clients use the JSON field, so cross-origin access does not require reading that header. After an epoch transition, clients revalidate server records while preserving unsaved drafts and reject delayed responses from the previous history. An old save/import response cannot confirm a write in the restored history; the client reports `E_DECISION_EPOCH_CHANGED` and retains the draft for refresh and review before retrying.
 
 Decisions belong to this server's single trusted operator. The shared bearer token does not identify a person; history reports operator identity as not recorded. The API does not provide separate user accounts, roles, or a team approval workflow. The same origin, JSON, authentication, and request-rate boundaries as other API mutations apply.
 
@@ -83,6 +87,16 @@ Updates must use the current revision as `baseRevision`. A stale update returns 
 `GET /api/decisions/export` streams the current records with their latest evidence snapshots. It does not include every historical revision; use paginated history or a complete SQLite backup for that record.
 
 `POST /api/decisions/import` takes `{ "records": [...] }`, with at most 25 records and 4 MB of record data per request. This endpoint alone accepts a 5 MB JSON envelope; other endpoints retain the 100 KB boundary. Existing identical records are unchanged, divergent records are conflicts, and invalid rows are reported individually. Imports do not erase browser records or replace server decisions. Server limits stop new writes without evicting previous records or revisions. Include the SQLite database in backups.
+
+## Webhook reconciliation
+
+Settings → System health → **Review queued webhook deliveries** lists delivery IDs, event types, states, attempt counts and creation times. Payloads and destination URLs remain server-private. Match the delivery ID with the recipient's `Idempotency-Key` or request logs before resolving an uncertain outcome.
+
+`GET /api/webhook-deliveries` returns `{ "items": [...] }`, with at most 100 queued deliveries. A failed or ambiguous delivery can be resolved at `POST /api/webhook-deliveries/:id/resolve` with `{ "action": "delivered" }` when the recipient confirms receipt, or `{ "action": "abandon" }` to stop delivery. Both remove the queued payload, free capacity, and retain bounded duplicate-protection records. Repeating the same resolution after a lost response is harmless while its record remains retained.
+
+A deliberate retry requires `{ "action": "retry", "acknowledgeDuplicateRisk": true }`. Restore the exact original configured destination and enable the event type first. Retry preserves the payload, delivery ID and idempotency header, and starts a fresh bounded attempt window: at most eight attempts over seven days. Briefing publication eligibility is checked again before sending. The resolution request queues work; it makes no outbound call itself. A recipient may already have accepted an ambiguous delivery, so the acknowledgement is required even if it supports idempotency.
+
+All reconciliation shares the delivery serialization lock, so it cannot race an in-flight send. The ordinary API authentication, origin, JSON and rate boundaries apply. An invalid request returns 400, stale/mismatched delivery state returns 409, and unavailable storage returns 503 without discarding queued work. If a response is lost, refresh the list before deciding whether to retry the action. Ambiguous work never expires into automatic replay. The server retains at most 500 resolution tombstones and 500 event receipts; these bounds do not establish permanent or exactly-once delivery.
 
 ## Generation stream
 
@@ -125,6 +139,8 @@ New generation receipts record `generationSettings.compositionVersion: 1`. Befor
 - `Federal remediation` is rendered per named CVE from captured catalog membership and exact captured due dates, explicitly scoped to FCEB agencies with day precision. Internal targets remain recommendations. Existing contradictory deadline prose is preserved for validation, never silently corrected. No current catalog refresh changes the captured dates.
 
 The persisted Markdown contains the rendered presentation, so readers, downloads and delivery share the same edition. Archive reads never reassemble content. An unchanged draft recheck preserves the saved copy, except that previously unrendered valid source IDs become a new immutable repair revision; its original copy and captured inputs remain intact. Editing a version-1 draft rebuilds its presentation before checking; legacy drafts can expand source references but do not adopt action/deadline composition automatically. This is tolerant Markdown processing, with no required JSON output mode or hidden record.
+
+Receipt restoration, citation rendering, Markdown repair, assembly and validation run inside the bounded worker pipeline. One deadline includes queued preparation work; a timeout or worker failure does not approve content or commit a replacement revision. Saving or publishing still rechecks the current persisted revision and captured-input identity after the worker completes, so concurrent changes return a conflict instead of being overwritten.
 
 Checks carry `validationPolicyVersion`. Policy 2 treats unresolved CVE/score associations as notes when the numeric metric is supported but its association cannot be established; an invented metric or an established conflicting association still blocks. Notes do not trigger a paid corrective attempt. Unversioned retained checks use legacy policy 1. An explicit draft save/recheck or publication uses the current policy and retains its version with the result; it does not rewrite the original captured checks.
 

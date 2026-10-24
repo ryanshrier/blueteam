@@ -4,10 +4,16 @@
 import assert from 'node:assert/strict';
 import { createFixtureApp } from './serve-visual-fixtures.mjs';
 import { CdpConnection, findBrowser, launchBrowser } from './check-landing-render.mjs';
+import { escapeXml } from '../routes/landscape.js';
+import { stripHtml } from '../lib/feeds.js';
 
 const browserPath = findBrowser();
 assert(browserPath, 'Chrome/Chromium/Edge required. Set CHROME_PATH.');
 const app = createFixtureApp();
+const hostileFeedText = stripHtml('Gateway &#1; update &amp; notice') + '\ud800\ufffe';
+app.get('/security-rss-fixture', (_req, res) => res.type('application/rss+xml').send(
+  `<?xml version="1.0"?><rss version="2.0"><channel><title>${escapeXml(hostileFeedText)}</title><item><description>${escapeXml(hostileFeedText)}</description></item></channel></rss>`,
+));
 // Intentionally omit CSP on this isolated test document: a sanitizer failure
 // must fail the test even when the production CSP would prevent execution.
 app.get('/security-fixture', (_req, res) => res.type('html').send('<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="data:,"></head><body></body></html>'));
@@ -53,6 +59,10 @@ try {
 
 // Serialized into the isolated browser; keep all dependencies inside the function.
 async function runBrowserChecks() {
+  const rss = await (await fetch('/security-rss-fixture')).text();
+  const parsed = new DOMParser().parseFromString(rss, 'application/xml');
+  if (parsed.querySelector('parsererror') || !parsed.querySelector('channel > item > description')
+    || parsed.querySelector('title').textContent !== 'Gateway  update & notice') throw new Error('Hostile feed text must serialize as a complete well-formed RSS document');
   const { sanitize, sanitizeDraft, sanitizeSearchSnippet } = await import('/modules/core/sanitize.js');
   const { renderMarkdown, renderDraftMarkdown } = await import('/modules/core/markdown.js');
   const { applySemanticStyling } = await import('/modules/briefing/brief-renderer.js');

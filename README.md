@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ryanshrier/blueteam/actions/workflows/ci.yml/badge.svg)](https://github.com/ryanshrier/blueteam/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Node](https://img.shields.io/badge/Node-22.19%2B%20%7C%2024%20%7C%2026-brightgreen)
+![Node](https://img.shields.io/badge/Node-22.23.4%2B%20%7C%2024.22.1%2B%20%7C%2026.12.1%2B-brightgreen)
 
 BlueTeam.News is a self-hosted threat-intelligence desk. It collects public reporting, groups related stories, and scores signals with KEV, CVSS, EPSS, source, and freshness evidence.
 
@@ -16,10 +16,12 @@ Wall and Wire work without API keys. Briefing generation may incur provider char
 
 ## Quick start
 
-Recommended: Node.js 24 with npm. See the full supported ranges in [Operations](docs/operations.md#runtime-support) and [Development](docs/development.md).
+Recommended: the latest Node.js 24 security patch (24.22.1 or newer) with npm. See the full supported ranges in [Operations](docs/operations.md#runtime-support) and [Development](docs/development.md).
+
+The project pins Node 24.22.1 in `.node-version` and `.nvmrc`. On Windows, `powershell -File .\scripts\setup-lts.ps1` installs a checksum-verified official LTS runtime under `.runtime/` and reinstalls native dependencies with its bundled npm. Run it after cloning when the system Node is unsupported. Application npm commands automatically use this managed runtime when needed; `npm run runtime:check` reports the selected executable and verifies the native SQLite binding. Direct installs with an unsupported Node version fail before modifying dependencies.
 
 ```bash
-git clone --branch v1.4.4 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.5 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -88,7 +90,7 @@ The server binds to `127.0.0.1` by default. Remote interactive access requires a
 
 Local state lives in `data/watchfloor.db`, saved assessments and input receipts in `briefs/`, editorial corrections and publication decisions in `reviews/`, and operator settings in the gitignored `data/settings.local.json`. Back up these together. Saved API keys are masked in responses but stored in plaintext. Protect the host account and backups.
 
-Upgrading from v1.4.3 to v1.4.4 requires no database migration or mandatory configuration change; restart the service after upgrading. Follow the [v1.4.4 upgrade notes](docs/operations.md#from-v143-to-v144) for the Bob profile fixes and CLI diagnostics, including updates to operator-managed profile copies. From v1.4.2, also read the [v1.4.3 notes](docs/operations.md#from-v142-to-v143) for shared action records, coverage accounting, and the optional CLI provider. When upgrading from v1.4.0 or v1.4.1, also read the [v1.4.2 notes](docs/operations.md#from-v140-or-v141-to-v142) for retained drafts and check policies. Upgrading from v1.3.2 migrates SQLite from schema 9 to 11 and initializes a saved-edition receipt inventory; follow the [earlier upgrade steps](docs/operations.md#from-v132-to-v140), including the stopped-process backup and optional browser-decision import. Rollback requires the matching pre-upgrade state backup.
+Version 1.4.5 raises supported Node security floors and requires reinstalling native dependencies under the selected runtime. It keeps SQLite at schema 11 and defers SQLite and other major dependency upgrades. Follow the [v1.4.5 upgrade notes](docs/operations.md#from-v144-to-v145) for the stopped-process backup, runtime setup, Bob streaming profile, delivery reconciliation, and saved-citation limitations. From v1.4.3, also read the [v1.4.4 notes](docs/operations.md#from-v143-to-v144) for Bob startup and CLI diagnostics. From v1.4.2, also read the [v1.4.3 notes](docs/operations.md#from-v142-to-v143) for shared action records, coverage accounting, and the optional CLI provider. When upgrading from v1.4.0 or v1.4.1, also read the [v1.4.2 notes](docs/operations.md#from-v140-or-v141-to-v142) for retained drafts and check policies. Upgrading from v1.3.2 migrates SQLite from schema 9 to 11 and initializes a saved-edition receipt inventory; follow the [earlier upgrade steps](docs/operations.md#from-v132-to-v140), including the stopped-process backup and optional browser-decision import. Rollback requires the matching pre-upgrade state backup.
 
 There is no product telemetry. Outbound requests go to configured feeds and enrichment sources, the selected AI provider during verification or generation, and an optional configured webhook. Generation sends selected source evidence and configured organization context. The [network boundary](docs/operations.md#network-behavior) lists the supplied data.
 

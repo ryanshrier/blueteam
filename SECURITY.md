@@ -56,6 +56,13 @@ characters in source URLs are rejected. The lossy URL key used to group stories
 does not authorize links. HTML sanitization and draft-link removal remain
 separate output boundaries.
 
+For newly saved receipts, destinations containing sensitive query parameters
+retain a SHA-256 identity separately from a redacted display value. Replay can
+recover a live destination only from an existing link matching that exact
+identity. Redacted display URLs never authorize navigation. Older receipts
+without an original identity stay unavailable rather than inventing one;
+captured source IDs can render as non-live labels for safe repair.
+
 Bounded checks flag explicit recommendations to weaken named security controls
 or remove audit evidence, including selected command forms. These editions are
 retained with `SECURITY_CONTROL_CHANGE` findings and require approval of the exact
@@ -70,6 +77,12 @@ RSS/Atom XML parsing runs in one isolated worker at a time with a five-second
 deadline, bounded queue, V8 heap limits, and structural limits. These constrain
 hostile-feed resource use; the heap limit is not a total process-memory limit.
 Parse failures retain the existing stale-cache/failure reporting behavior.
+
+Article HTML extraction also runs in a bounded worker with a hard deadline and
+DOM structure limits. Untrusted Briefing validation uses a separate bounded
+worker and rejects excessive document size or markup before parsing. Public
+readiness probes read bounded persistence status without reconciling archives;
+their process-local status snapshot lasts at most five seconds.
 
 Configurable regular expressions also compile and execute in bounded workers.
 Collection matching has a two-second deadline, bounded input and queue sizes,

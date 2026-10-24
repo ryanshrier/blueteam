@@ -549,6 +549,24 @@ describe('POST /api/brief - scheduled job idempotency and edition context', () =
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
+  test('a completed scheduled record with missing Markdown fails closed before provider selection', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'scheduled-missing-archive-'));
+    const getAnthropic = jest.fn(() => null);
+    getScheduledBriefJobMock.mockReturnValue({ job_key: 'daily-brief:2026-07-02', edition_date: '2026-07-02',
+      timezone: 'UTC', filename: 'brief-2026-07-02-00.md', completed_at: '2026-07-02T12:00:00Z' });
+    try {
+      ctx = await makeServer({ getAnthropic, historyDir: directory, scheduledJobToken: 'internal-test-token' });
+      const response = await fetch(`${ctx.base}/api/brief`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-blueteam-scheduled-token': 'internal-test-token' },
+        body: JSON.stringify({ scheduledJob: { jobKey: 'daily-brief:2026-07-02', editionDate: '2026-07-02', timezone: 'UTC' } }) });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'E_SCHEDULE_INTEGRITY' });
+      expect(getAnthropic).not.toHaveBeenCalled();
+      expect(getFreshRunMock).not.toHaveBeenCalled();
+      expect(saveBriefMock).not.toHaveBeenCalled();
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   test('returns an existing deterministic archive without touching the provider', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'scheduled-brief-replay-'));
     const filename = 'brief-2026-07-02-00.md';

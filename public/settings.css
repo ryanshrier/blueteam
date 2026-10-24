@@ -343,6 +343,13 @@
 .system-health-actions button:disabled { opacity: .55; cursor: default; }
 .system-health-copy { display: block; width: 100%; min-height: 180px; margin-top: 12px; resize: vertical; }
 .system-health-copy[hidden] { display: none; }
+.system-health-delivery { display: grid; gap: 12px; padding: 18px 0; border-top: 1px solid var(--border); min-width: 0; }
+.system-health-delivery p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.system-health-delivery label { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; line-height: 1.5; }
+.system-health-delivery select { max-width: 100%; min-height: 44px; }
+.system-health-delivery input[type="checkbox"] { flex: 0 0 auto; }
+.system-health-delivery button { justify-self: start; min-height: 44px; }
+.system-health-delivery [disabled] { opacity: .55; cursor: default; }
 .system-health > .settings-feedback { display: block; margin: 12px 0 0; }
 
 @media (max-width: 1000px) {

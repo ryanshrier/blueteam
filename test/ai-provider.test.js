@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAiProvider, createAnthropicClient, createOpenAiClient, configureAnthropicRequest,
   providerCapabilities, PROVIDER_CONTRACT_VERSION, DEFAULT_OPENAI_MODEL, loadProviderModule } from '../lib/ai-provider.js';
+import { streamWithRecovery, safeErrorMsg } from '../routes/brief.js';
 
 const openaiKey = ['sk', 'proj', 'fixture-openai-credential'].join('-');
 const anthropicKey = ['sk', 'ant', 'fixture-anthropic-credential'].join('-');
@@ -203,6 +204,43 @@ describe('local provider module', () => {
       provider: 'example', model: 'fixture-model', stream: jest.fn(), health: () => { throw { reason: `gateway timeout (524); ${env.LOCAL_TOKEN}` }; },
     }) } });
     await expect(manager.verifyKey('', 'custom')).resolves.toEqual({ valid: null, error: 'gateway timeout (524); [REDACTED]' });
+  });
+
+  test.each(['opening', 'iteration'])('redacts opaque adapter credentials from %s failures and drops arbitrary details', async phase => {
+    const env = { AI_PROVIDER: 'custom', LOCAL_TOKEN: 'private-fixture-opaque-token' };
+    const fail = () => { throw Object.assign(new Error('model gateway rejected ' + env.LOCAL_TOKEN), {
+      reason: 'gateway failure: ' + env.LOCAL_TOKEN, code: 'E_PROVIDER_CUSTOM', details: { token: env.LOCAL_TOKEN },
+    }); };
+    const stream = phase === 'opening' ? fail : async function* () {
+      yield { type: 'content_block_delta', delta: { text: 'Synthetic partial output' } }; fail();
+    };
+    const manager = createAiProvider({ getSettings: () => ({}), env, providerModule: { createClient: () => ({
+      provider: 'example', model: 'fixture-model', stream, health: fail,
+    }) } });
+    const result = await streamWithRecovery(manager.getClient(), params);
+    expect(result.error).toBeDefined();
+    expect(safeErrorMsg(result.error)).toBe('gateway failure: [REDACTED]');
+    expect(result.error.details).toBeUndefined();
+    expect(result.error.message).not.toContain(env.LOCAL_TOKEN);
+    expect(JSON.stringify(await manager.verifyKey('', 'custom'))).not.toContain(env.LOCAL_TOKEN);
+  });
+
+  test('error protection preserves frozen class adapter private receivers', async () => {
+    const env = { AI_PROVIDER: 'custom', LOCAL_TOKEN: 'private-class-fixture-token' };
+    class Adapter {
+      #token = env.LOCAL_TOKEN;
+      provider = 'example';
+      get model() { return this.#token ? 'fixture-model' : 'missing'; }
+      stream() { throw Object.assign(new Error('model rejected ' + this.#token), { reason: 'denied ' + this.#token }); }
+      health() { return { valid: true, note: 'Credential ' + this.#token }; }
+    }
+    const custom = Object.freeze(new Adapter());
+    const manager = createAiProvider({ getSettings: () => ({}), env, providerModule: { createClient: () => custom } });
+    expect(manager.getClient().model).toBe('fixture-model');
+    await expect(manager.verifyKey('', 'custom')).resolves.toEqual({ valid: true, note: 'Credential [REDACTED]' });
+    const result = await streamWithRecovery(manager.getClient(), params);
+    expect(safeErrorMsg(result.error)).toBe('denied [REDACTED]');
+    expect(Object.hasOwn(custom, 'publicError')).toBe(false);
   });
 
   test('does not claim verified health without a hook and disables malformed clients', async () => {

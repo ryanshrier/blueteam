@@ -3,6 +3,8 @@
 // and routes → listen. Logic lives in lib/; this file is wiring only.
 
 import dotenv from 'dotenv';
+import { assertSupportedNode } from './lib/runtime-policy.js';
+assertSupportedNode();
 // Default precedence (NOT override): a real shell/service-manager env var wins
 // over .env. Otherwise an untouched `cp .env.example .env` (the README's own
 // setup step) would silently clobber HOST/PORT/API_SECRET the operator exports
@@ -69,6 +71,7 @@ import { createBriefRouter } from './routes/brief.js';
 import { createLandscapeRouter, invalidateLandscapeMemo } from './routes/landscape.js';
 import { createSettingsRouter } from './routes/settings.js';
 import { createDecisionRouter } from './routes/decisions.js';
+import { createWebhookRouter } from './routes/webhooks.js';
 import {
   loadUserSettings,
   getUserSettings,
@@ -89,13 +92,16 @@ import {
   shutdownGuardMs,
 } from './lib/brief-lifecycle.js';
 import { createShutdownCoordinator } from './lib/server-lifecycle.js';
+import { resolveStateDirectory } from './lib/state-paths.js';
+import { closeArticleExtractor } from './lib/article-extraction.js';
+import { closeBriefValidationWorker } from './lib/brief-validator.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ── Paths & constants ──
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
-const STATE_DIR = resolve(process.env.BLUETEAM_STATE_DIR || __dirname);
+const STATE_DIR = resolveStateDirectory();
 const HISTORY_DIR = join(STATE_DIR, 'briefs');
 const DATA_DIR = join(STATE_DIR, 'data');
 const REVIEW_DIR = join(STATE_DIR, 'reviews');
@@ -285,7 +291,9 @@ for (const [route, candidates] of Object.entries(VENDOR_FILES)) {
   const cachedBody = liveContract ? null : readFileSync(filePath);
   app.get(route, (req, res, next) => {
     try {
-      res.setHeader('Cache-Control', liveContract ? 'no-store' : 'public, max-age=86400');
+      // Dependencies must revalidate after a deploy, including when an import
+      // URL was unchanged. Freshness must not delay delivery of security fixes.
+      res.setHeader('Cache-Control', liveContract ? 'no-store' : 'no-cache');
       const body = liveContract ? readFileSync(filePath) : cachedBody;
       res.type('application/javascript').send(body);
     } catch (error) {
@@ -436,6 +444,7 @@ app.use('/api', createBriefRouter({
 }));
 app.use('/api', createLandscapeRouter({ historyDir: HISTORY_DIR, reviewDir: REVIEW_DIR, cooldown, publicBaseUrl: PUBLIC_BASE_URL, loopback: IS_LOOPBACK }));
 app.use('/api', createDecisionRouter());
+app.use('/api', createWebhookRouter({ getConfig, loopback: IS_LOOPBACK }));
 app.use('/api', createSettingsRouter({
   dataDir: DATA_DIR,
   getAiStatus,
@@ -494,6 +503,7 @@ if (!COLLECTION_DISABLED) startWebhookDeliverySchedule({
 });
 
 const server = app.listen(PORT, HOST, () => {
+  log.info('server', `Application runtime Node ${process.version}`);
   startupBanner({
     host: HOST,
     port: PORT,
@@ -609,6 +619,9 @@ const drainAndClose = createShutdownCoordinator({
     // Refresh and scheduler drains can enqueue delivery after the parallel
     // webhook drain begins. Join again after all producers have stopped.
     await waitForWebhookDeliveryIdle();
+    // Accepted paid work can still enter validation while HTTP is draining.
+    // Retire these workers only after all request/background producers finish.
+    await Promise.all([closeArticleExtractor(), closeBriefValidationWorker()]);
     await closeOutboundDispatchers();
   },
   closeStorage: closeDB,
@@ -645,6 +658,15 @@ function shutdown(signal, exitCode = 0) {
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+if (process.env.BLUETEAM_LAUNCHER_IPC === '1' && process.channel && typeof process.send === 'function') {
+  process.on('message', message => {
+    if (message && !Array.isArray(message) && message.type === 'blueteam:shutdown'
+      && ['SIGINT', 'SIGTERM'].includes(message.signal)) shutdown(message.signal);
+  });
+  // The launcher's IPC connection must not keep a fully drained server alive.
+  process.channel.unref();
+  process.send({ type: 'blueteam:shutdown-ready' }, () => {});
+}
 
 // ── Process-level safety net ──
 // The background refresher and setImmediate DB writes run fire-and-forget; an

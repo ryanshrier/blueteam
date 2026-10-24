@@ -62,11 +62,13 @@ describe('bundled Bob CLI profile', () => {
     expect(existsSync(invocation.cwd)).toBe(false);
   });
 
-  test('extracts the complete JSON answer, completion, and Bobcoin usage', async () => {
+  test('joins streamed assistant chunks in order and preserves completion and Bobcoin usage', async () => {
     const { events, error } = await run(profileFor('success'));
     expect(error).toBeUndefined();
     expect(textOf(events)).toBe('The captured evidence supports this completed briefing.');
-    expect(events.filter(event => event.type === 'content_block_delta')).toHaveLength(1);
+    expect(events.filter(event => event.type === 'content_block_delta').map(event => event.delta.text)).toEqual([
+      'The captured evidence ', 'supports this ', 'completed briefing.',
+    ]);
     expect(events.some(event => event.delta?.stop_reason === 'end_turn')).toBe(true);
     expect(events.at(-1).type).toBe('message_stop');
     expect(usageOf(events)).toMatchObject({ input_tokens: 321, output_tokens: 87,
@@ -86,23 +88,31 @@ describe('bundled Bob CLI profile', () => {
     ]));
   });
 
-  test('allows a quiet JSON generation to finish within the full generation deadline', async () => {
-    const profile = profileFor('delayed-json');
-    // Scale the shipped deadlines together: Bob emits no JSON until completion.
-    // The former 60s silence / 180s total split would interrupt this result.
-    const ratio = profile.limits.silence_timeout_ms / profile.limits.total_timeout_ms;
-    profile.limits = { ...profile.limits, total_timeout_ms: 2_400, silence_timeout_ms: Math.round(2_400 * ratio) };
+  test('resets the silence deadline for slow chunks across a longer generation', async () => {
+    const profile = profileFor('slow-chunks');
+    expect(profile.limits).toMatchObject({ silence_timeout_ms: 180_000, total_timeout_ms: 180_000 });
+    // Three 700ms gaps each fit the silence limit; together they exceed it.
+    profile.limits = { ...profile.limits, silence_timeout_ms: 1_500, total_timeout_ms: 7_000 };
+    const started = performance.now();
     const { events, error } = await run(profile);
+    expect(performance.now() - started).toBeGreaterThan(profile.limits.silence_timeout_ms);
     expect(error).toBeUndefined();
     expect(textOf(events)).toBe('The captured evidence supports this completed briefing.');
     expect(events.at(-1).type).toBe('message_stop');
   });
 
+  test('excludes user and reasoning text even when there is no assistant answer', async () => {
+    const { events, error } = await run(profileFor('reasoning-only'));
+    expect(error).toMatchObject({ code: 'E_CLI_INCOMPLETE', completionUncertain: true });
+    expect(textOf(events)).toBe('');
+    expect(events.some(event => event.type === 'message_stop')).toBe(false);
+  });
+
   test.each(['error-result', 'error-event', 'tool-use', 'tool-result', 'tool-count'])(
-    'rejects %s before accepting answer text and keeps reported usage', async scenario => {
+    'rejects %s without certifying completion and keeps streamed text and reported usage', async scenario => {
       const { events, error } = await run(profileFor(scenario));
       expect(error).toMatchObject({ code: 'E_CLI_OUTPUT', completionUncertain: true });
-      expect(textOf(events)).toBe('');
+      expect(textOf(events)).toBe('The captured evidence supports this completed briefing.');
       expect(events.some(event => event.type === 'message_stop')).toBe(false);
       expect(usageOf(events)).toMatchObject({ input_tokens: 321, output_tokens: 87,
         provider_cost: { amount: 0.75, unit: 'Bobcoins' } });

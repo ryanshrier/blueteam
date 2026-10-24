@@ -13,6 +13,19 @@ afterEach(() => { rmSync(dir, { recursive:true, force:true }); });
 const save = (content = replay.content) => saveRejectedBrief(dir, {content,manifest:replay.manifest,validation:validate(content,replay.manifest)});
 
 describe('durable rejected briefing repair', () => {
+  test('async validation cannot overwrite an edit committed while it was running', async () => {
+    const saved = save('Original draft');
+    let finish;
+    const first = revalidateBriefDraft(dir, saved.id, { baseRevision: 1, content: 'Slow edit' },
+      () => new Promise(resolve => { finish = resolve; }));
+    const second = revalidateBriefDraft(dir, saved.id, { baseRevision: 1, content: 'Latest edit' },
+      () => ({ valid: true, issues: [], warnings: [] }));
+    finish({ valid: true, issues: [], warnings: [] });
+    await expect(first).rejects.toMatchObject({ code: 'E_DRAFT_CONFLICT' });
+    expect(readBriefDraft(dir, saved.id).revisions.at(-1).content).toBe(second.revisions.at(-1).content);
+    expect(second.revisions.at(-1).content).toBe('Latest edit');
+  });
+
   test('an explicit unchanged legacy recheck renders known IDs into one retained repair revision', () => {
     const manifest = structuredClone(replay.manifest);
     delete manifest.generationSettings?.compositionVersion;

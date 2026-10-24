@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterAll } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -342,6 +342,32 @@ describe('getEffectiveAlertRules', () => {
 });
 
 describe('writeScoringDebugLog — untrusted field hardening', () => {
+  test('rotates within private bounds in relocated state, including legacy oversized files', async () => {
+    const { resolveStateDirectory } = await import('../lib/state-paths.js');
+    const location = mkdtempSync(join(tmpdir(), 'wf-state with spaces-'));
+    const previous = process.env.BLUETEAM_STATE_DIR;
+    process.env.BLUETEAM_STATE_DIR = location;
+    try {
+      expect(resolveStateDirectory()).toBe(location);
+      const data = join(resolveStateDirectory(), 'data');
+      mkdirSync(data);
+      writeFileSync(join(data, 'scoring-debug.log'), 'x'.repeat(2000));
+      writeFileSync(join(data, 'scoring-debug.log.1'), 'x'.repeat(2000));
+      for (let i = 0; i < 20; i++) writeScoringDebugLog([{ title: `Record ${i}: ${'content '.repeat(30)}`, source: 'synthetic', score: i }], data, { maxFileBytes: 1024 });
+      const files = readdirSync(data).filter(file => file.startsWith('scoring-debug.log'));
+      expect(files.sort()).toEqual(['scoring-debug.log', 'scoring-debug.log.1', 'scoring-debug.log.2']);
+      for (const file of files) {
+        const stat = statSync(join(data, file));
+        expect(stat.size).toBeLessThanOrEqual(1024);
+        if (process.platform !== 'win32') expect(stat.mode & 0o777).toBe(0o600);
+      }
+      if (process.platform !== 'win32') expect(statSync(data).mode & 0o777).toBe(0o700);
+      expect(readFileSync(join(data, 'scoring-debug.log'), 'utf8')).toContain('Record 19');
+    } finally {
+      if (previous === undefined) delete process.env.BLUETEAM_STATE_DIR; else process.env.BLUETEAM_STATE_DIR = previous;
+      rmSync(location, { recursive: true, force: true });
+    }
+  });
   test('keeps each headline on its record and neutralizes controls and secrets', () => {
     const dir = mkdtempSync(join(tmpdir(), 'wf-scoring-log-'));
     const anthropicFixture = ['sk', 'ant', 'api03', 'abcdefghijklmnopqrstuvwxyz'].join('-');

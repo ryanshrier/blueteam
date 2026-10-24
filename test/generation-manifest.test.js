@@ -89,7 +89,9 @@ describe('generation input receipt', () => {
     const manifest = receipt({ run: { headlines: [{ title: 'sk-ant-source-secret', link: 'https://user:private@example.com/a', description: 'Source content' }, { title: 'Token link', link: 'https://example.com/a?id=42&api_key=private-token' }] } });
     expect(manifest.selectedEvidence[0].url).toBe('');
     expect(manifest.selectedEvidence[0].title).toBe('[REDACTED]');
-    expect(manifest.selectedEvidence[1].url).toContain('id=42');
+    expect(manifest.selectedEvidence[1].url).toBe('');
+    expect(manifest.selectedEvidence[1].urlDisplay).toContain('id=42');
+    expect(manifest.selectedEvidence[1].urlIdentity).toMatchObject({ redacted: true, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
     expect(JSON.stringify(manifest)).not.toMatch(/private-token|source-secret|user:private/);
   });
 });
