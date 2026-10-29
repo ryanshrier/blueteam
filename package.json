@@ -1,6 +1,6 @@
 {
   "name": "blueteam-news",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "private": true,
   "description": "BlueTeam.News — an open-source, self-hosted threat-intelligence desk for cyber defense teams.",
   "author": "Ryan Shrier",
@@ -93,6 +93,6 @@
     "minimatch": "10.2.5",
     "brace-expansion": "5.0.12",
     "ip-address": "10.7.4",
-    "qs": "6.16.0"
+    "qs": "6.16.2"
   }
 }

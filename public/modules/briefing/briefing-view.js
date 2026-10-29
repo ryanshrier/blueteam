@@ -175,6 +175,11 @@ export function generationFailureModel(payload) {
   const draft = structured && typeof payload.recoverableDraft === 'string'
     ? payload.recoverableDraft
     : '';
+  const provider = structured ? payload.providerFailure : null;
+  const providerMessage = typeof provider?.message === 'string'
+    ? provider.message.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 300) : '';
+  const providerFailure = providerMessage && ['corrective', 'generation'].includes(provider?.phase)
+    ? { phase: provider.phase, message: providerMessage } : null;
   return {
     message: structured ? (payload.message || '') : payload,
     aiDisabled: Boolean(structured && payload.aiDisabled),
@@ -187,10 +192,46 @@ export function generationFailureModel(payload) {
     outcome: structured && typeof payload.outcome === 'string' ? payload.outcome : '',
     validation: structured ? payload.validation || null : null,
     publicationDecision: structured ? payload.publicationDecision || null : null,
+    providerFailure,
   };
 }
 
-function generationFindingsHtml(failure) {
+// Compact only a saved draft with complete, readable policy groups. Older or
+// unsaved outcomes keep their full explanation visible, including recovery and
+// storage warnings that must not be mistaken for durable saved work.
+function savedDraftDecision(failure) {
+  if (!['checks-required', 'review-requested', 'draft-ready'].includes(draftOutcomePresentation(failure).kind)) return null;
+  const decision = failure.publicationDecision;
+  if (typeof failure.draftArtifact?.id !== 'string' || !failure.draftArtifact.id.trim()
+    || !decision || !['blockers', 'reviewIssues', 'notes'].every(key => Array.isArray(decision[key])
+      && decision[key].every(issue => typeof issue?.message === 'string' && issue.message.trim()))) return null;
+  const { blockers, reviewIssues, notes } = decision;
+  if (!blockers.length && !reviewIssues.length && decision.canPublish !== true) return null;
+  return { blockers, reviewIssues, notes };
+}
+
+const specificControlReview = issues => issues.length > 0 && issues.every(issue => issue.code === 'SECURITY_CONTROL_CHANGE');
+
+function savedDraftSummary(decision) {
+  const count = (amount, singular, plural = `${singular}s`) => `${amount} ${amount === 1 ? singular : plural}`;
+  return [
+    decision.blockers.length ? `${count(decision.blockers.length, 'required fix', 'required fixes')} before publication.` : 'No required fixes.',
+    decision.reviewIssues.length ? `${count(decision.reviewIssues.length, specificControlReview(decision.reviewIssues) ? 'specific control change' : 'editorial finding')} to review${decision.blockers.length ? ' after the required fixes' : ''}.` : '',
+    decision.notes.length ? `${count(decision.notes.length, 'optional note')} available below; these do not block publication.` : '',
+  ].filter(Boolean).join(' ');
+}
+
+function generationFindingsHtml(failure, savedDecision = savedDraftDecision(failure)) {
+  if (savedDecision) {
+    const groups = [
+      { key: 'required', label: 'Required fixes', items: savedDecision.blockers, open: true },
+      { key: 'review', label: specificControlReview(savedDecision.reviewIssues) ? 'Specific control review' : 'Editorial review', items: savedDecision.reviewIssues, open: !savedDecision.blockers.length,
+        description: savedDecision.blockers.length ? 'Resolve the required fixes first, then consider these editorial findings.' : '' },
+      { key: 'notes', label: 'Optional notes', items: savedDecision.notes, open: false,
+        description: 'These notes do not block publication. Consult them when useful for your editorial judgment.' },
+    ];
+    return groups.filter(group => group.items.length).map(group => `<details class="brief-review-summary" data-generation-findings="${group.key}"${group.open ? ' open' : ''}><summary>${group.label} · ${group.items.length}</summary>${group.description ? `<p>${group.description}</p>` : ''}<ul>${group.items.map(issue => `<li>${escapeHtml(issue.message)}</li>`).join('')}</ul></details>`).join('');
+  }
   const decision = failure.publicationDecision;
   const groups = decision ? [
     { label: 'Required fix', items: decision.blockers },
@@ -634,6 +675,7 @@ function setupStoreListeners() {
     } = failure;
     const draftPresentation = draftOutcomePresentation(failure);
     const msg = generationErrorMessage(failure);
+    const savedDecision = savedDraftDecision(failure);
     announce(aiDisabled ? 'AI Briefing is unavailable'
       : streamLost ? 'Connection lost — generation may still complete on the server'
       : failure.code === 'E_EVIDENCE' ? 'Briefing did not start'
@@ -686,12 +728,14 @@ function setupStoreListeners() {
       content.innerHTML = `
         <div class="${draftPresentation.neutral ? 'brief-review-summary' : 'error-message'} recoverable-draft-notice" role="${draftPresentation.neutral ? 'status' : 'alert'}">
           <strong>${escapeHtml(draftPresentation.label)}</strong>
-          <p>${escapeHtml(msg)}</p>
+          <p>${escapeHtml(savedDecision ? savedDraftSummary(savedDecision) : msg)}</p>
+          ${savedDecision && failure.providerFailure ? `<p class="recoverable-draft-provider"><strong>${failure.providerFailure.phase === 'corrective' ? 'Corrective attempt stopped' : 'Provider stopped'}:</strong> ${escapeHtml(failure.providerFailure.message)}</p>` : ''}
           <p class="recoverable-draft-caution">${escapeHtml(draftPresentation.description)}</p>
-          ${failure.draftArtifact ? '<button class="btn-primary" id="reviewDraft">Review saved draft</button>' : ''}
+          ${failure.draftArtifact ? `<button class="btn-primary" id="reviewDraft">${savedDecision?.blockers.length ? 'Fix saved draft' : 'Review saved draft'}</button>` : ''}
           ${draftPresentation.canRegenerate ? '<button class="btn-ghost" id="retryGen">Generate again</button>' : ''}
         </div>
-        ${generationFindingsHtml(failure)}
+        ${generationFindingsHtml(failure, savedDecision)}
+        ${savedDecision && msg ? `<details class="brief-review-summary" data-generation-diagnostics><summary>Generation details and provider diagnostics</summary><p>${escapeHtml(msg)}</p></details>` : ''}
         ${recoverableDraft ? `<section class="recoverable-draft" aria-label="Unpublished briefing draft">
           <p class="recoverable-draft-label brief-draft-label">Unpublished draft</p>
           ${renderDraftMarkdown(recoverableDraft)}

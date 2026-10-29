@@ -4,7 +4,7 @@
   "capturedAt": "2026-07-24T12:00:00Z",
   "application": {
     "name": "blueteam-news",
-    "version": "1.4.5",
+    "version": "1.4.6",
     "implementationSha256": {
       "prompts": "38a733d225efd654df2b70a3d77f4a46afbd7b8ca476ea179d09a5a1cd4ca831",
       "grounding": "648c3b986d5ea6bc9b328bcdbec19bf837c4ac23ef83db86927c7743cc993809",
@@ -20,8 +20,8 @@
       "brief-fact-ledger": "f7fbfcca9fe7685ba1ef5f7a5a5a13af0b2dfcf6239237e5f673630bcfc317eb",
       "brief-editorial": "a06449c3774ac26c6bd0144bae2f4475ca18525a2f19080651708d355b04993e",
       "brief-reliability": "6d5ea848345bd206713e49c94f37fcc61b366f0edeb018bb1dea69ee7c023f06",
-      "brief-coverage": "3f4326b77ea593d944e7b888f1ebd7ed85d3e5b3ec376149b2e85504dc6779bf",
-      "brief-metadata": "adbaea3d2d557bb133d658be7b7739d5d801accc916fc90639d2a2f849368112",
+      "brief-coverage": "93b940283e7dcaa9b9494cc6f04847acc0296a2949e69b1224f2f9da49fdacc3",
+      "brief-metadata": "2e624b39054404a1500a99dd29c5222eb7a6b615b5ee7dde54abafc7598fd9c7",
       "brief-assembly": "c20d2739d3265ebba16d87ed6fb14a4e96e128b046496c3497124b43259e1ab6",
       "brief-citations": "2d074d40d1e1c786f04049ccb6efce3f9fb4dc5e358624a864993d4dfb229cb8",
       "brief-composition": "93accea4ba411ee2bc3e541ff5dd58d32342a65817add6e3acbdc1dbed60c834",
@@ -46,10 +46,10 @@
       "article-extraction": "52381d83886835ca2cb68d117b2046a414397b857ec27210e3b7ca225d827ff5",
       "article-extraction-engine": "f5216afc46acb22c475115e3145871e3ec6a52d5e9c9c040a9038aad569c1f4f",
       "article-extraction-worker": "5ec6f35c3394744486b9f79570e6fd68d69a9340094a5c4590c0abd841d3b5ad",
-      "brief-validator": "6765d1e588f194e263061f39db878ec3dc832030d8973dabf11065a5b5635a5d",
-      "brief-validation-worker": "928d870ea13b13b0d28379073101d6c11e7398c7d64f95214ea90e046f3fc3bb",
+      "brief-validator": "27f27be9764987afbbec181dfa9c08ee2a832e64c0751bc44e70a7b965c59343",
+      "brief-validation-worker": "601d4ad8ae80d830d46f409eca5dc61cb586699cac89ced759156b938c3389ea",
       "brief-input-limits": "0451bfa235f7edc9c67d0b54b817b6514ce596114dd55c66d036a379e2992aa7",
-      "brief-drafts": "e57e2c134166f4e6d3ae38ceb1db072cd052227a33b44feb35ef3e5e88bca203"
+      "brief-drafts": "4a7f24b60a7772f7e4cb4e9df55212c322d853452680cb3ab8008c0eb738c8f6"
     }
   },
   "edition": {
@@ -106,6 +106,7 @@
     "maxTokens": null,
     "thinkingEffort": "off",
     "continuityDepth": 0,
+    "generationTimeoutSec": 300,
     "provider": "none"
   },
   "selectedEvidence": [
@@ -504,7 +505,7 @@
     "editions": []
   },
   "retention": {
-    "maxBytes": 4194304,
+    "maxBytes": 16777216,
     "policy": "Saved with the edition until the operator removes both files. Selected excerpts only; no full article cache or provider credentials.",
     "promptRetention": "SHA-256 of exact provider inputs and implementation files. Prompts are not retained. Rejected final drafts and these captured inputs are separately retained under the draft recovery policy."
   },

@@ -136,10 +136,28 @@ describe('bounded priority event selection', () => {
     expect(prompt).not.toContain('<system>');
     expect(prompt).toContain('accounting limit alone does not require operator review');
     expect(prompt).toContain('A valid reasoned deferral records an editorial selection decision');
-    expect(prompt).toContain('Use section "watchlist" for a watchlist bullet and "developing" for a developing-situation entry.');
+    expect(prompt).toContain('Use Watchlist for a brief monitored development and Developing situations for a qualified lead.');
     expect(prompt).toContain('You do not need to enumerate every CVE or create an action for each one');
     expect(prompt).not.toContain('Deferred events remain subject to editorial review');
     expect(formatPriorityCoverageInstructions(null)).toBe('');
+  });
+
+  test('guides visible coverage without soliciting model-authored bookkeeping', () => {
+    const prompt = formatPriorityCoverageInstructions(setup().priorityCoverage);
+    expect(prompt).toContain('Do not supply auxiliary coverage mappings, duplicate declarations or hidden JSON comments.');
+    expect(prompt).toContain('cite its captured source ID beside that discussion');
+    expect(prompt).toContain('Preserve supported factual specificity');
+    for (const template of ['"status":"covered"', '"status":"duplicate"', '"coveredBy"', '<!-- briefing-metadata']) {
+      expect(prompt).not.toContain(template);
+    }
+    const withoutRecord = validatePriorityCoverage(report(passage), setup());
+    expect(withoutRecord.issues).toEqual([]);
+    expect(withoutRecord.items[0]).toMatchObject({ basis: 'visible-citation', outcome: 'covered' });
+    const absent = validatePriorityCoverage(report('A different development.'), setup());
+    expect(absent.issues).toEqual([]);
+    expect(absent.notes.map(note => note.code)).toContain('PRIORITY_COVERAGE_MISSING');
+    expect(codes(validatePriorityCoverage(report(passage), { ...setup(), dispositions: [covered({ index: 2 })] })))
+      .toContain('PRIORITY_COVERAGE_UNSUPPORTED');
   });
 });
 

@@ -58,6 +58,7 @@ test.each([false, undefined])('unsupported or undeclared CLI reasoning drops sta
 test.each([
   ['license', 'license agreement acceptance'],
   ['gateway524', 'gateway timeout (524)'],
+  ['budget', 'provider budget or allowance was exceeded'],
 ])('CLI %s diagnosis survives the generation route and public error filter', async (kind, diagnosis) => {
   const client = createCliClient({
     version: 1, id: 'fixture-diagnostic', model: 'fixture-model', command: process.execPath,

@@ -86,17 +86,18 @@ describe('readSSEStream error classification', () => {
   });
 
   test('preserves the retained recovery artifact through the SSE error boundary', async () => {
+    const providerFailure = { phase: 'corrective', message: 'CLI reported that its provider budget or allowance was exceeded.' };
     const draftArtifact = { id: '6bd9f728-c08e-49e7-9470-39cf0a58382c', revisionCount: 1,
       url: '/api/brief/drafts/6bd9f728-c08e-49e7-9470-39cf0a58382c' };
     const reader = {
       read: jest.fn().mockResolvedValueOnce({ done: false, value: encode(`data: ${JSON.stringify({
         error: 'Required source checks failed; draft retained.', code: 'E006',
-        draft: 'The authoritative rejected attempt', draftArtifact,
+        draft: 'The authoritative rejected attempt', draftArtifact, providerFailure,
       })}\n\n`) }),
       cancel: jest.fn().mockResolvedValue(undefined),
     };
     const error = await caught(readSSEStream(responseWithReader(reader), {}));
-    expect(error).toMatchObject({ code: 'E006', recoverableDraft: 'The authoritative rejected attempt', draftArtifact });
+    expect(error).toMatchObject({ code: 'E006', recoverableDraft: 'The authoritative rejected attempt', draftArtifact, providerFailure });
     expect(error.streamLost).toBeUndefined();
     expect(reader.cancel).toHaveBeenCalledTimes(1);
   });

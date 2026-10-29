@@ -130,9 +130,16 @@ switch (scenario) {
       gateway524: 'Request failed with status code 524.',
       gateway504: 'HTTP/1.1 504 Gateway Timeout.',
       gateway: 'The upstream gateway timed out.',
+      budget: 'Budget Exceeded.',
+      allowance: "You've gone over your budget allowance of 100 Bobcoins.",
+      'styled-budget': '\x1b[31mBudget \x1b[1mExceeded\x1b[0m.',
       unknown: 'Unclassified diagnostic with a private endpoint.',
       'status-prefix': 'Request failed with status code 5240.',
       'key-prefix': 'Invalid API keyboard layout.',
+      'budget-prefix': 'Budget exceededly specified in a private label.',
+      'styled-budget-prefix': 'Budget Exceeded\x1b[0mly specified in a private label.',
+      'styled-status-prefix': 'Request failed with status code 524\x1b[0m0.',
+      'allowance-prefix': "You've gone over your budgetary allowance label.",
     };
     const bytes = Buffer.from(args[1] === 'no-newline' ? messages[args[0]].replace(/\.$/, '')
       : `raw-cli-diagnostic: ${messages[args[0]]} ${process.env.FIXTURE_CREDENTIAL}\n`);
@@ -146,6 +153,12 @@ switch (scenario) {
     if (args[1] !== 'success') process.exitCode = 1;
     break;
   }
+  case 'large-budget-stderr':
+    process.stderr.write('\x1b[31mBudget Exceeded.\x1b[0m\n');
+    process.stderr.write('untrusted-private-detail='.repeat(45_000));
+    process.stderr.write('\n<script>private endpoint and encoded unknown credential</script>\x1b]8;;https://private.example/token\x07\n');
+    process.exitCode = 1;
+    break;
   case 'empty-answer':
     emit(result('', { status: args[0] || 'success' }));
     break;

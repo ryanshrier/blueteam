@@ -235,6 +235,9 @@ describe('CLI process boundaries', () => {
     ['gateway524', 'gateway timeout (524)'],
     ['gateway504', 'gateway timeout (504)'],
     ['gateway', 'gateway timeout'],
+    ['budget', 'provider budget or allowance was exceeded'],
+    ['allowance', 'provider budget or allowance was exceeded'],
+    ['styled-budget', 'provider budget or allowance was exceeded'],
   ])('surfaces a fixed %s diagnosis without raw logs or split secrets', async (kind, diagnosis) => {
     const secret = 'fixture-東京-secret';
     const value = profile('diagnostic-stderr', { env_allow: ['FIXTURE_CREDENTIAL'] });
@@ -261,12 +264,21 @@ describe('CLI process boundaries', () => {
     }
   });
 
-  test.each(['unknown', 'status-prefix', 'key-prefix'])('withholds unrecognized %s stderr even across partial tokens', async kind => {
+  test.each(['unknown', 'status-prefix', 'key-prefix', 'budget-prefix', 'styled-budget-prefix', 'styled-status-prefix', 'allowance-prefix'])('withholds unrecognized %s stderr even across partial tokens', async kind => {
     const value = profile('diagnostic-stderr');
     value.args.push(kind);
     const { error } = await failed(createCliClient(value, { env: {} }));
     expect(error.message).toBe('CLI exited unsuccessfully (exit 1).');
     expect(error.reason).toBeUndefined();
+  });
+
+  test('keeps a budget diagnosis bounded and private despite large untrusted stderr', async () => {
+    const { error } = await failed(createCliClient(profile('large-budget-stderr'), { env: {} }));
+    expect(error).toMatchObject({ code: 'E_CLI_EXIT', completionUncertain: true });
+    expect(error.reason).toContain('provider budget or allowance was exceeded');
+    expect(error.reason).toContain('Check the provider account usage and limits');
+    expect(error.reason.length).toBeLessThan(500);
+    expect(`${error.message} ${error.reason} ${error.stack}`).not.toMatch(/untrusted-private|private\.example|<script>|encoded unknown|\x1b/);
   });
 
   test('recognizes a diagnostic ending at EOF without a newline', async () => {
@@ -276,9 +288,9 @@ describe('CLI process boundaries', () => {
     expect(error.reason).toContain('gateway timeout (524)');
   });
 
-  test('a stderr warning cannot change a verified successful result', async () => {
+  test.each(['gateway524', 'budget'])('a %s stderr warning cannot change a verified successful result', async kind => {
     const value = profile('diagnostic-stderr');
-    value.args.push('gateway524', 'success');
+    value.args.push(kind, 'success');
     const events = await collect(createCliClient(value, { env: {} }));
     expect(textOf(events)).toBe('A complete briefing from the captured evidence.');
     expect(events.at(-1).type).toBe('message_stop');

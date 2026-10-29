@@ -9,7 +9,7 @@ BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and
 ## Start, stop, and restart
 
 ```bash
-git clone --branch v1.4.5 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.6 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -72,7 +72,7 @@ New editions require the provider's terminal event and a completed stop reason, 
 
 After a browser connection fails, use **Check generation status** before starting another attempt. Recovery follows the generation ID announced for that request; an unrelated recent edition is not proof it completed. If the connection failed before an ID arrived, inspect generation status and History. Status checks make no provider call.
 
-A complete response needing factual correction or editorial review appears as a generated draft with a **Review saved draft** action. Its job remains `draft-ready` across restarts and the scheduler does not purchase another response for that edition. Open, edit, save, and recheck the draft against its captured sources without another model call. Missing or malformed hidden bookkeeping and harmless citation display differences are notes; unsupported claims, unsafe source links, contradictory dates, and required security-control reviews still prevent publication. Incomplete streams remain explicitly marked incomplete.
+A complete response needing factual correction or editorial review appears as a generated draft with a **Fix saved draft** or **Review saved draft** action. Required fixes appear first; editorial review waits until those fixes clear, and optional notes stay collapsed and do not prevent publication. Its job remains `draft-ready` across restarts and the scheduler does not purchase another response for that edition. Open, edit, save, and recheck the draft against its captured sources without another model call. An unchanged blocked draft leads to its required fixes instead of another failing publication request; edited text can be checked and published in one request. Edition-wide coverage findings can open their related captured passages directly. Missing or malformed hidden bookkeeping and harmless citation display differences are notes; unsupported claims, unsafe source links, contradictory dates, and required security-control reviews still prevent publication. Incomplete streams and provider failures remain explicitly explained.
 
 An existing reserved scheduled edition is recovered only when its receipt, completion flags, date, and timezone verify. Missing, corrupt, or mismatched artifacts return `E_SCHEDULE_INTEGRITY`; no new provider call starts and the original is preserved. Restore a known-good matching Markdown/receipt pair before retrying.
 
@@ -133,6 +133,56 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 ## Upgrade and rollback
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
+
+### From v1.4.5 to v1.4.6
+
+Test v1.4.6 separately before replacing an installed service. No SQLite schema
+migration or major dependency upgrade is included: schema 11 and the existing
+12.x `better-sqlite3` driver remain in use. SQLite replacement and other major
+upgrades remain undecided.
+
+1. Stop the service and wait for shutdown to finish. Back up the effective
+   `data/`, `briefs/` including hidden receipt and rejected-draft files,
+   `reviews/`, configuration, protected secret settings, and operator-managed
+   CLI profiles together. Respect `BLUETEAM_STATE_DIR` and
+   `BLUETEAM_CONFIG_PATH` if set.
+2. Preserve local source/configuration edits, install the `v1.4.6` release code,
+   and retain a supported Node runtime. Reinstall native dependencies if the
+   runtime or installation changes; do not copy bindings between Node majors.
+3. Merge the bundled Bob profile's `silence_timeout_ms: 120000` and
+   `total_timeout_ms: 300000` into any active operator-managed copy. Keep its
+   streaming selectors, completion/usage checks, tool restrictions and
+   `restarts: 0`. Copied profiles are not replaced automatically.
+4. Review `analysisSettings.generationTimeoutSec`. The default is now 300
+   seconds shared by the initial call and any single corrective retry;
+   an explicit existing value still overrides it. A profile's 300-second
+   invocation limit cannot extend the application's remaining deadline.
+5. Restart, run `npm run runtime:check`, and inspect health, a retained source,
+   a saved Briefing and draft repair before requesting billable generation.
+
+Generation receipts now allow 16 MiB of compact schema-1 JSON, and rejected
+draft artifacts allow 32 MiB for the receipt and bounded revision history.
+Existing indented schema-1 records remain readable. Keep the complete captured
+inputs when repairing a draft; the limits do not authorize dropping evidence.
+Older code with smaller limits cannot read every new large artifact. Rollback
+requires the prior code, runtime-compatible native dependencies, and its
+matching pre-upgrade backup; avoid writing new larger records into the rollback
+copy.
+
+Recognized Bob budget/allowance failures now surface a safe diagnosis while raw
+stderr remains private. A stopped corrective attempt retains the original draft
+and its required source findings. The error does not establish whether the
+allowance belongs to a session, key, user, team or billing period, and a new key
+does not establish a fresh allowance. Confirm the applicable provider limit
+before requesting another attempt. The finite timeout increase does not prove
+the cause of earlier silent stalls. Offline contract and workflow tests do not
+certify a funded live Bob corrective retry or successful publication.
+
+New prompts ask for visible event discussion and captured citations rather than
+auxiliary coverage/action mappings. Existing explicit mappings still receive
+their normal checks. Required factual fixes remain non-overridable; optional
+notes do not hold publication. The recovery screen prioritizes required fixes,
+opens related evidence directly and keeps provider failures visible.
 
 ### From v1.4.4 to v1.4.5
 
@@ -510,7 +560,9 @@ The offline `npm run benchmark:ranking -- --help` workflow exports blinded revie
 ## Briefing completion and delivery diagnostics
 
 The configured generation timeout bounds model work after collection and
-preflight. Collection has its own wait cap of 180 seconds, or the configured
+preflight. Its default is 300 seconds shared across the initial model call and
+any corrective retry; an explicit `analysisSettings.generationTimeoutSec` from
+30 through 600 seconds overrides it. Collection has its own wait cap of 180 seconds, or the configured
 generation timeout when smaller. Collection, preflight, provider and validation
 durations are captured in new receipts. A corrective paid attempt requires at
 least 30 seconds of remaining model time; otherwise the original draft and
@@ -522,3 +574,14 @@ scheduled draft awaiting review, failed or overdue attempt, or unresolved
 publication reconciliation needs attention even while `/live` stays healthy.
 Publication status does not establish delivery to an external notification
 destination. These checks do not send or retry notifications.
+
+Generation receipts retain up to 16 MiB of compact schema-1 JSON. Rejected
+draft artifacts retain that immutable receipt and up to eight repair revisions
+within a 32 MiB envelope. Larger evidence collections fail visibly instead of
+silently discarding passages or source identities. Worker preparation admits
+requests up to 32 MiB, with a shared 128 MiB admission budget, at most eight
+pending requests and one worker at a time. Its five-second deadline and 192 MiB
+old-generation heap bound remain in force. Only the current repair revision is
+sent to the worker; the server retains the complete history and rechecks the
+saved revision before committing. Older indented schema-1 artifacts remain
+readable, but rollback to code with smaller limits needs its matching backup.

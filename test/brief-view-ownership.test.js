@@ -735,10 +735,11 @@ test('a retained draft stays visible with findings while the prior published edi
   expect(getState().lastGeneratedBrief).toBeNull();
   expect(content.innerHTML).toContain('The authoritative retained briefing draft.');
   expect(content.innerHTML).not.toContain('Unpublished draft text');
-  expect(content.innerHTML).toContain('Draft findings · 2');
-  expect(content.innerHTML).toContain('Required fix:</strong> Check &lt;affected versions&gt;');
-  expect(content.innerHTML).toContain('Optional note:</strong> Optional heading note.');
-  expect(content.innerHTML).toContain('Review saved draft');
+  expect(content.innerHTML).toContain('Required fixes · 1');
+  expect(content.innerHTML).toContain('Check &lt;affected versions&gt;');
+  expect(content.innerHTML).toContain('Optional notes · 1');
+  expect(content.innerHTML).toContain('Optional heading note.');
+  expect(content.innerHTML).toContain('Fix saved draft');
   expect(content.innerHTML).toContain('No edition was published');
   expect(content.innerHTML).not.toContain('Generate again');
   expect(content._validatedBriefContent).toBeNull();
@@ -747,6 +748,133 @@ test('a retained draft stays visible with findings while the prior published edi
   expect(elements.get('briefSrLive').textContent).toBe('Draft generated · checks need attention');
   expect(elements.get('briefAttemptStatus').innerHTML).toContain('Saved draft · unpublished');
   expect(elements.get('briefAttemptStatus').innerHTML).toContain('data-review-draft="failed-new"');
+});
+
+test('a saved source-check outcome prioritizes fixes and keeps editorial and optional details collapsed', async () => {
+  render(element());
+  await flush();
+  setState({ isGenerating: true });
+  route('/briefing/new', { action: 'generate' });
+  setState({ isGenerating: false });
+  const blocker = 'Signal 2 version <13.1> needs captured support.';
+  const diagnosis = `Draft was not published: ${blocker} Corrective retry failed: provider budget exceeded <account>.`;
+  emit('generation-draft', { outcome: 'checks-required', code: 'E006', message: diagnosis,
+    providerFailure: { phase: 'corrective', message: 'CLI provider budget exceeded <account>.' },
+    draftArtifact: { id: 'saved-source-draft' }, recoverableDraft: 'Retained briefing prose',
+    publicationDecision: { blockers: [{ message: blocker }],
+      reviewIssues: [{ message: 'P3 needs an exact retained citation.' }], notes: [{ message: 'Optional <style> observation.' }] } });
+  const tree = parseDocument(elements.get('briefContent').innerHTML);
+  const find = key => DomUtils.findOne(node => node.attribs?.['data-generation-findings'] === key, tree.children);
+  expect(Object.hasOwn(find('required').attribs, 'open')).toBe(true);
+  expect(Object.hasOwn(find('review').attribs, 'open')).toBe(false);
+  expect(Object.hasOwn(find('notes').attribs, 'open')).toBe(false);
+  expect(DomUtils.textContent(find('notes'))).toContain('do not block publication');
+  const notice = DomUtils.findOne(node => /\brecoverable-draft-notice\b/.test(node.attribs?.class || ''), tree.children);
+  const noticeText = DomUtils.textContent(notice);
+  expect(noticeText).toContain('1 required fix before publication');
+  expect(noticeText).toContain('1 editorial finding to review after the required fixes');
+  expect(noticeText).toContain('1 optional note available below');
+  expect(noticeText).not.toContain(blocker);
+  expect(noticeText).toContain('Corrective attempt stopped: CLI provider budget exceeded <account>.');
+  const details = DomUtils.findOne(node => Object.hasOwn(node.attribs || {}, 'data-generation-diagnostics'), tree.children);
+  expect(Object.hasOwn(details.attribs, 'open')).toBe(false);
+  expect(DomUtils.textContent(details)).toContain(diagnosis);
+  expect(elements.get('briefContent').innerHTML).toContain('CLI provider budget exceeded &lt;account&gt;');
+  expect(elements.get('briefContent').innerHTML).toContain('Optional &lt;style&gt; observation.');
+  expect(elements.get('briefContent').innerHTML).not.toContain('<style>');
+  expect(elements.get('briefContent').innerHTML).not.toContain('Generate again');
+  expect(getState().currentBrief.filename).toBe(oldBrief().filename);
+  expect(elements.get('briefExport').disabled).toBe(true);
+  expect(elements.get('briefCopyLink').disabled).toBe(true);
+});
+
+test('editorial review opens when no required fix remains and optional notes stay closed', async () => {
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  emit('generation-draft', { outcome: 'review-requested', code: 'E_DRAFT_REVIEW', message: 'Specific editorial findings need a decision.',
+    draftArtifact: { id: 'editorial-draft' }, publicationDecision: { blockers: [],
+      reviewIssues: [{ message: 'Review the claimed duplicate relationship.' }], notes: [{ message: 'Optional association note.' }] } });
+  const tree = parseDocument(elements.get('briefContent').innerHTML);
+  const review = DomUtils.findOne(node => node.attribs?.['data-generation-findings'] === 'review', tree.children);
+  const notes = DomUtils.findOne(node => node.attribs?.['data-generation-findings'] === 'notes', tree.children);
+  expect(Object.hasOwn(review.attribs, 'open')).toBe(true);
+  expect(Object.hasOwn(notes.attribs, 'open')).toBe(false);
+  expect(elements.get('briefContent').innerHTML).toContain('No required fixes. 1 editorial finding to review.');
+  expect(elements.get('briefContent').innerHTML).toContain('Review saved draft');
+  expect(elements.get('briefContent').innerHTML).not.toContain('Fix saved draft');
+});
+
+test('a specific control-change review retains its scope in the compact result', async () => {
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  emit('generation-draft', { outcome: 'review-requested', code: 'E_DRAFT_REVIEW', message: 'Review the proposed security-control change.',
+    draftArtifact: { id: 'control-review-draft' }, publicationDecision: { blockers: [],
+      reviewIssues: [{ code: 'SECURITY_CONTROL_CHANGE', message: 'Review the proposed temporary control change.' }], notes: [] } });
+  const html = elements.get('briefContent').innerHTML;
+  expect(html).toContain('1 specific control change to review.');
+  expect(html).toContain('Specific control review · 1');
+  expect(html).not.toContain('1 editorial finding');
+  expect(html).not.toContain('Generate again');
+});
+
+test('an unsaved rejected draft keeps its recovery warning visible with structured findings', async () => {
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  const message = 'Draft recovery could not be saved; copy the visible draft before leaving this view.';
+  emit('generation-error', { code: 'E006', message, recoverableDraft: 'Unsaved briefing prose',
+    publicationDecision: { blockers: [{ message: 'Source version needs correction.' }], reviewIssues: [], notes: [] } });
+  const tree = parseDocument(elements.get('briefContent').innerHTML);
+  const notice = DomUtils.findOne(node => /\brecoverable-draft-notice\b/.test(node.attribs?.class || ''), tree.children);
+  expect(DomUtils.textContent(notice)).toContain(message);
+  expect(DomUtils.findOne(node => Object.hasOwn(node.attribs || {}, 'data-generation-diagnostics'), tree.children)).toBeNull();
+  expect(elements.get('briefContent').innerHTML).not.toContain('Review saved draft');
+  expect(elements.get('briefContent').innerHTML).not.toContain('Fix saved draft');
+  expect(elements.get('briefContent').innerHTML).toContain('Generate again');
+});
+
+test('an otherwise ready saved draft does not present optional notes as publication work', async () => {
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  emit('generation-draft', { outcome: 'draft-ready', code: 'E_DRAFT_REVIEW', message: 'The saved draft is ready.',
+    draftArtifact: { id: 'ready-with-notes' }, publicationDecision: { blockers: [], reviewIssues: [],
+      notes: [{ message: 'Optional source accounting note.' }], canPublish: true, requiresReview: false } });
+  const html = elements.get('briefContent').innerHTML;
+  const tree = parseDocument(html);
+  const notes = DomUtils.findOne(node => node.attribs?.['data-generation-findings'] === 'notes', tree.children);
+  expect(Object.hasOwn(notes.attribs, 'open')).toBe(false);
+  expect(html).toContain('No required fixes. 1 optional note available below; these do not block publication.');
+  expect(html).toContain('Draft saved · ready to publish');
+  expect(html).not.toContain('Fix saved draft');
+  expect(html).not.toContain('Generate again');
+  expect(getState().currentBrief.filename).toBe(oldBrief().filename);
+});
+
+test('an incomplete policy response preserves its legacy explanation instead of claiming a compact saved result', async () => {
+  window.location.pathname = '/briefing/new';
+  setState({ isGenerating: true });
+  render(element());
+  await flush();
+  setState({ isGenerating: false });
+  const message = 'Keep the original failure explanation until current findings can be confirmed.';
+  emit('generation-error', { code: 'E006', message, draftArtifact: { id: 'legacy-saved' },
+    publicationDecision: { blockers: [{ message: 'Known source finding.' }] } });
+  const tree = parseDocument(elements.get('briefContent').innerHTML);
+  const notice = DomUtils.findOne(node => /\brecoverable-draft-notice\b/.test(node.attribs?.class || ''), tree.children);
+  expect(DomUtils.textContent(notice)).toContain(message);
+  expect(DomUtils.findOne(node => Object.hasOwn(node.attribs || {}, 'data-generation-diagnostics'), tree.children)).toBeNull();
+  expect(elements.get('briefContent').innerHTML).toContain('Review saved draft');
 });
 
 test.each(['late history response', 'publication revision'])('%s cannot relabel a retained draft as the previous published edition', async refresh => {
@@ -845,13 +973,15 @@ test('an incomplete saved draft still identifies the interruption and leaves ret
   await flush();
   setState({ isGenerating: false });
   emit('generation-error', { outcome: 'incomplete', code: 'E_PROVIDER_INCOMPLETE',
-    message: 'The provider stream ended before completion.', recoverableDraft: 'Partial prose', draftArtifact: { id: 'partial-draft' } });
+    message: 'The provider stream ended before completion.', recoverableDraft: 'Partial prose', draftArtifact: { id: 'partial-draft' },
+    publicationDecision: { blockers: [{ message: 'Generation is incomplete.' }], reviewIssues: [], notes: [] } });
   const html = elements.get('briefContent').innerHTML;
   expect(elements.get('briefSrLive').textContent).toBe('Incomplete draft saved');
   expect(html).toContain('role="alert"');
   expect(html).toContain('The provider stream ended before completion.');
   expect(html).toContain('Review saved draft');
   expect(html).toContain('Generate again');
+  expect(html).not.toContain('data-generation-diagnostics');
   expect(getState().currentBrief).toBeNull();
 });
 

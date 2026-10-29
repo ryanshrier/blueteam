@@ -56,6 +56,11 @@ switch (scenario) {
   case 'nonzero':
     process.exitCode = 1;
     break;
+  case 'budget-exceeded':
+    process.stderr.write("\x1b[31mBudget Exceeded.\x1b[0m\nYou've gone over your budget allowance of 100 Bobcoins.\n");
+    process.stderr.write(`Private provider diagnostic: ${process.env.BOB_API_KEY}\n`);
+    process.exitCode = 1;
+    break;
   case 'empty-answer':
   case 'reasoning-only':
     answer = '';
@@ -67,7 +72,7 @@ switch (scenario) {
     throw new Error(`Unknown Bob fixture scenario: ${scenario}`);
 }
 
-if (scenario !== 'silent') {
+if (scenario !== 'silent' && scenario !== 'budget-exceeded') {
   if (option('--format') === 'stream-json') {
     const emit = event => process.stdout.write(`${JSON.stringify(event)}\n`);
     emit({ type: 'message', role: 'user', content: transcript });

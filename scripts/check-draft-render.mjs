@@ -173,6 +173,10 @@ async function runDraftChecks() {
 
     await make('blocked', basic + '\n\n[BLOCKED] [CONTROL]'); await open('blocked');
     check(q('.draft-review-folio').textContent.includes('fixes needed') && !q('[data-control-review]'), 'Required fixes precede specific review and cannot be waived');
+    const blockedCalls = calls.length;
+    check(q('[data-draft-publish]').textContent === 'Fix required issues', 'Known unchanged blockers lead directly to repair');
+    await act('[data-draft-publish]');
+    check(calls.length === blockedCalls && q('#draftRepairStatus').textContent.includes('No model call'), 'Unchanged blocked text is not sent through another failing publication request');
     edit(basic + '\n\n[BLOCKED] Saved unresolved repair.'); await act('[data-draft-publish]');
     check(q('.draft-review-note').textContent.includes('Draft saved · not published') && q('#draftRepair').value.includes('Saved unresolved repair.'), 'Blocked publish shows the durable saved, unpublished result');
     close();
@@ -214,6 +218,22 @@ async function runDraftChecks() {
     check(reference.open && capturedPassage.getClientRects().length > 0
       && capturedPassage.textContent.includes('CVE-2026-12345 has a CVSS v3.1 score of 9.8'), 'Matching evidence remains accessible when the phone reference panel is reopened');
     check(calls.length === beforeFinding && !q('[data-control-review]'), 'Inspecting a CVSS blocker neither submits a request nor creates an approval flow');
+    close();
+
+    const coverageDraft = await make('coverage-source', basic);
+    const coverageIssue = { code: 'PRIORITY_COVERAGE_UNSUPPORTED', severity: 'editorial',
+      message: 'P3 coverage does not resolve to visible discussion and its retained citation.',
+      location: { scope: 'document', line: 1 }, sourceIds: ['source-1'] };
+    coverageDraft.publicationDecision = { blockers: [], reviewIssues: [coverageIssue], notes: [], canPublish: false, requiresReview: true };
+    coverageDraft.revisions[0].validation = { valid: false, issues: [coverageIssue] };
+    await open('coverage-source');
+    if (!q('.draft-reference-panel').open) q('.draft-reference-panel summary').click();
+    const beforeEvidence = calls.length;
+    check(!q('[data-draft-line]') && q('[data-draft-evidence]'), 'Edition-wide coverage can open evidence without inventing a Markdown line');
+    q('[data-draft-evidence]').click();
+    check(q('.draft-reference-panel').open && q('.draft-captured-evidence').open && q('[data-draft-source="source-1"]').open
+      && !q('[data-draft-source="source-2"]').open, 'Coverage finding opens its related retained passage directly');
+    check(calls.length === beforeEvidence && !q('[name="confirmed"]').checked, 'Reading coverage evidence neither submits a request nor approves publication');
     close();
 
     await make('control', basic + '\n\n[CONTROL]'); await open('control');

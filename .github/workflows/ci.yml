@@ -181,7 +181,10 @@ jobs:
         run: npm run runtime:check
 
       - name: Run tests
-        run: npm test
+        # Integration suites start their own bounded workers. Serial Jest
+        # avoids competing worker pools on shared runners while retaining
+        # every test assertion and the production processing deadlines.
+        run: npm test -- --runInBand
 
   safari:
     name: Safari / macOS 15 Intel
