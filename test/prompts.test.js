@@ -28,6 +28,16 @@ describe('buildSystemPrompt — pack-driven brief frame + persona', () => {
     expect(p).toContain('if a blue-team lead reads only the BLUF and one signal');
   });
 
+  test('asks for a readable report instead of optional hidden coverage records', () => {
+    setDomainPack(cyberPack);
+    const prompt = buildSystemPrompt(cfg);
+    expect(prompt).toContain('Write only the reader-facing briefing.');
+    expect(prompt).toContain('Do not supply auxiliary coverage mappings, duplicate declarations, action mappings or hidden JSON comments.');
+    expect(prompt).toContain('Missing hidden metadata does not prevent publication or waive any factual source check.');
+    expect(prompt).not.toContain('<!-- briefing-metadata');
+    expect(prompt).not.toContain('"executiveActions":[],"coverage":[]');
+  });
+
   test('cyber reliability examples survive domain validation and remain in its generated prompt', () => {
     setDomainPack(cyberPack);
     const p = buildSystemPrompt(cfg);

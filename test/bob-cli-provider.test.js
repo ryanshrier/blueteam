@@ -90,7 +90,7 @@ describe('bundled Bob CLI profile', () => {
 
   test('resets the silence deadline for slow chunks across a longer generation', async () => {
     const profile = profileFor('slow-chunks');
-    expect(profile.limits).toMatchObject({ silence_timeout_ms: 180_000, total_timeout_ms: 180_000 });
+    expect(profile.limits).toMatchObject({ silence_timeout_ms: 120_000, total_timeout_ms: 300_000 });
     // Three 700ms gaps each fit the silence limit; together they exceed it.
     profile.limits = { ...profile.limits, silence_timeout_ms: 1_500, total_timeout_ms: 7_000 };
     const started = performance.now();
@@ -135,6 +135,19 @@ describe('bundled Bob CLI profile', () => {
     expect(error).toMatchObject({ code: 'E_CLI_TIMEOUT', completionUncertain: true });
     expect(error.message).toContain('silence deadline');
     expect(events.some(event => event.type === 'message_stop')).toBe(false);
+    expect(readFileSync(countPath, 'utf8')).toBe('spawn\n');
+  });
+
+  test('reports an immediate budget failure safely without assuming account scope or restarting', async () => {
+    const profile = profileFor('budget-exceeded');
+    const countPath = join(scratch(), 'launches.txt');
+    profile.env_allow.push('BOB_FIXTURE_COUNT_PATH');
+    const { events, error } = await run(profile, environment({ BOB_FIXTURE_COUNT_PATH: countPath }), { maxRetries: 2 });
+    expect(error).toMatchObject({ code: 'E_CLI_EXIT', completionUncertain: true, reason: error.message });
+    expect(error.reason).toContain('provider budget or allowance was exceeded');
+    expect(error.reason).toContain('Check the provider account usage and limits');
+    expect(error.reason).not.toMatch(/100|Bobcoins|monthly|per.key|per.team|synthetic-bob-key|Private provider|\x1b/);
+    expect(events).toEqual([]);
     expect(readFileSync(countPath, 'utf8')).toBe('spawn\n');
   });
 });

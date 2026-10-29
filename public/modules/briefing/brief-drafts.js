@@ -42,6 +42,19 @@ export function draftCheckLabel(validation = {}, decision) {
   return 'Checks unavailable';
 }
 
+export function draftPublishLabel(artifact, content) {
+  if (!artifact?.publicationDecision?.blockers?.length) return 'Publish briefing';
+  return content === artifact.revisions?.at(-1)?.content ? 'Fix required issues' : 'Check and publish';
+}
+
+export function draftRepairGuidance(decision) {
+  const count = decision?.blockers?.length || 0;
+  if (count) return `${count} required ${count === 1 ? 'fix remains' : 'fixes remain'}. Start with the affected passage; editing and rechecking use the saved evidence and do not call the model.${decision.reviewIssues?.length ? ' Editorial review follows the required fixes.' : ''}`;
+  if (decision?.requiresReview) return 'Review the listed findings against the saved evidence, then publish. Optional notes do not prevent publication.';
+  if (decision?.canPublish) return 'Ready to publish. Optional notes do not prevent publication.';
+  return 'Publish saves this text, checks it, and publishes only if the required checks pass. Save draft keeps your work unpublished.';
+}
+
 const securityOnly = issues => Array.isArray(issues) && issues.length > 0 && issues.every(issue => issue.code === 'SECURITY_CONTROL_CHANGE');
 
 export function draftReviewIssues(artifact) {
@@ -54,7 +67,7 @@ export function draftReviewIssues(artifact) {
 export function draftReviewFormHtml(issues, { changed = false } = {}) {
   if (!issues?.length) return '';
   const control = securityOnly(issues);
-  return `<form class="draft-control-review" data-control-review><h3>${control ? 'Review these security-control changes' : 'Review these editorial findings'}</h3><p>Approval applies only to ${control ? 'these changes' : 'these findings'} in the saved text below. Other publication checks still apply.</p><ul>${issues.map(issue => `<li>${escapeHtml(issue.message || '')}${!editionWideFinding(issue) && issue.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`).join('')}</ul><label>Reviewer<input name="reviewer" maxlength="200" required autocomplete="name"></label><label>${control ? 'Why is this change appropriate for this evidence and scope?' : 'Why is publication appropriate given these findings and the captured evidence?'}<textarea name="reason" maxlength="4000" required rows="3"></textarea></label><label class="draft-control-confirm"><input type="checkbox" name="confirmed" required> I reviewed these specific ${control ? 'control changes' : 'findings'} against the captured evidence.</label><p data-control-changed${changed ? '' : ' hidden'}>Your text changed. Publish to recheck it before approving ${control ? 'its control changes' : 'these findings'}.</p></form>`;
+  return `<form class="draft-control-review" data-control-review><h3>${control ? 'Review these security-control changes' : 'Review these editorial findings'}</h3><p>Approval applies only to ${control ? 'these changes' : 'these findings'} in this saved text. Other publication checks still apply.</p><details class="draft-review-scope"><summary>Findings covered by this review · ${issues.length}</summary><ul>${issues.map(issue => `<li>${escapeHtml(issue.message || '')}${!editionWideFinding(issue) && issue.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`).join('')}</ul></details><label>Reviewer<input name="reviewer" maxlength="200" required autocomplete="name"></label><label>${control ? 'Why is this change appropriate for this evidence and scope?' : 'Why is publication appropriate given these findings and the captured evidence?'}<textarea name="reason" maxlength="4000" required rows="3"></textarea></label><label class="draft-control-confirm"><input type="checkbox" name="confirmed" required> I reviewed these specific ${control ? 'control changes' : 'findings'} against the captured evidence.</label><p data-control-changed${changed ? '' : ' hidden'}>Your text changed. Publish to recheck it before approving ${control ? 'its control changes' : 'these findings'}.</p></form>`;
 }
 
 export function publicationRequest(artifact, content, review = null) {
@@ -87,7 +100,7 @@ export function draftPublicationLabel(result) {
 export function draftFindingsHtml(issues, decision) {
   const groups = decision ? [
     { label: 'Fix before publishing', items: decision.blockers || [], open: true },
-    { label: securityOnly(decision.reviewIssues) ? 'Specific control review' : 'Editorial review', items: decision.reviewIssues || [], open: true },
+    { label: securityOnly(decision.reviewIssues) ? 'Specific control review' : 'Editorial review', items: decision.reviewIssues || [], open: !decision.blockers?.length },
     { label: 'Editorial notes', items: decision.notes || [], open: false },
   ] : [{ label: 'Checks need attention', items: issues, open: true }];
   let index = 0;
@@ -96,8 +109,8 @@ export function draftFindingsHtml(issues, decision) {
     const issueIndex = index++;
     const label = `${group.label === 'Editorial notes' ? 'Editorial note · optional' : group.label}${line ? ` · Line ${line}` : ' · Edition-wide'}`;
     const summary = `${escapeHtml(issue.message || '')}<span>${label}</span>`;
-    return `<li>${line ? `<button type="button" data-draft-line="${line}" data-draft-issue="${issueIndex}">${summary}</button>` : `<div class="draft-finding-summary">${summary}</div>`}${line && issue.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`;
-  }).join('')}</ol></details>`).join('') || '<p>No required changes. Ready to publish.</p>';
+    return `<li>${line ? `<button type="button" data-draft-line="${line}" data-draft-issue="${issueIndex}">${summary}</button>` : `<div class="draft-finding-summary">${summary}</div>${issue.sourceIds?.length ? `<button type="button" data-draft-evidence="${issueIndex}">Show related captured sources</button>` : ''}`}${line && issue.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`;
+  }).join('')}</ol>${group.label === 'Editorial notes' ? '<p>Optional notes do not prevent publication.</p>' : ''}</details>`).join('') || '<p>No required changes. Ready to publish.</p>';
 }
 
 function currentEvidenceHtml(source, assessment) {
@@ -210,7 +223,7 @@ export function openDraftReview({ id = '', opener, onPublished, onSaved } = {}) 
     const wide = globalThis.matchMedia?.('(min-width: 901px)').matches ?? true;
     body.classList.add('is-reviewing');
     body.innerHTML = `<div class="draft-review-meta"><div class="draft-review-folio"><button type="button" class="btn-ghost" data-draft-list>All drafts</button><strong>${escapeHtml(artifact.editionDate || 'Unpublished draft')} · Revision ${latest.number}</strong><span>${escapeHtml(draftCheckLabel(validation, decision))}</span></div>
-      <p class="draft-review-note">${escapeHtml(note || 'Publish saves this text, checks it, and publishes only if the required checks pass. Save draft keeps your work unpublished.')}</p>
+      <p class="draft-review-note">${escapeHtml(note || draftRepairGuidance(decision))}</p>
       ${artifact.contentRedacted ? '<p class="draft-request-error">Sensitive text was redacted in the retained artifact. Review the saved inputs before repairing it.</p>' : ''}</div>
       <div class="draft-review-workspace"><div class="draft-working-document">
       <div class="draft-view-switch" role="group" aria-label="Draft working view"><button type="button" class="btn-ghost" data-draft-view="preview" aria-pressed="true">Read draft</button><button type="button" class="btn-ghost" data-draft-view="edit" aria-pressed="false">Edit Markdown</button></div>
@@ -218,13 +231,14 @@ export function openDraftReview({ id = '', opener, onPublished, onSaved } = {}) 
       <article class="draft-preview" aria-label="Unpublished draft preview" tabindex="-1">${draftPreviewHtml(value)}</article>
       </div><details class="draft-reference-panel"${wide ? ' open' : ''}><summary>Checks and saved inputs</summary><div class="draft-reference-content">
       ${draftFindingsHtml(issues, decision)}
-      ${capturedEvidenceHtml(artifact)}
       ${draftReviewFormHtml(reviewIssues, { changed: Boolean(pending) })}
+      ${capturedEvidenceHtml(artifact)}
       <details class="draft-revision-history"><summary>Saved revisions and technical details</summary><p>${artifact.operatorSavedAt ? 'Your saved work is protected from automatic recovery cleanup.' : 'Recovered attempts are retained temporarily. Save draft to keep this work.'} The original and recent saved revisions remain available.</p>${artifact.revisions.map(revision => `<details><summary>Revision ${revision.number} · ${escapeHtml(formatEventTime(revision.createdAt))}</summary><pre>${escapeHtml(revision.content)}</pre></details>`).join('')}<details><summary>Captured input receipt</summary><p>SHA-256: <code>${escapeHtml(artifact.manifestSha256 || 'Unavailable')}</code></p><pre>${escapeHtml(JSON.stringify(artifact.manifest, null, 2))}</pre></details></details>
       </div></details></div>
-      <div class="draft-repair-actions"><button type="button" class="btn-primary" data-draft-publish>Publish briefing</button><button type="button" class="btn-ghost" data-draft-save>Save draft</button><span role="status" id="draftRepairStatus">${pending ? 'Unsaved changes restored from this tab.' : `Saved ${escapeHtml(formatEventTime(artifact.lastCheck?.checkedAt || latest.createdAt) || '')} · unpublished`}</span></div>`;
+      <div class="draft-repair-actions"><button type="button" class="btn-primary" data-draft-publish>${draftPublishLabel(artifact, value)}</button><button type="button" class="btn-ghost" data-draft-save>Save draft</button><span role="status" id="draftRepairStatus">${pending ? 'Unsaved changes restored from this tab.' : `Saved ${escapeHtml(formatEventTime(artifact.lastCheck?.checkedAt || latest.createdAt) || '')} · unpublished`}</span></div>`;
     body.querySelector('#draftRepair').addEventListener('input', () => {
       remember(); body.querySelector('#draftRepairStatus').textContent = 'Unsaved changes · save or publish to keep them.';
+      body.querySelector('[data-draft-publish]').textContent = draftPublishLabel(artifact, body.querySelector('#draftRepair').value);
       const review = body.querySelector('[data-control-review]');
       if (review) {
         review.querySelector('[name="confirmed"]').checked = false;
@@ -265,6 +279,19 @@ export function openDraftReview({ id = '', opener, onPublished, onSaved } = {}) 
     const editor = body.querySelector('#draftRepair');
     const status = body.querySelector('#draftRepairStatus');
     const buttons = [...body.querySelectorAll('[data-draft-save], [data-draft-publish]')];
+    if (publish && artifact.publicationDecision?.blockers?.length && editorMatchesSaved()) {
+      const findings = body.querySelector('.draft-findings');
+      findings.open = true;
+      const target = findings.querySelector('[data-draft-line], [data-draft-evidence]');
+      if (target) target.click();
+      else {
+        body.querySelector('.draft-reference-panel').open = true;
+        findings.querySelector('summary')?.focus();
+        findings.scrollIntoView?.({ block: 'nearest' });
+      }
+      status.textContent = 'Resolve the required findings in this saved copy, then check and publish. No model call is needed.';
+      return;
+    }
     let patch;
     try {
       const form = body.querySelector('[data-control-review]');
@@ -317,6 +344,23 @@ export function openDraftReview({ id = '', opener, onPublished, onSaved } = {}) 
     if (event.target.closest('[data-draft-publish]')) void save(true);
     const view = event.target.closest('[data-draft-view]');
     if (view) setDraftView(view.dataset.draftView);
+    const evidence = event.target.closest('[data-draft-evidence]');
+    if (evidence) {
+      const policy = artifact.publicationDecision;
+      const findings = policy ? [...(policy.blockers || []), ...(policy.reviewIssues || []), ...(policy.notes || [])] : draftValidation(artifact).issues || [];
+      const finding = findings[Number(evidence.dataset.draftEvidence)];
+      if (finding?.sourceIds?.length) {
+        body.querySelector('.draft-reference-panel').open = true;
+        body.querySelector('.draft-captured-evidence').open = true;
+        let first;
+        body.querySelectorAll('[data-draft-source]').forEach(source => {
+          source.open = finding.sourceIds.includes(source.dataset.draftSource);
+          if (source.open && !first) first = source;
+        });
+        first?.scrollIntoView?.({ block: 'nearest' });
+        first?.querySelector('summary')?.focus();
+      }
+    }
     const issue = event.target.closest('[data-draft-line]');
     if (issue) {
       setDraftView('edit');

@@ -40,6 +40,7 @@ describe('config — last-known-good on rejected reload', () => {
     expect(config.analysisSettings.maxEPSSLookups).toBe(20);
     expect(config.analysisSettings.model).toBe('claude-haiku-4-5');
     expect(config.analysisSettings.thinkingEffort).toBe('low');
+    expect(config.analysisSettings.generationTimeoutSec).toBe(300);
     expect(config.analysisSettings.horizonWeights).toEqual({ horizon1: 0.45, horizon2: 0.4, horizon3: 0.15 });
     expect(config.analysisSettings.scoring.axisWeights.exploitation).toBe(0.28);
     expect(config.analysisSettings.webhook).toEqual({ url: '', format: 'slack', events: 'alerts' });
@@ -77,6 +78,12 @@ describe('config — last-known-good on rejected reload', () => {
     writeFileSync(configPath, validConfigJSON({ analysisSettings: { thinkingEffort: 'medium', maxTokens: 16000, generationTimeoutSec: 300 } }));
     initConfig(configPath);
     expect(getConfig().analysisSettings).toMatchObject({ thinkingEffort: 'medium', maxTokens: 16000, generationTimeoutSec: 300 });
+  });
+
+  test('preserves an explicit shorter generation deadline after the default increases', () => {
+    writeFileSync(configPath, validConfigJSON({ analysisSettings: { generationTimeoutSec: 120 } }));
+    initConfig(configPath);
+    expect(getConfig().analysisSettings.generationTimeoutSec).toBe(120);
   });
 
   test('accepts bounded optional unified watch defaults without replacing the legacy organization', () => {

@@ -19,7 +19,7 @@
 
 import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import express from 'express';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { CISA_KEV_CATALOG_URL, buildGroundingManifest } from '../lib/grounding.js';
@@ -1051,6 +1051,96 @@ describe('POST /api/brief — corrective retry recovery', () => {
     ]));
     expect(manifest.validation.at(-1).recovery.accepted).toBe(true);
     expect(manifest.providerAttempts).toHaveLength(2);
+  });
+
+  test('repairs an unsupported optional version without losing its judgment or unaffected coverage', async () => {
+    const firstDraft = GOOD_BRIEF.replace('The source reports a change. [Feed A, date unavailable]',
+      'The source reports a change affecting version 99.1.2. [Feed A, date unavailable]');
+    const requests = [];
+    const stream = jest.fn(async params => {
+      requests.push(params);
+      return textStream(requests.length === 1 ? firstDraft : GOOD_BRIEF)();
+    });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(stream).toHaveBeenCalledTimes(2);
+    const repairRequest = requests[1].messages.at(-1).content;
+    expect(repairRequest).toContain('version 99.1.2 is not present in its cited evidence');
+    expect(repairRequest).toContain('When an unsupported version is optional, omit only that value');
+    expect(repairRequest).toContain('retain the otherwise supported judgment, citations, applicability qualifications and complete actions');
+    expect(repairRequest).toContain('Do not replace it with a guessed version or broaden a version-dependent claim');
+    expect(events.filter(event => event.error)).toEqual([]);
+    const complete = events.find(event => event.briefComplete);
+    expect(complete.text).toBe(assembled(GOOD_BRIEF));
+    expect(complete.text).toContain('### Signal 1');
+    expect(complete.text).toContain('### Signal 2');
+    const manifest = saveBriefMock.mock.calls[0][2].manifest;
+    expect(manifest.validation[0].issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'VERSION_UNSUPPORTED' }),
+    ]));
+    expect(manifest.validation.at(-1).recovery.accepted).toBe(true);
+    expect(manifest.publicationValidation.trustFail).toBe(false);
+    expect(manifest.providerAttempts).toHaveLength(2);
+  });
+
+  test('retains the first source-blocked draft and CLI budget diagnosis when its single corrective retry fails', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'blueteam-cli-corrective-budget-'));
+    const firstDraft = GOOD_BRIEF.replace('The source reports a change. [Feed A, date unavailable]',
+      'The source reports a change affecting version 99.1.2. [Feed A, date unavailable]');
+    const diagnosis = 'CLI reported that its provider budget or allowance was exceeded. Check the provider account usage and limits before trying again.';
+    const failureMessage = `CLI exited unsuccessfully (exit 1). ${diagnosis}`;
+    const models = [];
+    const stream = jest.fn(async function* (params, options) {
+      expect(options.maxRetries).toBe(0);
+      models.push(params.model);
+      if (models.length === 1) { yield* await textStream(firstDraft)(); return; }
+      throw Object.assign(new Error(failureMessage), {
+        code: 'E_CLI_EXIT', reason: failureMessage, completionUncertain: true,
+      });
+    });
+    const rotateKey = jest.fn(() => null);
+    try {
+      ctx = await makeServer({ historyDir: directory, rotateKey, getAiClient: () => ({
+        provider: 'cli', model: 'bob-fixture', fallbackModel: 'must-not-run-fallback', stream,
+      }) });
+      const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      const blocked = events.find(event => event.code === 'E006');
+      expect(blocked).toMatchObject({ draft: assembled(firstDraft), awaitingReview: true, tokens: 300,
+        costUsd: null, validation: { trustFail: true, partial: false } });
+      expect(blocked.message).toContain(`Corrective retry failed: ${failureMessage}`);
+      expect(blocked.error).toBe(blocked.message);
+      expect(blocked.validation.warnings).toContain(`Corrective retry failed: ${failureMessage}`);
+      expect(blocked.publicationDecision.blockers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: 'VERSION_UNSUPPORTED' }),
+      ]));
+      expect(events.some(event => event.briefComplete)).toBe(false);
+      const artifactUrl = `${ctx.base}/api/brief/drafts/${blocked.draftArtifact.id}`;
+      expect(blocked.providerFailure).toEqual({ phase: 'corrective', message: expect.stringContaining(diagnosis) });
+      expect(blocked.providerFailure.message).toContain('CLI exited unsuccessfully (exit 1)');
+      expect(blocked.providerFailure.message.length).toBeLessThanOrEqual(300);
+      const artifact = await (await fetch(artifactUrl)).json();
+      expect(artifact.revisions.at(-1).content).toBe(assembled(firstDraft));
+      expect(artifact.manifest.providerAttempts).toHaveLength(2);
+      expect(artifact.manifest.providerAttempts[1]).toMatchObject({ provider: 'cli', failed: true,
+        completionUncertain: true, failureReason: failureMessage });
+      const publish = await fetch(`${artifactUrl}/publish`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          baseRevision: artifact.revisions.at(-1).number, inputSha256: artifact.manifestSha256,
+        }) });
+      expect(publish.status).toBe(422);
+      await publish.json();
+      expect((await (await fetch(artifactUrl)).json()).revisions.at(-1).content).toBe(assembled(firstDraft));
+      const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
+      expect(status.latest).toMatchObject({ status: 'draft-ready', billing: 'unknown-final-usage', costUsd: null,
+        attempts: [{ usageComplete: true }, { status: 'failed', usageComplete: false, completionUncertain: true }] });
+      expect(stream).toHaveBeenCalledTimes(2);
+      expect(models).toEqual(['bob-fixture', 'bob-fixture']);
+      expect(rotateKey).not.toHaveBeenCalled();
+      expect(saveBriefMock).not.toHaveBeenCalled();
+      expect(indexBriefMock).not.toHaveBeenCalled();
+      expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
+      expect(readdirSync(directory).filter(name => name.endsWith('.md'))).toEqual([]);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
   test('retains an ambiguous score as a note without buying a corrective generation', async () => {

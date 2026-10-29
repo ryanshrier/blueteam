@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+## 1.4.6 — 2026-10-28
+
+This patch keeps busy-day Briefing inputs recoverable, makes Bob budget failures
+actionable, and reduces the work needed to review a generated draft. Factual
+source checks and exact-copy publication approvals remain enforced.
+
+- Retain busy-day generation manifests up to 16 MiB as compact schema-1 JSON, and align draft storage and bounded worker admission without dropping captured evidence, provenance or signed citation identities.
+- Report an actionable provider budget/allowance diagnosis from recognized CLI stderr signatures while keeping arbitrary stderr and credentials private. Preserve the original rejected draft when its single corrective attempt fails.
+- Set the bundled Bob profile to 120 seconds of silence and 300 seconds total, and the shared generation default to 300 seconds. Explicit operator deadlines still apply; no automatic CLI restarts are added.
+- Clarify that corrective recovery can omit an unsupported optional version without deleting its otherwise supported judgment, citations, applicability qualifications or complete actions. Trust-level publication gates remain enforced.
+- Reduce review friction: derive coverage associations from visible discussion instead of asking the model for hidden bookkeeping, separate required fixes from collapsed optional notes, and guide unchanged blocked drafts to repair before another publication request. Keep explicit legacy mappings and factual claims subject to their existing checks.
+- Patch `qs` to 6.16.2 within its existing release line for [GHSA-6pq8-jhm2-2vcw](https://github.com/advisories/GHSA-6pq8-jhm2-2vcw).
+
+### Upgrade notes
+
+Read the [v1.4.6 upgrade procedure](docs/operations.md#from-v145-to-v146).
+SQLite stays at schema 11 with the existing 12.x driver; SQLite and other major
+dependency upgrades remain undecided. Back up complete state, configuration and
+operator-managed profiles while the service is stopped.
+
+Merge the 120-second silence and 300-second total limits into copied Bob
+profiles. The application now defaults to a shared 300-second generation budget;
+explicit configured values still win, and automatic CLI restarts remain zero.
+Larger schema-1 receipts and drafts require their matching code or a pre-upgrade
+backup when rolling back. Offline tests do not certify a funded live Bob retry
+or successful publication, and a reported allowance does not identify its
+account or billing-period scope.
+
+### Dependency audit note
+
+The full development dependency graph retains the low-severity
+[`deepmerge` advisory GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)
+in Jest's development-only dependency tree. No patched upstream version was
+available during release validation. The issue was reproduced in the dependency;
+the audit reports five affected development entries from this one advisory.
+Review found no application import or path from HTTP requests, collected sources
+or replay data; the installed use is local Jest configuration merging.
+`deepmerge` is excluded from the production dependency graph. The advisory
+remains open and disclosed; this release does not claim zero vulnerabilities
+across all development dependencies. The production graph is audited separately.
+
 ## 1.4.5 — 2026-10-24
 
 This patch keeps collection and Briefing repair responsive to hostile source

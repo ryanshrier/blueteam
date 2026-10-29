@@ -1,5 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
-import { repairRequest, publicationRequest, draftValidation, draftCheckLabel, draftPublicationLabel, rememberRepair, MAX_REPAIR_BYTES } from '../public/modules/briefing/brief-drafts.js';
+import { repairRequest, publicationRequest, draftValidation, draftCheckLabel, draftPublicationLabel, draftPublishLabel, draftRepairGuidance, draftFindingsHtml, rememberRepair, MAX_REPAIR_BYTES } from '../public/modules/briefing/brief-drafts.js';
+import { parseDocument, DomUtils } from 'htmlparser2';
 import { eligibleEdition, publicationStateLabel } from '../public/modules/briefing/briefing-view.js';
 
 describe('draft repair and publication UI boundaries', () => {
@@ -19,6 +20,34 @@ describe('draft repair and publication UI boundaries', () => {
     expect(draftCheckLabel({ valid: true, sourceCheckStatus: 'findings' })).toBe('Draft saved · checks need attention');
     expect(draftCheckLabel({})).toBe('Checks unavailable');
     expect(draftCheckLabel({}, { blockers: [{ code: 'SOURCE_UNSUPPORTED' }], requiresReview: true })).toBe('Draft saved · fixes needed before publication');
+  });
+
+  test('known unchanged blockers lead to repair while edited text can be checked and published', () => {
+    const blocked = { ...artifact, publicationDecision: { blockers: [{ code: 'VERSION_UNSUPPORTED' }], reviewIssues: [{ code: 'PRIORITY_COVERAGE_UNSUPPORTED' }], notes: [] } };
+    expect(draftPublishLabel(blocked, 'Repaired')).toBe('Fix required issues');
+    expect(draftPublishLabel(blocked, 'Edited')).toBe('Check and publish');
+    expect(draftRepairGuidance(blocked.publicationDecision)).toContain('1 required fix remains');
+    expect(draftRepairGuidance(blocked.publicationDecision)).toContain('do not call the model');
+    expect(draftRepairGuidance(blocked.publicationDecision)).toContain('Editorial review follows');
+    expect(draftPublishLabel({ ...artifact, publicationDecision: { blockers: [], canPublish: true } }, 'Repaired')).toBe('Publish briefing');
+    expect(draftPublishLabel(artifact, 'Repaired')).toBe('Publish briefing');
+  });
+
+  test('required fixes stay expanded while review and nonblocking notes wait their turn', () => {
+    const decision = { blockers: [{ code: 'VERSION_UNSUPPORTED', message: 'Signal 2 version 13.1 requires support.', location: { scope: 'paragraph', line: 9 } }],
+      reviewIssues: [{ code: 'PRIORITY_COVERAGE_UNSUPPORTED', message: 'P3 needs visible discussion.', sourceIds: ['source-3'], location: { scope: 'document', line: 1 } }],
+      notes: [{ code: 'NOTE', message: '<script>not executable</script>' }] };
+    const html = draftFindingsHtml([], decision);
+    const groups = DomUtils.findAll(node => node.name === 'details', parseDocument(html).children);
+    expect(groups).toHaveLength(3);
+    expect(Object.hasOwn(groups[0].attribs, 'open')).toBe(true);
+    expect(Object.hasOwn(groups[1].attribs, 'open')).toBe(false);
+    expect(Object.hasOwn(groups[2].attribs, 'open')).toBe(false);
+    expect(html).toContain('Optional notes do not prevent publication.');
+    expect(html).toContain('data-draft-evidence="1"');
+    expect(html).toContain('Show related captured sources');
+    expect(html).toContain('&lt;script&gt;not executable&lt;/script&gt;');
+    expect(html).not.toContain('<script>');
   });
   test('publication outcome distinguishes current, archived, and unavailable display status', () => {
     expect(draftPublicationLabel({ isCurrent: true })).toBe('Briefing published · now current in Latest and Wall');

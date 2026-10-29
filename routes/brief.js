@@ -5,6 +5,7 @@ import { randomUUID, timingSafeEqual } from 'crypto';
 import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join, resolve, sep } from 'path';
 import { getConfig, getHorizonName } from '../lib/config.js';
+import { DEFAULT_GENERATION_TIMEOUT_SEC } from '../lib/generation-limits.js';
 import { getFreshRun } from '../lib/refresher.js';
 import { briefingReadiness } from '../lib/evidence-freshness.js';
 import { scheduledBriefDelivery } from '../lib/brief-delivery.js';
@@ -160,7 +161,7 @@ export function correctiveGuidance(issues = []) {
     rules.push('Score repair: each numeric score needs the exact source citation that supplies that CVE and score in the same judgment\'s What happened field. Write one explicit pair per clause: "CVE-YYYY-NNNN: CVSS v3.1 score N.N" (use only captured values). Do not use an unassigned list of scores or "respectively". An NVD-only score requires the supplied NVD citation; a catalog listing does not supply it. Preserve metric versions and per-record provisional status. Omit any score that the cited passage does not support.');
   }
   if (codes.has('CVE_CITATION_MISMATCH') || codes.has('VERSION_UNSUPPORTED')) {
-    rules.push('Evidence repair: a source elsewhere in the input is not automatically cited support for this judgment. Cite its captured source ID (or existing complete captured URL) in this judgment\'s What happened field when its passage supports the affected CVE or version; the application supplies its publisher/date label. Check attribution and related captured sources before changing the reporting. Missing captured support does not establish that the claim is false. Use only the retained passage and captured lookup facts; a product name or article link alone does not establish an identifier or version. Do not broaden affected versions or replace a specific supported action with generic advice. If an essential claim cannot be resolved from the captured evidence, you may omit only the judgment explicitly identified by a blocking finding, removing its dependent summary claims too. Preserve every other judgment verbatim apart from Signal numbering. If the finding cannot be tied to a specific judgment, leave it for review rather than inventing a correction or deleting unrelated coverage.');
+    rules.push('Evidence repair: a source elsewhere in the input is not automatically cited support for this judgment. Cite its captured source ID (or existing complete captured URL) in this judgment\'s What happened field when its passage supports the affected CVE or version; the application supplies its publisher/date label. Check attribution and related captured sources before changing the reporting. Missing captured support does not establish that the claim is false. Use only the retained passage and captured lookup facts; a product name or article link alone does not establish an identifier or version. When an unsupported version is optional, omit only that value and retain the otherwise supported judgment, citations, applicability qualifications and complete actions. Do not replace it with a guessed version or broaden a version-dependent claim. Do not broaden affected versions or replace a specific supported action with generic advice. If an essential claim cannot be resolved from the captured evidence, you may omit only the judgment explicitly identified by a blocking finding, removing its dependent summary claims too. Preserve every other judgment verbatim apart from Signal numbering. If the finding cannot be tied to a specific judgment, leave it for review rather than inventing a correction or deleting unrelated coverage.');
   }
   if ([...codes].some(code => /KEV_DEADLINE/.test(code) && code !== 'KEV_DEADLINE_AMBIGUOUS')) {
     rules.push('Deadline repair: remove the contradicted authored federal date claim. The application renders the captured SYSTEM-DERIVED FACTS date for each named CVE in Federal remediation, with FCEB-only scope. Do not infer a default two-week deadline or substitute a recommended internal target. Keep all supported non-deadline facts intact.');
@@ -270,7 +271,7 @@ export function buildGroundTruth(run, capturedCatalog = {}) {
  * buffers chunks (partial briefing always recoverable), applies a hard
  * timeout, and propagates mid-stream errors instead of swallowing them.
  */
-export async function streamWithRecovery(client, params, { timeoutMs = 180_000, onChunk, onUsage } = {}) {
+export async function streamWithRecovery(client, params, { timeoutMs = DEFAULT_GENERATION_TIMEOUT_SEC * 1000, onChunk, onUsage } = {}) {
   let fullText = '';
   let stream;
   let iterator;
@@ -608,9 +609,10 @@ export function createBriefRouter({
   });
 
   // Real in-flight lock: the cooldown alone is a timestamp gate that
-  // only blocks a second POST for 15s, but generation runs up to 180s (360s with
-  // model fallback) — a click 16s into a generation started a fully concurrent
-  // second one, doubling spend and racing saveBrief's same-day filename counter.
+  // only blocks a second POST for 15s, but a generation can span multiple
+  // provider attempts within its shared configured deadline. A later click
+  // once started a concurrent second generation, doubling spend and racing
+  // saveBrief's same-day filename counter.
   // This flag is set for the lifetime of a generation and cleared in `finally`,
   // so overlap is impossible regardless of timing; the cooldown separately
   // debounces requests started within 15 seconds, including early failures.
@@ -848,7 +850,7 @@ export function createBriefRouter({
       jobs.start({ id: requestedGenerationId, editionDate: editionContext.date, scheduledJobKey: scheduledJob?.jobKey, phase: 'collecting' });
       generationJobId = requestedGenerationId;
       send({ generationId: generationJobId, statusUrl: '/api/brief/status' });
-      const genTimeoutMs = (s.generationTimeoutSec ?? 180) * 1000;
+      const genTimeoutMs = (s.generationTimeoutSec ?? DEFAULT_GENERATION_TIMEOUT_SEC) * 1000;
       const phaseTimingsMs = { collection: 0, preflight: 0, provider: 0, validation: 0 };
       const collectionStarted = performance.now();
       // Collection has its own bounded wait in addition to the network helpers'
@@ -1362,6 +1364,9 @@ export function createBriefRouter({
           message,
           outcome,
           publicationDecision: publishDecision,
+          providerFailure: correctiveRetryFailure
+            ? { phase: 'corrective', message: correctiveRetryFailure }
+            : result.error ? { phase: 'generation', message: safeErrorMsg(result.error) } : null,
           code,
           draft: fullBrief,
           model: modelUsed,

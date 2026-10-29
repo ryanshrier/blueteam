@@ -10,6 +10,7 @@ import {
 import { saveBrief } from '../lib/history.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { snapshotScoringConfiguration } from '../lib/scoring-snapshot.js';
+import { busyGenerationManifest } from './fixtures/busy-generation-manifest.js';
 
 const profile = { schemaVersion: 1, technologies: ['Fortinet'], sectors: ['Health'], regions: ['US'], intelligenceQuestions: ['Which versions changed?'], exclusions: [], preferredHorizons: [1], teamProfile: 'One analyst' };
 const ref = { sourceId: 'src_original', revisionId: 'rev_2', source: 'Vendor', title: 'Affected versions change', canonicalUrl: 'https://vendor.example/advisory', passageKind: 'feed-excerpt', changed: true, publishedAt: '2026-09-04T10:00:00Z', retrievedAt: '2026-09-05T10:00:00Z' };
@@ -38,7 +39,7 @@ describe('generation input receipt', () => {
     const manifest = receipt();
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.generationId).toMatch(/^[a-f0-9-]{36}$/);
-    expect(manifest.generationSettings).toMatchObject({ validationPolicyVersion: 2, thinkingEffort: 'low', maxTokens: 16000 });
+    expect(manifest.generationSettings).toMatchObject({ validationPolicyVersion: 2, thinkingEffort: 'low', maxTokens: 16000, generationTimeoutSec: 300 });
     expect(manifest.selectedEvidence[0].passage).toMatchObject({ kind: 'article-excerpts', text: 'The vendor confirmed affected versions. '.repeat(60).trim(), quality: { status: 'substantive', substantive: true, reasons: ['retained-body-detail'] } });
     expect(manifest.selectedEvidence[0].sourceRevisions).toEqual([]);
     expect(manifest.selectedEvidence[0].sourceParts.find(part => part.kind === 'article-excerpts')).toMatchObject({ sourceRevisions: [], retrievedAt: '', passageSha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
@@ -57,6 +58,11 @@ describe('generation input receipt', () => {
     changed.technologies.push('New setting after capture');
     expect(manifest.collection.watchProfile.technologies).toEqual(['Fortinet']);
     expect(manifest.promptWatchProfile.technologies).toEqual(['Juniper']);
+  });
+
+  test('records the operator generation deadline rather than substituting the default', () => {
+    const manifest = receipt({ config: { analysisSettings: { generationTimeoutSec: 120 } } });
+    expect(manifest.generationSettings.generationTimeoutSec).toBe(120);
   });
 
   test('missing historical configuration and revision references remain explicitly unknown', () => {
@@ -83,6 +89,7 @@ describe('generation input receipt', () => {
   test('bounds inputs before generation instead of silently discarding selected evidence', () => {
     expect(() => receipt({ run: { headlines: Array.from({ length: 201 }, () => ({ title: 'source' })) } })).toThrow(/retention limit/);
     expect(() => serializeGenerationManifest({ large: 'x'.repeat(MAX_GENERATION_MANIFEST_BYTES) })).toThrow(/retention limit/);
+    expect(() => serializeGenerationManifest({ large: '界'.repeat(Math.floor(MAX_GENERATION_MANIFEST_BYTES / 3)) })).toThrow(/retention limit/);
   });
 
   test('strips credential URLs and credential-shaped evidence while retaining hashes of original prompts', () => {
@@ -101,10 +108,49 @@ describe('saved receipt identity and legacy editions', () => {
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'blueteam-manifest-')); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
+  test.each([[50, true], [200, false]])('retains a dense %i-headline collection (grouped: %s) without losing evidence', (count, grouped) => {
+    const { headlines, manifest } = busyGenerationManifest({ count, grouped });
+    const serialized = serializeGenerationManifest(manifest);
+    // Both valid shapes exceeded the former four-MiB retention ceiling; 50
+    // grouped events are the normal collector maximum, 200 is receipt admission.
+    expect(Buffer.byteLength(serialized)).toBeGreaterThan(4 * 1024 * 1024);
+    expect(Buffer.byteLength(serialized)).toBeLessThan(MAX_GENERATION_MANIFEST_BYTES);
+    expect(serialized).toBe(JSON.stringify(manifest));
+    expect(serialized).not.toContain('synthetic-private-');
+    expect(manifest.selectedEvidence).toHaveLength(count);
+    expect(manifest.grounding.sources).toHaveLength(count * (grouped ? 5 : 1));
+    for (const [index, headline] of headlines.entries()) {
+      const captured = manifest.selectedEvidence[index];
+      expect(captured.sourceParts.map(part => part.kind)).toEqual(['feed-excerpt', 'article-excerpts']);
+      expect(captured.sourceParts[0].passage).toBe(headline.description);
+      expect(captured.sourceParts[0].passageSha256).toBe(sha256(headline.description));
+      expect(captured.groupMembers.map(member => member.sourceRevisions[0].revisionId))
+        .toEqual(headline.sourceMembers.map(member => member.evidence[0].revisionId));
+      expect(manifest.grounding.sources.find(source => source.id === `S${index + 1}.1`).urlIdentity)
+        .toEqual(captured.urlIdentity);
+    }
+    const filename = saveBrief(dir, '# Busy-day assessment', { date: '2026-10-28', manifest });
+    const restored = readGenerationManifest(dir, filename);
+    expect(restored.selectedEvidence).toEqual(manifest.selectedEvidence);
+    expect(restored.grounding).toEqual(manifest.grounding);
+    expect(restored.outputSha256).toBe(sha256('# Busy-day assessment'));
+  }, 15_000);
+
+  test('rejects an oversized saved receipt before parsing it', () => {
+    const filename = saveBrief(dir, '# Bounded receipt', { date: '2026-10-28', manifest: receipt() });
+    writeFileSync(join(dir, generationManifestFilename(filename)), Buffer.alloc(MAX_GENERATION_MANIFEST_BYTES + 1, 32));
+    expect(() => readGenerationManifest(dir, filename)).toThrow('Generation manifest exceeds its retention limit');
+  });
+
   test('reads a private receipt bound to the exact saved edition and detects later edits', () => {
     const manifest = receipt();
     const filename = saveBrief(dir, '# Saved assessment', { date: '2026-09-05', manifest });
-    expect(readGenerationManifest(dir, filename)).toMatchObject({ generationId: manifest.generationId, filename, outputSha256: sha256('# Saved assessment') });
+    const saved = readGenerationManifest(dir, filename);
+    expect(saved).toMatchObject({ generationId: manifest.generationId, filename, outputSha256: sha256('# Saved assessment') });
+    // Existing schema-1 receipts used indented JSON. Whitespace changes do not
+    // alter captured fields or their binding to the published reading copy.
+    writeFileSync(join(dir, generationManifestFilename(filename)), JSON.stringify(saved, null, 2) + '\n');
+    expect(readGenerationManifest(dir, filename)).toEqual(saved);
     expect(generationManifestAvailability(dir, filename)).toEqual({ status: 'available', url: `/api/brief/${filename}/manifest` });
     writeFileSync(join(dir, filename), '# Later edited assessment');
     expect(() => readGenerationManifest(dir, filename)).toThrow(/does not match/);

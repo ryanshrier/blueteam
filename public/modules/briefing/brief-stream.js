@@ -76,6 +76,7 @@ export async function readSSEStream(response, { onText, onProgress, onComplete, 
           if (data.validation) failure.validation = data.validation;
           if (data.draftArtifact?.id) failure.draftArtifact = data.draftArtifact;
           if (data.publicationDecision) failure.publicationDecision = data.publicationDecision;
+          if (data.providerFailure) failure.providerFailure = data.providerFailure;
           if (data.outcome) failure.outcome = data.outcome;
           // Publication-gate failures can carry the server's authoritative
           // unpublished draft. Keep it distinct from `accumulated`: retries
@@ -154,6 +155,7 @@ export async function startGeneration() {
           message: data.message || data.error || '', outcome: data.outcome, code: data.code || '',
           recoverableDraft: data.draft || '', draftArtifact: data.draftArtifact || null,
           validation: data.validation || null, publicationDecision: data.publicationDecision || null, generationId,
+          providerFailure: data.providerFailure || null,
         });
       },
       onComplete: (data) => {
@@ -208,6 +210,7 @@ export async function startGeneration() {
       recoverableDraft: err.recoverableDraft || '',
       validation: err.validation || null,
       publicationDecision: err.publicationDecision || null,
+      providerFailure: err.providerFailure || null,
       outcome: err.outcome || '',
       draftArtifact: err.draftArtifact || null,
       generationId,

@@ -119,6 +119,7 @@ describe('Briefing generation failure state', () => {
       streamLost: false,
       generationId: '',
       outcome: '', validation: null, publicationDecision: null,
+      providerFailure: null,
       accumulatedText: 'attempt oneattempt two',
       recoverableDraft: '# Attempt two only',
     });
@@ -130,6 +131,14 @@ describe('Briefing generation failure state', () => {
       recoverableDraft: '',
       streamLost: false,
     });
+  });
+
+  test('accepts only a bounded known-phase provider diagnosis for the result notice', () => {
+    expect(generationFailureModel({ providerFailure: { phase: 'corrective', message: 'Budget exceeded\nCheck configured allowance.' } }).providerFailure)
+      .toEqual({ phase: 'corrective', message: 'Budget exceeded Check configured allowance.' });
+    expect(generationFailureModel({ providerFailure: { phase: 'generation', message: 'x'.repeat(1000) } }).providerFailure.message).toHaveLength(300);
+    for (const providerFailure of [{ phase: 'unknown', message: 'Failure' }, { phase: 'corrective', message: {} },
+      { phase: 'generation', message: '  ' }, null]) expect(generationFailureModel({ providerFailure }).providerFailure).toBeNull();
   });
 });
 

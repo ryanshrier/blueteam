@@ -56,6 +56,38 @@ describe('bounded untrusted Briefing validation', () => {
     } finally { await validator.close(); }
   });
 
+  test('larger requests share an aggregate queue byte budget that is released after completion', async () => {
+    const validator = createBriefValidator({ maxPendingInputBytes: 150_000 });
+    const source = { padding: 'x'.repeat(100_000) };
+    const first = validator.validate('Synthetic draft', EVAL_DATE, source);
+    try {
+      await expect(validator.validate('Second draft', EVAL_DATE, source)).rejects.toThrow('queue is full');
+      await first;
+      await expect(validator.validate('Later draft', EVAL_DATE, source)).resolves.toHaveProperty('issues');
+    } finally { await validator.close(); }
+  });
+
+  test('a single over-budget request is rejected before worker admission', async () => {
+    const validator = createBriefValidator({ maxPendingInputBytes: 20_000 });
+    try {
+      await expect(validator.validate('Synthetic draft', EVAL_DATE, { padding: 'x'.repeat(30_000) }))
+        .rejects.toThrow('queue is full');
+      await expect(validator.validate('Later small draft')).resolves.toHaveProperty('issues');
+    } finally { await validator.close(); }
+  });
+
+  test('a worker preparation failure releases the aggregate admission budget', async () => {
+    const validator = createBriefValidator({ maxPendingInputBytes: 150_000 });
+    const failing = validator.prepareDraft({ artifact: { manifest: {}, revisions: [], padding: 'x'.repeat(100_000) }, submitted: 'Draft' });
+    try {
+      await expect(validator.validate('While busy', EVAL_DATE, { padding: 'x'.repeat(100_000) }))
+        .rejects.toThrow('queue is full');
+      await expect(failing).rejects.toMatchObject({ code: 'E_BRIEF_VALIDATION' });
+      await expect(validator.validate('After failure', EVAL_DATE, { padding: 'x'.repeat(100_000) }))
+        .resolves.toHaveProperty('issues');
+    } finally { await validator.close(); }
+  });
+
   test('raw-anchor stripping is linear and preserves quoted attributes and code examples', () => {
     const code = '`<a href="https://example.test">inline</a>`\n```html\n<a href="https://example.test">fenced</a>\n```';
     expect(stripRawHtmlAnchors('Before <a title="a > b">visible</a> ' + code)).toBe('Before visible ' + code);
