@@ -70,11 +70,14 @@ describe('entity-bound metric contract', () => {
     expect(codes(result)).not.toContain('EVIDENCE_ABSENCE_CONTRADICTED');
     expect(codes(audit(`${b}: CVSS 9.8.`, [headline], `**Assessment:** ${b}: no CVSS available.`))).toContain('EVIDENCE_ABSENCE_CONTRADICTED');
   });
-  test('legacy suffix versions and provisional status remain binding', () => {
+  test('legacy suffix versions remain binding and omitted provisional wording is advisory', () => {
     const headline = source(`${a}: CVSS 9.3 (CRITICAL) (v4.0) (provisional). Update the affected gateway.`);
     expect(codes(audit(`${a}: CVSS v3.1 9.3, the final score.`, [headline]))).toContain('CVE_CVSS_MISMATCH');
     expect(codes(audit(`${a}: CVSS v4.0 9.3 (provisional).`, [headline]))).not.toContain('CVE_CVSS_MISMATCH');
-    expect(codes(audit(`${a}: CVSS v4.0 9.3.`, [headline]))).toContain('CVSS_UNSUPPORTED');
+    const omitted = audit(`${a}: CVSS v4.0 9.3.`, [headline]);
+    expect(codes(omitted)).toContain('CVSS_QUALIFIER_OMITTED');
+    expect(codes(omitted)).not.toContain('CVSS_UNSUPPORTED');
+    expect(codes(audit(`${a}: CVSS v4.0 9.3 (final).`, [headline]))).toContain('CVE_CVSS_MISMATCH');
   });
   test.each([', but ', ' — '])('provisional qualification cannot cross another CVE (%s)', separator => {
     const headline = source(`${a}: CVSS v3.1 5 (provisional). ${b}: CVSS v3.1 9.8 (provisional). Update the affected gateways.`);

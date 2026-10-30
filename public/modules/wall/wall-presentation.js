@@ -134,8 +134,9 @@ export function buildGlanceModel(page = {}) {
       model.related = (page.priorities || []).filter(value => text(value).trim());
       break;
     case 'judgment': {
-      model.label = 'Key judgment';
-      model.railLabel = 'Response brief';
+      model.label = page.formatVersion === 2 ? 'Priority story' : 'Key judgment';
+      model.railLabel = page.formatVersion === 2 ? 'Story context' : 'Response brief';
+      if (page.formatVersion === 2) model.summaryLabel = 'Analysis';
       const owners = [...new Set((page.actions || []).map(action => text(action.owner).trim()).filter(Boolean))];
       fact('Response owners', owners.join(' · '));
       if (text(page.decision).trim()) {
@@ -242,7 +243,7 @@ export function topicLabel(page, doc, landscape) {
 // anchors for a held view created before a schema transition.
 export function readerFragment(page, anchors = {}) {
   if (page.kind === 'judgment') return `#judgment-${page.idx + 1}`;
-  const prefix = { execsummary: /^EXECUTIVE SUMMARY/i, developing: /^DEVELOPING/i, convergence: /^CONVERGENCE/i, watchlist: /^WATCHLIST/i }[page.kind];
+  const prefix = { execsummary: /^EXECUTIVE SUMMARY/i, developing: /^DEVELOPING/i, convergence: /^CONVERGENCE/i, watchlist: /^(?:WATCHLIST|WHAT COULD CHANGE THE PICTURE)/i }[page.kind];
   const id = Array.isArray(anchors) ? (prefix && anchors.find(item => prefix.test(item.label))?.id) : anchors[page.kind];
   return id ? `#${id}` : '';
 }
@@ -305,8 +306,8 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
       const actions = storyActions(story);
       const edited = presentation?.judgments?.find(item => item.index === idx && item.originalTitle === story.title);
       const context = edited?.summary || story.line || story.assessment || '';
-      pages.push({ kind: 'judgment', idx, topic: edited?.title || story.title, bundle: story.id || `judgment:${idx}`, part: 0, parts: 1,
-        block: { label: 'Recommended response', text: context }, actions, actionCount: actions.length,
+      pages.push({ kind: 'judgment', formatVersion: story.formatVersion, idx, topic: edited?.title || story.title, bundle: story.id || `judgment:${idx}`, part: 0, parts: 1,
+        block: { label: story.formatVersion === 2 ? 'Analysis' : 'Recommended response', text: context }, actions, actionCount: actions.length,
         decision: story.decision, editionDate: doc.date, certainty: story.confidence, citations: story.citations,
         isKEV: story.isKEV, cve: story.kevCVE, cves: topicCves(story), kevCatalogStatus: doc.kevCatalogStatus,
         coveredReports: edited?.coveredReports || [],

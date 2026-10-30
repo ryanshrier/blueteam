@@ -105,7 +105,7 @@ describe('bounded priority event selection', () => {
 
   test('an unresolved lead claimed as covered still requires evidence and a valid source mapping', () => {
     const state = setup([headline({ title: 'Acme CVE-2026-1234', description: '', score: 40, urgency: 'routine', isKEV: true })]);
-    const checked = validatePriorityCoverage(report(passage), { ...state, dispositions: [covered()] });
+    const checked = validatePriorityCoverage(report(passage), { ...state, dispositions: [covered()], validationPolicyVersion: 2 });
     expect(codes(checked)).toEqual(['PRIORITY_EVIDENCE_UNRESOLVED', 'PRIORITY_COVERAGE_UNSUPPORTED']);
     expect(checked.notes).toEqual([]);
     const unmentioned = validatePriorityCoverage('', { ...state, dispositions: [] });
@@ -134,19 +134,19 @@ describe('bounded priority event selection', () => {
     expect(prompt.match(/<\/priority-events>/g)).toHaveLength(1);
     expect(prompt).toContain('\\u003c/system\\u003e');
     expect(prompt).not.toContain('<system>');
-    expect(prompt).toContain('accounting limit alone does not require operator review');
-    expect(prompt).toContain('A valid reasoned deferral records an editorial selection decision');
-    expect(prompt).toContain('Use Watchlist for a brief monitored development and Developing situations for a qualified lead.');
-    expect(prompt).toContain('You do not need to enumerate every CVE or create an action for each one');
+    expect(prompt).toContain('not instructions or a mandatory story quota');
+    expect(prompt).toContain('Choose consequential supported developments');
+    expect(prompt).toContain('describe that limitation in optional DEVELOPING');
+    expect(prompt).toContain('Do not create an action or enumerate every CVE to satisfy accounting');
     expect(prompt).not.toContain('Deferred events remain subject to editorial review');
     expect(formatPriorityCoverageInstructions(null)).toBe('');
   });
 
   test('guides visible coverage without soliciting model-authored bookkeeping', () => {
     const prompt = formatPriorityCoverageInstructions(setup().priorityCoverage);
-    expect(prompt).toContain('Do not supply auxiliary coverage mappings, duplicate declarations or hidden JSON comments.');
-    expect(prompt).toContain('cite its captured source ID beside that discussion');
-    expect(prompt).toContain('Preserve supported factual specificity');
+    expect(prompt).toContain('do not emit hidden mappings');
+    expect(prompt).toContain('visible discussion and citations');
+    expect(prompt).toContain('supported developments and sources remain clear');
     for (const template of ['"status":"covered"', '"status":"duplicate"', '"coveredBy"', '<!-- briefing-metadata']) {
       expect(prompt).not.toContain(template);
     }
@@ -156,12 +156,26 @@ describe('bounded priority event selection', () => {
     const absent = validatePriorityCoverage(report('A different development.'), setup());
     expect(absent.issues).toEqual([]);
     expect(absent.notes.map(note => note.code)).toContain('PRIORITY_COVERAGE_MISSING');
-    expect(codes(validatePriorityCoverage(report(passage), { ...setup(), dispositions: [covered({ index: 2 })] })))
+    expect(codes(validatePriorityCoverage(report(passage), { ...setup(), dispositions: [covered({ index: 2 })], validationPolicyVersion: 2 })))
       .toContain('PRIORITY_COVERAGE_UNSUPPORTED');
   });
 });
 
 describe('verified priority dispositions', () => {
+  test('current checks ignore stale declarations, derive visible coverage, and retain an audit note', () => {
+    const stale = { ...setup(), dispositions: [covered({ index: 2 })] };
+    const before = JSON.stringify(stale);
+    const checked = validatePriorityCoverage(report(passage), stale);
+    expect(checked.issues).toEqual([]);
+    expect(checked.items[0]).toMatchObject({ basis: 'visible-citation', outcome: 'covered' });
+    expect(checked.notes.map(note => note.code)).toContain('PRIORITY_BOOKKEEPING_IGNORED');
+    expect(codes(validatePriorityCoverage(report(passage), { ...stale, validationPolicyVersion: 2 })))
+      .toContain('PRIORITY_COVERAGE_UNSUPPORTED');
+    expect(JSON.stringify(stale)).toBe(before);
+    const missing = validatePriorityCoverage(report('Unrelated reporting.'), stale);
+    expect(missing.items[0].outcome).not.toBe('covered');
+    expect(missing.notes.map(note => note.code)).toContain('PRIORITY_COVERAGE_MISSING');
+  });
   test('legacy metadata absence remains explicitly unevaluated', () => {
     expect(validatePriorityCoverage(report(passage), {})).toEqual({ status: 'unevaluated', items: [], issues: [] });
   });
@@ -206,7 +220,7 @@ describe('verified priority dispositions', () => {
     ['hidden HTML identity', report('A report was published. <span hidden>Acme Gateway CVE-2026-1234</span> [Vendor](https://vendor.example/advisories/acme?id=1#details)'), covered()],
     ['fake section inside code', '```md\n' + report(passage) + '\n```', covered()],
   ])('flags a false coverage claim: %s', (_, brief, disposition) => {
-    expect(codes(validatePriorityCoverage(brief, { ...setup(), dispositions: [disposition] }))).toEqual(['PRIORITY_COVERAGE_UNSUPPORTED']);
+    expect(codes(validatePriorityCoverage(brief, { ...setup(), dispositions: [disposition], validationPolicyVersion: 2 }))).toEqual(['PRIORITY_COVERAGE_UNSUPPORTED']);
   });
 
   test('a duplicate must directly reference a covered event and cite its own retained evidence there', () => {
@@ -217,9 +231,9 @@ describe('verified priority dispositions', () => {
     const dispositions = [covered(), { priorityId: 'P2', status: 'duplicate', coveredBy: 'P1', sourceIds: ['S2.1'], reason: 'The report concerns the same gateway exploitation response.' }];
     const both = report(`${passage} [Second Publisher](https://second.example/acme)`);
     expect(validatePriorityCoverage(both, { ...state, dispositions }).issues).toEqual([]);
-    expect(codes(validatePriorityCoverage(report(passage), { ...state, dispositions }))).toEqual(['PRIORITY_COVERAGE_UNSUPPORTED']);
+    expect(codes(validatePriorityCoverage(report(passage), { ...state, dispositions, validationPolicyVersion: 2 }))).toEqual(['PRIORITY_COVERAGE_UNSUPPORTED']);
     const circular = dispositions.map((item, index) => ({ priorityId: item.priorityId, status: 'duplicate', coveredBy: index ? 'P1' : 'P2', sourceIds: item.sourceIds, reason: 'The other event supposedly already covers this event.' }));
-    expect(codes(validatePriorityCoverage(both, { ...state, dispositions: circular }))).toEqual(['PRIORITY_COVERAGE_UNSUPPORTED', 'PRIORITY_COVERAGE_UNSUPPORTED']);
+    expect(codes(validatePriorityCoverage(both, { ...state, dispositions: circular, validationPolicyVersion: 2 }))).toEqual(['PRIORITY_COVERAGE_UNSUPPORTED', 'PRIORITY_COVERAGE_UNSUPPORTED']);
   });
 
   test('a reasoned editorial deferral is retained as a document note without a publication hold', () => {
@@ -258,7 +272,7 @@ describe('verified priority dispositions', () => {
     const checked = validatePriorityCoverage('', { ...setup(), dispositions: 'invented' });
     expect(checked.issues.every(issue => issue.severity === 'review' && PRIORITY_COVERAGE_REVIEW_CODES.includes(issue.code))).toBe(true);
     expect(checked.notes.every(note => note.severity === 'note' && PRIORITY_COVERAGE_NOTE_CODES.includes(note.code))).toBe(true);
-    expect(PRIORITY_COVERAGE_NOTE_CODES).toEqual(['PRIORITY_COVERAGE_OVERFLOW', 'PRIORITY_COVERAGE_DEFERRED', 'PRIORITY_EVIDENCE_DEFERRED', 'PRIORITY_COVERAGE_MISSING', 'PRIORITY_COVERAGE_INVALID', 'PRIORITY_COVERAGE_PARTIAL']);
+    expect(PRIORITY_COVERAGE_NOTE_CODES).toEqual(['PRIORITY_COVERAGE_OVERFLOW', 'PRIORITY_COVERAGE_DEFERRED', 'PRIORITY_EVIDENCE_DEFERRED', 'PRIORITY_COVERAGE_MISSING', 'PRIORITY_COVERAGE_INVALID', 'PRIORITY_COVERAGE_PARTIAL', 'PRIORITY_BOOKKEEPING_IGNORED']);
     expect(PRIORITY_COVERAGE_NOTE_CODES.some(code => PRIORITY_COVERAGE_REVIEW_CODES.includes(code))).toBe(false);
   });
 });
@@ -277,7 +291,7 @@ describe('retained October 21 generation — capacity does not imply missing cov
 
   test('overflow does not excuse a forged source mapping in the same retained edition', () => {
     const dispositions = fixture.dispositions.map(item => item.priorityId === 'P1' ? { ...item, sourceIds: ['S99.1'] } : item);
-    const checked = validatePriorityCoverage(fixture.brief, { ...fixture, dispositions });
+    const checked = validatePriorityCoverage(fixture.brief, { ...fixture, dispositions, validationPolicyVersion: 2 });
     expect(checked.issues).toEqual([expect.objectContaining({ code: 'PRIORITY_COVERAGE_UNSUPPORTED', severity: 'review', priorityId: 'P1' })]);
     expect(checked.notes).toHaveLength(1);
   });
@@ -351,7 +365,7 @@ describe('version 3 coverage across report entries', () => {
     const result = validatePriorityCoverage(brief, state);
     expect(result.items[0].outcome).toBe('missing');
     expect(result.issues).toEqual([]);
-    const claimed = validatePriorityCoverage(brief, { ...state, dispositions: [covered({ section: 'developing' })] });
+    const claimed = validatePriorityCoverage(brief, { ...state, dispositions: [covered({ section: 'developing' })], validationPolicyVersion: 2 });
     expect(codes(claimed)).toEqual(['PRIORITY_COVERAGE_UNSUPPORTED']);
   });
 

@@ -30,6 +30,7 @@ import { buildGenerationManifest, generationManifestFilename, sha256 } from '../
 import { createOpenAiClient } from '../lib/ai-provider.js';
 import { assembleBrief } from '../lib/brief-assembly.js';
 import { validationSourceFromManifest } from '../lib/brief-drafts.js';
+import { authoredFormatCandidate, formatEvalHeadlines } from './fixtures/brief-format-evaluation.js';
 
 // Publication persists app-composed Markdown; assertions below still inspect
 // retry counts, findings and immutable source inputs independently.
@@ -111,10 +112,12 @@ const { createBriefRouter, streamWithRecovery, safeErrorMsg, estimateCostUsd, su
 // A well-formed brief long enough to clear the 2,000-char structural floor and
 // carry every section the Wall/validator expect — reused as the "happy path"
 // scripted model output.
-const GOOD_BRIEF = `# THREAT LANDSCAPE BRIEFING
+const GOOD_BRIEF = `<!-- briefing-format: 2 -->
+
+# THREAT LANDSCAPE BRIEFING
 ### Threat Landscape Briefing · 2026-07-02 · Thursday
 
-## BLUF
+## TODAY'S PICTURE
 
 One sharp judgment about today's landscape that fits comfortably under budget.
 
@@ -126,7 +129,7 @@ One sharp judgment about today's landscape that fits comfortably under budget.
 - **Exposure:** Applicability is unknown pending inventory checks.
 - **Required decisions:** Operations — verify applicability — recommended target July 3, 2026.
 
-## KEY JUDGMENTS
+## PRIORITY STORIES
 
 ### Signal 1 — [Horizon 1] Something happened
 **Assessment:** It matters to the floor today.
@@ -456,9 +459,8 @@ describe('POST /api/brief — happy path SSE framing', () => {
     expect(complete.tokens).toBe(300);
     expect(saveBriefMock).toHaveBeenCalled();
     expect(indexBriefMock).toHaveBeenCalled();
-    expect(dispatchBriefWebhookMock.mock.calls[0][0].warnings).toEqual(expect.arrayContaining([
-      expect.stringMatching(/Brief dateline/),
-    ]));
+    expect(dispatchBriefWebhookMock.mock.calls[0][0].warnings).toEqual([]);
+    expect(dispatchBriefWebhookMock.mock.calls[0][0].judgments.every(story => story.tier === null)).toBe(true);
   });
 
   test.each(['index', 'metadata'])('a %s failure retains publication and identifies only the failing processing step', async failure => {
@@ -890,6 +892,35 @@ describe('POST /api/brief — corrective retry recovery', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
+  test('the extended budget permits two completed 580-second CLI calls and publishes the repair', async () => {
+    getConfigMock.mockReturnValue({ analysisSettings: { generationTimeoutSec: 1200 }, horizons: {}, organization: {} });
+    const realNow = Date.now.bind(Date);
+    let elapsedMs = 0;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => realNow() + elapsedMs);
+    const budgets = [];
+    const stream = jest.fn(async (_params, options) => {
+      budgets.push(options.timeout);
+      // Advance only the route's wall clock; no real delay or provider call.
+      elapsedMs += 580_000;
+      return textStream(budgets.length === 1 ? GOOD_BRIEF.replace("## TODAY'S PICTURE", '## OVERVIEW') : GOOD_BRIEF)();
+    });
+    try {
+      ctx = await makeServer({ getAiClient: () => ({ provider: 'cli', model: 'bob-fixture', stream }) });
+      const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+      expect(stream).toHaveBeenCalledTimes(2);
+      expect(budgets[0]).toBeGreaterThan(1_190_000);
+      expect(budgets[1]).toBeGreaterThan(580_000);
+      expect(budgets[1]).toBeLessThanOrEqual(620_000);
+      expect(events.some(event => event.briefComplete)).toBe(true);
+      const manifest = saveBriefMock.mock.calls[0][2].manifest;
+      expect(manifest.generationSettings.generationTimeoutSec).toBe(1200);
+      expect(manifest.providerAttempts).toHaveLength(2);
+      expect(manifest.publicationValidation.partial).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   test.each(['short-label', 'id-with-uncaptured-url'])('citation presentation is repaired without another provider attempt: %s', async style => {
     const url = 'https://example.test/captured-change';
     getFreshRunMock.mockResolvedValue({ headlines: [{ title: 'A headline', description: 'The source reports a change.',
@@ -922,7 +953,84 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(stream).toHaveBeenCalledTimes(1);
   });
 
-  test('a material review is a completed draft, with no publication or paid retry', async () => {
+  test('a control-review finding gets an automatic rewrite into an approval task and can publish', async () => {
+    const first = GOOD_BRIEF.replaceAll('verify applicability', 'disable MFA for all employees');
+    const repaired = GOOD_BRIEF.replaceAll('verify applicability', 'review the vendor request to disable MFA; keep MFA enabled until approval');
+    let calls = 0;
+    const requests = [];
+    const stream = jest.fn(params => { requests.push(params); return textStream(++calls === 1 ? first : repaired)(params); });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.some(event => event.briefComplete)).toBe(true);
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(requests[1].messages.at(-1).content).toContain('Reporting the proposal does not establish local approval');
+    expect(saveBriefMock.mock.calls[0][1]).toContain('keep MFA enabled until approval');
+    expect(saveBriefMock.mock.calls[0][2].manifest.validation.at(-1).recovery.accepted).toBe(true);
+  });
+
+  test('version 2 repairs an execution instruction into source reporting and publishes without owner or deadline fields', async () => {
+    getConfigMock.mockReturnValue({ analysisSettings: {}, horizons: {}, organization: {} });
+    getFreshRunMock.mockResolvedValue({ headlines: formatEvalHeadlines(), stats: { enriched: 6 } });
+    const repaired = authoredFormatCandidate();
+    const first = repaired.replace('The unresolved decision is whether that tradeoff fits local operating constraints and authorization.', 'Disable EDR now across all hosts.');
+    let calls = 0;
+    const requests = [];
+    const stream = jest.fn(params => { requests.push(params); return textStream(++calls === 1 ? first : repaired)(params); });
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.find(event => event.briefComplete)?.text).toContain('<!-- briefing-format: 2 -->');
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(requests[0].system).toContain('TODAY\'S PICTURE');
+    expect(requests[0].messages[0].content).not.toContain('must be written once on each action');
+    expect(requests[1].messages.at(-1).content).toContain('Do not turn it into a compulsory approval task');
+    const [,, saved] = saveBriefMock.mock.calls[0];
+    expect(saved.manifest.generationSettings.briefFormatVersion).toBe(2);
+    expect(saved.manifest.validation.at(-1).recovery.accepted).toBe(true);
+    expect(saveBriefMock.mock.calls[0][1]).not.toMatch(/Recommended actions|Decision window|recommended target/);
+  });
+
+  test('score repair publishes preserved investigation and uncertainty from an unaffected story', async () => {
+    getFreshRunMock.mockResolvedValue({ headlines: formatEvalHeadlines(), stats: { enriched: 6 } });
+    const good = authoredFormatCandidate();
+    const passage = 'That observed pivot broadens the possible investigation scope without establishing that it occurs in every intrusion.';
+    const first = good.replace('9.5', '9.9');
+    const weakened = good.replace(passage, '').replace('Local exposure is unconfirmed.', '');
+    expect(weakened).not.toContain(passage);
+    let calls = 0;
+    const stream = jest.fn(params => textStream(++calls === 1 ? first : weakened)(params));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(complete?.text).toContain(passage);
+    expect(complete.text).toContain('Local exposure is unconfirmed.');
+    expect(complete.text).not.toContain('9.9');
+    expect(stream).toHaveBeenCalledTimes(2);
+    const manifest = saveBriefMock.mock.calls[0][2].manifest;
+    expect(manifest.validation.at(-1).storyPreservation).toMatchObject({ restoredStories: [1], editedStories: [2] });
+    expect(manifest.validation.at(-1).recovery.accepted).toBe(true);
+    expect(dispatchBriefWebhookMock.mock.calls[0][0]).toMatchObject({warnings:[],judgments:expect.arrayContaining([expect.objectContaining({tier:null})])});
+  });
+
+  test('a missing provisional label is repaired and recorded without a corrective model call', async () => {
+    const cve = 'CVE-2026-12345';
+    getFreshRunMock.mockResolvedValue({ headlines: [{ title: `${cve} gateway advisory`, source: 'Feed A',
+      description: `${cve} affects the gateway. Administrators should verify deployment and follow captured vendor guidance.`,
+      link: 'https://example.test/gateway', date: '2026-07-01', horizon: 1,
+      cveData: `${cve}: CVSS v4.0 9.5 (Secondary assessment) (provisional)`,
+      cvssMetrics: [{ cve, score: 9.5, version: '4.0', type: 'Secondary', provisional: true, selected: true }] }], stats: { enriched: 1 } });
+    const text = GOOD_BRIEF.replaceAll('The source reports a change. [Feed A, date unavailable]',
+      `${cve}: CVSS v4.0 9.5 (Secondary assessment). [NVD-${cve}] The gateway needs applicability review. [S1.1]`);
+    const stream = jest.fn(textStream(text));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(events.find(event => event.briefComplete)?.text).toContain('9.5 (provisional) (Secondary assessment)');
+    expect(stream).toHaveBeenCalledTimes(1);
+    const repairs = saveBriefMock.mock.calls[0][2].manifest.validation.flatMap(check => check.automaticRepairs || []);
+    expect(repairs).toHaveLength(2);
+    expect(repairs.every(repair => repair.kind === 'add-provisional-qualifier')).toBe(true);
+  });
+
+  test('an unresolved material review remains a saved draft after one automatic repair', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'blueteam-review-ready-'));
     try {
       const text = GOOD_BRIEF.replaceAll('verify applicability', 'turn off MFA for all employees');
@@ -933,13 +1041,13 @@ describe('POST /api/brief — corrective retry recovery', () => {
       expect(saved).toMatchObject({ code: 'E_DRAFT_REVIEW', awaitingReview: true,
         publicationDecision: { blockers: [], requiresReview: true, canPublish: false },
         validation: { partial: false }, draftArtifact: { id: expect.any(String) } });
-      expect(stream).toHaveBeenCalledTimes(1);
+      expect(stream).toHaveBeenCalledTimes(2);
       expect(saveBriefMock).not.toHaveBeenCalled();
       expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
       expect(events.some(event => event.briefComplete)).toBe(false);
       const status = await (await fetch(`${ctx.base}/api/brief/status`)).json();
       expect(status).toMatchObject({ active: false, latest: { status: 'draft-ready', code: 'E_DRAFT_REVIEW',
-        attempts: [{ status: 'complete', usageComplete: true }] } });
+        attempts: [{ status: 'complete', usageComplete: true }, { status: 'complete', usageComplete: true }] } });
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
@@ -948,13 +1056,13 @@ describe('POST /api/brief — corrective retry recovery', () => {
     const stream = jest.fn(async params => {
       requests.push(structuredClone(params));
       return textStream(requests.length === 1
-        ? `${GOOD_BRIEF.replace('## BLUF', '## OVERVIEW')}\n<!-- briefing-metadata {broken} -->`
+        ? `${GOOD_BRIEF.replace("## TODAY'S PICTURE", '## OVERVIEW')}\n<!-- briefing-metadata {broken} -->`
         : GOOD_BRIEF)();
     });
     ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
     expect(stream).toHaveBeenCalledTimes(2);
-    expect(requests[1].messages.at(-1).content).toContain('Located blocking findings:');
+    expect(requests[1].messages.at(-1).content).toContain('Located findings requiring repair:');
     expect(requests[1].messages.at(-1).content).not.toMatch(/BRIEF_METADATA_INVALID|bookkeeping was ignored/);
     expect(events.some(event => event.briefComplete)).toBe(true);
   });
@@ -965,7 +1073,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
     const requests = [];
     const stream = jest.fn(async params => {
       requests.push(structuredClone(params));
-      return textStream((requests.length === 1 ? GOOD_BRIEF.replace('## BLUF', '## OVERVIEW') : GOOD_BRIEF) + envelope)();
+      return textStream((requests.length === 1 ? GOOD_BRIEF.replace("## TODAY'S PICTURE", '## OVERVIEW') : GOOD_BRIEF) + envelope)();
     });
     ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
@@ -979,7 +1087,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
     const directory = mkdtempSync(join(tmpdir(), 'blueteam-retry-budget-'));
     try {
       getConfigMock.mockReturnValue({ analysisSettings: { generationTimeoutSec: 10 }, horizons: {}, organization: {} });
-      const original = GOOD_BRIEF.replace('## BLUF', '## OVERVIEW');
+      const original = GOOD_BRIEF.replace("## TODAY'S PICTURE", '## OVERVIEW');
       const stream = jest.fn(textStream(original));
       ctx = await makeServer({ historyDir: directory, getAnthropic: () => fakeAnthropic(stream) });
       const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
@@ -1027,7 +1135,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
       expect.objectContaining({
         scheduled: false,
         manifest: expect.objectContaining({
-          publicationValidation: expect.objectContaining({ validationPolicyVersion: 2, hardFail: false, trustFail: false, partial: false }),
+          publicationValidation: expect.objectContaining({ validationPolicyVersion: 4, hardFail: false, trustFail: false, partial: false }),
         }),
       }),
     );
@@ -1044,7 +1152,10 @@ describe('POST /api/brief — corrective retry recovery', () => {
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
     expect(stream).toHaveBeenCalledTimes(2);
     expect(events.filter(event => event.error)).toEqual([]);
-    expect(events.find(event => event.briefComplete)?.text).toBe(assembled(correctedDraft));
+    const published = events.find(event => event.briefComplete)?.text;
+    expect(published).not.toContain('99.1.2');
+    expect(published.match(/^### Signal/gm)).toHaveLength(1);
+    expect(published).toContain('Something else happened');
     const manifest = saveBriefMock.mock.calls[0][2].manifest;
     expect(manifest.validation[0].issues).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'VERSION_UNSUPPORTED' }),
@@ -1066,9 +1177,9 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(stream).toHaveBeenCalledTimes(2);
     const repairRequest = requests[1].messages.at(-1).content;
     expect(repairRequest).toContain('version 99.1.2 is not present in its cited evidence');
-    expect(repairRequest).toContain('When an unsupported version is optional, omit only that value');
-    expect(repairRequest).toContain('retain the otherwise supported judgment, citations, applicability qualifications and complete actions');
-    expect(repairRequest).toContain('Do not replace it with a guessed version or broaden a version-dependent claim');
+    expect(repairRequest).toContain('Omit an optional unsupported detail');
+    expect(repairRequest).toContain('preserve unaffected stories, uncertainty and source-backed response conditions');
+    expect(repairRequest).toContain('Do not substitute a guessed identifier or version, broaden an affected scope');
     expect(events.filter(event => event.error)).toEqual([]);
     const complete = events.find(event => event.briefComplete);
     expect(complete.text).toBe(assembled(GOOD_BRIEF));
@@ -1156,13 +1267,13 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(events.filter(event => event.error)).toEqual([]);
     expect(events.find(event => event.briefComplete)?.text).toBe(assembled(draft));
     expect(saveBriefMock.mock.calls[0][2].manifest.publicationValidation).toMatchObject({
-      validationPolicyVersion: 2, hardFail: false, trustFail: false,
+      validationPolicyVersion: 4, hardFail: false, trustFail: false,
       issues: expect.arrayContaining([expect.objectContaining({ code: 'CVE_CVSS_AMBIGUOUS' })]),
     });
   });
 
   test('returns but never publishes the first invalid draft when its corrective retry is interrupted', async () => {
-    const firstDraft = GOOD_BRIEF.replace('## BLUF', '## OVERVIEW');
+    const firstDraft = GOOD_BRIEF.replace("## TODAY'S PICTURE", '## OVERVIEW');
     let calls = 0;
     const anthropic = {
       messages: {
@@ -1199,7 +1310,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(dispatchBriefWebhookMock).not.toHaveBeenCalled();
   });
 
-  test.each(['new finding', 'removed judgment', 'incomplete replacement'])('retains the original draft when recovery causes %s', async failure => {
+  test.each(['new finding', 'removed judgment', 'incomplete replacement'])('preserves original reporting when recovery causes %s', async failure => {
     const original = GOOD_BRIEF + '\nCVE-2099-99999 is affected.';
     const candidate = failure === 'new finding'
       ? GOOD_BRIEF.replaceAll('[Feed A, date unavailable]', '')
@@ -1217,6 +1328,16 @@ describe('POST /api/brief — corrective retry recovery', () => {
     const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
     const blocked = events.find(event => event.code === 'E006');
     expect(stream).toHaveBeenCalledTimes(2);
+    if (failure !== 'incomplete replacement') {
+      const complete = events.find(event => event.briefComplete);
+      expect(complete).toBeDefined();
+      expect(complete.text).not.toContain('CVE-2099-99999');
+      expect(complete.text).toContain('Something else happened');
+      expect(complete.text.match(/\[Feed A, date unavailable\]/g)).toHaveLength(2);
+      expect(saveBriefMock.mock.calls[0][2].manifest.validation.at(-1).storyPreservation.restoredStories.length).toBeGreaterThan(0);
+      expect(dispatchBriefWebhookMock).toHaveBeenCalledTimes(1);
+      return;
+    }
     expect(blocked).toMatchObject({ draft: assembled(original), tokens: 600 });
     expect(blocked.validation.warnings).toContain('Ungrounded CVE(s) in no source headline: CVE-2099-99999');
     expect(requests[1].messages.at(-1).content).toContain('Repair only the identified passages');
@@ -1273,6 +1394,31 @@ describe('POST /api/brief — corrective retry recovery', () => {
 describe('POST /api/brief — output-token publication gate', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
+
+  test.each([
+    '- The vendor publishes a revised advisory. [Feed A, date unavailable]',
+    'No additional source-supported watch trigger is established by the current retained evidence.',
+  ])('output-limit recovery permits a supported Watchlist below the editorial quota: %s', async watchlist => {
+    const completed = GOOD_BRIEF.replace(/## WATCHLIST[^\n]*\n[\s\S]*$/, `## WATCHLIST — NEXT 72 HOURS\n\n${watchlist}\n`);
+    const requests = [];
+    const anthropic = fakeAnthropic(async params => {
+      requests.push(JSON.parse(JSON.stringify(params)));
+      return requests.length === 1
+        ? textStream(GOOD_BRIEF, { stopReason: 'max_tokens' })()
+        : textStream(completed)();
+    });
+    ctx = await makeServer({ getAnthropic: () => anthropic });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    expect(requests).toHaveLength(2);
+    const recovery = requests[1].messages.at(-1).content.split('RECOVERY INSTRUCTION:')[1];
+    expect(recovery).toContain('Omit optional Developing or What could change the picture sections');
+    expect(recovery).toContain('if they add no supported information');
+    expect(recovery).not.toMatch(/\d+[–-]\d+ complete Watchlist bullets/);
+    expect(recovery).toContain('without dropping material qualifications or response obligations');
+    expect(events.find(event => event.briefComplete)?.text).toBe(assembled(completed));
+    expect(events.some(event => event.code === 'E_PARTIAL_GENERATION')).toBe(false);
+    expect(saveBriefMock).toHaveBeenCalledTimes(1);
+  });
 
   test('recovers a structurally complete max-token response once at lower thinking effort', async () => {
     let calls = 0;
@@ -1368,25 +1514,41 @@ describe('POST /api/brief — grounding publication gate', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
-  test('convergence recovery requires citations in the failed field or explicit omission of unsupported analysis', () => {
-    const guidance = correctiveGuidance([{ code: 'CONVERGENCE_EVIDENCE_WEAK' }]);
-    expect(guidance).toContain('cite both substantive sources in **The intersection:** using their captured source IDs');
-    expect(guidance).toContain('Do not attach citations to a mechanism they do not establish');
-    expect(guidance).toContain('No supported intersection is established');
-    expect(guidance).not.toContain('Score repair');
-    expect(correctiveGuidance([])).toBe('');
+  test('repair keeps the single analytical format and does not require a convergence template', () => {
+    const guidance = correctiveGuidance([{ code: 'NARRATIVE_SECTION_INVALID' }]);
+    expect(guidance).toContain('PRIORITY STORIES');
+    expect(guidance).toContain('Optional sections may be omitted');
+    expect(guidance).not.toContain('**The intersection:**');
   });
 
   test('evidence recovery distinguishes identity binding from missing source attribution', () => {
     const guidance = correctiveGuidance([{ code: 'CVE_CVSS_AMBIGUOUS' }, { code: 'CVE_CITATION_MISMATCH' }]);
     expect(guidance).toContain('one explicit pair per clause');
     expect(guidance).toContain('An NVD-only score requires the supplied NVD citation');
-    expect(guidance).toContain("Cite its captured source ID (or existing complete captured URL) in this judgment's What happened field");
-    expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Do not broaden affected versions');
-    expect(correctiveGuidance([{ code: 'VERSION_UNSUPPORTED' }])).toContain('Missing captured support does not establish that the claim is false');
-    expect(guidance).toContain('omit only the judgment explicitly identified by a blocking finding');
-    expect(guidance).toContain('Preserve every other judgment verbatim apart from Signal numbering');
+    expect(guidance).toContain('cite supporting source IDs within this story');
+    expect(guidance).toContain('Missing captured support does not establish that the claim is false');
+    expect(guidance).toContain('omit only the story explicitly identified by a blocking finding');
+    expect(guidance).toContain('Keep every unaffected story verbatim');
+    expect(guidance).toContain('Repair other located findings in the same pass');
   });
+
+  test('score recovery preserves captured qualifiers without adding fields', () => {
+    const guidance = correctiveGuidance([{ code: 'CVSS_UNSUPPORTED' }]);
+    expect(guidance).toContain('version, assessor and Primary/Secondary assessment type verbatim');
+    expect(guidance).toContain('Put provisional beside each provisional score');
+    expect(guidance).toContain('Do not combine the value from one assessment with qualifiers from another');
+    expect(guidance).toContain('one ID per bracket');
+    expect(guidance).toContain('or invent missing qualifiers');
+  });
+
+  test.each(['CVE_CITATION_MISMATCH', 'SUPPORTING_SECTION_PROVENANCE_REQUIRED'])(
+    'citation recovery stays with the narrative claim for %s', code => {
+      const guidance = correctiveGuidance([{ code }]);
+      expect(guidance).toContain('[S1.1] [S2.1], one ID per bracket');
+      expect(guidance).toContain('copy each ID exactly, including any NVD-CVE prefix');
+      expect(guidance).toContain('within this story or optional section');
+      expect(guidance).not.toContain('What happened field');
+    });
 
   test('records an unpaid failure for an all-title-only collection, even with catalog membership', async () => {
     getFreshRunMock.mockResolvedValue({ headlines: Array.from({ length: 5 }, (_, i) => ({ title: `Advisory CVE-2026-${10000 + i}`, source: `Feed ${i}`, horizon: 1, isKEV: true, kevCVE: `CVE-2026-${10000 + i}` })), stats: { enriched: 5 } });
@@ -1443,7 +1605,7 @@ describe('POST /api/brief — grounding publication gate', () => {
     }
   });
 
-  test('source IDs and per-CVE federal dates are rendered from the captured snapshot without a corrective attempt', async () => {
+  test('source IDs are rendered and optional federal dates remain captured without forced fields', async () => {
     const cves = ['CVE-2026-83548', 'CVE-2026-83549'];
     getKEVSetMock.mockReturnValue(new Set(cves));
     getKEVDueDatesMock.mockReturnValue({
@@ -1465,12 +1627,12 @@ describe('POST /api/brief — grounding publication gate', () => {
     const complete = events.find(event => event.briefComplete);
     expect(complete).toBeDefined();
     expect(stream).toHaveBeenCalledTimes(1);
-    expect(complete.text).toContain('**Required decisions:** Operations — verify applicability');
+    expect(complete.text).not.toContain('**Required decisions:**');
     expect(complete.text).toContain('[Feed A, date unavailable]');
     expect(complete.text).not.toContain('[S1.1]');
-    expect(complete.text).toContain('**Federal remediation:**');
-    expect(complete.text).toContain(`${cves[0]}: FCEB remediation due 2026-07-15`);
-    expect(complete.text).toContain(`${cves[1]}: FCEB remediation due 2026-07-22`);
+    expect(complete.text).not.toContain('**Federal remediation:**');
+    expect(saveBriefMock.mock.calls[0][2].manifest.verification.kevTiming[cves[0]].dueDate).toBe('2026-07-15');
+    expect(saveBriefMock.mock.calls[0][2].manifest.verification.kevTiming[cves[1]].dueDate).toBe('2026-07-22');
     expect(complete.text).toContain('recommended target July 3, 2026');
     expect(complete.text).not.toContain('2099-01-01');
     expect(saveBriefMock.mock.calls[0][2].manifest.generationSettings.compositionVersion).toBe(1);

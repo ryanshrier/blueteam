@@ -90,7 +90,7 @@ describe('bundled Bob CLI profile', () => {
 
   test('resets the silence deadline for slow chunks across a longer generation', async () => {
     const profile = profileFor('slow-chunks');
-    expect(profile.limits).toMatchObject({ silence_timeout_ms: 120_000, total_timeout_ms: 300_000 });
+    expect(profile.limits).toMatchObject({ silence_timeout_ms: 240_000, total_timeout_ms: 580_000 });
     // Three 700ms gaps each fit the silence limit; together they exceed it.
     profile.limits = { ...profile.limits, silence_timeout_ms: 1_500, total_timeout_ms: 7_000 };
     const started = performance.now();

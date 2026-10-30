@@ -8,6 +8,7 @@ import {
   stopDailyBriefSchedule,
   waitForDailyBriefIdle,
 } from '../lib/brief-scheduler.js';
+import { briefRequestTimeoutMs } from '../lib/brief-lifecycle.js';
 
 afterEach(() => _resetBriefScheduleForTests());
 
@@ -47,23 +48,61 @@ describe('dailyBriefDelay', () => {
 });
 
 describe('startDailyBriefSchedule', () => {
-  test('a retained draft stops same-day retries across restart and permits the next daily edition', async () => {
+  test('yesterday’s saved draft cannot turn today’s missing-key wait into reconciliation of the wrong edition', async () => {
+    const callbacks = [];
+    const state = stateHarness({ scheduleDate: '2026-09-05', attempts: 1, outcome: 'awaiting-review', draftId: 'yesterday' });
+    const isReady = jest.fn().mockReturnValueOnce(false).mockReturnValue(true);
+    const generateBrief = jest.fn().mockResolvedValue({ filename: 'brief-2026-09-06-00.md' });
+    startDailyBriefSchedule({ generateBrief, isReady, getScheduleConfig: () => ({ ...ENABLED, timezone: 'UTC' }),
+      now: () => new Date('2026-09-06T08:00:00Z'), getState: state.getState, setState: state.setState,
+      getLegacyLastSuccessDate: () => null, setLegacyLastSuccessDate: () => {},
+      setTimeoutFn: fn => { callbacks.push(fn); return callbacks.length; }, clearTimeoutFn: () => {}, logger: { info: jest.fn(), error: jest.fn() } });
+    await callbacks.at(-1)();
+    expect(state.state).toMatchObject({ outcome: 'waiting-for-key', scheduleDate: '2026-09-06', attempts: 0, draftId: null });
+    await callbacks.at(-1)();
+    expect(generateBrief).toHaveBeenCalledWith({ jobKey: 'daily-brief:2026-09-06', editionDate: '2026-09-06', timezone: 'UTC' });
+    expect(state.state).toMatchObject({ outcome: 'success', attempts: 1, lastSuccessDate: '2026-09-06' });
+  });
+  test('rechecks even without a provider key or paid attempts left; errors never authorize new spend', async () => {
+    const callbacks = [];
+    const state = stateHarness({ scheduleDate: '2026-09-05', attempts: 3, outcome: 'awaiting-review', draftId: 'retained' });
+    const generateBrief = jest.fn().mockRejectedValueOnce(new Error('Worker unavailable')).mockResolvedValueOnce({ filename: 'brief-2026-09-05-00.md' });
+    const isReady = jest.fn(() => false);
+    startDailyBriefSchedule({ generateBrief, isReady, getScheduleConfig: () => ({ ...ENABLED, timezone: 'UTC' }),
+      now: () => new Date('2026-09-05T08:00:00Z'), getState: state.getState, setState: state.setState,
+      getLegacyLastSuccessDate: () => null, setLegacyLastSuccessDate: () => {},
+      setTimeoutFn: fn => { callbacks.push(fn); return callbacks.length; }, clearTimeoutFn: () => {}, logger: { info: jest.fn(), error: jest.fn() } });
+    await callbacks.at(-1)();
+    expect(state.state).toMatchObject({ outcome: 'awaiting-review', attempts: 3, draftId: 'retained' });
+    await callbacks.at(-1)();
+    expect(generateBrief.mock.calls.every(([job]) => job.reconcileOnly === true)).toBe(true);
+    expect(isReady).not.toHaveBeenCalled();
+    expect(state.state).toMatchObject({ outcome: 'success', attempts: 3, lastSuccessDate: '2026-09-05', draftId: null });
+  });
+  test('a retained draft gets only free rechecks across restart and permits the next daily edition', async () => {
     const callbacks = [];
     const state = stateHarness();
     let clock = new Date('2026-09-05T08:00:00Z');
-    const generateBrief = jest.fn().mockResolvedValueOnce({ awaitingReview: true, draftId: 'saved-draft' }).mockResolvedValue({ filename: 'brief-2026-09-06-00.md' });
+    const generateBrief = jest.fn().mockResolvedValue({ awaitingReview: true, draftId: 'saved-draft' });
     const options = { generateBrief, getScheduleConfig: () => ({ ...ENABLED, timezone: 'UTC' }), now: () => clock,
       getState: state.getState, setState: state.setState, getLegacyLastSuccessDate: () => null, setLegacyLastSuccessDate: () => {},
       setTimeoutFn: (fn, ms) => { callbacks.push({ fn, ms }); return callbacks.length; }, clearTimeoutFn: () => {}, logger: { info: jest.fn(), error: jest.fn() } };
     startDailyBriefSchedule(options);
     await callbacks[0].fn();
-    expect(state.state).toMatchObject({ outcome: 'awaiting-review', draftId: 'saved-draft', attempts: 1, nextEditionDate: '2026-09-06', nextAttemptAt: '2026-09-06T05:00:00.000Z' });
+    expect(state.state).toMatchObject({ outcome: 'awaiting-review', draftId: 'saved-draft', attempts: 1, nextEditionDate: '2026-09-05', nextAttemptAt: '2026-09-05T08:15:00.000Z' });
     startDailyBriefSchedule(options);
-    expect(callbacks.at(-1).ms).toBe(21 * 60 * 60_000);
+    expect(callbacks.at(-1).ms).toBe(15 * 60_000);
     expect(generateBrief).toHaveBeenCalledTimes(1);
-    clock = new Date('2026-09-06T05:00:00Z');
     await callbacks.at(-1).fn();
-    expect(generateBrief.mock.calls[1][0].editionDate).toBe('2026-09-06');
+    expect(generateBrief.mock.calls[1][0]).toMatchObject({ editionDate: '2026-09-05', reconcileOnly: true });
+    expect(state.state.attempts).toBe(1);
+    clock = new Date('2026-09-06T04:50:00Z');
+    await callbacks.at(-1).fn();
+    expect(state.state.nextEditionDate).toBe('2026-09-06');
+    clock = new Date('2026-09-06T05:00:00Z');
+    generateBrief.mockResolvedValueOnce({ filename: 'brief-2026-09-06-00.md' });
+    await callbacks.at(-1).fn();
+    expect(generateBrief.mock.calls.at(-1)[0]).toEqual({ jobKey: 'daily-brief:2026-09-06', editionDate: '2026-09-06', timezone: 'UTC' });
     expect(state.state).toMatchObject({ outcome: 'success', draftId: null, lastSuccessDate: '2026-09-06' });
   });
   test('shutdown drains the completed edition ledger and legacy marker without rearming timers', async () => {
@@ -460,6 +499,48 @@ describe('startDailyBriefSchedule', () => {
 });
 
 describe('requestBriefGeneration', () => {
+  test.each([
+    { label: 'configured full Bob repair', seconds: 1200, elapsedMs: 1_380_000 },
+    { label: 'default generation budget', seconds: undefined, elapsedMs: 300_000 },
+  ])('keeps the $label response open through completion', async ({ seconds, elapsedMs }) => {
+    jest.useFakeTimers();
+    try {
+      let finishBody;
+      let signal;
+      const body = new Promise(resolve => { finishBody = resolve; });
+      const fetchImpl = jest.fn(async (_url, options) => {
+        signal = options.signal;
+        return { ok: true, text: () => body };
+      });
+      const completion = requestBriefGeneration({ baseUrl: 'http://local', fetchImpl,
+        ...(seconds === undefined ? {} : { timeoutMs: briefRequestTimeoutMs(seconds) }) });
+      await jest.advanceTimersByTimeAsync(elapsedMs);
+      expect(signal.aborted).toBe(false);
+      finishBody('data: {"briefComplete":true,"filename":"completed.md"}\n\n');
+      await expect(completion).resolves.toMatchObject({ briefComplete: true, filename: 'completed.md' });
+      expect(jest.getTimerCount()).toBe(0);
+    } finally { jest.useRealTimers(); }
+  });
+
+  test('still bounds an open response body at the derived outer deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      let signal;
+      const timeoutMs = briefRequestTimeoutMs(1200);
+      const fetchImpl = jest.fn(async (_url, options) => {
+        signal = options.signal;
+        return { ok: true, text: () => new Promise(() => {}) };
+      });
+      const failure = requestBriefGeneration({ baseUrl: 'http://local', fetchImpl, timeoutMs }).catch(error => error);
+      await jest.advanceTimersByTimeAsync(timeoutMs - 1);
+      expect(signal.aborted).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(signal.aborted).toBe(true);
+      await expect(failure).resolves.toMatchObject({ code: 'E_SCHEDULE_TIMEOUT' });
+      expect(jest.getTimerCount()).toBe(0);
+    } finally { jest.useRealTimers(); }
+  });
+
   test('a retained review draft is a terminal unpaid-next-step result even when the stream contains a validation error', async () => {
     const fetchImpl = jest.fn().mockResolvedValue({ ok: true, status: 200,
       text: async () => 'data: {"awaitingReview":true,"draftArtifact":{"id":"saved-draft"},"error":"Review needed"}\n\ndata: [DONE]\n\n' });

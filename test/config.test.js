@@ -40,6 +40,7 @@ describe('config — last-known-good on rejected reload', () => {
     expect(config.analysisSettings.maxEPSSLookups).toBe(20);
     expect(config.analysisSettings.model).toBe('claude-haiku-4-5');
     expect(config.analysisSettings.thinkingEffort).toBe('low');
+    expect(config.analysisSettings.briefFormatVersion).toBeUndefined();
     expect(config.analysisSettings.generationTimeoutSec).toBe(300);
     expect(config.analysisSettings.horizonWeights).toEqual({ horizon1: 0.45, horizon2: 0.4, horizon3: 0.15 });
     expect(config.analysisSettings.scoring.axisWeights.exploitation).toBe(0.28);
@@ -84,6 +85,17 @@ describe('config — last-known-good on rejected reload', () => {
     writeFileSync(configPath, validConfigJSON({ analysisSettings: { generationTimeoutSec: 120 } }));
     initConfig(configPath);
     expect(getConfig().analysisSettings.generationTimeoutSec).toBe(120);
+  });
+
+  test('accepts the full Bob generation and repair budget', () => {
+    writeFileSync(configPath, validConfigJSON({ analysisSettings: { generationTimeoutSec: 1200 } }));
+    initConfig(configPath);
+    expect(getConfig().analysisSettings.generationTimeoutSec).toBe(1200);
+  });
+
+  test.each([29, 1201])('rejects a generation timeout outside the supported range: %s', generationTimeoutSec => {
+    writeFileSync(configPath, validConfigJSON({ analysisSettings: { generationTimeoutSec } }));
+    expect(() => initConfig(configPath)).toThrow(/Cannot start with an invalid config/);
   });
 
   test('accepts bounded optional unified watch defaults without replacing the legacy organization', () => {

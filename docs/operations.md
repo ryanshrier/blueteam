@@ -9,7 +9,7 @@ BlueTeam.News runs as one local Node process. Collection, scoring, the Wall, and
 ## Start, stop, and restart
 
 ```bash
-git clone --branch v1.4.6 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.4.7 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -17,7 +17,7 @@ npm start
 
 Open `http://127.0.0.1:3000`. The first feed refresh begins after startup; later refreshes use `analysisSettings.refreshMinutes`.
 
-Stop an interactive process with `Ctrl+C`. On `SIGINT` or `SIGTERM`, the server stops schedules and new HTTP work immediately. Shutdown normally retains a 30-second guard; if a Briefing is already generating, it keeps SQLite and outbound pools available for the supported generation maximum (up to 600 seconds) plus a bounded three-minute completion-cleanup margin. Restart it with `npm start`.
+Stop an interactive process with `Ctrl+C`. On `SIGINT` or `SIGTERM`, the server stops schedules and new HTTP work immediately. Shutdown normally retains a 30-second guard; if a Briefing is active, it keeps SQLite and outbound pools available for the supported generation maximum (up to 1,200 seconds), up to three minutes of collection, and a three-minute preflight/completion margin. The resulting 26-minute guard is a ceiling; shutdown finishes as soon as accepted work drains. Restart it with `npm start`.
 
 Only run one process against a repository's `data/` directory. Concurrent server processes are not a supported clustering model.
 
@@ -60,7 +60,7 @@ Schedule state and outcomes persist in SQLite, so a restart does not erase the a
 
 Manual and automatic requests share the same generation route, cooldown, rate limits, validation, storage, and webhook path. Route-level request limits use process-local fixed windows and reset when the server restarts; the separate automatic-schedule attempt count persists in SQLite. Built-in key verification sends a minimal provider request, and provider requests may consume billable tokens. Corrective retries, timeout recovery, and model or key fallback can make additional provider calls, so these limits are guardrails rather than spending caps. Review provider account limits and billing separately. OpenAI retries use the selected model; they never switch providers. Anthropic retains its configured model and key fallback behavior. Custom status checks call only the module's optional health hook; any work or charges inside that hook are module-defined.
 
-The default generation settings use `thinkingEffort: "low"`, a 16,000-token output cap, and a 300-second generation deadline. Explicit operator configuration remains authoritative.
+The checked-in generation settings use `thinkingEffort: "low"`, a 16,000-token output cap, and a 1,200-second shared generation deadline. Omitting the deadline retains the 300-second fallback; explicit operator configuration remains authoritative.
 
 Malformed persisted settings, including an invalid enabled schedule, disable automatic generation and mark settings health as failed. Failed saves retain the previous effective values and remain visible in diagnostics until a successful save. Correct the reported values and save the schedule explicitly before relying on unattended generation again.
 
@@ -133,6 +133,36 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 ## Upgrade and rollback
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
+
+### From v1.4.6 to v1.4.7
+
+Stop the service and wait for accepted work to finish. Back up the effective
+state directories, hidden receipts and drafts, configuration, protected settings
+and operator-managed profiles together. Install the `v1.4.7` code with a
+supported runtime, preserving local configuration edits. No dependency or SQLite
+schema migration is included. Restart after merging the intended configuration
+changes below.
+
+All new generation and repair use one analytical format without mandatory owners,
+action targets or confidence fields. The current reader handles earlier saved
+briefings without rewriting them. Older application versions do not understand
+the new document schema: rollback requires the previous code and its matching
+pre-upgrade state backup. Keep any newly created editions separately rather than
+opening them with an older reader. SQLite stays at schema 11.
+
+The bundled Bob profile now allows 240 seconds of silence and 580 seconds total.
+The checked-in shared generation budget is 1,200 seconds, including one corrective
+attempt; the omitted-setting fallback remains 300 seconds. Operator profile
+copies are not automatically overwritten. Merge these limits into the profile
+used on the machine running the service when ready. This configuration change
+does not install, invoke or verify Bob.
+
+Repair restores unrelated story prose and optional sections automatically before
+rechecking the merged copy. Routine notes remain in Edition record instead of
+appearing as notification warning banners; reviewed material exceptions remain
+identified. No new approval step or automatic paid retry is introduced. Before
+deploying, verify the new format and an archived edition in the reader, Wall and
+print. Live provider acceptance remains separate from synthetic regression tests.
 
 ### From v1.4.5 to v1.4.6
 
@@ -559,14 +589,47 @@ The offline `npm run benchmark:ranking -- --help` workflow exports blinded revie
 
 ## Briefing completion and delivery diagnostics
 
+New checks use publication policy 4. Optional stale coverage mappings are
+discarded with an audit note and coverage is derived from the visible report.
+A task to review a vendor control exception can pass when it explicitly keeps
+that same control enabled pending approval; an instruction to execute the
+exception still requires human review. Historical checks retain their policy.
+Repeated CVSS diagnostics for the same located claim appear as one repair item,
+with all underlying diagnostics retained. A corrective response can omit one
+located defective judgment and repair another while preserving unaffected judgments.
+
+A supporting source may be cited beside a claim anywhere in the same judgment.
+A missing provisional label on an otherwise supported score is a note, not a
+factual contradiction. New generation and draft rechecks insert the label when
+the exact occurrence is unambiguous, revalidate, and record the automatic repair.
+Explicitly wrong scores, versions, assessment types and final-status claims still
+block. Review-only findings now receive the available corrective model attempt;
+the repair can turn a proposed control exception into an approval task that
+keeps the control enabled. It cannot approve or execute the exception.
+
+Scheduled saved drafts receive a deterministic recheck at the configured retry
+interval, including after restart, without a provider call or another paid
+attempt. A complete draft that passes current checks without human-review
+requirements can publish automatically. Incomplete originals, factual blockers,
+unavailable evidence and control exceptions remain held. Missing draft storage
+never turns a recheck into a fresh generation. Rechecks retire at the next daily
+slot so the next edition can proceed. Publication records distinguish automatic
+rechecks from operator repairs and preserve the original inputs, checks and usage.
+
 The configured generation timeout bounds model work after collection and
 preflight. Its default is 300 seconds shared across the initial model call and
 any corrective retry; an explicit `analysisSettings.generationTimeoutSec` from
-30 through 600 seconds overrides it. Collection has its own wait cap of 180 seconds, or the configured
+30 through 1,200 seconds overrides it. The checked-in configuration uses 1,200 seconds,
+enough for two completed Bob calls of up to 580 seconds each with 40 seconds
+for setup and intervening checks. Collection has its own wait cap of 180 seconds, or the configured
 generation timeout when smaller. Collection, preflight, provider and validation
 durations are captured in new receipts. A corrective paid attempt requires at
 least 30 seconds of remaining model time; otherwise the original draft and
-inputs remain available for recovery. NVD observations persist in the local
+inputs remain available for recovery. A CLI call that actually times out remains
+incomplete and is not automatically repeated. The scheduler waits for the configured
+generation budget, the separate collection allowance, and a three-minute preflight/publication
+margin (26 minutes at the maximum); it does not impose a shorter 15-minute ceiling.
+NVD observations persist in the local
 external cache for up to 24 hours without renewing their age on restart.
 
 Health reports distinguish scheduled publication from process liveness. A

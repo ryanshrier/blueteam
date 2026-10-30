@@ -4,13 +4,15 @@ import { Router } from 'express';
 import { randomUUID, timingSafeEqual } from 'crypto';
 import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join, resolve, sep } from 'path';
-import { getConfig, getHorizonName } from '../lib/config.js';
+import { getConfig } from '../lib/config.js';
 import { DEFAULT_GENERATION_TIMEOUT_SEC } from '../lib/generation-limits.js';
+import { BRIEF_COLLECTION_TIMEOUT_MS } from '../lib/brief-lifecycle.js';
 import { getFreshRun } from '../lib/refresher.js';
 import { briefingReadiness } from '../lib/evidence-freshness.js';
 import { scheduledBriefDelivery } from '../lib/brief-delivery.js';
 import { buildSystemPrompt, buildUserPrompt } from '../lib/prompts.js';
 import { buildBriefFactLedger, repairFindingContext } from '../lib/brief-fact-ledger.js';
+import { groupBriefFindings } from '../public/modules/core/brief-findings.js';
 import { correctiveRecoveryDecision } from '../lib/brief-recovery.js';
 import { captureKevCatalogStatus, kevCatalogIsFresh } from '../lib/kev-status.js';
 import {
@@ -39,9 +41,8 @@ import { listBriefDrafts, readBriefDraft, saveRejectedBrief, revalidateBriefDraf
 import { createPublicationLookup, verifyPublicationReplay, publishDraftEdition } from '../lib/brief-publication.js';
 import { BRIEF_COMPOSITION_VERSION } from '../lib/brief-assembly.js';
 import { buildGroundingManifest, visibleHeadlineEvidence } from '../lib/grounding.js';
-import {
-  parseJudgments, WATCHLIST_MIN_ITEMS, WATCHLIST_MAX_ITEMS,
-} from '../lib/brief-schema.js';
+import { BRIEF_FORMAT_VERSION } from '../lib/brief-schema.js';
+import { briefNotificationFields } from '../lib/brief-notification.js';
 import { getEffectiveOrganization, getEffectiveWatchProfile } from '../lib/user-settings.js';
 import {
   buildGenerationManifest, readGenerationManifest,
@@ -153,26 +154,12 @@ function reducedRecoveryThinkingEffort(effort) {
 /** Explain how to repair the failed contract, not just repeat its error code. */
 export function correctiveGuidance(issues = []) {
   const codes = new Set(issues.map(issue => issue.code));
-  const rules = [];
-  if (codes.has('CONVERGENCE_EVIDENCE_WEAK')) {
-    rules.push('Convergence repair: cite both substantive sources in **The intersection:** using their captured source IDs, for example [S1.1] [S2.1]. Existing complete captured URLs are also accepted. The application renders the labels and links. Naming publishers in prose or citing them only in another field does not establish support for the connection. Do not attach citations to a mechanism they do not establish. If two substantive citations cannot support the connection, replace the entries with the plain sentence "No supported intersection is established by the current retained evidence." under CONVERGENCE, with no entry heading or fields.');
-  }
-  if ([...codes].some(code => /CVSS/.test(code))) {
-    rules.push('Score repair: each numeric score needs the exact source citation that supplies that CVE and score in the same judgment\'s What happened field. Write one explicit pair per clause: "CVE-YYYY-NNNN: CVSS v3.1 score N.N" (use only captured values). Do not use an unassigned list of scores or "respectively". An NVD-only score requires the supplied NVD citation; a catalog listing does not supply it. Preserve metric versions and per-record provisional status. Omit any score that the cited passage does not support.');
-  }
-  if (codes.has('CVE_CITATION_MISMATCH') || codes.has('VERSION_UNSUPPORTED')) {
-    rules.push('Evidence repair: a source elsewhere in the input is not automatically cited support for this judgment. Cite its captured source ID (or existing complete captured URL) in this judgment\'s What happened field when its passage supports the affected CVE or version; the application supplies its publisher/date label. Check attribution and related captured sources before changing the reporting. Missing captured support does not establish that the claim is false. Use only the retained passage and captured lookup facts; a product name or article link alone does not establish an identifier or version. When an unsupported version is optional, omit only that value and retain the otherwise supported judgment, citations, applicability qualifications and complete actions. Do not replace it with a guessed version or broaden a version-dependent claim. Do not broaden affected versions or replace a specific supported action with generic advice. If an essential claim cannot be resolved from the captured evidence, you may omit only the judgment explicitly identified by a blocking finding, removing its dependent summary claims too. Preserve every other judgment verbatim apart from Signal numbering. If the finding cannot be tied to a specific judgment, leave it for review rather than inventing a correction or deleting unrelated coverage.');
-  }
-  if ([...codes].some(code => /KEV_DEADLINE/.test(code) && code !== 'KEV_DEADLINE_AMBIGUOUS')) {
-    rules.push('Deadline repair: remove the contradicted authored federal date claim. The application renders the captured SYSTEM-DERIVED FACTS date for each named CVE in Federal remediation, with FCEB-only scope. Do not infer a default two-week deadline or substitute a recommended internal target. Keep all supported non-deadline facts intact.');
-  }
-  if (codes.has('JUDGMENT_ACTION_INVALID')) {
-    rules.push('Action repair: each recommended action must be a separate Markdown bullet with an owner role, an imperative and its recommended target date. Use the canonical shape "- **Owner role** — verify the applicable control — recommended target Month D, YYYY." Keep applicability conditional where deployment is unknown.');
-  }
-  if (codes.has('ACTION_PHASE_BUNDLE_REVIEW')) {
-    rules.push('Action scope repair: split containment or remediation, investigation, and conditional recovery into separately assignable action bullets. Give each one accountable owner, a verifiable deliverable, its own recommended target, and any dependency on an earlier action. A recovery target should identify the next achievable milestone when completion depends on investigation; do not promise a complete restoration by a containment deadline. The application derives Required decisions from these actions; do not write a separate summary or hidden action mappings.');
-  }
-  if ([...codes].some(code => /CITATION|SOURCE/.test(code))) rules.push('Citation repair: use a captured Evidence ID in brackets beside the supported claim. Do not guess an ID or source; the application supplies its captured publisher/date and available link.');
+  const rules = ['Keep descriptive story headlines and connected analytical prose. Repair the located problem and dependent claims; preserve unaffected stories, uncertainty and source-backed response conditions. Keep story headlines stable unless the headline itself needs correction. The application restores unaffected stories before checking your repair. Do not add owners, targets, confidence fields, mandatory actions or an executive summary.'];
+  if (codes.has('SECURITY_CONTROL_CHANGE')) rules.push('Describe a captured vendor proposal as that source\'s proposal, with its affected scope, tradeoff, prerequisites and recovery conditions. Remove unsupported instructions to execute it. Reporting the proposal does not establish local approval. Do not turn it into a compulsory approval task or invent an approval; preserve human review if executable weakening guidance remains.');
+  if ([...codes].some(code => /CVSS/.test(code))) rules.push('Copy the supported CVE-to-score pairing and its version, assessor and Primary/Secondary assessment type verbatim, one explicit pair per clause. Put provisional beside each provisional score. Cite the exact captured source ID beside the score, one ID per bracket. An NVD-only score requires the supplied NVD citation. Do not combine the value from one assessment with qualifiers from another or invent missing qualifiers. Different assessments can coexist. Omit an optional metric if unresolved, without claiming it is unavailable.');
+  if ([...codes].some(code => /CITATION|PROVENANCE|VERSION|GROUNDING/.test(code))) rules.push('Inspect the exact retained passages and cite supporting source IDs within this story or optional section. Use [S1.1] [S2.1], one ID per bracket; copy each ID exactly, including any NVD-CVE prefix. Do not substitute a guessed identifier or version, broaden an affected scope, or treat related sources as proof. Missing captured support does not establish that the claim is false. Omit an optional unsupported detail; if an essential claim cannot be resolved, omit only the story explicitly identified by a blocking finding and its dependent opening claims. Repair other located findings in the same pass. Keep every unaffected story verbatim.');
+  if ([...codes].some(code => /DEADLINE/.test(code))) rules.push('Correct or omit the contradicted deadline using its captured authority and affected scope. CISA KEV dates apply to FCEB agencies and retain date-only precision. Never convert an external due date into a universal local response target.');
+  if ([...codes].some(code => /NARRATIVE|BRIEF_FORMAT/.test(code))) rules.push('Use one TODAY\'S PICTURE opening paragraph and one PRIORITY STORIES section with descriptive ### headlines and substantive prose. Optional sections may be omitted. Return the complete reader-facing report; the app stamps the captured format version.');
   return rules.join('\n');
 }
 
@@ -467,7 +454,7 @@ function parseScheduledJob(req, scheduledJobToken) {
       throw Object.assign(new Error('Scheduled briefing timezone is invalid.'), { code: 'E_SCHEDULE_CONTEXT' });
     }
   }
-  return { jobKey: expectedJobKey, editionDate, timezone };
+  return { jobKey: expectedJobKey, editionDate, timezone, ...(source.reconcileOnly === true ? { reconcileOnly: true } : {}) };
 }
 
 function sendCompletedBrief(res, payload) {
@@ -481,6 +468,7 @@ function sendCompletedBrief(res, payload) {
 }
 
 function recoverScheduledPublication(historyDir, scheduledJob, reviewDirectory) {
+  const normalizedTimezone = value => value === 'local' ? Intl.DateTimeFormat().resolvedOptions().timeZone : value;
   const filename = scheduledBriefFilename(scheduledJob.editionDate);
   let recorded = null;
   try {
@@ -492,7 +480,7 @@ function recoverScheduledPublication(historyDir, scheduledJob, reviewDirectory) 
   }
   if (recorded && (
     recorded.edition_date !== scheduledJob.editionDate
-    || recorded.timezone !== scheduledJob.timezone
+    || normalizedTimezone(recorded.timezone) !== normalizedTimezone(scheduledJob.timezone)
     || recorded.filename !== filename
   )) {
     throw Object.assign(
@@ -513,7 +501,7 @@ function recoverScheduledPublication(historyDir, scheduledJob, reviewDirectory) 
   if (reading.receipt.integrity !== 'verified' || publication?.partial !== false
     || publication?.hardFail !== false || publication?.trustFail !== false
     || reading.manifest.edition?.date !== scheduledJob.editionDate
-    || reading.manifest.edition?.timezone !== scheduledJob.timezone || reading.manifest.edition?.scheduled !== true) {
+    || normalizedTimezone(reading.manifest.edition?.timezone) !== normalizedTimezone(scheduledJob.timezone) || reading.manifest.edition?.scheduled !== true) {
     throw Object.assign(new Error('The reserved scheduled edition needs publication recovery. Its original has been preserved.'), { code: 'E_SCHEDULE_INTEGRITY' });
   }
   const text = reading.content;
@@ -618,6 +606,51 @@ export function createBriefRouter({
   // debounces requests started within 15 seconds, including early failures.
   let generating = false;
 
+  async function finishDraftPublication(artifact, committed, warnings = [], completionCode = 'OPERATOR_REPAIRED') {
+    // The archive is already durable. These recoverable writes must never
+    // turn a successful publication into an instruction to regenerate.
+    try { artifact = recordDraftPublication(historyDir, artifact.id, committed.publication) || artifact; }
+    catch { warnings.push('Published successfully; the draft recovery pointer could not be updated. Retrying Publish will recover the same edition.'); }
+    const { filename, manifest, publication } = committed;
+    const jobStatus = jobs.status();
+    if (jobStatus.jobs.some(job => job.id === manifest.generationId)) {
+      try { jobs.finish(manifest.generationId, { status: 'complete', filename, code: completionCode }); }
+      catch { warnings.push('Published successfully; generation accounting needs reconciliation. Original provider usage is preserved.'); }
+    } else if (jobStatus.persistence === 'error') {
+      warnings.push('Published successfully; generation accounting could not be checked. Original provider usage is preserved.');
+    }
+    const content = readFileSync(join(historyDir, filename), 'utf8');
+    if (committed.scheduled) {
+      try { completeScheduledBriefJob({ jobKey: scheduledBriefJobKey(manifest.edition.date), editionDate: manifest.edition.date, timezone: manifest.edition.timezone, filename, completedAt: publication.publishedAt }); }
+      catch { warnings.push('Published successfully; scheduled-edition accounting needs reconciliation.'); }
+    }
+    try { onDraftPublished({ editionDate: manifest.edition.date, filename, publishedAt: publication.publishedAt, scheduled: committed.scheduled }); }
+    catch { warnings.push('Published successfully; current display or schedule metadata could not be refreshed.'); }
+    try { indexBrief(filename, content); }
+    catch { warnings.push('Published successfully; search indexing failed during publication. A later reindex can reconcile it.'); }
+    try {
+      saveBriefMeta({ filename, date: manifest.edition.date, bluf: extractBluf(content), model_used: manifest.modelUsed || null,
+        generation_time_ms: 0, headline_count: manifest.selectedEvidence?.length || 0, word_count: content.trim().split(/\s+/).length,
+        horizon_counts: countHorizons(content), input_tokens: null, output_tokens: null,
+        warnings: manifest.publicationValidation.warnings || [], generated_at: publication.publishedAt });
+    } catch { warnings.push('Published successfully; edition metadata could not be saved during publication.'); }
+    const reading = loadBriefReadingState(historyDir, filename, { reviewDirectory: reviewDir });
+    const presentation = briefPresentation(reading, { operationalNotes: warnings });
+    const isCurrent = listBriefEditions(historyDir, { getMeta: getBriefMeta, eligibleOnly: true, limit: 1, reviewDirectory: reviewDir })[0]?.filename === filename;
+    // Replayed HTTP requests never repeat external notifications. Delivery is
+    // best effort, independent of the archive's successful publication.
+    if (!committed.replayed && reading.disposition.eligibleForLatest) {
+      const config = getConfig();
+      dispatchBriefWebhook({ date: manifest.edition.date, bluf: extractBluf(content),
+        deliveryIdentity: { filename, contentSha256: sha256(reading.content) },
+        ...briefNotificationFields(reading.content, config, presentation),
+        link: `${outwardBaseUrl}/briefing/${encodeURIComponent(filename)}` }, config)
+        .catch(error => log.warn('brief', `Published draft notification failed: ${safeErrorMsg(error)}`));
+    }
+    return { published: true, filename, publication: { ...publication, eligibleForLatest: reading.disposition.eligibleForLatest },
+      isCurrent, replayed: committed.replayed, warnings, presentation, artifact: await publicDraft(artifact) };
+  }
+
   router.post('/brief/drafts/:id/publish', recoveryAccess, async (req, res) => {
     if (!validDraftId(req.params.id)) return res.status(400).json({ error: 'Invalid draft identifier' });
     const request = req.body;
@@ -627,6 +660,7 @@ export function createBriefRouter({
       || (request.content !== undefined && typeof request.content !== 'string')) return res.status(400).json({ error: 'The draft revision and captured input identity are required.', code: 'E_DRAFT_REQUEST' });
     let artifact;
     let committed = null;
+    let ownsPublicationLock = false;
     const warnings = [];
     try {
       artifact = readBriefDraft(historyDir, req.params.id);
@@ -637,6 +671,8 @@ export function createBriefRouter({
         committed = { ...found, publication: verifyPublicationReplay(found, artifact, request), replayed: true, scheduled: found.manifest.edition.scheduled };
       } else {
         if (generating) return res.status(409).json({ error: 'Wait for the active generation before publishing this draft.', code: 'E_GENERATION_ACTIVE' });
+        generating = true;
+        ownsPublicationLock = true;
         let validation;
         artifact = await revalidateBriefDraft(historyDir, artifact.id, request, { prepareDraft: async payload => {
           const prepared = await prepareDraftInWorker(payload);
@@ -646,48 +682,7 @@ export function createBriefRouter({
         committed = { ...publishDraftEdition({ historyDir, reviewDir, artifact, validation, request }), replayed: false };
         publicationRevision = randomUUID();
       }
-      // The archive is already durable. These recoverable writes must never
-      // turn a successful publication into an instruction to regenerate.
-      try { artifact = recordDraftPublication(historyDir, artifact.id, committed.publication) || artifact; }
-      catch { warnings.push('Published successfully; the draft recovery pointer could not be updated. Retrying Publish will recover the same edition.'); }
-      const { filename, manifest, publication } = committed;
-      const jobStatus = jobs.status();
-      if (jobStatus.jobs.some(job => job.id === manifest.generationId)) {
-        try { jobs.finish(manifest.generationId, { status: 'complete', filename, code: 'OPERATOR_REPAIRED' }); }
-        catch { warnings.push('Published successfully; generation accounting needs reconciliation. Original provider usage is preserved.'); }
-      } else if (jobStatus.persistence === 'error') {
-        warnings.push('Published successfully; generation accounting could not be checked. Original provider usage is preserved.');
-      }
-      const content = readFileSync(join(historyDir, filename), 'utf8');
-      if (committed.scheduled) {
-        try { completeScheduledBriefJob({ jobKey: scheduledBriefJobKey(manifest.edition.date), editionDate: manifest.edition.date, timezone: manifest.edition.timezone, filename, completedAt: publication.publishedAt }); }
-        catch { warnings.push('Published successfully; scheduled-edition accounting needs reconciliation.'); }
-      }
-      try { onDraftPublished({ editionDate: manifest.edition.date, filename, publishedAt: publication.publishedAt, scheduled: committed.scheduled }); }
-      catch { warnings.push('Published successfully; current display or schedule metadata could not be refreshed.'); }
-      try { indexBrief(filename, content); }
-      catch { warnings.push('Published successfully; search indexing failed during publication. A later reindex can reconcile it.'); }
-      try {
-        saveBriefMeta({ filename, date: manifest.edition.date, bluf: extractBluf(content), model_used: manifest.modelUsed || null,
-          generation_time_ms: 0, headline_count: manifest.selectedEvidence?.length || 0, word_count: content.trim().split(/\s+/).length,
-          horizon_counts: countHorizons(content), input_tokens: null, output_tokens: null,
-          warnings: manifest.publicationValidation.warnings || [], generated_at: publication.publishedAt });
-      } catch { warnings.push('Published successfully; edition metadata could not be saved during publication.'); }
-      const reading = loadBriefReadingState(historyDir, filename, { reviewDirectory: reviewDir });
-      const presentation = briefPresentation(reading, { operationalNotes: warnings });
-      const isCurrent = listBriefEditions(historyDir, { getMeta: getBriefMeta, eligibleOnly: true, limit: 1, reviewDirectory: reviewDir })[0]?.filename === filename;
-      // Replayed HTTP requests never repeat external notifications. Delivery is
-      // best effort, independent of the archive's successful publication.
-      if (!committed.replayed && reading.disposition.eligibleForLatest) {
-        const config = getConfig();
-        dispatchBriefWebhook({ date: manifest.edition.date, bluf: extractBluf(content),
-          deliveryIdentity: { filename, contentSha256: sha256(reading.content) },
-          judgments: parseJudgments(content).map(j => ({ title: j.title, tier: getHorizonName(config, j.horizon), confidence: j.confidence })),
-          link: `${outwardBaseUrl}/briefing/${encodeURIComponent(filename)}`, warnings: manifest.publicationValidation.warnings || [] }, config)
-          .catch(error => log.warn('brief', `Published draft notification failed: ${safeErrorMsg(error)}`));
-      }
-      return res.json({ published: true, filename, publication: { ...publication, eligibleForLatest: reading.disposition.eligibleForLatest },
-        isCurrent, replayed: committed.replayed, warnings, presentation, artifact: await publicDraft(artifact) });
+      return res.json(await finishDraftPublication(artifact, committed, warnings));
     } catch (error) {
       if (committed) return res.json({ published: true, filename: committed.filename, publication: committed.publication,
         replayed: committed.replayed, warnings: [...warnings, 'The edition was saved; some publication details could not be refreshed.'], artifact: await publicDraft(artifact) });
@@ -695,6 +690,8 @@ export function createBriefRouter({
         artifact: await publicDraft(artifact), validation: draftValidation(artifact), publicationDecision: error.decision, reviewableIssues: error.decision.reviewIssues });
       return res.status(error.code === 'E_DRAFT_CONFLICT' || error.code === 'E_DRAFT_PUBLISHED' ? 409 : 400)
         .json({ error: safeErrorMsg(error), code: error.code || 'E_DRAFT_PUBLICATION', ...(artifact ? { artifact: await publicDraft(artifact) } : {}) });
+    } finally {
+      if (ownsPublicationLock) generating = false;
     }
   });
 
@@ -739,18 +736,61 @@ export function createBriefRouter({
           });
           return;
         }
-        // A retained scheduled draft is work awaiting the operator, not a
-        // reason to buy the same day's generation again after a restart.
-        const pendingDraft = listBriefDrafts(historyDir).find(item => {
+        // Recheck captured work without buying another generation. Original
+        // incomplete responses and human-review requirements remain held.
+        let pendingDraft = listBriefDrafts(historyDir).find(item => {
           if (item.editionDate !== scheduledJob.editionDate) return false;
           return readBriefDraft(historyDir, item.id)?.manifest?.edition?.scheduled === true;
         });
+        if (pendingDraft && !generating) {
+          generating = true;
+          let finishTracked = () => {};
+          try {
+            try { finishTracked = trackGeneration() || finishTracked; } catch { /* shutdown aid */ }
+            let artifact = readBriefDraft(historyDir, pendingDraft.id);
+            if (artifact.manifest.edition.timezone !== editionContext.timezone) {
+              throw Object.assign(new Error('Scheduled draft timezone does not match this edition.'), { code: 'E_SCHEDULE_INTEGRITY' });
+            }
+            const incomplete = artifact.manifest.publicationValidation?.partial === true
+              || artifact.revisions[0].validation?.partial === true || pendingDraft.partial;
+            if (!incomplete) {
+              let validation;
+              const request = { baseRevision: artifact.revisions.at(-1).number, inputSha256: artifact.manifestSha256 };
+              artifact = await revalidateBriefDraft(historyDir, artifact.id, request, { automatic: true, prepareDraft: async payload => {
+                const prepared = await prepareDraftInWorker(payload);
+                validation = prepared.validation;
+                return prepared;
+              } });
+              if (publicationDecision(validation).canPublish) {
+                const committed = { ...publishDraftEdition({ historyDir, reviewDir, artifact, validation, request, trigger: 'scheduled-recheck' }), replayed: false };
+                publicationRevision = randomUUID();
+                try { await finishDraftPublication(artifact, committed, [], 'AUTOMATIC_RECHECK'); }
+                catch (error) { log.warn('brief', `Scheduled draft was published; metadata refresh failed: ${safeErrorMsg(error)}`); }
+                sendCompletedBrief(res, { filename: committed.filename, timestamp: committed.publication.publishedAt,
+                  partial: false, reconciled: true, jobKey: scheduledJob.jobKey });
+                return;
+              }
+              pendingDraft = summarizeBriefDraft(artifact);
+            }
+          } finally {
+            generating = false;
+            finishTracked();
+          }
+        }
         if (pendingDraft) {
           res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
           res.setHeader('Cache-Control', 'private, no-store');
           const outcome = pendingDraft.partial ? 'incomplete' : pendingDraft.canPublish ? 'draft-ready' : pendingDraft.blockerCount ? 'checks-required' : 'review-requested';
           const message = 'The scheduled draft is saved and awaits review. No new generation was started.';
           res.write(`data: ${JSON.stringify({ awaitingReview: true, draftArtifact: pendingDraft, code: 'E_DRAFT_REVIEW', outcome, message, error: message })}\n\n`);
+          res.end('data: [DONE]\n\n');
+          return;
+        }
+        // A reconciliation request is never permission to purchase a model
+        // call, even when its retained draft was removed or aged out.
+        if (scheduledJob.reconcileOnly) {
+          res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+          res.write(`data: ${JSON.stringify({ awaitingReview: true, code: 'E_DRAFT_UNAVAILABLE', message: 'No retained scheduled draft is available. No generation was started.' })}\n\n`);
           res.end('data: [DONE]\n\n');
           return;
         }
@@ -855,7 +895,7 @@ export function createBriefRouter({
       const collectionStarted = performance.now();
       // Collection has its own bounded wait in addition to the network helpers'
       // per-request limits. It must not consume the model/repair allowance.
-      const collectionDeadline = Date.now() + Math.min(genTimeoutMs, 180_000);
+      const collectionDeadline = Date.now() + Math.min(genTimeoutMs, BRIEF_COLLECTION_TIMEOUT_MS);
       const withinCollectionDeadline = async (promise, stage) => {
         const remainingMs = collectionDeadline - Date.now();
         if (remainingMs <= 0) {
@@ -941,9 +981,9 @@ export function createBriefRouter({
         editionContext,
         priorityCoverage,
       }) + formatHistoricalEvidenceContext(groundingManifest)
-        + `\n\nCAPTURED BRIEFING SCOPE: ${JSON.stringify(capturedReadiness)}. Use only the supported judgments needed for this evidence, including a single judgment when appropriate. Do not manufacture breadth, activity, convergence, or a no-threat conclusion from quiet feeds, missing sources, or repeated observations. For limited coverage, state that limitation plainly and preserve supported actions and scope; fewer judgments do not justify dropping their operational detail.\n\nINPUT CONTINUITY: ${JSON.stringify(inputDelta)}. This compares captured passages, not events. If unchanged, identify an editorial revision; never infer acceleration from repetition.\n\n${buildBriefFactLedger(groundingManifest, capturedKevTiming, capturedKevSet.size > 0)}`;
+        + `\n\nCAPTURED BRIEFING SCOPE: ${JSON.stringify(capturedReadiness)}. Use only the supported judgments needed for this evidence, including a single judgment when appropriate. Do not manufacture breadth, activity, convergence, or a no-threat conclusion from quiet feeds, missing sources, or repeated observations. For limited coverage, state that limitation plainly and preserve supported actions and scope; fewer judgments do not justify dropping their operational detail.\n\nINPUT CONTINUITY: ${JSON.stringify(inputDelta)}. This compares captured passages, not events. If unchanged, identify an editorial revision; never infer acceleration from repetition.\n\n${buildBriefFactLedger(groundingManifest, capturedKevTiming, capturedKevSet.size > 0, capturedKevStatus)}`;
       const generationManifest = buildGenerationManifest({
-        run, config: promptConfig, watchProfile, editionContext,
+        run, config: promptConfig, watchProfile, editionContext, briefFormatVersion: BRIEF_FORMAT_VERSION,
         groundTruth, groundingManifest, continuityContext, previousBriefs: prev,
       });
       generationManifest.generationId = generationJobId;
@@ -1130,6 +1170,7 @@ export function createBriefRouter({
       const providerTimeBeforeValidation = phaseTimingsMs.provider;
       const genDate = editionContext.date;
       const validationSource = { groundingManifest, kevSet: capturedKevSet, kevCatalogStatus: capturedKevStatus, kevTiming: capturedKevTiming, publication: true, editorialStandard: 2, compositionVersion: BRIEF_COMPOSITION_VERSION, inputDelta, editionTimezone: editionContext.timezone,
+        briefFormatVersion: generationManifest.generationSettings.briefFormatVersion,
         priorityCoverage, briefingMetadata: extractedMetadata.metadata, briefingMetadataIssues: extractedMetadata.issues };
       generationManifest.verification = {
         kevCatalogLoaded: validationSource.kevSet.size > 0,
@@ -1148,6 +1189,7 @@ export function createBriefRouter({
         }
         const checked = prepared.validation;
         recordValidation(generationManifest, fullBrief, checked);
+        if (prepared.automaticRepairs?.length) generationManifest.validation.at(-1).automaticRepairs = prepared.automaticRepairs;
         return checked;
       };
       let validation = await audit(fullBrief, { extractMetadata: true });
@@ -1178,7 +1220,8 @@ export function createBriefRouter({
       // If key rotation or model fallback already consumed a second provider
       // call, never turn a max_tokens result into a third call.
       const outputLimitRetryAvailable = !stoppedAtOutputLimit || providerAttemptCount < 2;
-      const correctiveRetryNeeded = (hardFail || trustFail || stoppedAtOutputLimit)
+      const correctiveDecision = publicationDecision(validation);
+      const correctiveRetryNeeded = (!correctiveDecision.canPublish || stoppedAtOutputLimit)
         && outputLimitRetryAvailable && !result.error && !result.timedOut;
       const correctiveRetrySkipped = correctiveRetryNeeded && !hasViableRetryBudget(generationDeadline);
       if (correctiveRetrySkipped) {
@@ -1186,11 +1229,11 @@ export function createBriefRouter({
           remainingMs: Math.max(0, generationDeadline - Date.now()), minimumMs: MIN_RETRY_BUDGET_MS };
         send({ progress: 'Keeping the draft for review — too little time remains for a useful corrective attempt.', stage: 'validating' });
       }
-      if ((hardFail || trustFail || stoppedAtOutputLimit)
+      if ((!correctiveDecision.canPublish || stoppedAtOutputLimit)
           && outputLimitRetryAvailable && !result.error && !result.timedOut && !correctiveRetrySkipped) {
         correctiveRetryAttempted = true;
-        const correctiveIssues = publicationDecision(validation).blockers;
-        const correctiveWarnings = correctiveIssues.map(issue => issue.message);
+        const correctiveIssues = [...correctiveDecision.blockers, ...correctiveDecision.reviewIssues];
+        const correctiveWarnings = groupBriefFindings(correctiveIssues).map(issue => issue.message);
         if (stoppedAtOutputLimit) {
           const recoveryEffort = reducedRecoveryThinkingEffort(thinkingEffort);
           requestedThinkingEffort = recoveryEffort;
@@ -1205,18 +1248,18 @@ export function createBriefRouter({
           // a concise, complete replacement.
           modelParams.messages = [{
             role: 'user',
-            content: `${userPrompt}\n\nRECOVERY INSTRUCTION: The previous attempt exhausted the configured output-token limit and was discarded.${failedChecks} Regenerate the full brief from the top in the exact same format, but be concise enough to finish every required section, including ${WATCHLIST_MIN_ITEMS}–${WATCHLIST_MAX_ITEMS} complete Watchlist bullets. Use only CVEs and URLs in the current-source input; cite captured Evidence IDs in brackets so the application supplies labels and available links; linkless sources remain linkless. Never contradict verified KEV status.`,
+            content: `${userPrompt}\n\nRECOVERY INSTRUCTION: The previous attempt exhausted the configured output-token limit and was discarded.${failedChecks} Regenerate the full brief from the top in the same format, concise enough to finish its supported judgments and supporting sections without dropping material qualifications or response obligations. Keep analytical paragraphs and conditional implications. Omit optional Developing or What could change the picture sections if they add no supported information. Do not add owners, action lists or completion dates to fill space. Use only CVEs and URLs in the current-source input; cite captured Evidence IDs in brackets so the application supplies labels and available links; linkless sources remain linkless. Never contradict verified KEV status.`,
           }];
         } else {
           log.warn('brief', `Corrective validation retry (${correctiveWarnings.join('; ')})`);
-          send({ reset: true, progress: 'Retrying — correcting source verification or required structure...', stage: 'generating' });
+          send({ reset: true, progress: 'Repairing the draft’s factual, structure, or approval findings...', stage: 'generating' });
           modelParams.messages = [
             { role: 'user', content: userPrompt },
             // Preserve optional bookkeeping in the repair conversation. It is
             // still revalidated against the replacement, never trusted as fact.
             { role: 'assistant', content: fullBrief + (extractedMetadata.metadata
               ? `\n\n<!-- briefing-metadata\n${JSON.stringify(extractedMetadata.metadata)}\n-->` : '') },
-            { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}.\nLocated blocking findings: ${JSON.stringify(repairFindingContext(correctiveIssues, groundingManifest))}\nSource IDs refer to the captured passages above. Related source IDs are candidates to inspect, not proof of support.\n${correctiveGuidance(correctiveIssues)}\n${buildBriefFactLedger(groundingManifest, capturedKevTiming, capturedKevSet.size > 0)}\nRepair only the identified passages and summaries or actions directly dependent on them. Preserve other judgments, their priority, supported specificity, complete paired actions, citations and qualifications. Do not remove a supported metric merely to avoid an association check. Do not introduce new metrics or deadlines elsewhere while repairing a citation. Return the complete brief in the same format. Use only CVEs and URLs in the current-source input; cite captured Evidence IDs in brackets so the application supplies labels and available links; linkless sources remain linkless. Never contradict verified KEV status.` },
+            { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}.\nLocated findings requiring repair: ${JSON.stringify(repairFindingContext(correctiveIssues, groundingManifest))}\nSource IDs refer to the captured passages above. Related source IDs are candidates to inspect, not proof of support.\n${correctiveGuidance(correctiveIssues)}\n${buildBriefFactLedger(groundingManifest, capturedKevTiming, capturedKevSet.size > 0, capturedKevStatus)}\nRepair only the identified passages and summaries or actions directly dependent on them. Preserve other judgments, their priority, supported specificity, complete paired actions, citations and qualifications. Optional scores may be omitted when they do not change the assessment, scope, priority or response; preserve the supported reporting and never imply that supplied evidence is unavailable. Do not introduce new metrics or deadlines elsewhere while repairing a citation. Return the complete brief in the same format. Keep descriptive headlines, analytical paragraphs and conditional implications; do not introduce mandatory owners, deadlines or action fields. Use only CVEs and URLs in the current-source input; cite captured Evidence IDs in brackets so the application supplies labels and available links; linkless sources remain linkless. Never contradict verified KEV status.` },
           ];
         }
         const retryResult = await runProviderAttempt(client);
@@ -1234,11 +1277,14 @@ export function createBriefRouter({
         // arbitrary changes in meaning; keep repairs local in the request.
         if (!retryResult.error && !retryResult.timedOut && retryResult.stopReason !== 'refusal' && retryResult.text.length >= 100) {
           assertBriefInput(retryResult.text);
-          const candidatePrepared = await prepareBriefInWorker(retryResult.text, genDate, validationSource, { extractMetadata: true, delink: true });
+          const candidatePrepared = await prepareBriefInWorker(retryResult.text, genDate, validationSource, { extractMetadata: true, delink: true,
+            original: { text: fullBrief, validation, partial: stoppedAtOutputLimit }, partial: retryResult.stopReason === 'max_tokens' });
           const candidateMetadata = { metadata: candidatePrepared.metadata, issues: candidatePrepared.issues };
           const candidate = candidatePrepared.content;
           const candidateValidation = candidatePrepared.validation;
           recordValidation(generationManifest, candidate, candidateValidation);
+          if (candidatePrepared.automaticRepairs?.length) generationManifest.validation.at(-1).automaticRepairs = candidatePrepared.automaticRepairs;
+          if (candidatePrepared.preservation) generationManifest.validation.at(-1).storyPreservation = candidatePrepared.preservation;
           const recovery = correctiveRecoveryDecision(
             { text: fullBrief, validation, partial: stoppedAtOutputLimit },
             { text: candidate, validation: candidateValidation, partial: retryResult.stopReason === 'max_tokens' },
@@ -1458,17 +1504,13 @@ export function createBriefRouter({
       // can't parse, which silently drops a bare relative path.
       const publishedReading = briefReadingState(filename, fullBrief, { ...generationManifest, filename, outputSha256: sha256(fullBrief) }, { reviewDirectory: reviewDir });
       const presentation = briefPresentation(publishedReading, { legacyWarnings: warnings });
-      const judgments = parseJudgments(publishedReading.content).map(j => ({
-        title: j.title, tier: getHorizonName(config, j.horizon), confidence: j.confidence,
-      }));
       if (publishedReading.disposition.eligibleForLatest) dispatchBriefWebhook(
         {
           deliveryIdentity: { filename, contentSha256: sha256(publishedReading.content) },
           date: genDate,
           bluf: extractBluf(publishedReading.content),
-          judgments,
+          ...briefNotificationFields(publishedReading.content, config, presentation),
           link: `${outwardBaseUrl}/briefing/${encodeURIComponent(filename)}`,
-          warnings: [...warnings],
         },
         config,
       ).catch(err => log.warn('brief', `Brief webhook dispatch failed (non-blocking): ${err.message}`));

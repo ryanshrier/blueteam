@@ -6,7 +6,7 @@ import express from 'express';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { BRIEF_EVALUATION_CASES, EVAL_DATE, referenceBrief } from './fixtures/brief-evaluation.js';
+import { BRIEF_EVALUATION_CASES, EVAL_DATE, narrativeReferenceBrief } from './fixtures/brief-evaluation.js';
 import { createAnthropicClient, createOpenAiClient, DEFAULT_OPENAI_MODEL, PROVIDER_CONTRACT_VERSION } from '../lib/ai-provider.js';
 import { parseProviderReplay, replayProviderEvents, MAX_PROVIDER_REPLAY_BYTES } from '../lib/provider-replay.js';
 
@@ -118,17 +118,15 @@ afterAll(() => {
 async function execute(item, corrective = false, { provider = selectedProvider, model = selectedModel, rejectDraft = false, stopReasons = ['end_turn'], terminal = true, sharedFacts = false } = {}) {
   currentCase = item; saved = null; calls = 0; acceptedAttempts = []; localRejections = []; capturedRequests = []; metadata.clear();
   const draftText = () => {
-    let draft = referenceBrief(item);
+    let draft = narrativeReferenceBrief(item);
     if (sharedFacts) {
       const sources = buildGroundingManifest({ headlines: item.headlines }).members;
       draft = draft.replace(/\[[^\]\n]+\]\((https?:\/\/[^)]+)\)/g, (citation, url) => {
         const source = sources.find(record => record.url === url);
         return source ? `[${source.id.toLowerCase()}]` : citation;
-      }).replace(/^- \*\*Required decisions:\*\*[^\n]*\n/m, '')
-        .replaceAll(' — recommended target ', ' - target: ')
-        .replaceAll('Operations — document', 'Operations - document');
+      });
     }
-    if (rejectDraft || (corrective && calls === 1)) draft = draft.replace('## BLUF', '## MISSING OPENING');
+    if (rejectDraft || (corrective && calls === 1)) draft = draft.replace("## TODAY'S PICTURE", '## MISSING OPENING');
     return draft;
   };
   const scriptedOpenAi = provider === 'openai' && !live ? createOpenAiClient('synthetic-evaluation', model, async (_url, options) => {
@@ -310,18 +308,19 @@ test.each(evaluatedCases)('$id: $description', async item => {
   expect(row.receipt.providerAttempts[0].thinkingConfiguration).toEqual({ requestedEffort: 'low', configuredBy: 'adapter-hook', requestEffort: 'low' });
 });
 
-(observed ? test.skip : test).each(['anthropic', 'openai', 'custom'])('%s composes source IDs and tolerant action facts without hidden metadata or a retry', async provider => {
+(observed ? test.skip : test).each(['anthropic', 'openai', 'custom'])('%s renders source IDs in analytical prose without hidden metadata or a retry', async provider => {
   const model = provider === 'openai' ? DEFAULT_OPENAI_MODEL : provider === 'anthropic' ? 'claude-sonnet-5' : 'custom-replay';
   const row = await execute(BRIEF_EVALUATION_CASES[0], false, { provider, model, sharedFacts: true });
   expect(row.published).toBe(true);
   expect(row.providerAttempts).toBe(1);
   expect(row.citedHorizons).toEqual([1, 2, 3]);
   expect(row.receipt.generationSettings.compositionVersion).toBe(1);
+  expect(row.receipt.generationSettings.briefFormatVersion).toBe(2);
   expect(row.receipt.briefingMetadata).toBeNull();
   expect(saved.text).not.toMatch(/\[s\d+\.\d+\]/i);
   expect(saved.text).toContain('[Synthetic Vendor, 2026-09-04](https://example.test/evaluation/vendor)');
-  expect(saved.text).toContain('**Required decisions:** Operations — document applicability');
-  expect(saved.text).toContain('— recommended target September 8, 2026');
+  expect(saved.text).toContain('Its relevance depends on local permissions');
+  expect(saved.text).not.toMatch(/Required decisions|recommended target|Recommended actions/);
   expect(row.blockers).toEqual([]);
   expect(row.issues.filter(issue => issue.code.startsWith('ACTION_SUMMARY'))).toEqual([]);
 });
@@ -346,7 +345,7 @@ test.each(evaluatedCases)('$id: $description', async item => {
   expect(capturedRequests[1].messages.map(message => message.role)).toEqual(['user', 'assistant', 'user']);
   expect(capturedRequests[1].messages[0]).toEqual(capturedRequests[0].messages[0]);
   expect(capturedRequests[1].messages[1].content).toContain('## MISSING OPENING');
-  expect(capturedRequests[1].messages[2].content).toContain('Located blocking findings');
+  expect(capturedRequests[1].messages[2].content).toContain('Located findings requiring repair');
   expect(row.costUsd).toBe(0.02);
 });
 

@@ -8,6 +8,15 @@ const citation = finding('CVE_CITATION_MISMATCH', 'Signal 1 CVE-2026-1234 is abs
 const version = finding('VERSION_UNSUPPORTED', 'Signal 2 version 14.1-43.56 is not present in its cited evidence');
 
 describe('bounded corrective recovery without sacrificing coverage', () => {
+  test('can omit one defective judgment and repair another while preserving unaffected coverage', () => {
+    const originalText = '## KEY JUDGMENTS\n### Signal 1 — [Horizon 1] Bad gateway claim\nCVE-2026-1234 has bad evidence.\n### Signal 2 — [Horizon 1] Bad version claim\nCVE-2026-5678 version 14.1-43.56.\n### Signal 3 — [Horizon 2] Unaffected reporting\nRetain this entire assessment.\n';
+    const candidateText = '## KEY JUDGMENTS\n### Signal 1 — [Horizon 1] Bad version claim\nCVE-2026-5678 version 14.1-43.55.\n### Signal 2 — [Horizon 2] Unaffected reporting\nRetain this entire assessment.\n';
+    const original = draft([citation, version], { text: originalText });
+    expect(correctiveRecoveryDecision(original, draft([], { text: candidateText })).accepted).toBe(true);
+    expect(correctiveRecoveryDecision(original, draft([], { text: candidateText.replace('entire assessment', 'different assessment') })).accepted).toBe(false);
+    expect(correctiveRecoveryDecision(original, draft([], { text: candidateText.replace('Bad version claim', 'Unrelated story').replace('CVE-2026-5678', 'CVE-2026-9999') })).accepted).toBe(false);
+    expect(correctiveRecoveryDecision(original, draft([finding('KEV_DEADLINE_MISMATCH', 'New unsupported deadline')], { text: candidateText })).accepted).toBe(false);
+  });
   test('fewer findings cannot outweigh a newly introduced factual contradiction', () => {
     const result = correctiveRecoveryDecision(draft([citation, version]), draft([
       finding('KEV_DEADLINE_MISMATCH', 'CVE-2026-1234 deadline contradicts the captured catalog'),

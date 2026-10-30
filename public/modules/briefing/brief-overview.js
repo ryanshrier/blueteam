@@ -1,6 +1,6 @@
 // Editorial overview of a saved edition. Current reporting has its own clock
 // and request lifecycle; it never mutates the edition or its assessment times.
-import { parseBrief, parseBlufProse, judgmentCertainty, stripMd, sourceCitations, section } from '/vendor/brief-schema.js';
+import { parseBrief, parseBlufProse, judgmentCertainty, stripMd, sourceCitations, section, briefSections } from '/vendor/brief-schema.js';
 import { escapeHtml } from '../core/sanitize.js';
 import { assessmentSources } from '../core/assessment-meta.js';
 import { formatBriefPublication, formatBriefPublishedAt, formatBriefLabel } from '../core/brief-date.js';
@@ -11,7 +11,7 @@ import { readerIssueIdentity } from './brief-renderer.js';
 export function overviewModel(brief = {}) {
   const content = String(brief.content || '');
   const parsed = parseBrief(content);
-  const preface = stripMd(content.split(/^##\s+/m)[0].split('\n')
+  const preface = stripMd(content.replace(/^\uFEFF?\s*<!--\s*briefing-format:[\s\S]*?-->\s*/, '').split(/^##\s+/m)[0].split('\n')
     .filter(line => !/^\s*#/.test(line)).join(' '));
   // The server verifies this presentation against the complete corrected copy.
   // An entry must also match this parsed heading; never reuse a stale summary.
@@ -35,7 +35,7 @@ export function overviewModel(brief = {}) {
         summary: edited?.summary || item.trajectoryDetail,
         condition: edited?.condition || item.watch };
     }),
-    blufSources: sourceCitations(section(content, 'BLUF')),
+    blufSources: sourceCitations(section(content, briefSections(content).bluf)),
   };
 }
 
@@ -49,6 +49,8 @@ const words = value => String(value || '').trim().split(/\s+/).filter(Boolean).l
 
 /** Whole authored passages remain available; an unreviewed excerpt is never a summary. */
 export function overviewPassage(story) {
+  if (story.formatVersion === 2) return (story.paragraphs || [story.claim]).map(paragraph =>
+    `<p class="brief-overview-claim">${escapeHtml(paragraph)}</p>`).join('');
   const authored = story.claim;
   const passage = story.reviewedSummary || authored;
   const condition = story.reviewedCondition || '';

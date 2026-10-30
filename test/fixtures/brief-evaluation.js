@@ -51,6 +51,36 @@ export const BRIEF_EVALUATION_CASES = [
   { ...scenario('sparse-title-only', 'Headlines alone cannot establish a full factual assessment.', sparse), expected: { publishable: false, horizons: [], priorityCves: [] } },
 ];
 
+// Current provider-output fixture. Keep the older reference below unchanged for
+// archive, correction and historical receipt tests.
+export function narrativeReferenceBrief(item) {
+  const stories = item.primary.map(index => {
+    const h = item.headlines[index];
+    const disputed = item.id === 'conflicting-multi-cve' && index === 0;
+    const implication = disputed
+      ? 'The disagreement leaves the Gateway fix unresolved; the two products and their assessments should remain separate. Local exposure is unknown.'
+      : h.horizon === 1
+        ? 'For environments running the affected Gateway versions, the fix is relevant to remediation. The report does not establish local deployment or prior compromise.'
+        : h.horizon === 2
+          ? 'The dependency on user approval makes the support workflow part of the exposure question. Its relevance depends on local permissions and how support requests are authenticated.'
+          : 'The significance is prospective: supplier reporting practices could change, while the adoption schedule and local implications remain unresolved.';
+    return `### ${h.title}
+
+${item.capturedClaims?.[index] || h.description || h.title} [${h.source}, September 4, 2026](${h.link})${disputed ? ` The independent observer disputes the vendor's Gateway fix claim and reports version 1.3 remains affected by CVE-2026-12345; this contradiction is unresolved, and the observer does not establish the Manager issue. [Synthetic Observer, September 4, 2026](${h.sourceMembers[1].link})` : ''}
+
+${implication}`;
+  }).join('\n\n');
+  return `# THREAT LANDSCAPE BRIEFING — September 5, 2026
+
+## TODAY'S PICTURE
+The gateway update has the clearest immediate relevance where affected versions are deployed. The remote-support report concerns an approval workflow, while the disclosure consultation remains prospective. None of these reports establishes local compromise.
+
+## PRIORITY STORIES
+
+${stories}
+`;
+}
+
 export function referenceBrief(item) {
   const judgments = item.primary.map((index, i) => {
     const h = item.headlines[index];

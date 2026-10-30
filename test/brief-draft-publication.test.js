@@ -54,10 +54,10 @@ afterEach(async () => {
   await new Promise(resolve => server.close(resolve));
   rmSync(dir, { recursive: true, force: true });
 });
-function draft({ text = content, scheduled = false, generatedAt = '2026-09-05T12:00:00Z', checkPriorityCoverage = false, bindPriorityCoverage = false, coverageIndex = 1, partial = true } = {}) {
+function draft({ text = content, scheduled = false, timezone = 'UTC', generatedAt = '2026-09-05T12:00:00Z', checkPriorityCoverage = false, bindPriorityCoverage = false, coverageIndex = 1, partial = true } = {}) {
   const groundingManifest = buildGroundingManifest({ headlines: item.headlines });
   const validation = validateBrief(text, '2026-09-05', { publication: true, editorialStandard: 2, groundingManifest, kevSet: new Set(), kevCatalogLoaded: true });
-  const manifest = buildGenerationManifest({ run: { headlines: item.headlines }, config: {}, editionContext: { date: '2026-09-05', timezone: 'UTC', scheduled }, groundingManifest });
+  const manifest = buildGenerationManifest({ run: { headlines: item.headlines }, config: {}, editionContext: { date: '2026-09-05', timezone, scheduled }, groundingManifest });
   Object.assign(manifest, { generationId: randomUUID(), editorialStandard: 2, generatedAt, verification: { kevCatalogLoaded: true, selectedKevCves: [] },
     providerAttempts: [{ model: 'synthetic-model', status: 'failed', usageComplete: false, usage: { inputTokens: 100, outputTokens: 50 } }],
     costEstimate: { usd: null, status: 'unknown-final-usage' }, publicationValidation: { ...validation, partial } });
@@ -75,6 +75,9 @@ function draft({ text = content, scheduled = false, generatedAt = '2026-09-05T12
   return saveRejectedBrief(dir, { id: manifest.generationId, content: text, manifest, validation: { ...retainedValidation, partial } });
 }
 const requestFor = (artifact, extra = {}) => ({ baseRevision: artifact.revisions.at(-1).number, inputSha256: artifact.manifestSha256, ...extra });
+const reconcileSchedule = (timezone = 'UTC') => fetch(`${base}/brief`, { method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'x-blueteam-scheduled-token': 'test-schedule' },
+  body: JSON.stringify({ scheduledJob: { jobKey: 'daily-brief:2026-09-05', editionDate: '2026-09-05', timezone, reconcileOnly: true } }) });
 const post = (artifact, payload, route = 'publish') => fetch(`${base}/brief/drafts/${artifact.id}/${route}`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
 });
@@ -138,31 +141,18 @@ describe('explicit repair publication', () => {
   });
 
   // Five real publication requests exercise the review gates in sequence.
-  test('an unsupported coverage assertion requires exact-copy, exact-findings editorial review and preserves its scope', async () => {
-    const artifact = draft({ checkPriorityCoverage: true, bindPriorityCoverage: true, coverageIndex: 99 });
-    expect(artifact.manifest.priorityCoverage.items).toHaveLength(1);
-    const held = await post(artifact, requestFor(artifact));
-    expect(held.status).toBe(422);
-    const state = await held.json();
-    expect(state.publicationDecision.blockers).toEqual([]);
-    const issueCodes = [...new Set(state.publicationDecision.reviewIssues.map(issue => issue.code))].sort();
-    expect(issueCodes).toContain('PRIORITY_COVERAGE_UNSUPPORTED');
-    const editorialReview = { reviewer: 'Fixture editor', reason: 'Reviewed the priority source and the scoped omission against the captured evidence.',
-      contentSha256: artifact.revisions.at(-1).sha256, issueCodes };
-    expect((await post(artifact, requestFor(artifact, { securityControlReview: editorialReview }))).status).toBe(422);
-    expect((await post(artifact, requestFor(artifact, { editorialReview: { ...editorialReview, issueCodes: [] } }))).status).toBe(422);
-    expect((await post(artifact, requestFor(artifact, { editorialReview: { ...editorialReview, contentSha256: '0'.repeat(64) } }))).status).toBe(422);
-    const publishedResponse = await post(artifact, requestFor(artifact, { editorialReview }));
-    expect(publishedResponse.status).toBe(200);
-    const published = await publishedResponse.json();
-    expect(published).toMatchObject({ published: true, publication: { eligibleForLatest: true } });
+  test('stale optional coverage mappings are rechecked from visible reporting without human approval', async () => {
+    const artifact = draft({ checkPriorityCoverage: true, bindPriorityCoverage: true, coverageIndex: 99, partial: false });
+    const response = await post(artifact, requestFor(artifact));
+    expect(response.status).toBe(200);
+    const published = await response.json();
     const receipt = readGenerationManifest(dir, published.filename);
-    expect(receipt.repairedDraft.operatorReview).toMatchObject({ scope: 'briefing-editorial', issueCodes,
-      contentSha256: artifact.revisions.at(-1).sha256, inputSha256: artifact.manifestSha256 });
+    expect(receipt.repairedDraft.operatorReview).toBeFalsy();
+    expect(receipt.publicationValidation.issues.some(issue => issue.code === 'PRIORITY_BOOKKEEPING_IGNORED')).toBe(true);
+    expect(receipt.publicationValidation.priorityCoverage.items.some(item => item.outcome === 'covered')).toBe(true);
     expect(receipt.priorityCoverage).toEqual(artifact.manifest.priorityCoverage);
-    expect(receipt.publicationValidation.issues.some(issue => issue.code === 'PRIORITY_COVERAGE_UNSUPPORTED')).toBe(true);
     expect(getClient).not.toHaveBeenCalled(); expect(getFreshRun).not.toHaveBeenCalled();
-  }, 15_000);
+  });
   test('visible supported coverage can publish without hidden bookkeeping or editorial approval', async () => {
     const artifact = draft({ checkPriorityCoverage: true, partial: false });
     const response = await post(artifact, requestFor(artifact));
@@ -300,6 +290,39 @@ describe('explicit repair publication', () => {
     expect(status.latest).toMatchObject({ status: 'complete', code: 'OPERATOR_REPAIRED', filename: result.filename, billing: 'unknown-final-usage', costUsd: 0.01 });
     expect(status.latest.attempts).toEqual(originalAttempts);
   });
+
+  test.each(['UTC', 'local'])('a complete %s scheduled draft publishes once after a fresh check without selecting a provider', async timezone => {
+    const artifact = draft({ timezone: timezone === 'local' ? Intl.DateTimeFormat().resolvedOptions().timeZone : timezone, scheduled: true, partial: false, checkPriorityCoverage: true, bindPriorityCoverage: true, coverageIndex: 99 });
+    const response = await reconcileSchedule(timezone);
+    const result = await response.text();
+    expect(result).toContain('"briefComplete":true');
+    expect(result).toContain('"reconciled":true');
+    expect(archives()).toEqual(['brief-2026-09-05-00.md']);
+    const receipt = readGenerationManifest(dir, archives()[0]);
+    expect(receipt.repairedDraft).toMatchObject({ id: artifact.id, trigger: 'scheduled-recheck', originalPublicationValidation: artifact.manifest.publicationValidation });
+    expect(receipt.costEstimate).toEqual(artifact.manifest.costEstimate);
+    expect(receipt.providerAttempts).toEqual(artifact.manifest.providerAttempts);
+    const retained = readBriefDraft(dir, artifact.id);
+    expect(retained.operatorSavedAt).toBeUndefined();
+    expect(retained.automaticCheckedAt).toEqual(expect.any(String));
+    expect((await (await reconcileSchedule(timezone)).text())).toContain('"replayed":true');
+    expect(archives()).toHaveLength(1);
+    expect(webhook).toHaveBeenCalledTimes(1);
+    expect(getClient).not.toHaveBeenCalled(); expect(getFreshRun).not.toHaveBeenCalled();
+  });
+
+  test.each(['missing', 'partial', 'fact-conflict', 'human-review'])(
+    'a no-spend scheduled recheck keeps %s work held', async mode => {
+      if (mode !== 'missing') draft({ scheduled: true, partial: mode === 'partial', text: mode === 'fact-conflict'
+        ? `${content}\nCVE-2026-99999 is actively exploited.` : mode === 'human-review'
+          ? content.replace('identify applicable systems and review owners', 'disable MFA for affected accounts') : content });
+      const response = await reconcileSchedule();
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('"awaitingReview":true');
+      expect(archives()).toEqual([]);
+      expect(getClient).not.toHaveBeenCalled(); expect(getFreshRun).not.toHaveBeenCalled();
+      expect(webhook).not.toHaveBeenCalled();
+    });
 
   test('a scheduled draft awaiting review cannot start another paid run for the same date', async () => {
     const artifact = draft({ scheduled: true });
