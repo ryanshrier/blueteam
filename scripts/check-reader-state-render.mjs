@@ -7,6 +7,9 @@ import { createFixtureApp } from './serve-visual-fixtures.mjs';
 import { CdpConnection, findBrowser, launchBrowser } from './check-landing-render.mjs';
 import { createFixtureRequestGuard } from './fixture-request-guard.mjs';
 import { briefPresentation } from '../lib/brief-reading-checks.js';
+import { authoredFormatCandidate, formatEvalHeadlines } from '../test/fixtures/brief-format-evaluation.js';
+import { buildGroundingManifest } from '../lib/grounding.js';
+import { assembleBrief } from '../lib/brief-assembly.js';
 
 const actionContent = `# Shared action fixture
 ## BLUF
@@ -72,6 +75,8 @@ const mixedIssues = [
   { code: 'PRIORITY_COVERAGE_PARTIAL', severity: 'review', message: 'Optional mixed-heading coverage accounting.' },
 ];
 const actionFixture = { content: actionContent, presentation: actionPresentation,
+  narrative: { content: assembleBrief(authoredFormatCandidate() + '\n\n## WHAT COULD CHANGE THE PICTURE\nA revised affected range would change the assessment. [S1.1]', { briefFormatVersion: 2,
+    groundingManifest: buildGroundingManifest({ headlines: formatEvalHeadlines() }) }).content },
   mixed: { content: mixedContent, presentation: briefPresentation({ original: mixedContent, content: mixedContent,
     manifest: { publicationValidation: { validationPolicyVersion: 2, issues: mixedIssues } }, disposition: { status: 'eligible', eligibleForLatest: true } }) },
   mixedLimits: [firstMixedLimit, thirdMixedLimit] };
@@ -104,7 +109,7 @@ try {
     assert.deepEqual(errors, [], 'No browser exceptions or real API / external requests');
     if (output) {
       await mkdir(output, {recursive:true});
-      for (const state of ['corrected','superseded']) {
+      for (const state of ['corrected','superseded','narrative']) {
         const shown = await connection.call('Runtime.evaluate', {awaitPromise:true,expression:`window.__showReaderState(${JSON.stringify(state)})`});
         assert(!shown.exceptionDetails,shown.exceptionDetails?.exception?.description);
         const shot=await connection.call('Page.captureScreenshot',{format:'png'});
@@ -189,6 +194,7 @@ Check affected inventory before scheduling remediation.
     unmount(); current=base(); pending=state==='draft'; generation=null; newer=null; publicationRevision='initial'; archiveFailure=false;
     if(state==='actions')Object.assign(current,actionFixture);
     if(state==='mixed-actions')Object.assign(current,actionFixture.mixed);
+    if(state==='narrative'){Object.assign(current,actionFixture.narrative);current.presentation.copy.kind='published';current.presentation.history=[];}
     if(state==='published'){current.presentation.copy.kind='published';current.presentation.history=[];}
     if(state==='corrected'){
       current.reviewedContent=markdown; current.sourceCheckStatus='findings';
@@ -371,6 +377,43 @@ Check affected inventory before scheduling remediation.
   check(JSON.stringify([...new Set([...mixedPrint.querySelectorAll('[data-action-id]')].map(node=>node.dataset.actionId))].sort())===JSON.stringify(['S1.A1','S2.A1','S3.A1','S4.A1']),'Mixed heading action identities survive print');
   for(const message of actionFixture.mixedLimits)check(mixedPrint.body.textContent.includes(message),'Print preserves material generic-heading caveats');
   check(!mixedPrint.body.textContent.includes('Optional mixed-heading coverage accounting.'),'Print keeps optional editorial accounting quiet');
+  q('.np-overlay').close();
+  await show('narrative');
+  check(q('#briefOverview').querySelectorAll('.brief-overview-story').length===6,'Version 2 Overview renders all six stories');
+  check(q('#briefOverview').textContent.includes('Local exposure is unconfirmed'),'Version 2 Overview preserves later qualifications');
+  check(!/Not assessed|Owner not specified|Decision window/.test(q('#briefOverview').textContent),'Version 2 Overview has no invented metadata or action placeholders');
+  q('#briefReadingMode').click();
+  const narrativeCards=[...q('#briefContent').querySelectorAll('.brief-judgment-card')];
+  check(narrativeCards.length===6,'Version 2 Full report has six addressable story cards');
+  check(narrativeCards.every((card,index)=>card.querySelector('h3')?.id===`judgment-${index+1}`),'Version 2 story anchors remain stable');
+  check(!q('#briefContent').querySelector('.brief-copy-decision,.bjm-window,.c-chip,.c-action'),'Version 2 report does not synthesize decision controls');
+  check(q('#briefContent').querySelector('.brief-sources-appendix a[href]'),'Version 2 citations retain accessible source links');
+  const {parseBrief,briefSectionAnchors}=await import('/vendor/brief-schema.js');
+  const {buildPresentationPages,buildGlanceModel,readerFragment}=await import('/modules/wall/wall-presentation.js');
+  const {presentationHtml}=await import('/modules/wall/wall-view.js');
+  const {mountWallActions}=await import('/modules/wall/wall-actions.js');
+  const wallDoc={...parseBrief(current.content),filename,date:current.date};
+  const wallStory=buildPresentationPages(wallDoc,{}).find(page=>page.kind==='judgment');
+  const wallHost=document.createElement('div');wallHost.innerHTML=presentationHtml(wallStory,{interactive:false});
+  check(wallHost.textContent.includes('Local exposure is unconfirmed'),'Wall presentation retains later uncertainty');
+  check(buildGlanceModel(wallStory).label==='Priority story'&&wallHost.textContent.includes('Analysis'),'Wall presents narrative as analysis');
+  const watchFragment=readerFragment({kind:'watchlist'},briefSectionAnchors(current.content));
+  check(!!watchFragment&&!!document.getElementById(watchFragment.slice(1)),'Wall supporting-section link resolves to a real reader heading');
+  const wallDialog=mountWallActions({getDocument:()=>wallDoc,onOpen:()=>{}});
+  wallDialog.open(q('#briefReadingMode'));
+  check(q('.wall-action-dialog').textContent.includes('revoking or rotating exposed credentials'),'Wall full-story dialog retains recovery conditions');
+  check(q('.wall-action-dialog [data-close]').getAttribute('aria-label')==='Close stories','Wall dialog has a matching accessible close label');
+  q('.wall-action-dialog [data-close]').click();
+  await until(()=>!q('.wall-action-dialog'));
+  check(!/Missing the (?:BLUF|Key Judgments)/.test(q('#edition-record').textContent),'Legacy section requirements do not leak into version 2');
+  check(document.documentElement.scrollWidth<=innerWidth+1,'Version 2 report fits the viewport');
+  q('#briefExport').click();
+  await until(()=>q('.np-frame')?.contentDocument?.querySelector('.np-colophon'));
+  const narrativePrint=q('.np-frame').contentDocument;
+  check(narrativePrint.querySelectorAll('.brief-judgment-card').length===6,'Print retains every version 2 story');
+  check(narrativePrint.body.textContent.includes('revoking or rotating exposed credentials'),'Print retains conditional credential response');
+  check(narrativePrint.body.textContent.includes('Local exposure is unconfirmed'),'Print retains uncertainty');
+  check(!/Owner not specified|No action was authored|Not assessed/.test(narrativePrint.body.textContent),'Print does not create empty legacy fields');
   q('.np-overlay').close();
   window.__showReaderState=show;window.__finishReaderState=()=>{unmount();window.fetch=originalFetch;};
   return{checks};

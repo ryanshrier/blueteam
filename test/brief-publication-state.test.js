@@ -11,7 +11,7 @@ import { initializeBriefReceiptPolicy } from '../lib/brief-receipts.js';
 import { saveBriefDisposition } from '../lib/brief-review.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { validateBrief } from '../lib/validation.js';
-import { BRIEF_EVALUATION_CASES, referenceBrief } from './fixtures/brief-evaluation.js';
+import { BRIEF_EVALUATION_CASES, referenceBrief, narrativeReferenceBrief } from './fixtures/brief-evaluation.js';
 
 const getClient = jest.fn(() => null);
 const getFreshRun = jest.fn();
@@ -179,7 +179,7 @@ describe('one verified saved reading state', () => {
   test('mixed substantive and title-only citations remain advisory across completion, archive and webhook delivery', async () => {
     const thin = { source: 'Thin Source', title: 'Gateway announcement', description: '', link: 'https://example.test/thin', date: '2026-09-04', horizon: 1 };
     getFreshRun.mockResolvedValue({ headlines: [...item.headlines, thin], stats: {} });
-    const text = original.replace('[Synthetic Vendor, September 4, 2026](https://example.test/evaluation/vendor)', '[Synthetic Vendor, September 4, 2026](https://example.test/evaluation/vendor) [Thin Source, September 4, 2026](https://example.test/thin)');
+    const text = narrativeReferenceBrief(item).replace('[Synthetic Vendor, September 4, 2026](https://example.test/evaluation/vendor)', '[Synthetic Vendor, September 4, 2026](https://example.test/evaluation/vendor) [Thin Source, September 4, 2026](https://example.test/thin)');
     getClient.mockReturnValue({ messages: { stream: async () => ({ async *[Symbol.asyncIterator]() {
       yield { type: 'message_start', message: { usage: { input_tokens: 100, output_tokens: 0 } } };
       yield { type: 'content_block_delta', delta: { text } };

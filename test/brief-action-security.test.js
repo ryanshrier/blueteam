@@ -77,6 +77,27 @@ test('attacker behavior in source reporting does not become an action warning', 
   expect(findings(baseline.replace('**What happened:**', '**What happened:** Attackers disable EDR and clear event logs.'))).toEqual([]);
 });
 
+test.each(['review the vendor request', "assess the vendor's proposal", 'evaluate a supplier request'])(
+  'current checks accept approval work with the same control kept enabled: %s', prefix => {
+    const text = baseline.replace(originalAction, `${prefix} to disable EDR; keep EDR enabled until operator approval`);
+    expect(findings(text)).toEqual([]);
+    expect(validateBrief(text, EVAL_DATE, { ...source, validationPolicyVersion: 2 }).issues
+      .filter(issue => issue.code === 'SECURITY_CONTROL_CHANGE')).toHaveLength(1);
+  });
+
+test.each([
+  'review the vendor request to disable EDR',
+  'review the vendor request to disable EDR; keep MFA enabled until approval',
+  'review the vendor request to disable EDR; do not keep EDR enabled until approval',
+  'approve the vendor request to disable EDR; keep EDR enabled until approval',
+  'review the vendor request to disable EDR; keep EDR enabled until approval; then disable EDR',
+  'review the vendor request to disable EDR; keep EDR enabled until approval; run `wevtutil cl Security`',
+  'review the vendor request to delete security logs; keep security logs enabled until approval',
+  'review the vendor request to disable EDR\n- SOC — keep EDR enabled until approval',
+])('review-task wording cannot conceal an executable weakening instruction: %s', action => {
+  expect(findings(baseline.replace(originalAction, action))).toHaveLength(1);
+});
+
 test('checks multiline actions, executive decisions and developing triage', () => {
   const wrapped = baseline.replace(originalAction, 'investigate the incident\n  and disable EDR on impacted hosts');
   expect(findings(wrapped)).toHaveLength(1);

@@ -2,7 +2,7 @@
 // Transforms the model's markdown structure into styled components:
 // BLUF card, horizon tags, "the line" callouts, section anchors.
 
-import { formatDecisionWindow, judgmentCertainty } from '/vendor/brief-schema.js';
+import { formatDecisionWindow, judgmentCertainty, briefFormatVersion } from '/vendor/brief-schema.js';
 import { TIER_NAMES } from '../core/tiers.js';
 import { assessmentSources, renderAssessmentMeta } from '../core/assessment-meta.js';
 import { formatEventTime } from '../core/brief-date.js';
@@ -445,10 +445,12 @@ export function decisionWindowDuplicatesAction(windowValue, actionValues = []) {
 }
 
 export function applySemanticStyling(container, { decisionControls = false, presentation = null, sourceContent } = {}) {
+  const narrative = briefFormatVersion(sourceContent) === 2 || container.dataset.briefFormatVersion === '2';
+  if (narrative) container.dataset.briefFormatVersion = '2';
   markSourceJudgmentHeadings(container, sourceContent);
   // Establish one field structure for the live view, streaming snapshots, and
   // the printable edition before any later pass moves metadata or callouts.
-  normalizePackedBriefFields(container);
+  if (!narrative) normalizePackedBriefFields(container);
   const sharedActions = sharedExecutiveGroups(presentation) ? presentation.actionRecords.actions : null;
 
   // The generated dateline is visual masthead copy, not a subsection. Keep its
@@ -461,7 +463,7 @@ export function applySemanticStyling(container, { decisionControls = false, pres
   // 1. BLUF → card
   if (!container.querySelector('.bluf')) {
     for (const h2 of container.querySelectorAll('h2')) {
-      if (/^\s*BLUF\b/i.test(h2.textContent)) {
+      if ((narrative ? /^\s*TODAY'S PICTURE\s*$/i : /^\s*BLUF\b/i).test(h2.textContent)) {
         const div = document.createElement('div');
         div.className = 'bluf';
         let next = h2.nextElementSibling;
@@ -522,6 +524,7 @@ export function applySemanticStyling(container, { decisionControls = false, pres
   visibleJudgmentHeadings(container, { legacyFallback: true }).forEach((h3, index) => {
     h3.dataset.judgment = 'true';
     h3.dataset.signal = h3.dataset.sourceSignal || String(index + 1);
+    if (narrative) return;
     // The ordinal is generation scaffolding, not editorial copy. Keep the title,
     // and move its tier chip into the metadata line beneath the heading.
     h3.innerHTML = h3.innerHTML.replace(/^\s*Signal\s+\d+\s*[—–:\-]?\s*/i, '');
@@ -597,10 +600,10 @@ export function applySemanticStyling(container, { decisionControls = false, pres
 
   // Archived editions may contain these internal confidence-adjustment prompts.
   // Consume them wherever they occur, including inside a mixed packed paragraph.
-  container.querySelectorAll('p, li').forEach(el => stripLabeledSegments(el, RETIRED_LABELS));
+  if (!narrative) container.querySelectorAll('p, li').forEach(el => stripLabeledSegments(el, RETIRED_LABELS));
 
   // 3. "The line" → callout
-  container.querySelectorAll('p, li').forEach(liftTheLine);
+  if (!narrative) container.querySelectorAll('p, li').forEach(liftTheLine);
 
   // 4. Preserve the authored link text: it can be the grammatical subject of a
   // sentence, not just a citation label. Add a numbered reference beside it.
@@ -709,6 +712,7 @@ export function applySemanticStyling(container, { decisionControls = false, pres
   // .nb-act) and make it the card's closing climax, so "what do I do this shift"
   // is the visual answer rather than one bullet buried in the recommendations.
   container.querySelectorAll('.brief-judgment-card').forEach(card => {
+    if (narrative) return;
     // Mark only content explicitly introduced as Recommended actions. Other
     // lists in the judgment are evidence or context, not invented directives.
     card.querySelectorAll('strong').forEach(strong => {
@@ -791,7 +795,7 @@ export function applySemanticStyling(container, { decisionControls = false, pres
 
   if (decisionControls) container.querySelectorAll('.brief-judgment-card').forEach(card => {
     attachAssessmentMetadata(card);
-    presentDecisionFirst(card);
+    if (!narrative) presentDecisionFirst(card);
   });
 
   // 8. Source appendix — append the deduped, numbered citations as an ordered
@@ -931,6 +935,9 @@ export function tocLabel(value) {
   const label = String(value || '').trim().replace(/\s+/g, ' ');
   if (/^EXECUTIVE SUMMARY\b/i.test(label)) return 'Executive summary';
   if (/^KEY JUDGMENTS\b/i.test(label)) return 'Key judgments';
+  if (/^PRIORITY STORIES$/i.test(label)) return 'Priority stories';
+  if (/^DEVELOPING$/i.test(label)) return 'Developing';
+  if (/^WHAT COULD CHANGE THE PICTURE$/i.test(label)) return 'What could change the picture';
   if (/^DEVELOPING SITUATIONS\b/i.test(label)) return 'Developing';
   if (/^CONVERGENCE\b/i.test(label)) return 'Convergence';
   if (/^WATCHLIST\b/i.test(label)) return 'Watchlist';

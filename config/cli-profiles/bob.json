@@ -43,7 +43,7 @@
       "cost": { "path": "stats.session_costs", "unit": "Bobcoins" }
     }
   },
-  "limits": { "silence_timeout_ms": 120000, "total_timeout_ms": 300000 },
+  "limits": { "silence_timeout_ms": 240000, "total_timeout_ms": 580000 },
   "restarts": 0,
   "health_args": ["--version"]
 }

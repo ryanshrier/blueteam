@@ -14,6 +14,14 @@ BlueTeam.News uses `config.json` for product behavior, the Settings page for ope
 | `alertRules` | Regular expressions that boost matching headlines |
 | `analysisSettings` | Models, token budgets, refresh cadence, freshness windows, tier weights, scoring debug, and webhook delivery |
 
+`analysisSettings.generationTimeoutSec` is the shared time budget for provider attempts and checks between them, from 30 to 1,200 seconds. The checked-in configuration uses 1,200 seconds; omitting the setting retains the 300-second fallback. A Bob profile with a 580-second invocation limit can therefore complete an initial response and one corrective response, with 40 seconds of margin. Collection has a separate bounded wait. This budget does not add retries: an actual provider timeout or uncertain completion still retains the available draft instead of automatically buying another call.
+
+All new generations use one briefing format: Today's picture, descriptive Priority stories, and optional Developing / What could change the picture. Stories use connected analysis, source attribution and conditional implications; owners, deadlines, action lists and confidence fields are not required. There is no format setting or alternate generation template.
+
+The application retains a document schema marker and receipt metadata solely to read saved editions correctly. Existing unmarked briefings remain unchanged and readable. Reading or rechecking an archived edition never migrates its prose; a conflicting or unsupported saved schema blocks publication. No archive conversion is required.
+
+Corrective generation restores unaffected stories and optional sections from the original complete draft before validating the result. Located defective stories and the opening can change; unaffected priority order and qualifications remain intact. Receipts record restored, edited and omitted story positions. This uses the existing corrective attempt and introduces no additional approval requirement.
+
 To tailor results to an environment, add relevant technologies and concerns to `organization.watchTopics` and `alertRules`:
 
 ```json
@@ -160,7 +168,7 @@ An empty `url` disables delivery. Set:
 - `events` to `alerts`, `brief`, or `both`; and
 - `PUBLIC_BASE_URL` if recipients need links to a public deployment.
 
-Alert delivery includes only signals matching an `alertRule`, and each story is sent at most once. Briefing delivery includes the edition date, BLUF, key judgments, a deep link, and—when present—the total review-warning count plus bounded warning text.
+Alert delivery includes only signals matching an `alertRule`, and each story is sent at most once. Briefing delivery includes the edition date, opening, story titles and a deep link. Narrative stories have no invented tier or confidence value. Routine diagnostic notes remain in the linked Edition record; material exceptions retain bounded notification text and their reviewed status when applicable.
 
 Briefing notifications use the current reading copy and are sent only when the edition is eligible at generation completion. An edition retained for material review does not trigger delivery. Later corrections or approval do not resend its notification.
 

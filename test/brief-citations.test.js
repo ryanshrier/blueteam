@@ -20,7 +20,7 @@ describe('app-rendered source references', () => {
     expect(renderBriefCitations(result.content, grounding)).toMatchObject({ content: result.content, issues: [], references: [] });
   });
 
-  test.each([',', ';'])('renders multiple exact source IDs with a %s separator', separator => {
+  test.each([',', ';', ' ', '\t', ' and ', ' & ', ', and '])('renders multiple exact source IDs with a %s separator', separator => {
     const result = renderBriefCitations(`[S1.1${separator} s2.1${separator} S1.1]`, grounding);
     expect(result.content).toBe(`${citation} [Research, 2026-09-04](https://example.test/research)`);
     expect(result.references[0].sourceIds).toEqual(['S1.1', 'S2.1']);
@@ -40,7 +40,9 @@ describe('app-rendered source references', () => {
     expect(renderBriefCitations('[S1.1]', manifest).content).toBe('[Vendor, date unavailable]');
   });
 
-  test.each(['[S99.1]', '[S1]', '[S1.1, S88.2]', '[S1.1, invented publisher]', '[NVD-CVE-2026-99999]'])('keeps an unresolved reference visible and blocking: %s', reference => {
+  test.each(['[S99.1]', '[S1]', '[S1.1, S88.2]', '[S1.1 and S88.2]', '[S1.1 invented publisher]',
+    '[S1.1, invented publisher]', '[S1.1-S2.1]', '[S1.1 through S2.1]', '[S1.1 and]', '[S1.1,]',
+    '[NVD-CVE-2026-99999]'])('keeps an unresolved reference visible and blocking: %s', reference => {
     const result = renderBriefCitations(`A claim.\nAnother claim ${reference}.`, grounding);
     expect(result.content).toContain(reference);
     expect(result.issues).toEqual([expect.objectContaining({ code: 'CITATION_REFERENCE_INVALID', severity: 'trust', location: { line: 2, excerpt: reference } })]);
@@ -144,6 +146,19 @@ describe('source references remain subject to factual checks', () => {
     const result = validate(withIds.replaceAll('[S1.1]', '[S2.1]'));
     expect(result.issues.map(issue => issue.code)).toContain('CVE_CITATION_MISMATCH');
     expect(publicationDecision(result).canPublish).toBe(false);
+  });
+
+  test('grouped source IDs resolve without masking unsupported claims or unknown sources', () => {
+    const grouped = withIds.replaceAll('[S1.1]', '[S1.1 and S2.1]');
+    const result = validate(grouped);
+    expect(result.judgmentEvidence[0].sourceIds).toEqual(['S1.1', 'S2.1']);
+    expect(result.issues.map(issue => issue.code)).not.toContain('CITATION_REFERENCE_INVALID');
+    expect(publicationDecision(result).canPublish).toBe(true);
+    expect(validate(grouped.replace('[S1.1 and S2.1]', 'CVSS 10.0 [S1.1 and S2.1]')).issues.map(issue => issue.code))
+      .toContain('CVSS_UNSUPPORTED');
+    const unknown = validate(withIds.replace('[S1.1]', '[S1.1 and S99.1]'));
+    expect(unknown.issues.map(issue => issue.code)).toContain('CITATION_REFERENCE_INVALID');
+    expect(publicationDecision(unknown).canPublish).toBe(false);
   });
 
   test.each(['', '2026-09-04'])('source labels with Markdown characters still resolve without a URL (date %s)', date => {

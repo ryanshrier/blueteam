@@ -19,6 +19,11 @@ CVE, affected range, and fixed release through generation and frozen replay.
 A separate case requires a malformed first draft to receive one corrective retry
 and accounts for both attempts.
 
+Scripted generation responses use the current narrative format across all three
+adapters. They verify citation rendering without manufactured actions, owners or
+targets. Separate historical fixtures remain unchanged for archive and correction
+checks; they do not provide another generation mode.
+
 ## Offline Custom conformance and recorded output
 
 Run `npm run check:brief-eval -- --provider custom` for the scripted Custom
@@ -107,7 +112,85 @@ removed citation URLs still need review. The report never publishes the edit or
 rewrites the archive. An authored revision is not a new provider response, and
 shorter text or more varied labels alone is not evidence of better decisions.
 
+For narrative editions, story selectors use Priority stories. No structured
+action contract is invented: `actionsUnchanged` is null and
+`responsePreservationBasis` is `authored-assertions`. Include case-specific checks
+for material investigation, recovery and uncertainty passages. An identical-copy
+comparison must pass its scoped assertions; deleting a required condition must
+fail even when the remaining prose passes factual validation.
+
+Corrective-generation regressions additionally remove an unaffected story's
+investigation and uncertainty paragraph while repairing a different score. The
+application must restore that paragraph automatically, revalidate the merged
+copy and publish without another model call or approval. Tests also cover omitted
+stories, altered titles, source identities, optional sections and incomplete
+regeneration. These checks establish preservation of unaffected text, not general
+semantic equivalence inside the story being repaired.
+
 ## Optional live evaluation
+
+### Narrative format regression and historical comparison
+
+The format regression tests conditional, attributed reporting without
+mandatory owners, action targets or repeated judgment fields. The runner does not publish
+or change configuration. Run its frozen six-topic
+reference and 13 negative controls with a new output directory:
+
+```bash
+node scripts/run-node.mjs scripts/brief-format-eval.mjs --output .internal/format-offline
+```
+
+The reference covers exploitation with separate compromise review, provisional
+and primary scores, a disputed fix, a consultation, a vendor control-exception
+proposal and conditional credential/rebuild recovery. Case-specific lexical
+probes expose dropped meaning but are not general semantic or accuracy scores.
+Reports keep raw production compatibility separate from an evaluation-only fact
+view that places narrative paragraphs in the existing evidence field. That view
+invents no assignments or dates and cannot authorize publication. Unmarked experimental
+outputs remain legacy-format incompatible. The report separately prepares and checks
+the reference as explicit format 2 through the real production assembler, validator
+and reader; `version2ProductionCompatible` must pass.
+
+All new generation and repair use this single narrative format; there is no
+format setting or alternate production prompt. The internal schema marker lets
+Overview, Full report, Wall and print distinguish existing saved briefings without
+rewriting them. Draft rechecks use their captured schema. No legacy field or
+action-composition requirements apply to new narrative briefings. Source identity, substantive
+story citations, supported CVE/score/version forms, catalog status, chronology and
+explicit control-weakening directives are still checked. Attributed vendor proposals
+are reporting; separate execution instructions still require review. These bounded
+checks do not establish arbitrary natural-language truth or prove response completeness.
+The six-case negative controls and human prose review remain useful for those limits.
+
+An explicitly authorized live OpenAI A/B test uses the same six synthetic inputs,
+`gpt-6.1-sol`, low reasoning and an 8,000-token output allowance. It performs four
+first attempts in historical/narrative/narrative/historical order, without corrective
+retries. Its `current` and `proposed` arm names refer to the original experiment;
+both prompts are frozen text fixtures, not selectable production versions.
+It records prompts, outputs, hashes, usage, durations, reservations and
+an HTML comparison. It never uses real archive inputs, publishes, initializes
+the application database, changes settings or sends webhooks:
+
+```bash
+node scripts/run-node.mjs scripts/brief-format-live-eval.mjs --live --budget-usd 2 --output .internal/format-live --key-file data/settings.local.json
+```
+
+The explicit key file takes precedence; otherwise the runner uses the process
+`OPENAI_API_KEY`. Keys are read in memory and never retained in reports. Each
+request reserves bounded input bytes plus the complete output allowance before
+calling; total reservations cannot exceed the supplied budget (maximum $2).
+Unknown completion or usage stops subsequent calls. A new output directory is
+required and the script never resumes or automatically repeats a failed run.
+If an operator authorizes another run, deduct earlier reservations from the
+remaining budget rather than treating each directory as a fresh allowance.
+
+Review the actual prose for source attribution, unsupported local assumptions,
+decision-changing conditions, analytical usefulness and recovery completeness.
+Two outputs per arm cannot establish a production success rate or provider
+comparison. Current-format outputs receive normal production preparation;
+proposed outputs remain experimental narrative. Neither is published.
+
+### Existing generation-route evaluation
 
 The optional live evaluation supports Anthropic (the default) and OpenAI. It
 sends synthetic collections to the explicitly selected provider. It does not read
@@ -300,15 +383,25 @@ citations. Never hide a material limitation solely to make a card shorter.
 ## Recovery quality and evidence gaps
 
 Corrective generation gets one bounded attempt. Its request prioritizes blocking
-findings, includes captured source references, and asks for changes limited to
+and review-required findings, includes captured source references, and asks for changes limited to
 the affected passages and dependent summaries/actions. The replacement must
 resolve material findings without introducing new ones. A complete draft cannot
 be replaced by an incomplete response. A repair may remove a judgment only when
-a blocking finding unambiguously identifies that judgment, and every surviving
-judgment remains unchanged apart from numbering. Output-limit recovery can still
+a blocking finding unambiguously identifies that judgment. Unaffected surviving
+judgments remain unchanged apart from numbering; a separate located defective
+judgment can be repaired when its original identity is unambiguous. Output-limit recovery can still
 request a shorter complete edition. Both attempts remain in
 cost accounting; each evaluated candidate records its recovery decision in the
 receipt's validation history.
+
+Before a model repair, supported scores with an unambiguous missing provisional
+label receive a deterministic qualifier insertion and another validation. Policy
+4 treats unresolved omitted labels as notes, accepts equivalent CVSS notation,
+and resolves captured citations across the same judgment. Explicit contradictory
+values and qualifications still block. Keep omission cases separate from actual
+contradictions in evaluation results; a parser limitation is not evidence that a
+model fabricated a fact. Saved draft rechecks record automatic changes separately
+and preserve the original receipt and text.
 
 These are regression checks, not a semantic quality score. Equal judgment counts
 do not prove equal coverage, and passing factual checks does not establish that

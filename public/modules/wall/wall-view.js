@@ -1107,7 +1107,7 @@ function reflectPaused() {
     const doc = displayedPage?.document || briefDoc;
     const count = (doc?.stories || []).reduce((n, story) => n + storyActions(story).length, 0);
     actions.disabled = !doc;
-    actions.textContent = count ? `All actions (${count})` : 'Actions and context';
+    actions.textContent = doc?.formatVersion === 2 ? 'Full stories and sources' : count ? `All actions (${count})` : 'Actions and context';
   }
 }
 
@@ -1282,7 +1282,7 @@ function renderSection(def) {
     }
     case 'watchlist': {
       const entries = briefDoc.watchlistEntries || (briefDoc.watchlist || []).map(text => ({ text }));
-      return `<section class="nb-section"><h2 class="nb-dev-name">Watchlist</h2><p class="nb-coverage">${escapeHtml(briefDoc.watchlistMetadata?.validityText || 'Validity boundary not specified')} · from ${escapeHtml(briefDoc.date || 'the saved edition')}</p><div class="nb-devboard">${entries.map(item => `<article class="nb-dev"><div class="nb-dev-main"><p class="nb-dev-watch">${escapeHtml(item.text)}</p>${sourceLinksHtml(item.citations)}</div></article>`).join('')}</div></section>`;
+      return `<section class="nb-section"><h2 class="nb-dev-name">${briefDoc.formatVersion === 2 ? 'What could change the picture' : 'Watchlist'}</h2><p class="nb-coverage">${escapeHtml(briefDoc.watchlistMetadata?.validityText || (briefDoc.formatVersion === 2 ? 'Saved analysis' : 'Validity boundary not specified'))} · from ${escapeHtml(briefDoc.date || 'the saved edition')}</p><div class="nb-devboard">${entries.map(item => `<article class="nb-dev"><div class="nb-dev-main"><p class="nb-dev-watch">${escapeHtml(item.text)}</p>${sourceLinksHtml(item.citations)}</div></article>`).join('')}</div></section>`;
     }
 
     // Connect-the-dots as a full-height editorial stack: the "X + Y" framing
@@ -1395,7 +1395,7 @@ export function presentationHtml(page, { interactive = true } = {}) {
     ${interactive && page.kind === 'wire' ? `<p class="nb-display-source">Report age · ${escapeHtml(relAge(page.sourceDate) || 'Publication time unavailable')}</p>` : ''}
     ${interactive && page.kind === 'kev' ? '<p class="nb-display-source">CISA Known Exploited Vulnerabilities catalog · Verify affected versions and local exposure.</p>' : ''}
     ${interactive && page.kind === 'wire' ? `<p class="nb-display-source">Wall selection · Signal ${page.selectionIndex || 1} of ${page.selectionCount || 1} · <a href="/wire">Full feed in Wire</a></p>` : ''}
-    ${interactive && ['judgment', 'convergence', 'developing', 'watchlist'].includes(page.kind) ? `<p class="nb-display-source"><button type="button" data-wall-actions>All actions and source context</button>${page.actionCount ? ` · ${page.actionCount} authored ${page.actionCount === 1 ? 'action' : 'actions'} in this topic` : ''}</p>` : ''}
+    ${interactive && ['judgment', 'convergence', 'developing', 'watchlist'].includes(page.kind) ? `<p class="nb-display-source"><button type="button" data-wall-actions>${briefDoc?.formatVersion === 2 ? 'Full story and sources' : 'All actions and source context'}</button>${page.actionCount ? ` · ${page.actionCount} authored ${page.actionCount === 1 ? 'action' : 'actions'} in this topic` : ''}</p>` : ''}
   </section>`;
 }
 
@@ -1481,6 +1481,7 @@ function decisionBriefDateLabel(value) {
 }
 
 export function judgmentHtml(s, briefDate = '') {
+  if (s.formatVersion === 2) return `<article class="nb-judgment"><h2 class="nb-jtitle">${escapeHtml(s.title)}</h2>${(s.paragraphs || [s.assessment]).map(paragraph => `<p class="nb-jbody">${escapeHtml(paragraph)}</p>`).join('')}${sourceLinksHtml(s.citations)}</article>`;
   // Coerce horizon to a valid tier — a missing/out-of-range value would render an
   // unstyled pip with no tier name, silently misrepresenting the signal.
   const h = [1, 2, 3].includes(s.horizon) ? s.horizon : 2;

@@ -2,6 +2,7 @@ import { escapeHtml } from '../core/sanitize.js';
 import { formatEventTime } from '../core/brief-date.js';
 import { renderDraftMarkdown } from '../core/markdown.js';
 import { historicalSourceContextHtml } from './source-context.js';
+import { groupBriefFindings } from '../core/brief-findings.js';
 
 // Unsaved repairs survive closing the dialog during this app session.
 const workingCopies = new Map();
@@ -48,7 +49,7 @@ export function draftPublishLabel(artifact, content) {
 }
 
 export function draftRepairGuidance(decision) {
-  const count = decision?.blockers?.length || 0;
+  const count = groupBriefFindings(decision?.blockers || []).length;
   if (count) return `${count} required ${count === 1 ? 'fix remains' : 'fixes remain'}. Start with the affected passage; editing and rechecking use the saved evidence and do not call the model.${decision.reviewIssues?.length ? ' Editorial review follows the required fixes.' : ''}`;
   if (decision?.requiresReview) return 'Review the listed findings against the saved evidence, then publish. Optional notes do not prevent publication.';
   if (decision?.canPublish) return 'Ready to publish. Optional notes do not prevent publication.';
@@ -104,13 +105,19 @@ export function draftFindingsHtml(issues, decision) {
     { label: 'Editorial notes', items: decision.notes || [], open: false },
   ] : [{ label: 'Checks need attention', items: issues, open: true }];
   let index = 0;
-  return groups.filter(group => group.items.length).map(group => `<details class="draft-findings"${group.open ? ' open' : ''}><summary>${group.label} · ${group.items.length}</summary><ol>${group.items.map(issue => {
+  return groups.filter(group => group.items.length).map(group => {
+    const offset = index;
+    index += group.items.length;
+    const claims = groupBriefFindings(group.items);
+    return `<details class="draft-findings"${group.open ? ' open' : ''}><summary>${group.label} · ${claims.length}</summary><ol>${claims.map(issue => {
     const line = !editionWideFinding(issue) && Number.isSafeInteger(issue.location?.line) && issue.location.line > 0 ? issue.location.line : null;
-    const issueIndex = index++;
+    const issueIndex = offset + issue.indexes[0];
     const label = `${group.label === 'Editorial notes' ? 'Editorial note · optional' : group.label}${line ? ` · Line ${line}` : ' · Edition-wide'}`;
     const summary = `${escapeHtml(issue.message || '')}<span>${label}</span>`;
-    return `<li>${line ? `<button type="button" data-draft-line="${line}" data-draft-issue="${issueIndex}">${summary}</button>` : `<div class="draft-finding-summary">${summary}</div>${issue.sourceIds?.length ? `<button type="button" data-draft-evidence="${issueIndex}">Show related captured sources</button>` : ''}`}${line && issue.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}</li>`;
-  }).join('')}</ol>${group.label === 'Editorial notes' ? '<p>Optional notes do not prevent publication.</p>' : ''}</details>`).join('') || '<p>No required changes. Ready to publish.</p>';
+    const diagnostics = issue.issues.length > 1 ? `<details><summary>${issue.issues.length} related checks for this claim</summary><ul>${issue.issues.map(value => `<li>${escapeHtml(value.message || '')}</li>`).join('')}</ul></details>` : '';
+    return `<li>${line ? `<button type="button" data-draft-line="${line}" data-draft-issue="${issueIndex}">${summary}</button>` : `<div class="draft-finding-summary">${summary}</div>${issue.sourceIds?.length ? `<button type="button" data-draft-evidence="${issueIndex}">Show related captured sources</button>` : ''}`}${line && issue.location?.excerpt ? `<blockquote>${escapeHtml(issue.location.excerpt)}</blockquote>` : ''}${diagnostics}</li>`;
+  }).join('')}</ol>${group.label === 'Editorial notes' ? '<p>Optional notes do not prevent publication.</p>' : ''}</details>`;
+  }).join('') || '<p>No required changes. Ready to publish.</p>';
 }
 
 function currentEvidenceHtml(source, assessment) {
@@ -348,7 +355,7 @@ export function openDraftReview({ id = '', opener, onPublished, onSaved } = {}) 
     if (evidence) {
       const policy = artifact.publicationDecision;
       const findings = policy ? [...(policy.blockers || []), ...(policy.reviewIssues || []), ...(policy.notes || [])] : draftValidation(artifact).issues || [];
-      const finding = findings[Number(evidence.dataset.draftEvidence)];
+      const finding = groupBriefFindings(findings).find(group => group.indexes.includes(Number(evidence.dataset.draftEvidence)));
       if (finding?.sourceIds?.length) {
         body.querySelector('.draft-reference-panel').open = true;
         body.querySelector('.draft-captured-evidence').open = true;
@@ -367,7 +374,7 @@ export function openDraftReview({ id = '', opener, onPublished, onSaved } = {}) 
       const editor = body.querySelector('#draftRepair');
       const policy = artifact.publicationDecision;
       const findings = policy ? [...(policy.blockers || []), ...(policy.reviewIssues || []), ...(policy.notes || [])] : draftValidation(artifact).issues || [];
-      const finding = findings[Number(issue.dataset.draftIssue)];
+      const finding = groupBriefFindings(findings).find(group => group.indexes.includes(Number(issue.dataset.draftIssue)));
       if (finding?.sourceIds?.length) {
         body.querySelector('.draft-captured-evidence').open = true;
         body.querySelectorAll('[data-draft-source]').forEach(source => { source.open = finding.sourceIds.includes(source.dataset.draftSource); });

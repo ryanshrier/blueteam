@@ -89,6 +89,7 @@ import { configureRankingBenchmark, getRankingBenchmarkStatus } from './lib/rank
 import { scheduledBriefFilename } from './lib/history.js';
 import {
   createBriefGenerationTracker,
+  briefRequestTimeoutMs,
   shutdownGuardMs,
 } from './lib/brief-lifecycle.js';
 import { createShutdownCoordinator } from './lib/server-lifecycle.js';
@@ -550,10 +551,7 @@ async function generateScheduledBrief(scheduledJob) {
     apiSecret: process.env.API_SECRET || '',
     scheduledJob,
     internalToken: SCHEDULED_JOB_TOKEN,
-    timeoutMs: Math.min(
-      15 * 60_000,
-      ((getConfig().analysisSettings?.generationTimeoutSec ?? 180) * 1000) + 3 * 60_000,
-    ),
+    timeoutMs: briefRequestTimeoutMs(getConfig().analysisSettings?.generationTimeoutSec),
   });
 }
 

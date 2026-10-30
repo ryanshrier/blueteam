@@ -23,10 +23,10 @@ describe('test-only alternate profile by configuration alone', () => {
   test('the brief renders in the macro voice with ZERO cyber language', () => {
     const p = buildSystemPrompt(cfg);
     expect(p).toContain('# Macro Risk');
-    expect(p).toContain('### Global Macro Briefing · {date} · {weekday}');
+    expect(p).toMatch(/### Global Macro Briefing · \d{4}-\d{2}-\d{2}/);
     expect(p).toContain('macro-risk briefer for an investment committee');
-    expect(p).toContain('**Portfolio impact:**');
-    expect(p).toContain('What moves the book before the next session?');
+    expect(p).toContain('## PRIORITY STORIES');
+    expect(p).toContain('Do not assign departments');
     expect(p).not.toMatch(/cyber|CISA|\bKEV\b|\bCVE\b|CVSS|detection engineering|threat landscape|blue-team/i);
   });
 

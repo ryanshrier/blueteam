@@ -322,6 +322,15 @@ describe('dispatchBriefWebhook', () => {
     expect(safeFetchMock).not.toHaveBeenCalled();
   });
 
+  test('narrative notification titles do not acquire empty tier separators', async () => {
+    safeFetchMock.mockResolvedValue(okResponse());
+    await dispatchBriefWebhook(brief({judgments:[{title:'A conditional assessment',tier:null,confidence:null}],warnings:[]}),
+      {analysisSettings:{webhook:{url:'https://hooks.example.com/x',events:'brief'}}});
+    const body=JSON.parse(safeFetchMock.mock.calls[0][1].body);
+    expect(body.text).toContain('• *A conditional assessment*');
+    expect(body.text).not.toMatch(/Tier null|assessment\* —|validation warning/);
+  });
+
   test('POSTs the compact brief payload when events is "brief"', async () => {
     safeFetchMock.mockResolvedValue(okResponse(200));
     await dispatchBriefWebhook(

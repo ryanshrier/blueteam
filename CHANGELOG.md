@@ -1,6 +1,32 @@
 # Changelog
 
-## Unreleased
+## 1.4.7 — 2026-10-30
+
+This release makes Briefings analytical and conditional, reduces avoidable draft
+review friction, and preserves unaffected reporting during automatic repair.
+
+- Use one analytical briefing format with conditional implications, descriptive stories and optional supporting sections; preserve existing saved briefings without a format selector or mandatory owners, actions and deadlines.
+- Restore unaffected reporting before validating corrective output, retaining story order, investigation guidance and uncertainty without adding a provider attempt or approval requirement.
+- Copy supplied CVSS versions, assessment types and provisional qualifiers with source-ID citations. Repair unambiguous missing qualifiers automatically; distinguish optional notes from material contradictions without claiming to verify every factual assertion.
+- Remove absent-tier placeholders and routine-note warning banners from new briefing notifications; retain reviewed material exceptions. Update retained replay selectors/counts and Wall links and labels for analytical stories.
+- Set the bundled Bob profile to 240 seconds of silence and 580 seconds total; use a 1,200-second checked-in shared generation budget. Omitted configuration still falls back to 300 seconds. No automatic CLI restart is added.
+- Align scheduler and shutdown deadlines with the generation budget. Reconcile saved scheduled drafts without another provider call, including after restart, while preserving publication and spending records.
+
+### Upgrade notes
+
+Read the [v1.4.7 upgrade procedure](docs/operations.md#from-v146-to-v147).
+Stop the service and back up state, configuration and operator-managed profiles
+together. Existing Briefings retain their saved wording and remain readable;
+new generation and repair use one format without a format selector. SQLite stays
+at schema 11 and no dependencies change. Rollback requires the prior code and
+its matching pre-upgrade state backup because older readers cannot interpret
+the new document schema.
+
+Merge the 240-second silence and 580-second total limits into copied Bob profiles
+when ready, and review any explicit shared generation timeout. These changes do
+not install or invoke Bob. Synthetic validation does not establish live provider
+acceptance. The development-only dependency advisory disclosed for v1.4.6 remains
+applicable; see that release's dependency audit note below.
 
 ## 1.4.6 — 2026-10-28
 

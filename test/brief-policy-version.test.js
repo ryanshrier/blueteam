@@ -31,7 +31,7 @@ describe('versioned finding consequences', () => {
       expect(historical).toEqual({ issues: [issue] });
     });
 
-  test.each([null, '2', 0, 3])('an unknown explicit policy %j requires a recheck even with no findings', validationPolicyVersion => {
+  test.each([null, '2', 0, 5])('an unknown explicit policy %j requires a recheck even with no findings', validationPolicyVersion => {
     const result = publicationDecision({ validationPolicyVersion, issues: [] });
     expect(result.blockers.map(issue => issue.code)).toEqual(['VALIDATION_POLICY_UNSUPPORTED']);
     expect(publicationDecision({ validationPolicyVersion, issues: result.blockers }).blockers).toHaveLength(1);
@@ -40,7 +40,7 @@ describe('versioned finding consequences', () => {
   test.each(['What happened', 'Assessment'])('missing metric bindings in %s are notes, while supported conflicts still block', field => {
     const unbound = `${a} and ${b} affect gateways. The initial CVSS v3.1 9.8 was followed by CVSS v3.1 5.0. Verify affected deployments.`;
     const current = metrics(`${a}: CVSS v3.1 9.8.`, unbound, field);
-    expect(current.validationPolicyVersion).toBe(2);
+    expect(current.validationPolicyVersion).toBe(4);
     expect(current.issues.map(issue => issue.code)).toContain('CVE_CVSS_UNVERIFIED');
     expect(publicationDecision(current).canPublish).toBe(true);
     expect(publicationDecision(metrics(`${a}: CVSS v3.1 9.8.`, unbound, field, 1)).canPublish).toBe(false);
@@ -69,7 +69,7 @@ describe('retained corrected-copy checks', () => {
     const before = JSON.stringify({ manifest, review });
     expect(readingCopyChecks(original, reviewed, manifest)).toMatchObject({ validationPolicyVersion: 1, checkBasis: 'legacy-replay' });
     const checked = recheckReadingCopy(original, reviewed, manifest);
-    expect(checked).toMatchObject({ validationPolicyVersion: 2, checkBasis: 'explicit-recheck',
+    expect(checked).toMatchObject({ validationPolicyVersion: 4, checkBasis: 'explicit-recheck',
       contentSha256: sha256(reviewed.reviewedContent), inputSha256: sha256(JSON.stringify(manifest)) });
     expect(JSON.stringify({ manifest, review })).toBe(before);
     const retained = { ...checked, checkedAt: '2026-10-09T12:00:00Z' };

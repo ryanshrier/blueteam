@@ -18,7 +18,8 @@ export function briefSourceIndex(value, tokens) {
   headings.forEach((heading, index) => {
     heading.endLine = headings.slice(index + 1).find(next => next.depth <= heading.depth)?.line - 1 || lineCount;
   });
-  const sections = headings.filter(heading => heading.depth === 2 && /^KEY JUDGMENTS\b/i.test(heading.label));
+  const narrative = /^\uFEFF?\s*<!--\s*briefing-format:\s*2\s*-->/.test(source);
+  const sections = headings.filter(heading => heading.depth === 2 && (narrative ? /^PRIORITY STORIES$/i : /^KEY JUDGMENTS\b/i).test(heading.label));
   const section = sections.length === 1 ? sections[0] : null;
   const judgments = section ? headings.filter(heading => heading.depth === 3 && heading.line > section.line && heading.line <= section.endLine)
     .map((heading, index) => ({ ...heading, signal: index + 1, signalId: `S${index + 1}` })) : [];

@@ -47,6 +47,10 @@ export function wallEditionRecordHtml(doc = {}) {
 
 export function wallDocumentHtml(doc = {}) {
   const stories = doc.stories || [];
+  if (doc.formatVersion === 2) return `<p class="nb-actions-edition">${escapeHtml(formatBriefPublication(doc))} · Full stories and sources</p>${wallEditionRecordHtml(doc)}
+    ${stories.map((story, idx) => `<section id="wall-action-topic-${idx}" tabindex="-1"><h3>${escapeHtml(story.title)}</h3>${(story.paragraphs || [story.assessment]).map(paragraph => `<p>${escapeHtml(paragraph)}</p>`).join('')}<p>${sources(story.citations)}</p></section>`).join('')}
+    ${(doc.developing || []).map(item => `<section><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.trajectoryDetail)}</p><p>${sources(item.citations)}</p></section>`).join('')}
+    ${(doc.watchlistEntries || []).length ? `<section><h3>What could change the picture</h3>${doc.watchlistEntries.map(item => `<p>${escapeHtml(item.text)}</p><p>${sources(item.citations)}</p>`).join('')}</section>` : ''}`;
   return `<p class="nb-actions-edition">${escapeHtml(formatBriefPublication(doc))} · Complete authored actions and supporting context</p>
     ${doc.review?.status === 'editorially-corrected' ? `<p>Corrected reading copy${doc.filename ? ` · <a href="/briefing/${encodeURIComponent(doc.filename)}#editorial-review">See changes</a>` : ''}</p>` : ''}
     ${wallEditionRecordHtml(doc)}
@@ -72,7 +76,7 @@ export function mountWallActions({ getDocument, onOpen }) {
       dialog = document.createElement('dialog');
       dialog.className = 'wall-action-dialog';
       dialog.setAttribute('aria-labelledby', 'wallActionsTitle');
-      dialog.innerHTML = `<header><h2 id="wallActionsTitle">All actions and context</h2><button type="button" data-close aria-label="Close all actions">Close</button></header><div class="wall-action-dialog-body">${wallDocumentHtml(doc)}</div>`;
+      dialog.innerHTML = `<header><h2 id="wallActionsTitle">${doc.formatVersion === 2 ? 'Full stories and sources' : 'All actions and context'}</h2><button type="button" data-close aria-label="Close ${doc.formatVersion === 2 ? 'stories' : 'all actions'}">Close</button></header><div class="wall-action-dialog-body">${wallDocumentHtml(doc)}</div>`;
       dialog.querySelector('[data-close]').addEventListener('click', () => dialog.close());
       dialog.addEventListener('click', event => {
         const link = event.target.closest?.('a[href^="#wall-action-topic-"]');

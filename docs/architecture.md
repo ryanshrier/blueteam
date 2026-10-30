@@ -71,10 +71,10 @@ explanation may use a newer saved profile than a cached signal's score; the
 edition receipt separates collection and generation profiles to preserve that
 distinction. Profile details remain behind the existing trusted-operator gate.
 
-Wire keeps decisions and hidden/read state in browser storage and reflects saves
-across tabs on the same origin. Read identities include retained revision IDs so
+Wire keeps revision-checked decisions on the server; hidden/read preferences
+remain in browser storage. Read identities include retained revision IDs so
 changed evidence becomes unread. Current-result exports include the selected
-signals and their decisions; a separate JSON export includes all retained local
+signals and their decisions; a separate JSON export includes all retained server
 decisions, including those whose signals are no longer in the feed.
 
 ## Briefing flow
@@ -83,15 +83,15 @@ decisions, including those whose signals are no longer in the feed.
 
 1. grounds the request in the current scored signals and a deterministic KEV facts block;
 2. streams output from the selected Anthropic, OpenAI or Custom provider to the browser over server-sent events;
-3. assembles captured source IDs into citations, derives executive decisions from judgment actions, renders captured federal deadlines, then checks required sections and factual constraints;
-4. performs one corrective retry after a blocking validation failure;
+3. assembles captured source IDs into citations and checks the analytical report's structure and supported factual forms;
+4. performs one corrective attempt when needed, restores unaffected stories and optional sections from the original complete draft, and validates the merged result;
 5. blocks publication while structural or trust failures remain, or when the provider response lacks its terminal event or reports an incomplete stop, while preserving non-blocking warnings for operator review;
 6. saves the completed Briefing as Markdown under `briefs/`; and
 7. indexes it in SQLite FTS5 for search.
 
 These checks reduce structural and grounding failures; they do not establish that every generated claim follows from its source. OpenAI uses the Responses API with the selected model, including Codex models. Corrective retries stay with that provider and model. Anthropic retains its configured model and key fallbacks.
 
-`lib/brief-assembly.js` is the shared provider-independent composition step. It accepts ordinary Markdown, preserves unsupported or ambiguous material for validation, and runs before the saved content is hashed. New receipts record its composition version. Archive readers consume the persisted Markdown; they never rebuild a historical edition from today's catalog or parser output. Edited drafts from the new composition version can rebuild repeated presentation against their original captured inputs without a model call.
+`lib/brief-assembly.js` is the shared provider-independent composition step. It renders captured citations and stamps the current document schema before validation and hashing. It does not manufacture executive decisions or local response deadlines. Archive readers consume persisted Markdown; they never rebuild a historical edition from today's catalog. Older draft edits retain their captured schema and legacy composition behavior against their original inputs.
 
 New publication writes a bounded versioned JSON input receipt before the Markdown
 archive completion marker. The receipt embeds source member passages, selected
@@ -115,11 +115,18 @@ it does not automatically repeat ambiguous paid attempts or resume discarded
 output. See [Generation stream](api.md#generation-stream) and
 [Evidence and relevance](evidence-and-relevance.md).
 
-Each key judgment carries two separate time concepts. Its Tactical,
-Operational, or Strategic tier is the analytic horizon; its Decision window
-states when the operator should decide or initiate the first response, measured
-from the Briefing dateline. Action targets and cited external deadlines remain
-separate fields and may extend beyond that initial decision window.
+New reporting uses connected analytical paragraphs and conditional implications.
+It requires no horizon, confidence, owner, action or response-window fields.
+External deadlines retain their source authority and affected scope. Archived
+briefings keep their authored fields and original layout; the document schema
+marker is compatibility metadata, not a selectable generation mode.
+
+Complete-draft repair matches affected stories to located findings and retains
+all other story prose and priority order. It can update the opening and a located
+optional section, but cannot introduce unrelated stories. Every merged copy is
+validated again. A uniquely located blocking defect can still justify omitting
+that story. Output-limit regeneration and malformed original structures retain
+their separate recovery path; no new approval category or provider call is added.
 
 After a completed Briefing loads, the browser can render the same saved assessment as a paper-first **Print Edition** and hand it to the browser's print pipeline for paper or PDF output. This client-side rendering does not start another generation request or store a separate PDF on the server.
 

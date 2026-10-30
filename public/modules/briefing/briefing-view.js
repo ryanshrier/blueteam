@@ -20,6 +20,7 @@ import { attachEditorialReview, attachReaderLimits, openOriginalEdition, readerP
 import { formatEditionIdentity } from '../core/brief-date.js';
 import { openDraftReview, draftPublicationLabel } from './brief-drafts.js';
 import { draftOutcomePresentation } from './draft-outcome.js';
+import { groupBriefFindings } from '../core/brief-findings.js';
 
 let initialized = false;
 let contentRenderToken = 0;
@@ -207,7 +208,7 @@ function savedDraftDecision(failure) {
       && decision[key].every(issue => typeof issue?.message === 'string' && issue.message.trim()))) return null;
   const { blockers, reviewIssues, notes } = decision;
   if (!blockers.length && !reviewIssues.length && decision.canPublish !== true) return null;
-  return { blockers, reviewIssues, notes };
+  return { blockers: groupBriefFindings(blockers), reviewIssues: groupBriefFindings(reviewIssues), notes: groupBriefFindings(notes) };
 }
 
 const specificControlReview = issues => issues.length > 0 && issues.every(issue => issue.code === 'SECURITY_CONTROL_CHANGE');
@@ -230,7 +231,7 @@ function generationFindingsHtml(failure, savedDecision = savedDraftDecision(fail
       { key: 'notes', label: 'Optional notes', items: savedDecision.notes, open: false,
         description: 'These notes do not block publication. Consult them when useful for your editorial judgment.' },
     ];
-    return groups.filter(group => group.items.length).map(group => `<details class="brief-review-summary" data-generation-findings="${group.key}"${group.open ? ' open' : ''}><summary>${group.label} · ${group.items.length}</summary>${group.description ? `<p>${group.description}</p>` : ''}<ul>${group.items.map(issue => `<li>${escapeHtml(issue.message)}</li>`).join('')}</ul></details>`).join('');
+    return groups.filter(group => group.items.length).map(group => `<details class="brief-review-summary" data-generation-findings="${group.key}"${group.open ? ' open' : ''}><summary>${group.label} · ${group.items.length}</summary>${group.description ? `<p>${group.description}</p>` : ''}<ul>${group.items.map(issue => `<li>${escapeHtml(issue.message)}${issue.issues?.length > 1 ? `<details><summary>${issue.issues.length} related checks for this claim</summary><ul>${issue.issues.map(value => `<li>${escapeHtml(value.message)}</li>`).join('')}</ul></details>` : ''}</li>`).join('')}</ul></details>`).join('');
   }
   const decision = failure.publicationDecision;
   const groups = decision ? [
@@ -1075,7 +1076,7 @@ function renderStreamSnapshot(content, accumulated) {
 function structuralWarnings(content) {
   const warnings = [];
   if (!content.querySelector('.bluf')) warnings.push('Missing the BLUF (bottom-line-up-front) section.');
-  const hasKeyJudgments = [...content.querySelectorAll('h2')].some(h => /key judgment/i.test(h.textContent));
+  const hasKeyJudgments = [...content.querySelectorAll('h2')].some(h => (content.dataset.briefFormatVersion === '2' ? /^priority stories$/i : /key judgment/i).test(h.textContent));
   if (!hasKeyJudgments) warnings.push('Missing the Key Judgments section.');
   return warnings;
 }

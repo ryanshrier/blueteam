@@ -102,7 +102,7 @@
     "maxArticleExtractions": 10,
     "maxCVEEnrichments": 8,
     "headlineArchiveDays": 14,
-    "generationTimeoutSec": 300,
+    "generationTimeoutSec": 1200,
     "thinkingEffort": "low",
     "horizonWeights": {
       "horizon1": 0.45,

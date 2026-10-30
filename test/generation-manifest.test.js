@@ -39,7 +39,7 @@ describe('generation input receipt', () => {
     const manifest = receipt();
     expect(manifest.schemaVersion).toBe(1);
     expect(manifest.generationId).toMatch(/^[a-f0-9-]{36}$/);
-    expect(manifest.generationSettings).toMatchObject({ validationPolicyVersion: 2, thinkingEffort: 'low', maxTokens: 16000, generationTimeoutSec: 300 });
+    expect(manifest.generationSettings).toMatchObject({ validationPolicyVersion: 4, thinkingEffort: 'low', maxTokens: 16000, generationTimeoutSec: 300 });
     expect(manifest.selectedEvidence[0].passage).toMatchObject({ kind: 'article-excerpts', text: 'The vendor confirmed affected versions. '.repeat(60).trim(), quality: { status: 'substantive', substantive: true, reasons: ['retained-body-detail'] } });
     expect(manifest.selectedEvidence[0].sourceRevisions).toEqual([]);
     expect(manifest.selectedEvidence[0].sourceParts.find(part => part.kind === 'article-excerpts')).toMatchObject({ sourceRevisions: [], retrievedAt: '', passageSha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
