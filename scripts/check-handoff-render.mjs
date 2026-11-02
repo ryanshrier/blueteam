@@ -12,6 +12,7 @@ import { createFixtureApp } from './serve-visual-fixtures.mjs';
 import { CdpConnection, findBrowser, launchBrowser } from './check-landing-render.mjs';
 import { inspectPdfBounds, inspectPdfText, parseCsv } from './handoff-acceptance.mjs';
 import { buildAppFixture } from '../test/visual/app-fixtures.js';
+import { DISPLAY_CASES } from '../test/fixtures/brief-display.js';
 
 const run = promisify(execFile);
 const delay = ms => new Promise(done => setTimeout(done, ms));
@@ -90,6 +91,7 @@ try {
     await page.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   }
   async function screenshot(connection, name) {
+    await connection.call('Page.bringToFront');
     const shot = await connection.call('Page.captureScreenshot', { format: 'png' });
     await writeFile(join(directory, name), Buffer.from(shot.data, 'base64'));
   }
@@ -142,99 +144,118 @@ try {
     console.log(`PASS: genuine ${format.toUpperCase()} Blob download (${bytes.length} bytes, two filtered rows, read state and escaped cells).`);
   }
 
-  await navigate(page, '/briefing?scenario=handoff&theme=dark&capture&reducedMotion');
-  await until(() => evaluate(page, 'document.querySelector("#briefExport") && !document.querySelector("#briefExport").disabled && document.querySelectorAll(".brief-judgment-card").length === 3'), 'complete saved synthetic edition');
-  await activate('#briefEditionTools > summary');
-  await activate('#briefExport');
-  await until(() => evaluate(page, 'document.querySelector(".np-frame")?.contentDocument?.querySelector(".np-colophon") && !document.querySelector(".np-ov-print").disabled'), 'production Print Edition and fonts');
-  assert(await evaluate(page, 'document.querySelector(".np-overlay-reading-note").textContent.includes("Continuous reading preview") && document.querySelector(".np-frame").title.includes("continuous reading preview")'), 'Preview identifies continuous reading; actual page boundaries are verified by the PDF below');
-  await screenshot(page, 'print-preview.png');
-  const preview = await evaluate(page, `(() => {
-    const frame = document.querySelector('.np-frame');
-    const doc = frame.contentDocument;
-    const passageElements = [...doc.querySelectorAll('.np-body p, .np-body li:not(:has(li)):not(:has(p)), .np-exec-action-task > strong, .np-exec-action-due, .np-exec-fact-label, .np-body h2, .np-body h3, .np-validation li, .np-colophon')].filter(e => e.innerText.trim().length > 15);
-    const passages = passageElements.map(e => e.innerText.trim());
-    const executiveContextIndices = passageElements.flatMap((e, index) => e.matches('.brief-exec-heading, .np-exec-facts p') ? [index] : []);
-    return { source: frame.srcdoc, dom: doc.documentElement.outerHTML, readerText: doc.body.innerText, passages, executiveContextIndices,
-      title: doc.title, supportDisclosures: doc.querySelectorAll('.brief-judgment-support').length, warnings: [...doc.querySelectorAll('.np-validation li')].map(e => e.textContent.trim()),
-      headings: [...doc.querySelectorAll('.np-body h2, .np-body h3')].map(e => e.textContent.trim()),
-      viewport: { width: innerWidth, height: innerHeight, frameWidth: frame.clientWidth, frameHeight: frame.clientHeight },
-      fonts: [...doc.fonts].filter(f => f.status === 'loaded').map(f => ({family:f.family, style:f.style, weight:f.weight})) };
-  })()`);
-  const materialQualification = 'Synthetic qualification: local exposure remains unverified.';
-  assert.equal(preview.readerText.split(materialQualification).length - 1, 1, 'Current reader qualification appears exactly once, beside its claim or in the unplaced-findings appendix');
-  assert(preview.warnings.every(message => message === materialQualification), 'Only an unplaced current reader qualification may enter the appendix');
-  assert(!preview.readerText.includes('Synthetic editorial note: normalize the confidence field.'), 'Routine diagnostic stays in the edition record');
-  assert(!preview.readerText.includes('verify the fictional gateway deadline before distribution'), 'Historical finding stays in the edition record');
-  assert(!/Internal ·|Verify before acting|Verify every CVE|review before distribution/.test(preview.readerText), 'Print does not invent handling restrictions or a generic distribution hold');
-  assert.equal((preview.readerText.match(/AI-generated/g) || []).length, 1, 'One quiet AI disclosure remains');
-  assert(preview.source.includes('#edition-record'), 'The edition record remains linked');
-  assert.equal(preview.supportDisclosures, 0, 'Supporting evidence is expanded for printing');
-  assert(preview.passages.length > 30, 'Complete edition paragraphs are checked');
-  assert(preview.fonts.length > 0, 'Print preview uses loaded self-hosted fonts');
-  for (const heading of ['Executive summary', 'Developing situations', 'Convergence', 'Watchlist', 'Sources']) {
-    assert(preview.headings.some(value => value.toLowerCase().includes(heading.toLowerCase())), `Preview retains ${heading}`);
-  }
-  await writeFile(join(directory, 'production-print-document.html'), preview.source);
-  await writeFile(join(directory, 'production-print-dom.html'), preview.dom);
-  await writeFile(join(directory, 'print-expectations.json'), JSON.stringify(preview, null, 2));
+  const printRoot = directory;
+  report.editions = [];
+  for (const scenario of ['handoff', 'narrative']) {
+    const narrative = scenario === 'narrative';
+    const directory = join(printRoot, scenario);
+    await mkdir(directory, { recursive: true });
+    await navigate(page, `/briefing?scenario=${scenario}&theme=dark&capture&reducedMotion`);
+    await until(() => evaluate(page, `document.querySelector("#briefExport") && !document.querySelector("#briefExport").disabled && document.querySelectorAll(".brief-judgment-card").length === ${narrative ? 6 : 3}`), 'complete saved synthetic edition');
+    await activate('#briefEditionTools > summary');
+    await activate('#briefExport');
+    await until(() => evaluate(page, 'document.querySelector(".np-frame")?.contentDocument?.querySelector(".np-colophon") && !document.querySelector(".np-ov-print").disabled'), 'production Print Edition and fonts');
+    assert(await evaluate(page, 'document.querySelector(".np-overlay-reading-note").textContent.includes("Continuous reading preview") && document.querySelector(".np-frame").title.includes("continuous reading preview")'), 'Preview identifies continuous reading; actual page boundaries are verified by the PDF below');
+    await screenshot(page, `${scenario}/print-preview.png`);
+    const preview = await evaluate(page, `(() => {
+      const frame = document.querySelector('.np-frame');
+      const doc = frame.contentDocument;
+      const passageElements = [...doc.querySelectorAll('.np-body p, .np-body li:not(:has(li)):not(:has(p)), .np-exec-action-task > strong, .np-exec-action-due, .np-exec-fact-label, .np-body h2, .np-body h3, .np-validation li, .np-colophon')].filter(e => e.innerText.trim().length > 15);
+      const passages = passageElements.map(e => e.innerText.trim());
+      const executiveContextIndices = passageElements.flatMap((e, index) => e.matches('.brief-exec-heading, .np-exec-facts p') ? [index] : []);
+      return { source: frame.srcdoc, dom: doc.documentElement.outerHTML, readerText: doc.body.innerText, passages, executiveContextIndices, openingLabel: doc.querySelector('.bluf')?.dataset.label,
+        title: doc.title, supportDisclosures: doc.querySelectorAll('.brief-judgment-support').length, warnings: [...doc.querySelectorAll('.np-validation li')].map(e => e.textContent.trim()),
+        references: [...doc.querySelectorAll('.brief-sources-appendix a.source-link')].map(link => link.href),
+        headings: [...doc.querySelectorAll('.np-body h2, .np-body h3')].map(e => e.textContent.trim()),
+        viewport: { width: innerWidth, height: innerHeight, frameWidth: frame.clientWidth, frameHeight: frame.clientHeight },
+        fonts: [...doc.fonts].filter(f => f.status === 'loaded').map(f => ({family:f.family, style:f.style, weight:f.weight})) };
+    })()`);
+    const materialQualification = 'Synthetic qualification: local exposure remains unverified.';
+    assert.equal(preview.readerText.split(materialQualification).length - 1, narrative ? 0 : 1, 'Only the fixture with a current reader finding displays that qualification');
+    assert(preview.warnings.every(message => message === materialQualification), 'Only an unplaced current reader qualification may enter the appendix');
+    assert(!preview.readerText.includes('Synthetic editorial note: normalize the confidence field.'), 'Routine diagnostic stays in the edition record');
+    assert(!preview.readerText.includes('verify the fictional gateway deadline before distribution'), 'Historical finding stays in the edition record');
+    assert(!/Internal ·|Verify before acting|Verify every CVE|review before distribution/.test(preview.readerText), 'Print does not invent handling restrictions or a generic distribution hold');
+    assert.equal((preview.readerText.match(/AI-generated/g) || []).length, 1, 'One quiet AI disclosure remains');
+    assert(preview.source.includes('#edition-record'), 'The edition record remains linked');
+    assert.equal(preview.supportDisclosures, 0, 'Supporting evidence is expanded for printing');
+    assert(preview.passages.length > (narrative ? 20 : 30), 'Complete edition paragraphs are checked');
+    assert(preview.fonts.length > 0, 'Print preview uses loaded self-hosted fonts');
+    for (const heading of narrative ? ['Priority stories', 'Developing', 'What could change the picture', 'References'] : ['Executive summary', 'Developing situations', 'Convergence', 'Watchlist', 'Sources']) {
+      assert(preview.headings.some(value => value.toLowerCase().includes(heading.toLowerCase())), `Preview retains ${heading}`);
+    }
+    if (narrative) {
+      assert.equal(preview.openingLabel, "Today's picture");
+      assert.deepEqual(preview.references, DISPLAY_CASES.map((_, index) => `https://example.test/story-${index + 1}`));
+      for (const [title, opening, detail] of DISPLAY_CASES) {
+        for (const passage of [title, opening, detail]) assert(preview.readerText.includes(passage), `Narrative print retains the complete authored passage from ${title}`);
+      }
+      assert(!preview.readerText.includes('Required decisions'), 'Narrative print adds no legacy assignments');
+    }
+    await writeFile(join(directory, 'production-print-document.html'), preview.source);
+    await writeFile(join(directory, 'production-print-dom.html'), preview.dom);
+    await writeFile(join(directory, 'print-expectations.json'), JSON.stringify(preview, null, 2));
 
-  // CDP Page.printToPDF targets a top-level page, not a child iframe. Install
-  // the exact production srcdoc in a same-origin blank target, with no style or
-  // content edits. Confirm its parsed DOM is identical before paginating it.
-  const printPage = await openPage();
-  await navigate(printPage, '/fixtures/handoff-print-target.html');
-  const { frameTree } = await printPage.call('Page.getFrameTree');
-  await printPage.call('Page.setDocumentContent', { frameId: frameTree.frame.id, html: preview.source });
-  await until(() => evaluate(printPage, 'document.readyState === "complete"'), 'print target styles');
-  await evaluate(printPage, 'document.fonts.ready.then(() => true)');
-  assert.equal(await evaluate(printPage, 'document.documentElement.outerHTML'), preview.dom, 'PDF target preserves the exact production iframe DOM and CSS');
-  const printOptions = { printBackground: true, preferCSSPageSize: true, displayHeaderFooter: false, paperWidth: 8.5, paperHeight: 11 };
-  const pdf = await printPage.call('Page.printToPDF', printOptions);
-  const pdfBytes = Buffer.from(pdf.data, 'base64');
-  assert(pdfBytes.subarray(0, 5).equals(Buffer.from('%PDF-')), 'Browser returned a genuine PDF');
-  const pdfPath = join(directory, 'print-edition.pdf');
-  await writeFile(pdfPath, pdfBytes);
-  const { stdout: info } = await run('pdfinfo', [pdfPath], { windowsHide: true });
-  await writeFile(join(directory, 'pdfinfo.txt'), info);
-  // Default extraction reconstructs reading order across the executive columns;
-  // retain a separate physical-layout extraction for human review.
-  if (extractionPython) {
-    const helper = fileURLToPath(new URL('./extract-handoff-pdf.py', import.meta.url));
-    const { stdout } = await run(extractionPython, [helper, pdfPath, directory], { windowsHide: true, timeout: 60_000 });
-    report.pdfTextExtraction = JSON.parse(stdout);
-  } else {
-    await run('pdftotext', [pdfPath, join(directory, 'print-edition.txt')], { windowsHide: true });
-    await run('pdftotext', ['-layout', pdfPath, join(directory, 'print-edition-layout.txt')], { windowsHide: true });
-    await run('pdftotext', ['-bbox-layout', pdfPath, join(directory, 'print-edition-bounds.html')], { windowsHide: true });
+    // CDP Page.printToPDF targets a top-level page, not a child iframe. Install
+    // the exact production srcdoc in a same-origin blank target, with no style or
+    // content edits. Confirm its parsed DOM is identical before paginating it.
+    const printPage = await openPage();
+    await navigate(printPage, '/fixtures/handoff-print-target.html');
+    const { frameTree } = await printPage.call('Page.getFrameTree');
+    await printPage.call('Page.setDocumentContent', { frameId: frameTree.frame.id, html: preview.source });
+    await until(() => evaluate(printPage, 'document.readyState === "complete"'), 'print target styles');
+    await evaluate(printPage, 'document.fonts.ready.then(() => true)');
+    assert.equal(await evaluate(printPage, 'document.documentElement.outerHTML'), preview.dom, 'PDF target preserves the exact production iframe DOM and CSS');
+    const printOptions = { printBackground: true, preferCSSPageSize: true, displayHeaderFooter: false, paperWidth: 8.5, paperHeight: 11 };
+    const pdf = await printPage.call('Page.printToPDF', printOptions);
+    const pdfBytes = Buffer.from(pdf.data, 'base64');
+    assert(pdfBytes.subarray(0, 5).equals(Buffer.from('%PDF-')), 'Browser returned a genuine PDF');
+    const pdfPath = join(directory, 'print-edition.pdf');
+    await writeFile(pdfPath, pdfBytes);
+    const { stdout: info } = await run('pdfinfo', [pdfPath], { windowsHide: true });
+    await writeFile(join(directory, 'pdfinfo.txt'), info);
+    // Default extraction reconstructs reading order across the executive columns;
+    // retain a separate physical-layout extraction for human review.
+    if (extractionPython) {
+      const helper = fileURLToPath(new URL('./extract-handoff-pdf.py', import.meta.url));
+      const { stdout } = await run(extractionPython, [helper, pdfPath, directory], { windowsHide: true, timeout: 60_000 });
+      report.pdfTextExtraction = JSON.parse(stdout);
+    } else {
+      await run('pdftotext', [pdfPath, join(directory, 'print-edition.txt')], { windowsHide: true });
+      await run('pdftotext', ['-layout', pdfPath, join(directory, 'print-edition-layout.txt')], { windowsHide: true });
+      await run('pdftotext', ['-bbox-layout', pdfPath, join(directory, 'print-edition-bounds.html')], { windowsHide: true });
+    }
+    console.log(`PDF text and bounds engine: ${report.pdfTextExtraction.engine} ${report.pdfTextExtraction.version}.`);
+    // Keep rendered pages even if a text/bounds assertion subsequently fails.
+    await run('pdftoppm', ['-r', '110', '-png', pdfPath, join(directory, 'print-page')], { windowsHide: true, timeout: 60_000 });
+    const pages = (await readdir(directory)).filter(name => /^print-page-\d+\.png$/.test(name)).sort();
+    const images = [];
+    for (const name of pages) {
+      const bytes = await readFile(join(directory, name));
+      assert(bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), 'Poppler emitted PNG');
+      images.push({ name, width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), sha256: hash(bytes) });
+    }
+    const pdfReport = { scenario, artifact: `${scenario}/print-edition.pdf`, sha256: hash(pdfBytes), bytes: pdfBytes.length, printOptions, images,
+      sourceSha256: hash(preview.source), domSha256: hash(preview.dom), viewport: preview.viewport, fonts: preview.fonts, warnings: preview.warnings };
+    report.editions.push(pdfReport);
+    const text = await readFile(join(directory, 'print-edition.txt'), 'utf8');
+    const bboxHtml = await readFile(join(directory, 'print-edition-bounds.html'), 'utf8');
+    const textResult = inspectPdfText(text, preview.passages, bboxHtml);
+    const bounds = inspectPdfBounds(bboxHtml);
+    assert.equal(bounds.length, textResult.pageCount, 'Bounding-box and text page counts agree');
+    assert.equal(images.length, textResult.pageCount, 'Every PDF page has a review image');
+    Object.assign(pdfReport, textResult, { bounds });
+    if (!narrative) {
+      assert.equal(preview.executiveContextIndices.length, 3, 'Executive heading and both context paragraphs are located in the PDF');
+      const contextPages = new Set(preview.executiveContextIndices.flatMap(index => textResult.passagePositions[index].pages));
+      assert.equal(contextPages.size, 1, 'Executive heading and parallel context row fit together on one PDF page');
+      pdfReport.executiveContextPage = [...contextPages][0];
+    }
+    console.log(`PASS ${scenario}: Chromium PDF has ${textResult.pageCount} nonblank pages and ${textResult.checkedPassages} retained passages.`);
   }
-  console.log(`PDF text and bounds engine: ${report.pdfTextExtraction.engine} ${report.pdfTextExtraction.version}.`);
-  // Keep rendered pages even if a text/bounds assertion subsequently fails.
-  await run('pdftoppm', ['-r', '110', '-png', pdfPath, join(directory, 'print-page')], { windowsHide: true, timeout: 60_000 });
-  const pages = (await readdir(directory)).filter(name => /^print-page-\d+\.png$/.test(name)).sort();
-  const images = [];
-  for (const name of pages) {
-    const bytes = await readFile(join(directory, name));
-    assert(bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])), 'Poppler emitted PNG');
-    images.push({ name, width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), sha256: hash(bytes) });
-  }
-  report.pdf = { artifact: 'print-edition.pdf', sha256: hash(pdfBytes), bytes: pdfBytes.length, printOptions, images,
-    sourceSha256: hash(preview.source), domSha256: hash(preview.dom), viewport: preview.viewport, fonts: preview.fonts, warnings: preview.warnings };
-  const text = await readFile(join(directory, 'print-edition.txt'), 'utf8');
-  const bboxHtml = await readFile(join(directory, 'print-edition-bounds.html'), 'utf8');
-  const textResult = inspectPdfText(text, preview.passages, bboxHtml);
-  const bounds = inspectPdfBounds(bboxHtml);
-  assert.equal(bounds.length, textResult.pageCount, 'Bounding-box and text page counts agree');
-  assert.equal(images.length, textResult.pageCount, 'Every PDF page has a review image');
-  Object.assign(report.pdf, textResult, { bounds });
-  assert.equal(preview.executiveContextIndices.length, 3, 'Executive heading and both context paragraphs are located in the PDF');
-  const contextPages = new Set(preview.executiveContextIndices.flatMap(index => textResult.passagePositions[index].pages));
-  assert.equal(contextPages.size, 1, 'Executive heading and parallel context row fit together on one PDF page');
-  report.pdf.executiveContextPage = [...contextPages][0];
   assert.deepEqual(report.errors, [], 'No browser exceptions or external API requests');
   report.status = 'passed';
-  console.log(`PASS: Chromium PDF has ${textResult.pageCount} nonblank pages, ${textResult.checkedPassages} retained passages, the current reader qualification, final source evidence and edition-record footer.`);
-  console.log(`Review every print-page PNG and print-edition.pdf in ${directory}. Native OS print dialogs and Safari remain separate manual checks.`);
+  console.log(`Review every print-page PNG and print-edition.pdf under ${directory}. Native OS print dialogs and Safari remain separate manual checks.`);
 } catch (error) {
   report.status = 'failed';
   report.failure = error.stack || String(error);

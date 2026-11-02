@@ -61,6 +61,8 @@ jest.unstable_mockModule('../lib/logger.js', () => ({ log: { info() {}, warn() {
 const { createBriefRouter, estimateCostUsd } = await import('../routes/brief.js');
 const { buildGroundingManifest } = await import('../lib/grounding.js');
 const { validateBrief, publicationDecision } = await import('../lib/validation.js');
+const { evaluateBriefDisplay } = await import('../scripts/lib/brief-display-evaluation.mjs');
+const { verifiedBriefDisplay } = await import('../lib/brief-display.js');
 const { readBriefDraft, validationSourceFromManifest } = await import('../lib/brief-drafts.js');
 const quotedPricing = { input: estimateCostUsd(selectedModel, 1000, 0), output: estimateCostUsd(selectedModel, 0, 1000) };
 if (live && Object.values(quotedPricing).some(value => !Number.isFinite(value))) throw new Error('The evaluation model has no known standard-rate estimate; no provider request was made.');
@@ -208,6 +210,7 @@ async function execute(item, corrective = false, { provider = selectedProvider, 
     usageComplete, knownAttemptSubtotalUsd, costUsd: usageComplete ? knownAttemptSubtotalUsd : null,
     issues: checked?.issues || [], blockers: policy?.blockers || [], reviewIssues: policy?.reviewIssues || [],
     notes: policy?.notes || [], requiresReview: policy?.requiresReview === true, citedHorizons,
+    displayEvaluation: evaluateBriefDisplay(text, receipt || {}, capturedRequests),
     priorityCoverage: item.expected.priorityCves.map(cve => ({ cve, mentioned: text.includes(cve) })),
     detailCoverage: (item.expected.requiredDetails || []).map(detail => ({ detail, retained: text.includes(detail) })),
     sourceCoverage: (item.expected.requiredSourceUrls || []).map(url => ({ url, cited: grounding.members.some(m => m.url === url && citedIds.has(m.id)) })),
@@ -231,6 +234,7 @@ test.each(evaluatedCases)('$id: $description', async item => {
       expect(row.priorityCoverage.every(item => item.mentioned)).toBe(true);
       expect(row.detailCoverage.every(item => item.retained)).toBe(true);
       expect(row.sourceCoverage.every(item => item.cited)).toBe(true);
+      expect(row.displayEvaluation.displayAvailable).toBe(true);
     }
   } else {
     expect(row.published).toBe(false);
@@ -244,6 +248,8 @@ test.each(evaluatedCases)('$id: $description', async item => {
   expect(row.published).toBe(true); expect(row.providerAttempts).toBe(2);
   expect(row.recordedAttempts).toBe(2); expect(row.resets).toBe(1);
   expect(row.receipt.providerAttempts).toHaveLength(2);
+  expect(verifiedBriefDisplay(saved.text, row.receipt.displayCopy)).not.toBeNull();
+  expect(row.receipt.displayCopy.contentSha256).toBe(row.receipt.briefingMetadataContentSha256);
   expect(row.receipt.costEstimate.usd).toBeCloseTo(selectedProvider === 'custom' ? 0.02 : 2 * estimateCostUsd(selectedModel, 100, 200, undefined, selectedProvider === 'openai' ? 20 : 0), 8);
 });
 

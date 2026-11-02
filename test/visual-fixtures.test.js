@@ -41,6 +41,19 @@ describe('visual fixture manifest', () => {
 describe('production-shell synthetic fixtures', () => {
   const now = new Date('2026-09-04T15:00:00Z');
 
+  test('narrative acceptance covers full stories, optional sections and bound short copy', () => {
+    const fixture = buildAppFixture('narrative', now);
+    const doc = parseBrief(fixture.brief.content);
+    expect(doc.formatVersion).toBe(2);
+    expect(doc.stories).toHaveLength(6);
+    expect(doc.developing).toHaveLength(1);
+    expect(doc.watchlistEntries).toHaveLength(1);
+    expect(fixture.brief.presentation.displayCopy.contentSha256).toBe(sha256(fixture.brief.content));
+    expect(fixture.brief.content).toContain('CVE-2026-12345');
+    expect(fixture.brief.content).not.toMatch(/Required decisions|Recommended actions|Decision window/);
+    expect(fixture.briefs[0].filename).not.toBe(buildAppFixture('handoff', now).briefs[0].filename);
+  });
+
   test('source revision fixture uses production identities and a distinct saved-input edition', () => {
     const data = buildAppFixture('source-revision', now);
     const reference = data.headlines.headlines[0].evidence[0];

@@ -62,7 +62,9 @@ try {
       const watch = host.querySelector('.brief-overview-watch'), recent = host.querySelector('.brief-overview-recent');
       return {
         width:innerWidth, feature:box(host.querySelector('.brief-overview-feature')),
-        note:box(host.querySelector('.brief-overview-edition-note')),
+        introduction:box(host.querySelector('.brief-overview-introduction')),
+        introductionOpen:host.querySelector('.brief-overview-introduction')?.open,
+        noteText:host.querySelector('.brief-overview-edition-note')?.textContent.trim(),
         supporting:[...host.querySelectorAll('.brief-overview-grid > .brief-overview-story')].map(box),
         reportIds, cards:cards.map(card => ({id:card.querySelector('h2[id]')?.id,
           destinations:[...card.querySelectorAll('[data-overview-open]')].map(link => new URL(link.href).hash.slice(1)),
@@ -71,7 +73,8 @@ try {
         savedBeforeCurrent:!watch || !!(watch.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING)
       };
     })()`);
-    assert(overview.feature && overview.note, 'Overview presents an edition lead and featured story');
+    assert(overview.feature && overview.introduction && overview.noteText, 'Overview preserves the complete edition introduction and featured story');
+    assert.equal(overview.introductionOpen, overview.width > 600, 'Introduction starts collapsed on phone and expanded on larger views');
     assert(overview.reportIds.length > 0, 'Fixture has saved assessments to compare');
     assert.deepEqual(overview.cards.map(card => card.id), overview.reportIds.map(id => `overview-${id}`), 'Overview preserves every assessment in authored order');
     for (const [index, card] of overview.cards.entries()) {
@@ -80,14 +83,20 @@ try {
     }
     assert.equal(overview.repeatedControls, 0, 'Overview does not repeat the report index or response controls');
     assert(overview.savedBeforeCurrent, 'Saved watching topics precede current reporting');
-    assert(overview.feature.top >= overview.note.bottom - 1, 'Edition lead appears above the featured story at every viewport');
+    assert(overview.feature.top >= overview.introduction.bottom - 1, 'Visible introduction appears above the featured story at every viewport');
     if (overview.width > 900) {
       if (overview.supporting.length >= 2) {
         const [first, second] = overview.supporting;
         assert(second.left >= first.right - 1 && Math.abs(first.width - second.width) <= 1, 'Supporting stories use equal-width desktop columns');
       }
     }
-    if (overview.supporting.length) assert(overview.supporting[0].top >= Math.max(overview.feature.bottom, overview.note.bottom) - 1, 'Supporting stories begin below the complete opening');
+    if (overview.supporting.length) assert(overview.supporting[0].top >= Math.max(overview.feature.bottom, overview.introduction.bottom) - 1, 'Supporting stories begin below the complete opening');
+    if (!overview.introductionOpen) {
+      await activate('.brief-overview-introduction > summary');
+      assert(await evaluate(`(() => { const intro=document.querySelector('.brief-overview-introduction'); const note=intro.querySelector('.brief-overview-edition-note'); return intro.open && note.getBoundingClientRect().height > 0 && note.textContent.trim().length > 0; })()`), 'Keyboard activation exposes the complete phone introduction');
+      await activate('.brief-overview-introduction > summary');
+      assert(await evaluate('!document.querySelector(".brief-overview-introduction").open'), 'Phone introduction can be collapsed again');
+    }
   }
   for(const [width, height] of [[390, 900], [1024, 900], [1280, 800], [1440, 900]]) for(const theme of ['light','dark']) {
     await page.call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<500});

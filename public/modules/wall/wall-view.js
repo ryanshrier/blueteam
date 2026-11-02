@@ -10,7 +10,7 @@ import { fetchLandscape, fetchBrief, fetchEdition, fetchHealth } from '../core/a
 import { setState } from '../core/store.js';
 import { followInternalLink, navigate, getWallReturnUrl } from '../core/router.js';
 import { archivePublishedAt, formatBriefPublication, formatBriefPublishedAt } from '../core/brief-date.js';
-import { readingStops } from './wall-reading.js';
+import { readingStops, viewportReadingText } from './wall-reading.js';
 // One brief contract, shared with the server (lib/brief-schema.js, served at
 // /vendor/brief-schema.js): the section names, field labels, and parse helpers
 // live there so the Wall and the server can never drift. The Wall keeps its own
@@ -71,6 +71,8 @@ const SECTION_LABELS = {
   watchlist: 'WATCHLIST',
   briefexcluded: 'BRIEFING REVIEW STATUS',
 };
+const sectionLabel = page => page?.formatVersion === 2 && page.kind === 'judgment' ? 'PRIORITY STORY'
+  : page?.formatVersion === 2 && page.kind === 'bluf' ? "TODAY'S PICTURE" : SECTION_LABELS[page?.kind] || 'Wall';
 // Page kinds sourced from the parsed brief, i.e. everything that must never
 // be read as live-generated: these carry the brief's own as-of date in the slug so
 // a weekend-old brief can never rotate under a masthead silently implying "today".
@@ -800,6 +802,7 @@ function renderPageUnsafe(lastPart, preservePosition) {
 
 let dwellStartMs = 0;          // for the reduced-motion stepped countdown
 let dwellMs = NEWS_PAGE_MS;
+let measuredDwell = null;
 let lastBoardWord = '';        // last announced board-status word, so the SR announcer fires on CHANGE only, not every 1s tick
 
 function prefersReducedMotion() {
@@ -851,8 +854,13 @@ function stepDwell() {
 // Dwell for the page currently on screen (falls back to the default).
 function currentDwellMs() {
   if (isPresentation() && displayedPage?.block) {
-    const text = presentationReadingText(displayedPage);
-    return displayDwellMs(text, displaySettings.speed);
+    const body = document.getElementById('nbBody');
+    const key = [body?.scrollTop, body?.clientHeight, body?.clientWidth, body?.scrollHeight, displaySettings.speed, ...readingOffsets].join(':');
+    if (measuredDwell?.page === displayedPage && measuredDwell.element === body?.firstElementChild && measuredDwell.key === key) return measuredDwell.ms;
+    const text = viewportReadingText(body, readingOffsets) ?? presentationReadingText(displayedPage);
+    const ms = displayDwellMs(text, displaySettings.speed);
+    measuredDwell = { page: displayedPage, element: body?.firstElementChild, key, ms };
+    return ms;
   }
   return PAGE_DWELL_MS[displayedPage?.kind || newsPages[newsPage]?.kind] || NEWS_PAGE_MS;
 }
@@ -966,6 +974,7 @@ function turnPage(dir) {
 function refreshReadingStops(rearm = false) {
   const body = document.getElementById('nbBody');
   if (!body) return;
+  if (rearm) measuredDwell = null;
   // A changed viewport is a new composition opportunity, not a permanent split.
   if (rearm && isPresentation() && displayedPage) {
     const key = topicKey(displayedPage);
@@ -985,7 +994,7 @@ function refreshReadingStops(rearm = false) {
 }
 
 function displayedFolioLabel() {
-  const label = SECTION_LABELS[displayedPage.kind] || 'Cyber Defense Intelligence';
+  const label = sectionLabel(displayedPage);
   // A wrapped topic changes the available reading height on narrow screens.
   // Both pager and liveness updates must keep it stable while scrolled, even
   // when remeasured stops put this offset before the new first stop.
@@ -1050,7 +1059,7 @@ function reflectPager() {
 
 function announcePosition(update = '') {
   if (!displayedPage) return;
-  setText('nbPageAnnounce', `${update ? `${update} ` : ''}${SECTION_LABELS[displayedPage.kind] || 'Wall'}. ${document.getElementById('nbPager')?.textContent || ''}. Paused for reading.`);
+  setText('nbPageAnnounce', `${update ? `${update} ` : ''}${sectionLabel(displayedPage)}. ${document.getElementById('nbPager')?.textContent || ''}. Paused for reading.`);
 }
 
 function holdReading(persistent = false) {
@@ -1413,7 +1422,7 @@ function glanceHtml(page) {
     <div class="nb-glance-main">
       <p class="nb-display-kicker">${escapeHtml(model.label)}</p>
       <h2 class="nb-glance-headline">${escapeHtml(model.headline)}</h2>
-      ${model.summary ? `<div class="nb-glance-takeaway">${model.summaryLabel ? `<p class="nb-glance-label">${escapeHtml(model.summaryLabel)}</p>` : ''}<p class="nb-glance-summary">${escapeHtml(model.summary)}</p></div>` : ''}
+      ${model.summary ? `<div class="nb-glance-takeaway">${model.summaryLabel ? `<p class="nb-glance-label">${escapeHtml(model.summaryLabel)}</p>` : ''}${model.summary.split(/\n\s*\n/).filter(Boolean).map(paragraph => `<p class="nb-glance-summary">${escapeHtml(paragraph)}</p>`).join('')}</div>` : ''}
       ${!hasRail && model.facts.length ? `<dl class="nb-glance-inline-facts">${model.facts.map(fact => `<div><dt>${escapeHtml(fact.label)}</dt><dd>${factValue(fact)}</dd></div>`).join('')}</dl>` : ''}
     </div>
     ${hasRail ? `<aside class="nb-glance-rail" aria-label="${escapeHtml(model.railLabel)}"><p class="nb-glance-label nb-glance-rail-title">${escapeHtml(model.railLabel)}</p>

@@ -319,7 +319,6 @@ export function render(main) {
       <div class="brief-publication-state" id="briefPublicationState" hidden></div>
       <div class="brief-latest-notice" id="briefLatestNotice" role="status" aria-live="polite" hidden></div>
       <div id="briefAttemptSlot"><section class="brief-attempt-status" id="briefAttemptStatus" role="status" aria-live="polite" aria-label="Generation and draft tasks" hidden></section></div>
-      <div id="briefEditionRecord"></div>
       <section class="brief-overview" id="briefOverview" aria-label="Briefing overview" hidden></section>
       <div class="briefing-layout">
         <aside class="briefing-toc" id="briefToc" aria-label="Briefing sections"></aside>
@@ -328,6 +327,7 @@ export function render(main) {
           <div class="brief-content" id="briefContent"></div>
         </article>
       </div>
+      <div id="briefEditionRecord"></div>
       <p class="brief-ai-disclosure" id="briefAiDisclosure" hidden></p>
     </div>
   `;

@@ -41,7 +41,8 @@ import { listBriefDrafts, readBriefDraft, saveRejectedBrief, revalidateBriefDraf
 import { createPublicationLookup, verifyPublicationReplay, publishDraftEdition } from '../lib/brief-publication.js';
 import { BRIEF_COMPOSITION_VERSION } from '../lib/brief-assembly.js';
 import { buildGroundingManifest, visibleHeadlineEvidence } from '../lib/grounding.js';
-import { BRIEF_FORMAT_VERSION } from '../lib/brief-schema.js';
+import { BRIEF_FORMAT_VERSION, STORY_OPENING_CONTRACT } from '../lib/brief-schema.js';
+import { captureBriefDisplay } from '../lib/brief-display.js';
 import { briefNotificationFields } from '../lib/brief-notification.js';
 import { getEffectiveOrganization, getEffectiveWatchProfile } from '../lib/user-settings.js';
 import {
@@ -153,8 +154,9 @@ function reducedRecoveryThinkingEffort(effort) {
 
 /** Explain how to repair the failed contract, not just repeat its error code. */
 export function correctiveGuidance(issues = []) {
+  const openingGuidance = 'When a repair changes a story’s meaning, update its opening paragraph and directly dependent implications too. The opening appears alone in Overview and Wall: retain the attribution, scope and uncertainty needed to interpret it. Do not shorten unaffected stories or add display-only facts.';
   const codes = new Set(issues.map(issue => issue.code));
-  const rules = ['Keep descriptive story headlines and connected analytical prose. Repair the located problem and dependent claims; preserve unaffected stories, uncertainty and source-backed response conditions. Keep story headlines stable unless the headline itself needs correction. The application restores unaffected stories before checking your repair. Do not add owners, targets, confidence fields, mandatory actions or an executive summary.'];
+  const rules = ['Keep descriptive story headlines and connected analytical prose. Repair the located problem and dependent claims; preserve unaffected stories, uncertainty and source-backed response conditions. Keep story headlines stable unless the headline itself needs correction. The application restores unaffected stories before checking your repair. Do not add owners, targets, confidence fields, mandatory actions or an executive summary.', openingGuidance];
   if (codes.has('SECURITY_CONTROL_CHANGE')) rules.push('Describe a captured vendor proposal as that source\'s proposal, with its affected scope, tradeoff, prerequisites and recovery conditions. Remove unsupported instructions to execute it. Reporting the proposal does not establish local approval. Do not turn it into a compulsory approval task or invent an approval; preserve human review if executable weakening guidance remains.');
   if ([...codes].some(code => /CVSS/.test(code))) rules.push('Copy the supported CVE-to-score pairing and its version, assessor and Primary/Secondary assessment type verbatim, one explicit pair per clause. Put provisional beside each provisional score. Cite the exact captured source ID beside the score, one ID per bracket. An NVD-only score requires the supplied NVD citation. Do not combine the value from one assessment with qualifiers from another or invent missing qualifiers. Different assessments can coexist. Omit an optional metric if unresolved, without claiming it is unavailable.');
   if ([...codes].some(code => /CITATION|PROVENANCE|VERSION|GROUNDING/.test(code))) rules.push('Inspect the exact retained passages and cite supporting source IDs within this story or optional section. Use [S1.1] [S2.1], one ID per bracket; copy each ID exactly, including any NVD-CVE prefix. Do not substitute a guessed identifier or version, broaden an affected scope, or treat related sources as proof. Missing captured support does not establish that the claim is false. Omit an optional unsupported detail; if an essential claim cannot be resolved, omit only the story explicitly identified by a blocking finding and its dependent opening claims. Repair other located findings in the same pass. Keep every unaffected story verbatim.');
@@ -983,7 +985,7 @@ export function createBriefRouter({
       }) + formatHistoricalEvidenceContext(groundingManifest)
         + `\n\nCAPTURED BRIEFING SCOPE: ${JSON.stringify(capturedReadiness)}. Use only the supported judgments needed for this evidence, including a single judgment when appropriate. Do not manufacture breadth, activity, convergence, or a no-threat conclusion from quiet feeds, missing sources, or repeated observations. For limited coverage, state that limitation plainly and preserve supported actions and scope; fewer judgments do not justify dropping their operational detail.\n\nINPUT CONTINUITY: ${JSON.stringify(inputDelta)}. This compares captured passages, not events. If unchanged, identify an editorial revision; never infer acceleration from repetition.\n\n${buildBriefFactLedger(groundingManifest, capturedKevTiming, capturedKevSet.size > 0, capturedKevStatus)}`;
       const generationManifest = buildGenerationManifest({
-        run, config: promptConfig, watchProfile, editionContext, briefFormatVersion: BRIEF_FORMAT_VERSION,
+        run, config: promptConfig, watchProfile, editionContext, briefFormatVersion: BRIEF_FORMAT_VERSION, displayContract: STORY_OPENING_CONTRACT,
         groundTruth, groundingManifest, continuityContext, previousBriefs: prev,
       });
       generationManifest.generationId = generationJobId;
@@ -1352,6 +1354,7 @@ export function createBriefRouter({
       generationManifest.briefingMetadataIssues = extractedMetadata.issues;
       generationManifest.briefingMetadataContentSha256 = sha256(fullBrief);
       generationManifest.actionRecords = fullBriefActionRecords;
+      generationManifest.displayCopy = captureBriefDisplay(fullBrief, groundingManifest, generationManifest.generationSettings.displayContract);
       generationManifest.publicationValidation = { validationPolicyVersion: validation.validationPolicyVersion, valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial, coverage: validation.coverage,
         priorityCoverage: validation.priorityCoverage, sourceQuality: validation.sourceQuality,
         sourceCheckStatus: hardFail || trustFail ? 'findings' : 'passed-supported-checks', editorialReviewStatus: 'not-reviewed' };

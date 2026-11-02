@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.4.8 — 2026-11-02
+
+This release makes Briefing Overview and Wall easier to read while preserving
+the full report's evidence, qualifications and conditional analysis.
+
+- Write self-contained story openings and use the same opening in Overview and Wall. Keep supporting detail, technical identifiers and citations in the complete report; length targets remain editorial guidance rather than publication gates.
+- Bind display copy to the final saved content after automatic repair and preservation of unaffected reporting. Older editions and edited copies without a matching display record continue to show their complete prose.
+- Preserve meaningful linked text while removing captured bibliographic clutter from display openings. Show identical NVD evidence once in generation inputs while retaining different observations, scores and applicability conditions.
+- Improve phone Overview, Wall paragraph spacing, story numbering and continuation timing. Keep routine edition diagnostics in the edition record without adding approvals or forced owners and deadlines.
+- Keep unrelated or unidentified CISA catalog batches separate instead of merging their recurring titles and inflating corroboration. Preserve same-article copies and justified same-event reporting.
+- Align the omitted generation-timeout default with the checked-in 1,200-second shared generation-and-repair budget. Explicit operator settings still take precedence.
+- Add the display regression to CI and cover both archived and narrative editions in PDF and native Safari acceptance. Retained evaluations remain diagnostic and do not create new publication rules.
+
+### Upgrade notes
+
+Read the [v1.4.8 upgrade procedure](docs/operations.md#from-v147-to-v148).
+Existing saved Briefings retain their wording. There is no archive migration,
+database-schema change or dependency update. Earlier editions use the complete
+prose fallback; new display records are optional presentation data, not a second
+supported generation format. Bob installation and live acceptance remain
+operator tasks. The previously disclosed development-only dependency advisory
+remains applicable; see the v1.4.6 dependency audit note below.
+
 ## 1.4.7 — 2026-10-30
 
 This release makes Briefings analytical and conditional, reduces avoidable draft

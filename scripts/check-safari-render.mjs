@@ -12,6 +12,7 @@ import { createFixtureApp } from './serve-visual-fixtures.mjs';
 import { SafariWebDriver } from './safari-webdriver.mjs';
 import { isReadOnlySafariFixtureRequest } from './safari-fixture-requests.mjs';
 import { promisify } from 'node:util';
+import { DISPLAY_CASES } from '../test/fixtures/brief-display.js';
 
 assert.equal(process.platform, 'darwin', 'This acceptance check requires actual macOS Safari. Run its macOS CI job.');
 const directory = process.env.SAFARI_ARTIFACT_DIR ? resolve(process.env.SAFARI_ARTIFACT_DIR)
@@ -253,6 +254,33 @@ try {
   assert(await client.execute('return document.querySelector("#edition-record").innerText.includes(arguments[0]);', [historicalNote]), 'Historical finding remains readable in its disclosed record');
   assert(await client.execute('return document.querySelector("#edition-record").innerText.includes("These records describe an earlier revision or historical metadata.");'), 'Safari distinguishes historical findings from current checks');
   await record('briefing-edition-record');
+
+  await navigate(origin + '/briefing?scenario=narrative&theme=light&capture&reducedMotion');
+  await until('document.querySelectorAll(".brief-judgment-card").length === 6 && !document.querySelector("#briefExport").disabled');
+  await record('narrative-briefing');
+  await client.click('#briefEditionTools > summary');
+  await client.click('#briefExport');
+  await until('document.querySelector(".np-frame")?.contentDocument?.querySelector(".np-colophon") && !document.querySelector(".np-ov-print").disabled');
+  const narrative = await client.execute(`const frame = document.querySelector('.np-frame'), doc = frame.contentDocument; return {
+    text:doc.body.innerText, openingLabel:doc.querySelector('.bluf')?.dataset.label,
+    stories:doc.querySelectorAll('.brief-judgment-card').length, width:frame.clientWidth, scrollWidth:doc.documentElement.scrollWidth,
+    fonts:[...doc.fonts].filter(font=>font.status==='loaded').map(font=>font.family),
+    headings:[...doc.querySelectorAll('h2,h3')].map(heading=>heading.textContent.trim()) };`);
+  assert.equal(narrative.openingLabel, "Today's picture");
+  assert.equal(narrative.stories, 6);
+  assert(narrative.scrollWidth <= narrative.width + 1, 'Safari narrative print fits its iframe');
+  assert(narrative.fonts.length > 0, 'Safari narrative print loads self-hosted fonts');
+  for (const [title, opening, detail] of DISPLAY_CASES) {
+    for (const passage of [title, opening, detail]) assert(narrative.text.includes(passage), `Safari retains the complete narrative from ${title}`);
+  }
+  for (const label of ['Priority stories', 'Developing', 'What could change the picture', 'References']) {
+    assert(narrative.headings.some(heading => heading.toLowerCase().includes(label.toLowerCase())), `Safari narrative print retains ${label}`);
+  }
+  assert(!/Required decisions|Recommended actions|Decision window/.test(narrative.text), 'Safari narrative adds no legacy action fields');
+  report.narrativeEdition = narrative;
+  await record('narrative-print-preview');
+  await client.click('.np-ov-close');
+  assert(await client.execute('return !document.querySelector(".np-overlay") && document.activeElement.id === "briefExport";'), 'Safari narrative print restores its opener');
 
   await navigate(origin + '/settings?scenario=normal&theme=dark&capture&reducedMotion');
   await until('document.querySelector("#profileTechnologies")?.value === "Gateway" && document.querySelector("#systemHealth")?.textContent.includes("42")');

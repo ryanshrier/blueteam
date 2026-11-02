@@ -270,6 +270,7 @@
 .brief-input-dialog .brief-input-sources blockquote { font: 16px/1.65 var(--font-sans); color: var(--text-primary); }
 .briefing-view .brief-content .bluf p { font-size: 23px; line-height: 1.45; }
 .briefing-view .brief-content .bluf::before { margin-bottom: 10px; }
+.brief-content .bluf[data-label]::before { content: attr(data-label); }
 .briefing-view .archive-search-form select { min-height: 40px; padding: 8px 12px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); font: 14px/1.5 var(--font-sans); }
 .briefing-view .brief-content > .brief-review-summary { margin-bottom: 8px; }
 .briefing-view .brief-content .bluf { margin-top: 8px; padding-top: 10px; }
@@ -468,6 +469,8 @@
 .brief-overview-front--summary > .brief-overview-edition-note { padding: 0; border: 0; }
 .brief-overview-edition-note > p { max-width: 85ch; color: var(--text-primary); font: 500 19px/1.55 var(--font-sans); overflow-wrap: anywhere; }
 .brief-overview-edition-note > .brief-overview-open { margin-top: 12px; }
+.brief-overview-introduction > summary { cursor: pointer; color: var(--text-secondary); font: 600 13px/1.5 var(--font-sans); padding: 8px 0; }
+.brief-overview-introduction[open] > summary { margin-bottom: 8px; }
 .brief-overview-more { margin-top: 28px; }
 .brief-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 28px 36px; }
 .brief-overview-story { min-width: 0; padding-top: 20px; border-top: 1px solid var(--border); }
@@ -549,6 +552,9 @@
   .briefing-actions .brief-document-bar { flex: 1 1 auto; }
   .briefing-actions .brief-document-bar button { flex: 1; }
   .brief-generation-hint { text-align: left; }
+  .brief-overview-edition { margin-bottom: 8px; }
+  .brief-overview-edition-note > p { font-size: 17px; line-height: 1.5; }
+  .brief-overview-front { margin-top: 18px; padding-top: 18px; }
 }
 .briefing-actions .brief-document-bar[hidden],
 .briefing-view--archive .briefing-actions .brief-document-bar { display: none; }

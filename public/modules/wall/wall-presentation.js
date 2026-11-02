@@ -1,7 +1,7 @@
 // Display composition preserves authored records and uses saved short copy.
 // The glance projection never turns a qualified procedure into an isolated task.
 import { executiveSummaryModel, executiveTargetModel, actionDisplayModel, usableKevRecords, cleanSummary } from './wall-format.js';
-import { formatDecisionWindow, judgmentCertainty } from '/vendor/brief-schema.js';
+import { formatDecisionWindow, judgmentCertainty, storyDisplay } from '/vendor/brief-schema.js';
 import { signalSeverity } from '../core/signal-facts.js';
 
 export const DISPLAY_DEFAULTS = Object.freeze({ size: 'standard', margin: 'normal', speed: 'normal', playlist: 'balanced', feedSeconds: 90, holdSeconds: 0, dim: false, dimStart: 1, dimEnd: 5, maintenance: false, maintenanceHour: 4, fullscreen: true, awake: true });
@@ -119,15 +119,21 @@ export function buildGlanceModel(page = {}) {
     summary: text(page.block?.text), summaryLabel: 'The takeaway', railLabel: 'At a glance', facts: [], related: [] };
   const fact = (label, value) => { if (text(value).trim()) model.facts.push({ label, value: text(value).trim() }); };
   const cve = value => /^CVE-\d{4}-\d{4,}$/i.test(text(value)) ? value.toUpperCase() : '';
+  const concise = page.formatVersion === 2 && ['authored-opening', 'reviewed'].includes(page.displayProvenance);
   const catalogFact = (includeEntries = true) => {
     const ids = [...new Set([...(page.isKEV === true ? [cve(page.cve)] : []),
       ...(includeEntries ? page.catalogEntries || [] : []).map(item => cve(item.cve))].filter(Boolean))];
-    if (ids.length) fact(page.kevCatalogStatus?.status === 'fresh' ? 'Captured CISA KEV' : 'Retained CISA KEV', `${ids.join(' · ')}${page.kevCatalogStatus?.retrievedAt ? ` · captured ${page.kevCatalogStatus.retrievedAt}` : ' · capture time unavailable'}`);
+    if (ids.length) {
+      const captured = page.kevCatalogStatus?.retrievedAt;
+      const captureTime = concise && Number.isFinite(Date.parse(captured)) ? new Date(captured).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : captured;
+      const identity = concise ? `${ids.length} referenced vulnerabilit${ids.length === 1 ? 'y' : 'ies'}` : ids.join(' · ');
+      fact(page.kevCatalogStatus?.status === 'fresh' ? 'Captured CISA KEV' : 'Retained CISA KEV', `${identity}${captureTime ? ` · captured ${captureTime}` : ' · capture time unavailable'}`);
+    }
     return ids;
   };
   switch (page.kind) {
     case 'bluf':
-      model.label = 'Lead story';
+      model.label = page.formatVersion === 2 ? 'Edition overview' : 'Lead story';
       model.headline = text(page.coverTitle) || model.headline;
       model.summary = text(page.coverSummary) || model.summary;
       model.railLabel = 'Also in this briefing';
@@ -137,6 +143,9 @@ export function buildGlanceModel(page = {}) {
       model.label = page.formatVersion === 2 ? 'Priority story' : 'Key judgment';
       model.railLabel = page.formatVersion === 2 ? 'Story context' : 'Response brief';
       if (page.formatVersion === 2) model.summaryLabel = 'Analysis';
+      if (text(page.condition).trim() && !model.summary.includes(page.condition)) {
+        model.summary = [model.summary, page.condition].filter(Boolean).join('\n\n');
+      }
       const owners = [...new Set((page.actions || []).map(action => text(action.owner).trim()).filter(Boolean))];
       fact('Response owners', owners.join(' · '));
       if (text(page.decision).trim()) {
@@ -148,13 +157,16 @@ export function buildGlanceModel(page = {}) {
       const catalogIds = new Set(catalogFact());
       const references = [...new Set((Array.isArray(page.cves) ? page.cves : []).map(cve)
         .filter(id => id && !catalogIds.has(id)))];
-      fact(references.length === 1 ? 'Referenced CVE' : 'Referenced CVEs', references.join(' · '));
+      if (!concise) fact(references.length === 1 ? 'Referenced CVE' : 'Referenced CVEs', references.join(' · '));
       break;
     }
     case 'developing':
       model.label = 'Developing situation';
       model.summaryLabel = 'What we know';
       model.railLabel = 'Tracking';
+      if (text(page.displayCondition).trim() && !model.summary.includes(page.displayCondition)) {
+        model.summary = [model.summary, page.displayCondition].filter(Boolean).join('\n\n');
+      }
       if (text(page.trajectory).trim().toLowerCase() !== 'uncertain') fact('Trajectory', page.trajectory);
       break;
     case 'convergence':
@@ -288,11 +300,13 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
   if (briefLoadError) pages.push({ kind: 'brieferror' });
   if (doc && settings.playlist !== 'updates') {
     const lead = doc.stories?.[0];
-    const editedLead = presentation?.judgments?.find(item => item.index === 0 && item.originalTitle === lead?.title);
-    add('bluf', 0, 'Shift assessment', [{ text: presentation?.bluf || doc.bluf }], {
-      coverTitle: editedLead?.title || lead?.title || 'Shift assessment',
-      coverSummary: editedLead?.summary || lead?.line || presentation?.bluf || doc.bluf,
-      priorities: (doc.stories || []).slice(1, 4).map(story => story.title),
+    const coverTitle = lead?.formatVersion === 2 ? "Today's picture" : 'Shift assessment';
+    const coverSummary = presentation?.bluf || doc.blufProse || doc.bluf;
+    add('bluf', 0, coverTitle, [{ text: coverSummary }], {
+      formatVersion: lead?.formatVersion,
+      coverTitle,
+      coverSummary,
+      priorities: (doc.stories || []).slice(0, 3).map((story, index) => storyDisplay(story, index, doc).title),
     });
     // The primary cycle features the complete judgment response. Executive
     // restatements remain in operator mode instead of repeating those actions.
@@ -304,13 +318,13 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
     (doc.stories || []).forEach((story, idx) => {
       if (!story?.title) return;
       const actions = storyActions(story);
-      const edited = presentation?.judgments?.find(item => item.index === idx && item.originalTitle === story.title);
-      const context = edited?.summary || story.line || story.assessment || '';
-      pages.push({ kind: 'judgment', formatVersion: story.formatVersion, idx, topic: edited?.title || story.title, bundle: story.id || `judgment:${idx}`, part: 0, parts: 1,
-        block: { label: story.formatVersion === 2 ? 'Analysis' : 'Recommended response', text: context }, actions, actionCount: actions.length,
+      const display = storyDisplay(story, idx, doc);
+      pages.push({ kind: 'judgment', formatVersion: story.formatVersion, idx, topic: display.title, bundle: story.id || `judgment:${idx}`, part: 0, parts: 1,
+        block: { label: story.formatVersion === 2 ? 'Analysis' : 'Recommended response', text: display.paragraphs.join('\n\n') },
+        condition: display.condition, displayProvenance: display.provenance, actions, actionCount: actions.length,
         decision: story.decision, editionDate: doc.date, certainty: story.confidence, citations: story.citations,
         isKEV: story.isKEV, cve: story.kevCVE, cves: topicCves(story), kevCatalogStatus: doc.kevCatalogStatus,
-        coveredReports: edited?.coveredReports || [],
+        coveredReports: display.coveredReports,
       });
     });
     (doc.convergence || []).forEach((item, idx) => {
@@ -333,7 +347,8 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
       const display = splitDevelopingSourceTail(explanation, item.citations);
       add('developing', idx, edited?.title || item.name, [
         { label: 'Developing situation', text: edited?.summary || display.text || item.watch },
-      ], { trajectory: item.trajectory || '', condition: edited?.condition || item.watch, citations: display.citations });
+      ], { trajectory: item.trajectory || '', condition: edited?.condition || item.watch,
+        displayCondition: edited?.condition || '', citations: display.citations });
     });
     // Watchlist conditions remain completely available inside Wall. They join
     // the unattended loop only in the explicitly selected updates playlist.

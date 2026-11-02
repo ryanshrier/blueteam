@@ -1,6 +1,6 @@
 // Editorial overview of a saved edition. Current reporting has its own clock
 // and request lifecycle; it never mutates the edition or its assessment times.
-import { parseBrief, parseBlufProse, judgmentCertainty, stripMd, sourceCitations, section, briefSections } from '/vendor/brief-schema.js';
+import { parseBrief, parseBlufProse, judgmentCertainty, stripMd, sourceCitations, section, briefSections, storyDisplay } from '/vendor/brief-schema.js';
 import { escapeHtml } from '../core/sanitize.js';
 import { assessmentSources } from '../core/assessment-meta.js';
 import { formatBriefPublication, formatBriefPublishedAt, formatBriefLabel } from '../core/brief-date.js';
@@ -19,10 +19,10 @@ export function overviewModel(brief = {}) {
   return { ...parsed, preface, publication: formatBriefPublication(brief),
     editionLead: presentation?.bluf || parseBlufProse(content),
     judgments: parsed.stories.map((story, index) => {
-      const edited = presentation?.judgments?.find(item => item.index === index && item.originalTitle === story.title);
+      const display = storyDisplay(story, index, brief);
       return { ...story, anchor: `judgment-${index + 1}`,
-        displayTitle: edited?.title || story.title,
-        reviewedSummary: edited?.summary || '', reviewedCondition: edited?.condition || '',
+        display, displayTitle: display.title,
+        reviewedSummary: display.provenance === 'reviewed' ? display.summary : '', reviewedCondition: display.condition,
         claim: story.assessment || story.line || story.whatHappened,
         summary: story.line || story.assessment || story.whatHappened,
         action: story.actions[0]?.text || story.actionShift?.imperative || '',
@@ -49,8 +49,9 @@ const words = value => String(value || '').trim().split(/\s+/).filter(Boolean).l
 
 /** Whole authored passages remain available; an unreviewed excerpt is never a summary. */
 export function overviewPassage(story) {
-  if (story.formatVersion === 2) return (story.paragraphs || [story.claim]).map(paragraph =>
-    `<p class="brief-overview-claim">${escapeHtml(paragraph)}</p>`).join('');
+  if (story.formatVersion === 2) return (story.display?.paragraphs || story.paragraphs || [story.claim]).map(paragraph =>
+    `<p class="brief-overview-claim">${escapeHtml(paragraph)}</p>`).join('')
+    + (story.display?.condition ? `<p class="brief-overview-condition">${escapeHtml(story.display.condition)}</p>` : '');
   const authored = story.claim;
   const passage = story.reviewedSummary || authored;
   const condition = story.reviewedCondition || '';
@@ -104,14 +105,16 @@ function judgment(story, featured = false, savedMetadata = null, filename = '', 
   </article>`;
 }
 
-export function renderOverview(brief = {}, { judgmentMetadata = [], developingAnchor = '', now = Date.now() } = {}) {
+export function renderOverview(brief = {}, { judgmentMetadata = [], developingAnchor = '', now = Date.now(),
+  compactIntroduction = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches } = {}) {
   const model = overviewModel(brief);
   const [featured, ...stories] = model.judgments;
   return `<div class="brief-overview-edition">${assessmentDate(brief, now)}
     ${brief.review?.status === 'editorially-corrected' ? `<p class="brief-overview-review">Corrected edition · <a href="#edition-record" data-open-edition-record>See changes</a></p>` : ''}</div>
     ${model.preface ? `<p class="brief-overview-preface">${escapeHtml(model.preface)}</p>` : ''}
-    <section class="brief-overview-edition-note" aria-label="Edition summary"><h2 class="brief-overview-label">${featured ? 'This edition' : 'Edition summary'}</h2><p>${escapeHtml(model.editionLead || 'No edition summary recorded.')}</p>
-      ${model.blufSources.length || !featured ? metadata({ citations: model.blufSources }) : ''}${reportLink(brief.filename, '', 'Read full report')}</section>
+    <details class="brief-overview-introduction"${compactIntroduction && featured ? '' : ' open'}><summary>${featured ? "Today's picture" : 'Edition summary'}</summary>
+    <section class="brief-overview-edition-note" aria-label="Edition summary"><p>${escapeHtml(model.editionLead || 'No edition summary recorded.')}</p>
+      ${model.blufSources.length || !featured ? metadata({ citations: model.blufSources }) : ''}${reportLink(brief.filename, '', 'Read full report')}</section></details>
     ${featured ? `<div class="brief-overview-front">${judgment(featured, true, judgmentMetadata[0], brief.filename, readerEvidenceLimits(brief, 1))}</div>` : ''}
     ${stories.length ? `<section class="brief-overview-more" aria-label="More stories from this edition"><h2 class="brief-overview-label">More in this edition</h2><div class="brief-overview-grid">${stories.map((story, index) => judgment(story, false, judgmentMetadata[index + 1], brief.filename, readerEvidenceLimits(brief, index + 2))).join('')}</div></section>` : ''}
     ${model.developing.length ? `<section class="brief-overview-watch" aria-label="Also watching from this edition"><h2>Also watching <span>From the saved edition</span></h2><ul>${model.developing.map(item => `<li><h3>${escapeHtml(item.displayTitle)}</h3>${item.summary ? `<p class="brief-overview-watch-summary">${escapeHtml(item.summary)}</p>` : ''}${item.condition ? `<p class="brief-overview-watch-condition"><span>Watch for</span> ${escapeHtml(item.condition)}</p>` : ''}</li>`).join('')}</ul>${reportLink(brief.filename, developingAnchor, 'Read watch criteria')}</section>` : ''}

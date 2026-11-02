@@ -410,6 +410,7 @@ Check affected inventory before scheduling remediation.
   q('#briefExport').click();
   await until(()=>q('.np-frame')?.contentDocument?.querySelector('.np-colophon'));
   const narrativePrint=q('.np-frame').contentDocument;
+  check(narrativePrint.querySelector('.bluf')?.dataset.label==="Today's picture",'Print preserves the analytical opening label');
   check(narrativePrint.querySelectorAll('.brief-judgment-card').length===6,'Print retains every version 2 story');
   check(narrativePrint.body.textContent.includes('revoking or rotating exposed credentials'),'Print retains conditional credential response');
   check(narrativePrint.body.textContent.includes('Local exposure is unconfirmed'),'Print retains uncertainty');

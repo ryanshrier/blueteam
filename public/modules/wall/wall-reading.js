@@ -26,7 +26,7 @@ export function readingStops(body) {
     // DOM rectangles include CSS zoom, while scrollTop/clientHeight do not.
     const scale = bodyRect.height > 0 && height > 0 ? bodyRect.height / height : 1;
     const scrollTop = Number(body.scrollTop) || 0;
-    for (const element of body.querySelectorAll('.nb-exec-decision, .nb-response-action, .nb-act, .nb-conv-move, .nb-led-row, .nb-item, .nb-dev, .nb-exec-fact')) {
+    for (const element of body.querySelectorAll('.nb-exec-decision, .nb-response-action, .nb-act, .nb-conv-move, .nb-led-row, .nb-item, .nb-dev, .nb-exec-fact, .nb-glance-summary')) {
       if (!element.getBoundingClientRect) continue;
       const rect = element.getBoundingClientRect();
       const top = Math.floor((rect.top - origin) / scale + scrollTop);
@@ -44,4 +44,35 @@ export function readingStops(body) {
     stops.push(next);
   }
   return stops;
+}
+
+/** Measure words actually introduced by this viewport. The preceding screen's
+ * overlap is context, not another full reading budget. Null means the host has
+ * no layout API (for example an offline DOM stub), so callers can fall back. */
+export function viewportReadingText(body, stops = [0]) {
+  const doc = body?.ownerDocument;
+  if (!doc?.createTreeWalker || !doc.createRange || !body.getBoundingClientRect || !body.clientHeight) return null;
+  const rect = body.getBoundingClientRect();
+  const scale = rect.height / body.clientHeight;
+  if (!(scale > 0)) return null;
+  const scroll = Number(body.scrollTop) || 0;
+  const previous = [...stops].reverse().find(stop => stop < scroll - 2);
+  const seenUntil = previous === undefined ? scroll : previous + body.clientHeight;
+  const top = rect.top + Math.max(0, seenUntil - scroll) * scale;
+  const bottom = rect.bottom;
+  const words = [];
+  const walker = doc.createTreeWalker(body, 4); // SHOW_TEXT
+  const range = doc.createRange();
+  let node;
+  while ((node = walker.nextNode())) {
+    for (const match of node.textContent.matchAll(/\S+/g)) {
+      range.setStart(node, match.index);
+      range.setEnd(node, match.index + match[0].length);
+      const boxes = [...range.getClientRects()];
+      if (boxes.some(box => box.width > 0 && box.height > 0
+        && (box.top + box.bottom) / 2 >= top && (box.top + box.bottom) / 2 < bottom)) words.push(match[0]);
+    }
+  }
+  range.detach?.();
+  return words.join(' ');
 }
