@@ -2,9 +2,16 @@
 // memory; this module never imports the application server or its data layer.
 import { MARKETING_BRIEF } from './marketing-brief.js';
 import { buildFixtureData } from './fixture-cases.js';
+import { displayFixture } from '../fixtures/brief-display.js';
+import { captureBriefDisplay } from '../../lib/brief-display.js';
+import { STORY_OPENING_CONTRACT } from '../../lib/brief-schema.js';
+
+const narrativeFixture = displayFixture();
+const NARRATIVE_BRIEF = narrativeFixture.content + `\n\n## DEVELOPING\n\n### The next advisory could resolve the release disagreement\nThe vendor has not reconciled the affected-release tables. A revised advisory could narrow the uncertainty; its publication would not itself establish local deployment. [Synthetic source, 2026-11-02](https://example.test/story-3)\n\n## WHAT COULD CHANGE THE PICTURE\n\nEvidence of successful use of the optional library path would change the assessment of practical exposure. The current report does not establish that use. [Synthetic source, 2026-11-02](https://example.test/story-5)\n`;
+const NARRATIVE_DISPLAY = captureBriefDisplay(NARRATIVE_BRIEF, narrativeFixture.grounding, STORY_OPENING_CONTRACT);
 
 export const APP_SCENARIOS = Object.freeze([
-  'normal', 'sample', 'long', 'handoff', 'sparse', 'summary', 'stale', 'loading', 'sourceerror',
+  'normal', 'sample', 'long', 'handoff', 'narrative', 'sparse', 'summary', 'stale', 'loading', 'sourceerror',
   'brieferror', 'empty', 'changed', 'evidence', 'source-revision', 'evidence-unavailable',
   'health-healthy', 'health-degraded', 'health-unavailable', 'health-loading', 'health-minimal',
   'no-key', 'settings-loading', 'settings-unavailable',
@@ -85,12 +92,13 @@ export function buildAppFixture(scenario = 'normal', now = new Date()) {
   const empty = scenario === 'empty';
   const sparse = scenario === 'sparse' || scenario === 'summary';
   const long = scenario === 'long' || scenario === 'handoff';
+  const narrative = scenario === 'narrative';
   const evidence = scenario === 'evidence';
   const stale = scenario === 'stale' || scenario === 'health-degraded';
-  const date = evidence ? '2026-09-04' : changed ? '2026-07-25' : '2026-07-24';
+  const date = narrative ? '2026-11-02' : evidence ? '2026-09-04' : changed ? '2026-07-25' : '2026-07-24';
   // Error editions need a distinct filename so api.js's good-content cache
   // cannot mask the intentional failure when changed during an active session.
-  const filename = `brief-${date}-${scenario === 'sample' ? '01' : scenario === 'handoff' ? 'handoff' : ['source-revision', 'evidence-unavailable'].includes(scenario) ? 'evidence-inputs' : scenario === 'brieferror' ? 'unavailable' : changed ? 'revised' : long ? 'long' : scenario === 'summary' ? 'summary' : sparse ? 'sparse' : 'demo'}.md`;
+  const filename = `brief-${date}-${narrative ? 'narrative' : scenario === 'sample' ? '01' : scenario === 'handoff' ? 'handoff' : ['source-revision', 'evidence-unavailable'].includes(scenario) ? 'evidence-inputs' : scenario === 'brieferror' ? 'unavailable' : changed ? 'revised' : long ? 'long' : scenario === 'summary' ? 'summary' : sparse ? 'sparse' : 'demo'}.md`;
   const generatedAt = empty ? null : new Date(now.getTime() - (stale ? 7_200_000 : 60_000)).toISOString();
   let signals = fixture['wall-wire-four'].signals.map((signal, i) => ({
     ...signal, id: `synthetic-${i}`, score: 94 - i * 16, link: `https://example.test/synthetic-${i}`,
@@ -124,9 +132,13 @@ export function buildAppFixture(scenario = 'normal', now = new Date()) {
     ...item, product: `${item.product} and Enterprise Remote Operations Supervisory Management Gateway`,
     name: `${item.name}; this synthetic advisory requires checking inherited appliance configurations and validating the final remediation evidence.`,
   })) };
-  const content = evidence ? EVIDENCE_BRIEF : long ? LONG_BRIEF : scenario === 'summary' ? SUMMARY_BRIEF : sparse ? SPARSE_BRIEF : changed ? CHANGED_BRIEF : MARKETING_BRIEF;
+  const content = narrative ? NARRATIVE_BRIEF : evidence ? EVIDENCE_BRIEF : long ? LONG_BRIEF : scenario === 'summary' ? SUMMARY_BRIEF : sparse ? SPARSE_BRIEF : changed ? CHANGED_BRIEF : MARKETING_BRIEF;
   const signalLine = content.split('\n').findIndex(line => /^### Signal 1\b/.test(line)) + 2;
-  const presentation = scenario === 'handoff' ? { schemaVersion: 1, revision: 'synthetic-handoff-record',
+  const presentation = narrative ? { schemaVersion: 1, revision: 'synthetic-narrative-record',
+    copy: { kind: 'published', contentSha256: NARRATIVE_DISPLAY.contentSha256, originalSha256: NARRATIVE_DISPLAY.contentSha256 },
+    displayCopy: NARRATIVE_DISPLAY, currentChecks: { status: 'checked', basis: 'publication', issues: [], warnings: [] },
+    history: [], approval: { status: 'not-recorded' }, operationalNotes: [],
+  } : scenario === 'handoff' ? { schemaVersion: 1, revision: 'synthetic-handoff-record',
     copy: { kind: 'published', contentSha256: 'a'.repeat(64), originalSha256: 'a'.repeat(64) },
     currentChecks: { status: 'checked', basis: 'publication', issues: [
       { code: 'APPLICABILITY_ACTION_UNCONDITIONAL', audience: 'reader', consequence: 'note', message: 'Synthetic qualification: local exposure remains unverified.', location: { line: signalLine }, acknowledged: false },

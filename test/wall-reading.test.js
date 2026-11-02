@@ -1,7 +1,22 @@
 import { describe, expect, test } from '@jest/globals';
-import { readingStops } from '../public/modules/wall/wall-reading.js';
+import { readingStops, viewportReadingText } from '../public/modules/wall/wall-reading.js';
 
 describe('Wall continuations', () => {
+  test('reading time counts visible new words rather than the whole story or overlap', () => {
+    const node = { textContent: 'first second overlap last' };
+    const positions = { 0: 20, 6: 160, 13: 360, 21: 480 };
+    let start = 0;
+    const body = { scrollTop: 0, clientHeight: 400, getBoundingClientRect: () => ({ top: 100, bottom: 900, height: 800 }),
+      ownerDocument: { createTreeWalker: () => { let read = false; return { nextNode: () => read ? null : (read = true, node) }; },
+        createRange: () => ({ setStart: (_node, at) => { start = at; }, setEnd() {}, getClientRects: () => {
+          const top = 100 + (positions[start] - body.scrollTop) * 2;
+          return [{ top, bottom: top + 30, height: 30, width: 100 }];
+        } }) } };
+    expect(viewportReadingText(body, [0, 300])).toBe('first second overlap');
+    body.scrollTop = 300;
+    expect(viewportReadingText(body, [0, 300])).toBe('last');
+    expect(viewportReadingText({ clientHeight: 0 })).toBeNull();
+  });
   test('keeps short and unmeasured content on one screen', () => {
     expect(readingStops({ clientHeight: 600, scrollHeight: 600 })).toEqual([0]);
     expect(readingStops({ clientHeight: 0, scrollHeight: 900 })).toEqual([0]);

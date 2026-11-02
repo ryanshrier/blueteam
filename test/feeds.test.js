@@ -280,6 +280,23 @@ describe('deduplicateWithCorroboration', () => {
       .toEqual(expect.arrayContaining(headlines.map(headline => headline.passage || headline.description)));
   });
 
+  test('catalog templates cannot merge an unidentified report or a different overlapping batch', () => {
+    const cisa = { title: 'CISA Adds Two Known Exploited Vulnerabilities to Catalog', source: 'CISA Advisories', weight: 1.5,
+      passage: 'CISA added CVE-2026-12345 in GitLab and CVE-2026-23456 in Cisco.', link: 'https://www.cisa.gov/alert/two' };
+    const unidentified = { title: 'US CISA Adds Two PHP Vulnerabilities to Known Exploited List, Orders Federal Agencies to Patch', source: 'Discovery', weight: 1,
+      passage: '', link: 'https://example.test/php' };
+    const overlapping = { ...cisa, source: 'Reporter', link: 'https://example.test/another-batch',
+      passage: 'CISA added CVE-2026-12345 and CVE-2026-34567.' };
+    for (const rows of [[cisa, unidentified, overlapping], [overlapping, unidentified, cisa]]) {
+      const result = deduplicateWithCorroboration(rows, 0.2);
+      expect(result).toHaveLength(3);
+      expect(result.every(row => row.corroboration === 1)).toBe(true);
+      expect(result.flatMap(row => row.sourceMembers).map(row => row.passage).sort()).toEqual(rows.map(row => row.passage).sort());
+    }
+    const sameArticle = { ...cisa, passage: '', description: 'An updated feed extract.' };
+    expect(deduplicateWithCorroboration([cisa, sameArticle], 0.5)).toHaveLength(1);
+  });
+
   test('a common contextual passage CVE cannot override distinct explicit title IDs', () => {
     const headlines = [
       { title: 'Vendor patches CVE-2026-1111 exploited vulnerability', passage: 'Compare the earlier CVE-2026-3333.' },

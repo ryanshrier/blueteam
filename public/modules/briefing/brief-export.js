@@ -851,6 +851,7 @@ body{
 /* An opening assessment has presence without filling the whole first page. */
 .np-body .bluf{ margin:0 0 24px; padding:0 0 20px; border-bottom:1px solid var(--hair); text-align:left; }
 .np-body .bluf::before{ content:'Bottom line up front'; display:block; font:650 12px/1.4 var(--sans); color:var(--ink-3); margin-bottom:10px; }
+.np-body .bluf[data-label]::before{ content:attr(data-label); }
 .np-body .bluf p{ margin:0; max-width:none; text-align:left; font-size:23px; line-height:1.4; font-weight:450; color:var(--ink); }
 .np-body .bluf.np-flow-long p{ font-size:19px; line-height:1.5; }
 .np-body h2{ margin:28px 0 15px; padding:10px 0 0; text-align:left; border-top:1px solid var(--hair-2); font:650 13px/1.45 var(--sans); letter-spacing:.04em; color:var(--ink); break-after:avoid-page; page-break-after:avoid; }

@@ -4,9 +4,9 @@
   "capturedAt": "2026-07-24T12:00:00Z",
   "application": {
     "name": "blueteam-news",
-    "version": "1.4.7",
+    "version": "1.4.8",
     "implementationSha256": {
-      "prompts": "dda58a0125b31e6b427f1ff845d4922df2b22baf9b0b6cb0adf0e9ee157c7c8f",
+      "prompts": "97934a774569335a5f99484035b14641aeedd8400a8737c5c6fe98926c7d0fef",
       "grounding": "648c3b986d5ea6bc9b328bcdbec19bf837c4ac23ef83db86927c7743cc993809",
       "validation": "3740e912d2d2d8be30c5af7e1d8617d34c62af57d3d589006b80da3c0141e2b2",
       "brief-validation-policy": "7aa30cc8c75c60d609d3510ee23de33c6bd94b0e2b2a747bc244afa8bdaa824c",
@@ -23,17 +23,18 @@
       "brief-coverage": "6672b3269e679be49a73286636991f420d100dd490709e7318e1a1225302921d",
       "brief-metadata": "2e624b39054404a1500a99dd29c5222eb7a6b615b5ee7dde54abafc7598fd9c7",
       "brief-assembly": "0bd97c9a6cc676d839afc46e425b49f4a9edc302bc2925a343481b01e55ab8de",
-      "brief-citations": "bba6856bad3211fba1257641ec570261cc4d2f30566a8c826a59cbdd790f90c0",
+      "brief-citations": "09355f973e69bfd83162808d41700f800f1e1f2d2ce5c7f6a0eeed414a9e1a3c",
       "brief-composition": "93accea4ba411ee2bc3e541ff5dd58d32342a65817add6e3acbdc1dbed60c834",
       "brief-deadlines": "9eb8e60e452774612769b2d90e7fd98ad95735ef489133478b45b3dc0d048942",
-      "brief-schema": "e6b307ec80095964d72b02183c95de6229383e6fa2e56a74f59945cfe72e957d",
+      "brief-schema": "77ae51dfb92dbe2f5b5b9ac6e2f1c193a12bbaac25ebc5319a6179f2a536f886",
+      "brief-display": "ca3ad3569df39e852938229d4de89bc5fb2e94d3fb6e9dfb173997dbc7d17ba9",
       "brief-metric-repair": "45b04b9031c06d0ab4d4b034bd6ce0a87d84377af20dba397fd74c5018c5f5db",
-      "brief-narrative-prompt": "b8dd567854a8d13d2acc37e756a1a3625eda1207868aa6282b8ff54e417353b0",
+      "brief-narrative-prompt": "8b1b2d675c381e199f4d1414abaf7e103248621d93e4f7c4e4f39a3da513b17f",
       "kev-status": "ac7f55c54a47c88bbce4a12b086e7373dbeee8ce3c4ea3b64aad2ade463fa5da",
       "nvd-applicability": "c4f006974b3ceed3384f269587f7dd4acc695e99c7cd2c961c684c1fe4c8cc93",
       "enrichment": "fbc9dca34f78ccc571783c1396977249a43fac7f3bd9e8eb5fc8c06626bd75a9",
       "source-passages": "8f94781e3a21f40b43b596cc6dd13ee5d1141271bc83ff21dfa92e7abb154215",
-      "feeds": "4ceb351ec8ca702b5873f35f546e11e63268df59c527a859c62d7b6f146103b8",
+      "feeds": "8a03d51e0f3c34ceecb90c76922ebae0fad7870e8875d652bfe89d3c8279e89b",
       "evidence-events": "4c73be6f091eebe46bc675c4928594e2fa4aa50bcc862841cb379bece0843e54",
       "evidence-continuity": "3e4b9cf5a2828ae57b6d517e2e4b6a84b0d5bdf428b27c5ba3a7295f84b504dd",
       "feed-revisions": "c124df8bb25eaa0196f4cb29135beb866b2b322d224bfe0e226e85ac0c89b6e8",
@@ -51,7 +52,7 @@
       "brief-validator": "40d709297d74ea8b1e8f454c8386145c68d53efc4bbec9482dc4cada423834bb",
       "brief-validation-worker": "b54f4edea686e758f726a0fefba77321502e03822983dc36607150c62fb77953",
       "brief-input-limits": "0451bfa235f7edc9c67d0b54b817b6514ce596114dd55c66d036a379e2992aa7",
-      "brief-drafts": "7c6143c1cc8d3658bfbc646c58712be5dae000255c58298500e948257a01297e"
+      "brief-drafts": "3f136339d4f7c85a54c1c0b827bf3d95c56fd13048e33c9a80987164e634d27d"
     }
   },
   "edition": {
@@ -109,7 +110,7 @@
     "maxTokens": null,
     "thinkingEffort": "off",
     "continuityDepth": 0,
-    "generationTimeoutSec": 300,
+    "generationTimeoutSec": 1200,
     "provider": "none"
   },
   "selectedEvidence": [
@@ -547,7 +548,7 @@
   ],
   "generatedAt": "2026-07-24T12:00:00Z",
   "synthetic": true,
-  "syntheticRegeneratedAt": "2026-10-30T20:19:33.972Z",
+  "syntheticRegeneratedAt": "2026-11-02T17:31:19.383Z",
   "syntheticNote": "Authored fictional demonstration; no provider was called. Edition, source, collection, capturedAt, and generatedAt dates describe the July 24, 2026 scenario, not a real collection or generation. syntheticRegeneratedAt records when this sample receipt was rebuilt and checked against the recorded application implementation. Passing supported checks does not verify real-world events or complete analyst review.",
   "filename": "brief-2026-07-24-01.md",
   "outputSha256": "7e6d0cbf6133fc131b0d8513192f2809c3696f467cd35d00631179cecb11c7d3",

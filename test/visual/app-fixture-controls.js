@@ -22,7 +22,7 @@
       },
     } });
   }
-  const scenarios = ['normal', 'sample', 'long', 'handoff', 'sparse', 'summary', 'stale', 'loading', 'sourceerror', 'brieferror', 'empty', 'changed', 'evidence', 'source-revision', 'evidence-unavailable', 'health-healthy', 'health-degraded', 'health-unavailable', 'health-loading', 'health-minimal', 'no-key', 'settings-loading', 'settings-unavailable'];
+  const scenarios = ['normal', 'sample', 'long', 'handoff', 'narrative', 'sparse', 'summary', 'stale', 'loading', 'sourceerror', 'brieferror', 'empty', 'changed', 'evidence', 'source-revision', 'evidence-unavailable', 'health-healthy', 'health-degraded', 'health-unavailable', 'health-loading', 'health-minimal', 'no-key', 'settings-loading', 'settings-unavailable'];
   let scenario = scenarios.includes(params.get('scenario')) ? params.get('scenario') : 'normal';
   let offset = 0;
   const NativeDate = Date;

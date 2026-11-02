@@ -85,6 +85,7 @@ jobs:
         run: |
           npm run check:design:render
           npm run check:theme:render
+          npm run check:brief-display:render -- --output "$RUNNER_TEMP/brief-display-acceptance"
         env:
           DESIGN_SCREENSHOT_DIR: ${{ runner.temp }}/design-acceptance
           THEME_SCREENSHOT_DIR: ${{ runner.temp }}/theme-acceptance
@@ -98,6 +99,7 @@ jobs:
           path: |
             ${{ runner.temp }}/design-acceptance
             ${{ runner.temp }}/theme-acceptance
+            ${{ runner.temp }}/brief-display-acceptance
 
       - name: Install PDF inspection tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils

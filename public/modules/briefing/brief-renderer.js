@@ -466,6 +466,7 @@ export function applySemanticStyling(container, { decisionControls = false, pres
       if ((narrative ? /^\s*TODAY'S PICTURE\s*$/i : /^\s*BLUF\b/i).test(h2.textContent)) {
         const div = document.createElement('div');
         div.className = 'bluf';
+        if (narrative) div.dataset.label = "Today's picture";
         let next = h2.nextElementSibling;
         let content = '';
         while (next && next.tagName !== 'H2' && next.tagName !== 'HR') {

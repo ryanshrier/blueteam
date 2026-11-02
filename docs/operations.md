@@ -60,7 +60,7 @@ Schedule state and outcomes persist in SQLite, so a restart does not erase the a
 
 Manual and automatic requests share the same generation route, cooldown, rate limits, validation, storage, and webhook path. Route-level request limits use process-local fixed windows and reset when the server restarts; the separate automatic-schedule attempt count persists in SQLite. Built-in key verification sends a minimal provider request, and provider requests may consume billable tokens. Corrective retries, timeout recovery, and model or key fallback can make additional provider calls, so these limits are guardrails rather than spending caps. Review provider account limits and billing separately. OpenAI retries use the selected model; they never switch providers. Anthropic retains its configured model and key fallback behavior. Custom status checks call only the module's optional health hook; any work or charges inside that hook are module-defined.
 
-The checked-in generation settings use `thinkingEffort: "low"`, a 16,000-token output cap, and a 1,200-second shared generation deadline. Omitting the deadline retains the 300-second fallback; explicit operator configuration remains authoritative.
+The checked-in generation settings use `thinkingEffort: "low"`, a 16,000-token output cap, and a 1,200-second shared generation deadline. Omitting the deadline also uses 1,200 seconds; explicit operator configuration remains authoritative.
 
 Malformed persisted settings, including an invalid enabled schedule, disable automatic generation and mark settings health as failed. Failed saves retain the previous effective values and remain visible in diagnostics until a successful save. Correct the reported values and save the schedule explicitly before relying on unattended generation again.
 
@@ -134,6 +134,33 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
 
+### From v1.4.7 to v1.4.8
+
+Stop the service and back up effective state directories, saved Briefings and
+hidden receipts/drafts, configuration, protected settings and operator-managed
+profiles together. Install the `v1.4.8` code with a supported runtime while
+preserving local configuration edits. Dependencies and SQLite schema 11 are
+unchanged; no archive migration is required.
+
+New editions share their authored story openings between Overview and Wall.
+The complete report retains supporting analysis and citations. Display records
+are optional and bound to the saved content; earlier editions and changed copies
+without a matching record use full prose. Existing Briefings are not rewritten,
+and generation continues to support one analytical format without mandatory
+owners or deadlines.
+
+An omitted `analysisSettings.generationTimeoutSec` now defaults to 1,200 seconds
+for generation and its single corrective attempt, matching the checked-in
+configuration. Explicit values remain unchanged. Review an intentionally shorter
+operator setting before expecting the full generation-and-repair allowance.
+No Bob installation, profile change, CLI restart or additional paid retry is
+performed by this upgrade.
+
+After restarting, inspect a new edition and an archived edition in Overview,
+Full report, Wall and Print Edition. For rollback, retain the complete matching
+pre-upgrade backup and prior code. Upgrades from v1.4.6 or earlier also require
+the earlier format and retained-artifact notes below.
+
 ### From v1.4.6 to v1.4.7
 
 Stop the service and wait for accepted work to finish. Back up the effective
@@ -152,7 +179,8 @@ opening them with an older reader. SQLite stays at schema 11.
 
 The bundled Bob profile now allows 240 seconds of silence and 580 seconds total.
 The checked-in shared generation budget is 1,200 seconds, including one corrective
-attempt; the omitted-setting fallback remains 300 seconds. Operator profile
+attempt. In v1.4.7, omitted configuration still falls back to 300 seconds;
+v1.4.8 aligns that default to 1,200 seconds. Explicit operator values remain unchanged. Operator profile
 copies are not automatically overwritten. Merge these limits into the profile
 used on the machine running the service when ready. This configuration change
 does not install, invoke or verify Bob.
@@ -617,7 +645,7 @@ slot so the next edition can proceed. Publication records distinguish automatic
 rechecks from operator repairs and preserve the original inputs, checks and usage.
 
 The configured generation timeout bounds model work after collection and
-preflight. Its default is 300 seconds shared across the initial model call and
+preflight. Its default is 1,200 seconds shared across the initial model call and
 any corrective retry; an explicit `analysisSettings.generationTimeoutSec` from
 30 through 1,200 seconds overrides it. The checked-in configuration uses 1,200 seconds,
 enough for two completed Bob calls of up to 580 seconds each with 40 seconds

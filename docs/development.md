@@ -20,6 +20,7 @@ The default URL is `http://127.0.0.1:3000`.
 ```bash
 npm test                       # Test suite
 npm run check:brief-eval        # Offline generation, evidence, retry, and accounting stress cases
+npm run check:brief-display:render # Frozen reader/Wall layout, continuations, and cycle timing; no provider calls
 npm run test:watch             # Tests in watch mode
 npm run check:secrets          # Credentials in the working tree
 npm run check:history-secrets  # Credentials in reachable branch and tag history

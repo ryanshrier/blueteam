@@ -41,7 +41,7 @@ describe('config — last-known-good on rejected reload', () => {
     expect(config.analysisSettings.model).toBe('claude-haiku-4-5');
     expect(config.analysisSettings.thinkingEffort).toBe('low');
     expect(config.analysisSettings.briefFormatVersion).toBeUndefined();
-    expect(config.analysisSettings.generationTimeoutSec).toBe(300);
+    expect(config.analysisSettings.generationTimeoutSec).toBe(1200);
     expect(config.analysisSettings.horizonWeights).toEqual({ horizon1: 0.45, horizon2: 0.4, horizon3: 0.15 });
     expect(config.analysisSettings.scoring.axisWeights.exploitation).toBe(0.28);
     expect(config.analysisSettings.webhook).toEqual({ url: '', format: 'slack', events: 'alerts' });

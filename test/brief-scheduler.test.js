@@ -501,7 +501,7 @@ describe('startDailyBriefSchedule', () => {
 describe('requestBriefGeneration', () => {
   test.each([
     { label: 'configured full Bob repair', seconds: 1200, elapsedMs: 1_380_000 },
-    { label: 'default generation budget', seconds: undefined, elapsedMs: 300_000 },
+    { label: 'default generation budget', seconds: undefined, elapsedMs: 1_380_000 },
   ])('keeps the $label response open through completion', async ({ seconds, elapsedMs }) => {
     jest.useFakeTimers();
     try {

@@ -57,21 +57,21 @@ describe('Wall glance projection', () => {
     ]);
   });
 
-  test('cover uses the lead short copy, then a matching reviewed summary, without replacing the saved BLUF', () => {
+  test('cover gives the edition introduction its own headline instead of borrowing a story summary', () => {
     const doc = { bluf: 'The complete authored BLUF remains available in the reading copy.', stories: [
       { title: 'Lead assessment', line: 'The lead has a short authored line.' },
       { title: 'Second assessment', line: 'Second short line.' },
     ] };
     const first = buildPresentationPages(doc, {})[0];
-    expect(buildGlanceModel(first)).toMatchObject({ headline: 'Lead assessment', summary: doc.stories[0].line,
-      railLabel: 'Also in this briefing', related: ['Second assessment'] });
+    expect(buildGlanceModel(first)).toMatchObject({ headline: 'Shift assessment', summary: doc.bluf,
+      railLabel: 'Also in this briefing', related: ['Lead assessment', 'Second assessment'] });
     expect(first.block.text).toBe(doc.bluf);
     doc.review = { presentation: { status: 'reviewed', bluf: 'Reviewed BLUF.', judgments: [
       { index: 0, originalTitle: 'Lead assessment', title: 'Reviewed lead', summary: 'Reviewed short line.' },
     ] } };
-    expect(buildGlanceModel(buildPresentationPages(doc, {})[0])).toMatchObject({ headline: 'Reviewed lead', summary: 'Reviewed short line.' });
+    expect(buildGlanceModel(buildPresentationPages(doc, {})[0])).toMatchObject({ headline: 'Shift assessment', summary: 'Reviewed BLUF.' });
     doc.review.presentation.judgments[0].originalTitle = 'A different assessment';
-    expect(buildGlanceModel(buildPresentationPages(doc, {})[0]).summary).toBe(doc.stories[0].line);
+    expect(buildGlanceModel(buildPresentationPages(doc, {})[0]).summary).toBe('Reviewed BLUF.');
     delete doc.stories[0].line;
     expect(buildGlanceModel(buildPresentationPages(doc, {})[0]).summary).toBe('Reviewed BLUF.');
     doc.review.presentation.status = 'unavailable';

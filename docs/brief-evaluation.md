@@ -1,5 +1,93 @@
 # Briefing evaluation
 
+## Editorial openings and display regression
+
+Generation still supports one narrative format. The first story paragraph is
+authored to stand alone: consequential change, significance, and the attribution,
+scope and uncertainty necessary to interpret that opening. About 40–60 words is
+guidance, never a publication limit. Supporting paragraphs develop the evidence
+and analysis without repeating the opening. Technical identifiers and optional
+scores belong where they change understanding; used scores retain their supplied
+version, assessment type, assessor and provisional status.
+
+New generation receipts carry an optional `authored-opening-v1` presentation
+capability and a `displayCopy` bound to the final content hash. This is neither a
+second briefing format nor human review. It is captured after automatic repair
+and restoration of unaffected stories. Overview and Wall share its resolved
+opening; verified editorial summaries take precedence and retain their separate
+conditions. Missing, malformed or stale display records fall back to full prose.
+Manual edits and later corrected copies do not silently inherit an earlier
+opening. Display availability never changes publication eligibility.
+
+Citation cleanup uses exact captured source renderings and removes only
+bibliographic groups after complete sentences. Linked subjects, attributions,
+conditions, unknown labels, and the complete source-linked saved document remain
+intact. Older editions retain the full reading fallback. Complete story CVEs and
+citations still drive Wall report deduplication even if absent from the opening.
+Identical NVD prompt passages are shown once; changed capture timestamps, scores
+or applicability expressions are retained separately.
+
+`npm run check:brief-display:render` uses real reader and Wall components with
+browser-local synthetic responses. It checks desktop and phone Overview, full
+report, 1080p/720p Wall, larger text and archive fallback. The reference edition
+has six stories and should fit seven screens in under five minutes at default
+speed. This is a fixture regression target, not a publication rule. Continuation
+timing measures newly visible words, excludes already presented overlap, and
+retains a minimum dwell. The same duration drives the timer and progress display.
+Phone Overview starts with an expandable edition introduction so a long opening
+does not bury the first story. Desktop keeps that introduction open by default.
+
+The CI policy job runs this display regression alongside the existing reader,
+Wall and theme checks and uploads its report/screenshots in the design acceptance
+artifact. Print and native Safari acceptance cover both archived editions and
+the current narrative format; see [handoff acceptance](handoff-acceptance.md).
+
+```sh
+npm run check:brief-display:render -- --output .tmp/display-review
+# Inspect a retained evaluation edition without generating anything:
+npm run check:brief-display:render -- --edition .internal/eval/2-current-edition.json --output .tmp/retained-display-review
+```
+
+The production-route evaluation also records `displayEvaluation`: opening/body
+length, identifier repetition, input size, repeated NVD identities and a review
+rubric. These counts are descriptive, not factual accuracy or writing scores.
+Read each opening independently and then compare it with the complete story and
+captured evidence. Check for lost conditions, unjustified certainty, repeated
+facts, invented assignments, and useful analysis. The same rubric applies across
+providers; transport capability declarations do not certify reporting quality.
+
+For a retained-output review, reconstruct validation inputs from each edition's
+own receipt and inspect findings against its captured passages, without fetching
+newer evidence or rewriting the archive. Distinguish confirmed contradictions
+from association limits: historical CVEs in an article and alternate coverage
+of the same event can produce advisory coverage notes without a reporting error.
+Several outputs from one collection are repeated trials, not independent days
+or evidence of provider parity. Review actual selected and excluded candidates
+before changing ranking; recurring CISA catalog-addition titles alone do not
+establish that two reports describe the same CVE batch.
+
+For an explicitly authorized OpenAI test, the retained-input comparison uses the
+production adapter, current narrative prompt, assembly and validation worker. It
+keeps the original evidence and edition/voice context identical, alternates old
+and current prompts, and makes two first attempts per arm. It uses no operator
+archive, settings mutation, feed refresh, webhook, or automatic retry. Production
+repair orchestration is covered by the separate route integration suite.
+
+```sh
+npm run eval:brief-editorial -- --live --request .internal/baseline/request-1.json --receipt .internal/baseline/brief.manifest.json --key-file data/settings.local.json --budget-usd 1.20 --output .internal/new-comparison
+```
+
+This command requires a new output directory and an explicit budget. Token-count
+preflight reserves each call before sending it; unknown usage retains its full
+reservation. Prices are retained estimates, not invoice reconciliation. Account
+for prior runs within the user's total authorization. Failed quality checks are
+reported rather than causing repeated spending. Two runs per arm are directional
+evidence, not provider parity. Bob is not installed or invoked by these tools;
+its separately captured output can be evaluated with the existing offline replay
+path and the same editorial rubric.
+For a bounded refinement after a baseline comparison, `--current-only` runs two
+current-prompt samples on the same retained input without repeating the baseline.
+
 [Development guide](development.md)
 
 Run `npm run check:brief-eval` for the offline evaluation. It exercises the real

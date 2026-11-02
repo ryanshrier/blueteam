@@ -18,9 +18,12 @@ rendered PDF has passed visual acceptance.
   saved file, and compare its byte length with the receipt. Independently parse
   both files and verify the filtered identities, order, read state, quoted and
   multiline text, and spreadsheet-formula guards.
-- Load a saved synthetic edition through the real Briefing route and open Print
-  Edition. Require all three judgments, all later sections, loaded self-hosted
-  fonts, and both persisted review notes.
+- Load both an archived-format synthetic edition and the current narrative
+  edition through the real Briefing route and open Print Edition. Preserve the
+  archived edition's three judgments, later sections and review notes. Require
+  all six narrative stories, their complete openings and supporting paragraphs,
+  optional sections and source references, without adding owner/deadline fields.
+  Both editions must load the self-hosted fonts.
 - Capture the iframe's generated source and parsed DOM. CDP's `Page.printToPDF`
   operates on a top-level page, so the check installs the unchanged iframe source
   in a blank same-origin target. It verifies identical parsed DOM and CSS before
@@ -40,10 +43,11 @@ as authored synthetic evidence, not a model-generated assessment.
 
 `acceptance-report.json` records the browser version, commit when running in CI,
 download receipts, file hashes, print options, page dimensions, and checked
-passage count. The bundle also includes the received CSV/JSON files, unchanged
-print HTML, preview screenshot, `print-edition.pdf`, text extractions, positioned
-text, and one `print-page-*.png` per PDF page. Partial artifacts and a failure
-screenshot are retained when possible. It contains synthetic data only.
+passage count in its `editions` array. Received CSV/JSON files remain at the
+bundle root. The `handoff/` and `narrative/` directories each contain unchanged
+print HTML, a preview screenshot, `print-edition.pdf`, text extractions,
+positioned text, and one `print-page-*.png` per PDF page. Partial artifacts and a
+failure screenshot are retained when possible. It contains synthetic data only.
 
 Inspect **every** rendered page for clipping, overlap, missing characters,
 unreadable text, awkward page breaks, and separation of headings from their
@@ -64,7 +68,9 @@ HTTP commands. It requires Safari identity/version in returned capabilities and
 records the macOS version and actual viewport. It checks the unchanged landing
 page, Wire filtering, evidence disclosures with native forward/reverse Tab and
 Escape, saved Briefing, Print Edition notes/fonts/fit, Settings hydration and
-appearance, and a paused Wall view. No Selenium or generic WebKit package is used.
+appearance, and a paused Wall view. It also opens the current narrative edition
+and verifies all six stories, full openings/details, optional sections, references
+and print-preview fit. No Selenium or generic WebKit package is used.
 
 The macOS 26 Intel runner failed during native Safari session creation, before
 opening any application page, despite matching driver/browser versions and
@@ -96,6 +102,10 @@ or Edge, plus Poppler's `pdfinfo`, `pdftotext`, and `pdftoppm` on `PATH` (on Ubu
 `HANDOFF_ARTIFACT_DIR` to a dedicated empty artifact directory; otherwise a new
 temporary directory is created and its path is printed. No browser packages or
 additional application runtime dependencies are required.
+
+If `pdftotext` is unavailable, `HANDOFF_PYTHON` can name an existing Python runtime
+with `pdfplumber` for the equivalent text and bounds extraction. `pdfinfo` and
+`pdftoppm` are still required; the report records the extraction engine used.
 
 The focused acceptance-reader regressions run without opening a browser:
 
