@@ -21,7 +21,7 @@ c.drawString(40, 670, 'Repeated physical passage')
 c.showPage()
 c.setFont('Helvetica', 12)
 c.drawString(40, 720, 'Repeated physical passage')
-c.drawString(40, 680, 'Verify every CVE ID, vendor name, date, and link before acting.')
+c.drawString(40, 680, 'Edition record and sources')
 if len(sys.argv) > 2:
     c.drawString(600, 630, 'This word exceeds the actual page boundary')
 c.save()
@@ -55,7 +55,7 @@ c.save()
     const checked = inspectPdfText(text, [
       'A complete left-column paragraph starts and continues with the retained action.',
       'Repeated physical passage', 'Repeated physical passage',
-      'Verify every CVE ID, vendor name, date, and link before acting.',
+      'Edition record and sources',
     ], bounds);
     expect(checked).toMatchObject({ pageCount: 2, checkedPassages: 4 });
     expect(checked.passagePositions.slice(1, 3).map(item => item.pages)).toEqual([[1], [2]]);

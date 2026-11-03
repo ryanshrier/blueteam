@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.4.9 — 2026-11-02
+
+This patch prevents slow worker startup from rejecting valid alert rules and
+stabilizes the affected integration test without relaxing validation limits.
+
+- Give the synchronous regex worker a separate, bounded two-second startup wait. Send no operator pattern until its imports and request handler are ready; compilation and matching retain their 500 ms limit. The asynchronous collection budget, memory, queue and input limits are unchanged.
+- Terminate a worker that cannot become ready, keep its capacity slot until termination completes, and allow a fresh worker to recover afterward. Cover delayed startup, startup failure and hostile matching with real-worker regressions.
+- Raise only the dated-source-context integration test's harness deadline from five to fifteen seconds. Actual Briefing validation deadlines and publication rules remain unchanged.
+- Align the optional PDF extraction fixture with the existing edition-record footer check and refresh synthetic sample implementation receipts without changing their report text.
+- Explicitly exclude Bob-specific tests from release CI while retaining the other provider and security tests. This release does not install or test Bob.
+
+### Upgrade notes
+
+Read the [v1.4.9 upgrade procedure](docs/operations.md#from-v148-to-v149).
+Dependencies and SQLite schema 11 are unchanged. Existing Briefings,
+configuration, provider profiles, generation budgets and analytical reporting
+remain unchanged. The development-only dependency advisories disclosed in the
+v1.4.8 release notes remain applicable.
+
 ## 1.4.8 — 2026-11-02
 
 This release makes Briefing Overview and Wall easier to read while preserving
