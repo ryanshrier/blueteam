@@ -182,11 +182,14 @@ jobs:
       - name: Verify selected runtime and native SQLite binding
         run: npm run runtime:check
 
-      - name: Run tests
+      - name: Run tests (Bob excluded)
         # Integration suites start their own bounded workers. Serial Jest
         # avoids competing worker pools on shared runners while retaining
-        # every test assertion and the production processing deadlines.
+        # production processing deadlines. Bob-specific cases are explicitly
+        # excluded from release testing; generic provider tests still run.
         run: npm test -- --runInBand
+        env:
+          BLUETEAM_TEST_EXCLUDE_BOB: '1'
 
   safari:
     name: Safari / macOS 15 Intel

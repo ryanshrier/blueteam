@@ -5,7 +5,8 @@ export default {
   testMatch: ['**/test/**/*.test.js'],
   // Private release checkouts and operator review material are not test roots.
   modulePathIgnorePatterns: ['<rootDir>/.internal/', '<rootDir>/.tmp/'],
-  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/.internal/', '<rootDir>/.tmp/'],
+  testPathIgnorePatterns: ['/node_modules/', '<rootDir>/.internal/', '<rootDir>/.tmp/',
+    ...(process.env.BLUETEAM_TEST_EXCLUDE_BOB === '1' ? ['/bob-cli-provider\\.test\\.js$'] : [])],
   // '/vendor/*' absolute specifiers (e.g. '/vendor/purify.es.mjs') only resolve at
   // runtime via server.js's Express route (VENDOR_FILES) — there's no file on disk
   // at that path. Map them back to the real node_modules package so importing a

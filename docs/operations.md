@@ -134,6 +134,20 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
 
+### From v1.4.8 to v1.4.9
+
+Stop the service and back up state, saved Briefings and receipts, configuration,
+protected settings and operator-managed profiles together. Install `v1.4.9`
+with a supported runtime, preserving local configuration and profiles, then
+restart and verify startup and a saved edition.
+
+This patch gives the synchronous regex worker up to two seconds to become ready
+before sending a request. Compilation and matching still have 500 ms; the
+asynchronous collection and Briefing validation limits are unchanged. There is
+no database migration, dependency update, generation-budget change or new
+publication requirement. Bob is excluded from release testing and remains an
+operator-managed installation.
+
 ### From v1.4.7 to v1.4.8
 
 Stop the service and back up effective state directories, saved Briefings and

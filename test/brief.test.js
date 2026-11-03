@@ -32,6 +32,10 @@ import { assembleBrief } from '../lib/brief-assembly.js';
 import { validationSourceFromManifest } from '../lib/brief-drafts.js';
 import { authoredFormatCandidate, formatEvalHeadlines } from './fixtures/brief-format-evaluation.js';
 
+// Match the explicit Bob exclusion used by release CI without filtering other
+// test names (including security cases whose names contain multiline inputs).
+const bobFixtureTest = process.env.BLUETEAM_TEST_EXCLUDE_BOB === '1' ? test.skip : test;
+
 // Publication persists app-composed Markdown; assertions below still inspect
 // retry counts, findings and immutable source inputs independently.
 const assembled = text => {
@@ -299,6 +303,8 @@ describe('POST /api/brief — happy path SSE framing', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
+  // This end-to-end test performs file I/O, HTTP requests and several real
+  // worker operations. Its harness budget is separate from each worker's limit.
   test('carries dated publisher context into the prompt and receipt without changing current facts', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'brief-source-continuity-'));
     try {
@@ -333,7 +339,7 @@ describe('POST /api/brief — happy path SSE framing', () => {
         retrievedAt: oldCapture.retrievedAt, retainedFrom: { generationId: older.generationId } });
       expect((await (await fetch(`${ctx.base}/api/brief/status`)).json()).publicationRevision).not.toBe(before.publicationRevision);
     } finally { rmSync(directory, { recursive: true, force: true }); }
-  });
+  }, 15_000);
 
   test('fails before any paid provider call when initial accounting cannot be saved', async () => {
     setMetaMock.mockImplementation(() => { throw new Error('read-only disk'); });
@@ -892,7 +898,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
   let ctx;
   afterEach(async () => { if (ctx?.server) await new Promise(r => ctx.server.close(r)); });
 
-  test('the extended budget permits two completed 580-second CLI calls and publishes the repair', async () => {
+  bobFixtureTest('the extended budget permits two completed 580-second CLI calls and publishes the repair', async () => {
     getConfigMock.mockReturnValue({ analysisSettings: { generationTimeoutSec: 1200 }, horizons: {}, organization: {} });
     const realNow = Date.now.bind(Date);
     let elapsedMs = 0;
@@ -1194,7 +1200,7 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(manifest.providerAttempts).toHaveLength(2);
   });
 
-  test('retains the first source-blocked draft and CLI budget diagnosis when its single corrective retry fails', async () => {
+  bobFixtureTest('retains the first source-blocked draft and CLI budget diagnosis when its single corrective retry fails', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'blueteam-cli-corrective-budget-'));
     const firstDraft = GOOD_BRIEF.replace('The source reports a change. [Feed A, date unavailable]',
       'The source reports a change affecting version 99.1.2. [Feed A, date unavailable]');

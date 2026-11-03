@@ -46,6 +46,12 @@ npm install-scripts ls --json  # Must report no unreviewed dependency scripts (n
 
 Run the focused check for the area being changed, then run `npm test`. The CI policy job runs repository checks once on Linux with Node 22.23.4. The runtime matrix covers the exact Node 22.23.4, 24.22.1, and 26.12.1 floors on Linux and Windows, and Node 26.12.1 on Apple Silicon and Intel macOS. Linux also tests the latest releases in the Node 22, 24, and 26 lines; the Safari job uses Node 24.22.1. The **Release readiness** check succeeds only when repository policy, the entire runtime matrix, and the Safari job succeed, including when an upstream job fails or is skipped. Tag builds also require the `vX.Y.Z` tag to match `package.json`, the changelog, the landing page, and the sitemap date.
 
+Release CI sets `BLUETEAM_TEST_EXCLUDE_BOB=1` to exclude the Bob-specific suite
+and its two labelled generation fixtures. Set the same environment variable
+for local release testing. Other provider tests and multiline security cases
+remain included. Bob installation and provider acceptance are separate operator
+tasks; this CI run does not establish Bob compatibility.
+
 Dependabot proposes npm and GitHub Actions updates weekly. Production and major
 dependency changes remain separate proposals; minor and patch development
 updates may share a PR. Review native install-script allowlist entries and
