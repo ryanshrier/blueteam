@@ -59,10 +59,12 @@ export const FORMAT_EVAL_CASES = [
     id: 'recovery', horizon: 1, title: 'Removing a malicious package leaves credential exposure unresolved',
     evidence: 'Researchers report malicious BuildHelper version 4.2 collecting secrets accessible to its process and installing persistence. For environments where that version executed, their guidance includes isolation, evidence preservation before rebuilding, revocation or rotation of exposed credentials, and recovery from a verified clean artifact. Merely removing the package does not address credentials or persistence. Local use, execution, accessible secrets and recovery ownership are unknown.',
     anchors: [['executed', 'execution'], ['isolat'], ['evidence'], ['before'], ['rebuild', 'recover'], ['revok', 'revoc', 'rotat'], ['credential', 'secret'], ['clean']],
+    openingAnchors: [['execut', 'ran', 'running']],
     forbidden: ['removing the package is sufficient', 'do not revoke', 'credentials do not need rotation'],
     candidate: 'Researchers report that malicious BuildHelper version 4.2 collected process-accessible secrets and installed persistence. Execution is the key distinction: a downloaded artifact does not establish the same exposure as a workload that ran it. [S6.1]\n\nFor environments where it executed, the researchers recommend isolation, preserving evidence before rebuilding, revoking or rotating exposed credentials, and recovery from a verified clean artifact. Package removal alone leaves credential exposure and persistence unresolved. The relevant recovery scope depends on execution history and which secrets the process could access.',
     mutations: [
       { id: 'credentials-dropped', from: 'revoking or rotating exposed credentials, and ', to: '', detection: 'authored' },
+      { id: 'execution-condition-buried', from: ' Execution is the key distinction:', to: ' [S6.1]\n\nExecution is the key distinction:', detection: 'authored' },
       { id: 'preservation-order-dropped', from: 'preserving evidence before rebuilding', to: 'rebuilding', detection: 'authored' },
       { id: 'negated-response', from: 'revoking or rotating exposed credentials', to: 'do not revoke exposed credentials', detection: 'authored' },
     ],
@@ -81,7 +83,7 @@ export const authoredFormatCandidate = () => `# Threat Landscape Briefing — Oc
 
 ## TODAY'S PICTURE
 
-Gateway intrusion scope and malicious-package recovery lead this collection because remediation can leave earlier access or exposed credentials unresolved. A disputed fix and a provisional score need careful qualification. The supplier consultation and upgrade workaround raise different questions about future process and local tradeoffs.
+Gateway intrusion scope extended beyond the exposed appliance when responders traced access into virtualization management in one case. The malicious package raises a different recovery question. Where it ran, removing it leaves open which credentials the process could read.
 
 ## PRIORITY STORIES
 

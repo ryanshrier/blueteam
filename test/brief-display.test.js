@@ -88,6 +88,11 @@ test('citation projection removes only exact captured bibliography after a sente
   expect(displayProse('Example: `Fact. [Vendor, 2026-11-02](https://vendor.test/update)`', tokens)).toContain('Vendor');
   expect(displayProse('Only [the affected configuration](https://vendor.test/update) is vulnerable.', tokens)).toContain('Only the affected configuration is vulnerable.');
   expect(displayProse('A source says this. [Other, 2026-11-02](https://vendor.test/update)', tokens)).toContain('Other, 2026-11-02');
+  for (const cluster of ['(Sources: [Vendor, 2026-11-02](https://vendor.test/update))',
+    '[[Vendor, 2026-11-02](https://vendor.test/update)]', '[Vendor, 2026-11-02](https://vendor.test/update).']) {
+    expect(displayProse('A fix exists. ' + cluster + ' Local exposure remains unknown.', tokens))
+      .toBe('A fix exists. Local exposure remains unknown.');
+  }
   expect(parseBrief(content).stories[0].paragraphs[0]).not.toContain('CISA KEV catalog');
 });
 
@@ -107,6 +112,9 @@ test('the edition cover uses the edition introduction without borrowing a story 
   expect(pages[0].topic).toBe("Today's picture");
   expect(cover.summary).toBe('Exposure determines the significance of this update.');
   expect(cover.related).toContain('Gateway update closes a remaining route');
+  const historical = buildPresentationPages({ ...parseBrief(content), date: '2005-01-05' }, {});
+  expect(historical[0]).toMatchObject({ coverTitle: 'Edition outlook', editionAgeLabel: 'Older edition · Jan 5, 2005' });
+  expect(historical.find(page => page.kind === 'judgment').editionAgeLabel).toBe(historical[0].editionAgeLabel);
 });
 
 test('a reviewed developing summary also retains its display condition', () => {
@@ -127,4 +135,37 @@ test('NVD compaction retains different captures, metrics and applicability expre
   expect(input.match(/Evidence ID: NVD-CVE-2026-12345/g)).toHaveLength(4);
   expect(input).toContain('identical lookup shown earlier');
   for (const expected of ['2026-11-01T00:00:00Z', 'CVSS v4.0 9.0 (Primary)', 'A OR B', 'A AND B', '(provisional)']) expect(input).toContain(expected);
+});
+
+test.each([
+  'Execution is the key distinction. A download alone does not establish that credentials were read.',
+  'That finding applies only to machines running the affected configuration.',
+  'Exposure alone does not establish access. The observation covered one machine.',
+  'That finding applies only to the U.S. Government deployment. It also requires an enabled connector.',
+  'That risk depends on deployment of version 1.2.3. The service must also accept outside traffic.',
+  'That assessment is limited to exposed machines. Compromise remains unconfirmed.',
+  'The package version alone does not establish the application setting or its exposure to external input.',
+])('a separate qualification stays with its opening on both surfaces and leaves supporting details in the full report', qualification => {
+  const first = 'The researcher found a package that could collect credentials.';
+  const support = 'The publisher lists the release dates in its advisory.';
+  const detail = 'The advisory also distinguishes a process failure from code execution.';
+  const draft = raw.slice(0, raw.indexOf("The vendor's update")) + `${first} [S2.1]\n\n${qualification} ${detail} [S1.1]\n\n${support} [S1.1]`;
+  const content = assembleBrief(draft, { groundingManifest: grounding, briefFormatVersion: 2 }).content;
+  const copy = captureBriefDisplay(content, grounding, STORY_OPENING_CONTRACT);
+  const presentation = { displayCopy: verifiedBriefDisplay(content, copy) };
+  const story = overviewModel({ content, presentation }).judgments[0];
+  const page = buildPresentationPages({ ...parseBrief(content), presentation }, {}).find(page => page.kind === 'judgment');
+  expect(story.display.paragraphs).toEqual([first, qualification]);
+  expect(story.display.fullParagraphs).toEqual([first, qualification + ' ' + detail, support]);
+  expect(buildGlanceModel(page).summary).toBe([first, qualification].join('\n\n'));
+  expect(page.citations).toEqual(parseBrief(content).stories[0].citations);
+});
+
+test('a separate development or a qualification beyond a list is not attached to the opening', () => {
+  const first = 'The researcher confirmed a limited exposure.';
+  for (const rest of ['However, the vendor also announced a new service.', '- First timeline event.\n\nThat finding applies only to that event.']) {
+    const draft = raw.slice(0, raw.indexOf("The vendor's update")) + `${first} [S1.1]\n\n${rest}`;
+    const content = assembleBrief(draft, { groundingManifest: grounding, briefFormatVersion: 2 }).content;
+    expect(captureBriefDisplay(content, grounding, STORY_OPENING_CONTRACT).stories[0].opening).toBe(first);
+  }
 });

@@ -77,6 +77,18 @@ test('attacker behavior in source reporting does not become an action warning', 
   expect(findings(baseline.replace('**What happened:**', '**What happened:** Attackers disable EDR and clear event logs.'))).toEqual([]);
 });
 
+test.each([
+  ['Administrators should not disable MFA while assessing gateway exposure.', false],
+  ['Responders must not temporarily disable audit logging during investigation.', false],
+  ['Administrators shouldn’t disable endpoint protection. The vendor proposes disabling EDR pending a fix.', false],
+  ['Administrators mustn’t try to disable MFA.', false],
+  ['Administrators should not disable MFA, but disable EDR while collecting events.', true],
+  ['The vendor proposes disabling EDR. Administrators must not disable MFA, then clear security logs.', true],
+])('distinguishes prohibitions and attributed proposals from local instructions in a current story: %s', (statement, review) => {
+  const text = `<!-- briefing-format: 2 -->\n## TODAY'S PICTURE\nGateway exposure depends on deployment.\n\n## PRIORITY STORIES\n### Gateway exposure\n${statement} ${citation}`;
+  expect(findings(text)).toHaveLength(review ? 1 : 0);
+});
+
 test.each(['review the vendor request', "assess the vendor's proposal", 'evaluate a supplier request'])(
   'current checks accept approval work with the same control kept enabled: %s', prefix => {
     const text = baseline.replace(originalAction, `${prefix} to disable EDR; keep EDR enabled until operator approval`);

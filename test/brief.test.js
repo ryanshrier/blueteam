@@ -1036,6 +1036,29 @@ describe('POST /api/brief — corrective retry recovery', () => {
     expect(repairs.every(repair => repair.kind === 'add-provisional-qualifier')).toBe(true);
   });
 
+  test('a missing captured NVD citation and an explicit prohibition publish in one generation attempt', async () => {
+    const cve = 'CVE-2026-12345';
+    getFreshRunMock.mockResolvedValue({ headlines: [{ title: `${cve} gateway advisory`, source: 'Feed A',
+      description: `${cve} affects deployed gateway configurations. Administrators should verify applicability before changing production systems.`,
+      link: 'https://example.test/gateway', date: '2026-07-01', horizon: 1,
+      cveData: `${cve}: CVSS v4.0 9.5 (Secondary assessment) (provisional)`,
+      cvssMetrics: [{ cve, score: 9.5, version: '4.0', type: 'Secondary', provisional: true, selected: true }] }], stats: { enriched: 1 } });
+    const text = GOOD_BRIEF.replaceAll('The source reports a change. [Feed A, date unavailable]',
+      `${cve} affects deployed gateway configurations. [S1.1]`).replace('**Defender impact:**',
+      `\nNVD lists ${cve} at CVSS v4.0 9.5.\n\nAdministrators should not disable MFA.\n\n**Defender impact:**`);
+    const stream = jest.fn(textStream(text));
+    ctx = await makeServer({ getAnthropic: () => fakeAnthropic(stream) });
+    const events = await readSSE(await fetch(`${ctx.base}/api/brief`, { method: 'POST' }));
+    const complete = events.find(event => event.briefComplete);
+    expect(complete?.text).toContain(`9.5 (Secondary assessment) (provisional). [NVD, date unavailable](https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=${cve})`);
+    expect(complete.text).toContain('Administrators should not disable MFA.');
+    expect(stream).toHaveBeenCalledTimes(1);
+    const checks = saveBriefMock.mock.calls[0][2].manifest.validation;
+    expect(checks.flatMap(check => check.automaticRepairs || [])).toEqual([
+      expect.objectContaining({ kind: 'cite-captured-nvd-metric', sourceIds: [`NVD-${cve}`] }),
+    ]);
+  });
+
   test('an unresolved material review remains a saved draft after one automatic repair', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'blueteam-review-ready-'));
     try {

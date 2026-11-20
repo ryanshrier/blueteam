@@ -4,55 +4,57 @@
   "capturedAt": "2026-07-24T12:00:00Z",
   "application": {
     "name": "blueteam-news",
-    "version": "1.4.9",
+    "version": "1.5.0",
     "implementationSha256": {
-      "prompts": "97934a774569335a5f99484035b14641aeedd8400a8737c5c6fe98926c7d0fef",
-      "grounding": "648c3b986d5ea6bc9b328bcdbec19bf837c4ac23ef83db86927c7743cc993809",
-      "validation": "3740e912d2d2d8be30c5af7e1d8617d34c62af57d3d589006b80da3c0141e2b2",
+      "prompts": "2732ff260d0c3e8809869ae3528ed6ab9ee271235c44907b5a6ec53f3b4d30bf",
+      "grounding": "9810bd5c04bb903060e4828a32f2712294f63b4e396fb61de0445686427cc5ba",
+      "validation": "58fbf62800ed09837bdc94c4ad0e433ef334a22a0bf5c1cf04c2e2090722fcd5",
       "brief-validation-policy": "7aa30cc8c75c60d609d3510ee23de33c6bd94b0e2b2a747bc244afa8bdaa824c",
       "scoring": "c2789f34a0736a0e6d771c2cfbff5ceaeca8f7691e698c122558115cd8d2d8fe",
-      "evidence-quality": "b4404efd599fd8ac94d383d1144b9c1f0172c1a022f3991d4aee32aa74c75753",
+      "evidence-quality": "07c70c35e15f53b89282a420a4c6a2b884f3c22b8f2731b16b3f2e41929be018",
       "claim-checks": "843a57849edd9632805edfe29e155cf7468c05133c78fd8bc44d12fbf3c43f6f",
       "cvss": "432a6be687c363ba9796525526cbd2c564156e13cddb1b1db221af83069f358f",
-      "cve-identities": "165ad931857a69851f60a277118ee1d55c7f9450cbd530e3d72b223d6ac6959e",
-      "brief-action-security": "aa6c858bcb08754a98ae735535c2e46ec86aca6efe154044b33250a9097a1d62",
-      "brief-recovery": "6995ba3874a67f0812dc8474b657b3ccd45058a84489914c794440a2b4db6f07",
-      "brief-fact-ledger": "d393e1358f6a2f28da63b069958160b5401704998359b5ccb3f10e67aea3f4ff",
+      "cve-identities": "ce498757af911184089e4d1ec771cd1d4d38a04eebb40fdc617fe23741819a8d",
+      "brief-action-security": "dda731a37b76ff46fa67f51e29f3024d0f6e0e98d8351436568db0b6d63e3df7",
+      "brief-recovery": "3b39ca6839e6c0a654521d4e8dea578469ed24c4b2979d9cbab0663cabab5cc3",
+      "brief-incident-scope": "efe2cd34ddc983da7a3aa529d9021c2b148b21fc05b45de14f084f246bea0513",
+      "brief-fact-ledger": "bddf9b67e4c31ea8478d6ba3c45af5def6b84f00d720b55e3d457022d291622e",
       "brief-editorial": "a06449c3774ac26c6bd0144bae2f4475ca18525a2f19080651708d355b04993e",
-      "brief-reliability": "18dbf46efcf156b969dcbf76cfcbd99bc003a712526a53e5f6b74b166fadaf5c",
-      "brief-coverage": "6672b3269e679be49a73286636991f420d100dd490709e7318e1a1225302921d",
+      "brief-reliability": "95bc23bab6872beb60ff458084358e06ae2715db2ca2faf35774420931e26d5b",
+      "brief-coverage": "7642d27a57a8af9f780f0285cad29eb05edc8c4298344e7707c30ebd4cfa52f1",
       "brief-metadata": "2e624b39054404a1500a99dd29c5222eb7a6b615b5ee7dde54abafc7598fd9c7",
-      "brief-assembly": "0bd97c9a6cc676d839afc46e425b49f4a9edc302bc2925a343481b01e55ab8de",
-      "brief-citations": "09355f973e69bfd83162808d41700f800f1e1f2d2ce5c7f6a0eeed414a9e1a3c",
+      "brief-assembly": "2c3800d89f76d481ac3a18f5cbbce7bcee7ddde3a24a0c1f4bda6d319c25c76f",
+      "brief-citations": "04c0a1fe05123564ac86ff7df225924b858f337552302f1980a40cee1293595e",
       "brief-composition": "93accea4ba411ee2bc3e541ff5dd58d32342a65817add6e3acbdc1dbed60c834",
       "brief-deadlines": "9eb8e60e452774612769b2d90e7fd98ad95735ef489133478b45b3dc0d048942",
-      "brief-schema": "77ae51dfb92dbe2f5b5b9ac6e2f1c193a12bbaac25ebc5319a6179f2a536f886",
-      "brief-display": "ca3ad3569df39e852938229d4de89bc5fb2e94d3fb6e9dfb173997dbc7d17ba9",
-      "brief-metric-repair": "45b04b9031c06d0ab4d4b034bd6ce0a87d84377af20dba397fd74c5018c5f5db",
-      "brief-narrative-prompt": "8b1b2d675c381e199f4d1414abaf7e103248621d93e4f7c4e4f39a3da513b17f",
+      "brief-schema": "98b59b77eb7f1bf1072832cf57900dcec4a00abb71bda065ae0ed88442fb3a3f",
+      "brief-display": "a8e8b9a163cd0cdc45a75614a71a095db76a975841ef57a3f1b1d61b40b971a2",
+      "brief-metric-repair": "faa5d2f5734c65107fe9ed0f28d9bb5a2975d590f700e2546b123a3f40876aa1",
+      "brief-narrative-prompt": "a572a62cd085d89f8e51cb6bb56c2bf13e99d83df0b438dc35b55fb607c5a1b2",
       "kev-status": "ac7f55c54a47c88bbce4a12b086e7373dbeee8ce3c4ea3b64aad2ade463fa5da",
       "nvd-applicability": "c4f006974b3ceed3384f269587f7dd4acc695e99c7cd2c961c684c1fe4c8cc93",
-      "enrichment": "fbc9dca34f78ccc571783c1396977249a43fac7f3bd9e8eb5fc8c06626bd75a9",
+      "enrichment": "dcafb3fc627b7e39bca85871662d696d48ab3626f51cf3c1e02f79d9021b7e9d",
       "source-passages": "8f94781e3a21f40b43b596cc6dd13ee5d1141271bc83ff21dfa92e7abb154215",
-      "feeds": "8a03d51e0f3c34ceecb90c76922ebae0fad7870e8875d652bfe89d3c8279e89b",
-      "evidence-events": "4c73be6f091eebe46bc675c4928594e2fa4aa50bcc862841cb379bece0843e54",
+      "feeds": "482f94cfb889751693fc32a0253a231e02e1b3e3df029cf995c19c760518cc98",
+      "evidence-events": "6a133aa453e97da3572b67f3b3b38aa3600c90de0a8be75d88b12bd98600885c",
       "evidence-continuity": "3e4b9cf5a2828ae57b6d517e2e4b6a84b0d5bdf428b27c5ba3a7295f84b504dd",
       "feed-revisions": "c124df8bb25eaa0196f4cb29135beb866b2b322d224bfe0e226e85ac0c89b6e8",
+      "publisher-sections": "8377c880963c1b70e98bd368ef729f174ced14b879c2a3ba41799526b75a3867",
       "investigation-budget": "86fccdb8f351d69b1c99d4185f1c8639e7c3585ab5a175047af95c80db3c6c50",
-      "intelligence-context": "ac090be59ed20cf34659178bb0ec936abdbc3d5360fa85d1b57a63a67591f9ce",
+      "intelligence-context": "57f636be54b52465e6510b0f1656aea4e0ca53a587e70e594646e59a396102c9",
       "watch-profile": "55f475d063dd959ca4dc0226d429c2e453b62d5ae62962f3a19f33a2964f01a5",
       "evidence-freshness": "2f37c7df40482ef0d6f665a2e6932201e951305a2fa2f3b11ff82a1e0d5b40fa",
       "configured-regex": "dc2c330cf57f2399804f1b8395325bca647081dfc848926d37921d30712f352c",
       "configured-regex-engine": "111e88ee772872a912da2dd1bd4f9df77388a864396c43f1bb97748f99976760",
       "configured-regex-worker": "3d7e95da9905bc06ae025b1ced8a97a945639fae8493b9307062cb38ae6240ed",
       "claims": "368958ab37e2f9b18d8e096db130bb0fa7a7e1a92987b35c2bf09ac200825c67",
-      "article-extraction": "52381d83886835ca2cb68d117b2046a414397b857ec27210e3b7ca225d827ff5",
-      "article-extraction-engine": "f5216afc46acb22c475115e3145871e3ec6a52d5e9c9c040a9038aad569c1f4f",
+      "article-extraction": "5582c345cdb848900d97e809deee825192038d23456d6803a7c083789fc058d0",
+      "article-extraction-engine": "24e5a2cee466fd816428fc2ff791facbb2a9407f564ec827fb6e219433e51251",
       "article-extraction-worker": "5ec6f35c3394744486b9f79570e6fd68d69a9340094a5c4590c0abd841d3b5ad",
       "brief-validator": "40d709297d74ea8b1e8f454c8386145c68d53efc4bbec9482dc4cada423834bb",
-      "brief-validation-worker": "b54f4edea686e758f726a0fefba77321502e03822983dc36607150c62fb77953",
+      "brief-validation-worker": "2fe787a2430f56e35ca65fee62cddde559c288cacbbece078b570e2730896559",
       "brief-input-limits": "0451bfa235f7edc9c67d0b54b817b6514ce596114dd55c66d036a379e2992aa7",
-      "brief-drafts": "3f136339d4f7c85a54c1c0b827bf3d95c56fd13048e33c9a80987164e634d27d"
+      "brief-drafts": "708a95d12cd9850438e152d314f86be0433ff75978133af05173dea1c95a0d40"
     }
   },
   "edition": {
@@ -125,7 +127,7 @@
         "kind": "feed-excerpt",
         "text": "In this fictional exercise, the example vendor confirmed exploitation of exposed test management interfaces and published a corrected build. This is authored demonstration evidence, not a real advisory.",
         "quality": {
-          "policyVersion": 2,
+          "policyVersion": 3,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -143,7 +145,7 @@
           "retrievalStatus": "feed-capture",
           "feedPassageField": "",
           "quality": {
-            "policyVersion": 2,
+            "policyVersion": 3,
             "status": "substantive",
             "substantive": true,
             "reasons": [
@@ -202,7 +204,7 @@
         "kind": "feed-excerpt",
         "text": "The fictional environment has two test gateways. Gateway inventory, identity events, and escalation ownership were held in separate systems. The exercise expands to credential rotation, service restoration, and leadership notification.",
         "quality": {
-          "policyVersion": 2,
+          "policyVersion": 3,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -220,7 +222,7 @@
           "retrievalStatus": "feed-capture",
           "feedPassageField": "",
           "quality": {
-            "policyVersion": 2,
+            "policyVersion": 3,
             "status": "substantive",
             "substantive": true,
             "reasons": [
@@ -279,7 +281,7 @@
         "kind": "feed-excerpt",
         "text": "The fictional leadership team proposes repeating the gateway exercise annually, retaining an evidence owner and review date for each decision. The next planning review will choose an owner and evidence-retention period; neither has been approved yet.",
         "quality": {
-          "policyVersion": 2,
+          "policyVersion": 3,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -297,7 +299,7 @@
           "retrievalStatus": "feed-capture",
           "feedPassageField": "",
           "quality": {
-            "policyVersion": 2,
+            "policyVersion": 3,
             "status": "substantive",
             "substantive": true,
             "reasons": [
@@ -374,7 +376,7 @@
             "retrievalStatus": "feed-capture",
             "feedPassageField": "",
             "quality": {
-              "policyVersion": 2,
+              "policyVersion": 3,
               "status": "substantive",
               "substantive": true,
               "reasons": [
@@ -386,7 +388,7 @@
           }
         ],
         "quality": {
-          "policyVersion": 2,
+          "policyVersion": 3,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -424,7 +426,7 @@
             "retrievalStatus": "feed-capture",
             "feedPassageField": "",
             "quality": {
-              "policyVersion": 2,
+              "policyVersion": 3,
               "status": "substantive",
               "substantive": true,
               "reasons": [
@@ -436,7 +438,7 @@
           }
         ],
         "quality": {
-          "policyVersion": 2,
+          "policyVersion": 3,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -474,7 +476,7 @@
             "retrievalStatus": "feed-capture",
             "feedPassageField": "",
             "quality": {
-              "policyVersion": 2,
+              "policyVersion": 3,
               "status": "substantive",
               "substantive": true,
               "reasons": [
@@ -486,7 +488,7 @@
           }
         ],
         "quality": {
-          "policyVersion": 2,
+          "policyVersion": 3,
           "status": "substantive",
           "substantive": true,
           "reasons": [
@@ -548,7 +550,7 @@
   ],
   "generatedAt": "2026-07-24T12:00:00Z",
   "synthetic": true,
-  "syntheticRegeneratedAt": "2026-11-03T03:40:56.605Z",
+  "syntheticRegeneratedAt": "2026-11-20T13:12:27.421Z",
   "syntheticNote": "Authored fictional demonstration; no provider was called. Edition, source, collection, capturedAt, and generatedAt dates describe the July 24, 2026 scenario, not a real collection or generation. syntheticRegeneratedAt records when this sample receipt was rebuilt and checked against the recorded application implementation. Passing supported checks does not verify real-world events or complete analyst review.",
   "filename": "brief-2026-07-24-01.md",
   "outputSha256": "7e6d0cbf6133fc131b0d8513192f2809c3696f467cd35d00631179cecb11c7d3",

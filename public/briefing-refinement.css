@@ -558,3 +558,20 @@
 }
 .briefing-actions .brief-document-bar[hidden],
 .briefing-view--archive .briefing-actions .brief-document-bar { display: none; }
+#briefToolGenerateSlot[hidden] { display: none; }
+#briefToolGenerateSlot .brief-generation-hint { text-align: left; }
+@media (max-width: 600px) {
+  .briefing-view--overview .briefing-masthead { row-gap: 8px; padding-bottom: 8px; }
+  .brief-overview-feature > .brief-overview-label { display: none; }
+}
+@media (max-width: 360px) {
+  .briefing-controls:has(#briefToolGenerateSlot:not([hidden])) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; }
+  .briefing-controls .brief-document-bar { gap: 2px; }
+  .briefing-controls .brief-document-bar button { min-width: 0; padding-inline: 4px; }
+  .brief-edition-tools > summary { gap: 4px; }
+}
+@media (min-width: 601px) and (max-width: 950px) and (max-height: 500px) {
+  .briefing-view--overview .briefing-masthead { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding-bottom: 8px; }
+  .brief-overview-front { margin-top: 10px; padding-top: 10px; }
+  .brief-overview-feature > .brief-overview-label { display: none; }
+}

@@ -2,7 +2,7 @@ import { escapeHtml } from '../core/sanitize.js';
 import { sigKey, signalUrl, parseCveData } from './wire-format.js';
 import { renderAssessmentMeta } from '../core/assessment-meta.js';
 import { formatEventTime } from '../core/brief-date.js';
-import { signalSeverity } from '../core/signal-facts.js';
+import { signalSeverity, signalCves } from '../core/signal-facts.js';
 export { signalSeverity } from '../core/signal-facts.js';
 import { decisionEvidence, decisionReviewState } from './decision-evidence.js';
 export { decisionEvidence, decisionReviewState } from './decision-evidence.js';
@@ -154,8 +154,7 @@ export function filterChips(filters, sort, tiers = {}) {
 
 export function scanIdentity(headline) {
   const records = Array.isArray(headline.kevRecords) ? headline.kevRecords : [];
-  const cves = [...new Set([...records.map(record => record.cve), headline.kevCVE,
-    ...(`${headline.title || ''} ${headline.description || ''} ${headline.cveData || ''}`.match(/CVE-\d{4}-\d{4,7}/gi) || [])].filter(Boolean))];
+  const cves = signalCves(headline);
   const products = [...new Set(records.map(record => record.product).filter(Boolean))];
   const hasProductAssessment = headline.editorialContext && Object.hasOwn(headline.editorialContext, 'product');
   const product = products.length > 2 ? `${products.slice(0, 2).join(' · ')} +${products.length - 2} products`

@@ -15,6 +15,16 @@ const manifestFor = link => buildGroundingManifest({ headlines: [{
 }] });
 
 describe('citation destination boundary', () => {
+  test('a whitespace-padded last line preserves link checks and the exact authored suffix', () => {
+    const manifest = manifestFor(original);
+    const captured = `[Vendor](${original})`;
+    const other = 'https://example.test/other';
+    const suffix = '\n' + ' '.repeat(65_536);
+    const markdown = `${captured} [Other source](${other})${suffix}`;
+    expect(findUnallowlistedMarkdownUrls(markdown, manifest)).toEqual([other]);
+    expect(delinkUnallowlistedMarkdownUrls(markdown, manifest)).toBe(`${captured} [Other source]${suffix}`);
+  });
+
   test.each([
     `${original}&utm_context=SYNTHETIC_CONTEXT`,
     `${original}&utm_source=SYNTHETIC_CONTEXT`,

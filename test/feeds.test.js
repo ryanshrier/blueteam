@@ -305,6 +305,18 @@ describe('deduplicateWithCorroboration', () => {
     expect(deduplicateWithCorroboration(headlines, 0.5)).toHaveLength(2);
   });
 
+  test('an alternate title for a secondary publisher URL remains in the original group', () => {
+    const title = 'Certificate renewal disrupted at the Orion gateway';
+    const rows = [
+      { title, link: 'https://orion.example/notice', source: 'Orion', weight: 3 },
+      { title, link: 'https://news.test/report', source: 'Desk', weight: 2 },
+      { title: 'Afternoon edition', link: 'https://news.test/report', source: 'Desk', weight: 1 },
+    ];
+    const groups = deduplicateWithCorroboration(rows);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].eventIdentity).toMatchObject({ articleCount: 2, publisherCount: 2, retainedRecordCount: 3 });
+  });
+
   test('still merges near-duplicates that cite the SAME CVE ID', () => {
     const headlines = [
       { title: 'Fortinet patches CVE-2026-1111 exploited in the wild', source: 'A' },

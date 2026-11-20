@@ -40,6 +40,7 @@ try {
   };
   for (const scenario of [
     { mode: 'overview', width: 1440, height: 1000 }, { mode: 'overview', width: 390, height: 844 },
+    { mode: 'overview', width: 320, height: 568 },
     { mode: 'report', width: 1440, height: 1000 }, { mode: 'wall', width: 1920, height: 1080 },
     { mode: 'wall', width: 1280, height: 720 }, { mode: 'wall', width: 1280, height: 720, size: 'largest' },
     { mode: 'wall', width: 1280, height: 720, legacy: true },
@@ -96,7 +97,7 @@ async function boot(edition, scenario) {
     else if (url === '/api/briefs') data = [{ filename, disposition: edition.disposition }];
     else if (url === `/api/brief/${filename}`) data = edition;
     else if (url === '/api/headlines') data = { headlines: [] };
-    else if (url === '/api/landscape') data = { brief: { filename, date: '2026-11-02' }, generatedAt: edition.generatedAt, signals: [], feeds: { ok: 1, total: 1 } };
+    else if (url === '/api/landscape') data = { brief: { filename, date: filename.match(/\d{4}-\d{2}-\d{2}/)?.[0] }, generatedAt: edition.generatedAt, signals: [], feeds: { ok: 1, total: 1 } };
     else if (url === '/api/edition') data = {};
     else if (url === '/api/health') data = { uptime: 100 };
     else throw new Error(`Unexpected fixture endpoint: ${url}`);
@@ -120,6 +121,14 @@ async function boot(edition, scenario) {
     document.querySelector(scenario.mode === 'report' ? '#briefReadingMode' : '#briefOverviewMode').click();
     await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))); scrollTo(0, 0);
     if (scenario.mode === 'overview' && scenario.width < 600) {
+      const tools = document.querySelector('#briefEditionTools');
+      if (!tools.contains(document.querySelector('#briefGenerate'))) throw new Error('Saved edition generation must be available in Edition tools');
+      const story = document.querySelector('.brief-overview-story h2')?.getBoundingClientRect();
+      if (story && story.bottom > innerHeight) throw new Error('First story headline must fit on the phone');
+      const opening = document.querySelector('.brief-overview-claim');
+      if (scenario.width === 390 && opening && opening.getBoundingClientRect().top + parseFloat(getComputedStyle(opening).lineHeight) > innerHeight) {
+        throw new Error('Phone must show the first line of analysis');
+      }
       const introduction = document.querySelector('.brief-overview-introduction');
       if (!introduction || introduction.open) throw new Error('Phone introduction should start collapsed');
       introduction.querySelector('summary').click();

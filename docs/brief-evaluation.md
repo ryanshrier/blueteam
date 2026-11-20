@@ -14,8 +14,10 @@ New generation receipts carry an optional `authored-opening-v1` presentation
 capability and a `displayCopy` bound to the final content hash. This is neither a
 second briefing format nor human review. It is captured after automatic repair
 and restoration of unaffected stories. Overview and Wall share its resolved
-opening; verified editorial summaries take precedence and retain their separate
-conditions. Missing, malformed or stale display records fall back to full prose.
+opening. When the next paragraph explicitly limits the opening, both views carry
+the authored qualification, including any sentence needed to interpret it.
+Separate supporting details remain in the full report. Verified editorial summaries take precedence
+and retain their separate conditions. Missing, malformed or stale display records fall back to full prose.
 Manual edits and later corrected copies do not silently inherit an earlier
 opening. Display availability never changes publication eligibility.
 
@@ -207,13 +209,12 @@ for material investigation, recovery and uncertainty passages. An identical-copy
 comparison must pass its scoped assertions; deleting a required condition must
 fail even when the remaining prose passes factual validation.
 
-Corrective-generation regressions additionally remove an unaffected story's
-investigation and uncertainty paragraph while repairing a different score. The
-application must restore that paragraph automatically, revalidate the merged
-copy and publish without another model call or approval. Tests also cover omitted
-stories, altered titles, source identities, optional sections and incomplete
-regeneration. These checks establish preservation of unaffected text, not general
-semantic equivalence inside the story being repaired.
+Corrective-generation regressions remove investigation and uncertainty from
+another story, change the edition opening, and rewrite or drop the access
+condition in the story with a wrong score. The application restores unaffected
+passages when it can locate the correction, then validates the complete merged
+copy. Other tests exercise repeated errors in the opening, omitted stories,
+altered titles, source identities, optional sections and incomplete regeneration.
 
 ## Optional live evaluation
 
@@ -222,7 +223,7 @@ semantic equivalence inside the story being repaired.
 The format regression tests conditional, attributed reporting without
 mandatory owners, action targets or repeated judgment fields. The runner does not publish
 or change configuration. Run its frozen six-topic
-reference and 13 negative controls with a new output directory:
+reference and 14 negative controls in a new output directory.
 
 ```bash
 node scripts/run-node.mjs scripts/brief-format-eval.mjs --output .internal/format-offline
@@ -231,7 +232,17 @@ node scripts/run-node.mjs scripts/brief-format-eval.mjs --output .internal/forma
 The reference covers exploitation with separate compromise review, provisional
 and primary scores, a disputed fix, a consultation, a vendor control-exception
 proposal and conditional credential/rebuild recovery. Case-specific lexical
-probes expose dropped meaning but are not general semantic or accuracy scores.
+probes expose dropped meaning. The report also compares each incoming corrective
+response with the merged edition for 11 cases. Nine reproduce the November 18
+audit's altered claims and lost conditions. One moves the execution condition
+below the opening shown in Overview and Wall. Another replaces Today's picture
+with an unsupported claim of confirmed payroll compromise. Each comparison
+records the factual publication decision and the fixture's editorial findings
+before and after repair. The same 11 inputs also go through first-draft preparation
+with no prior good edition to copy. `firstDrafts` records changes to the reporting,
+the qualification visible in Overview and Wall, and degraded inputs that still
+qualify for publication. The clean reference must stay byte-identical. These
+offline measurements use authored inputs and do not estimate live provider performance.
 Reports keep raw production compatibility separate from an evaluation-only fact
 view that places narrative paragraphs in the existing evidence field. That view
 invents no assignments or dates and cannot authorize publication. Unmarked experimental
@@ -490,6 +501,19 @@ values and qualifications still block. Keep omission cases separate from actual
 contradictions in evaluation results; a parser limitation is not evidence that a
 model fabricated a fact. Saved draft rechecks record automatic changes separately
 and preserve the original receipt and text.
+
+A standalone score statement explicitly attributed to NVD can also receive its
+missing citation and qualifiers locally when the CVE and stated assessment
+identify one captured record and the score matches. The full copy must clear
+all material findings before this edit is kept. Numbered source notes can be
+resolved when their definition identifies one captured record. A number alone
+does not identify a source.
+
+The first-draft evaluation compares the incoming and prepared text, the
+short reader views, and the publication decision separately. Local edits to
+incident claims require a complete narrative draft and substantive captured
+evidence. They also undergo full revalidation. Retained provider outputs and
+paired corrective rewrites exercise different paths and are reported separately.
 
 These are regression checks, not a semantic quality score. Equal judgment counts
 do not prove equal coverage, and passing factual checks does not establish that

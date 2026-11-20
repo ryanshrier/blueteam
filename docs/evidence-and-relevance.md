@@ -42,7 +42,9 @@ Profile details and manifest reads use the local-or-authenticated Settings bound
 
 ## What is retained as evidence
 
-Each source item has an opaque stable `sourceId`, resolved using canonical article URLs, feed-scoped source identifiers, and a conservative title fingerprint when neither is available. Canonicalization removes fragments and known tracking parameters while preserving meaningful URL differences. Identity matching cannot establish that different publishers independently verified an assertion.
+Each source item has a stable `sourceId` based on its canonical URL, feed-scoped identifier, or a title fingerprint when both are missing. Ordinary article links ignore tracking parameters and navigation fragments. When one feed publishes different headings at distinct anchors in the same bulletin, each section keeps its own citation link and revision history. Selected sections share one document fetch per collection. If the extractor cannot locate a section, its feed excerpt remains available. The bulletin still counts as one publisher.
+
+Wire keeps reports with explicitly opposing statements about exposure separate. Within a grouped story, the briefing can draw on the primary report and up to four additional sources. Different substantive passages, first-party reporting and explicit disagreements receive preference when space is limited.
 
 Observations are recorded before grouping alters the display title, description, or date. Retained passages are bounded, normalized plain text from RSS/Atom reporting, with title-only fallback where no excerpt exists. Up to 8,192 characters are retained; parsing input is also bounded, so a clipped excerpt can be shorter after markup removal. **Exact passage** means the stored extraction, not original HTML, the full article, or a verified quotation of an entire advisory. Open the publisher link for additional context.
 
@@ -64,7 +66,7 @@ Every newly completed edition writes `briefs/brief-YYYY-MM-DD-NN.manifest.json` 
 - Each provider attempt's requested model, returned model when supplied, token usage, stop/failure state, and SHA-256 hashes of its exact system prompt and messages.
 - The saved edition filename and SHA-256 of its Markdown.
 
-The receipt is bounded to 4 MiB. Configuration and evidence fields are allowlisted; the application does not serialize provider clients, raw settings, keys, or local file paths into it. Credential-shaped text and sensitive URL query parameters receive defensive redaction. Treat the profile and retained passages as local working material when sharing a receipt.
+The receipt is bounded to 16 MiB. It stores selected configuration and evidence fields. Credential-shaped text and sensitive URL query parameters receive defensive redaction. Treat the profile and retained passages as local working material when sharing a receipt.
 
 NVD product labels retain the qualification that configuration conditions and version limits apply. They do not establish that every installation of that product is affected or that the operator has an exposed asset. Supported CVSS checks bind a score to the cited CVE and preserve its version and provisional status; ambiguous legacy prose cannot supply that binding.
 

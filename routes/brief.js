@@ -27,7 +27,7 @@ import {
   scheduledBriefFilename,
   scheduledBriefJobKey,
 } from '../lib/history.js';
-import { countHorizons, hasHardFail, hasTrustCriticalFailure, captureKevTiming, publicationDecision } from '../lib/validation.js';
+import { countHorizons, hasHardFail, hasTrustCriticalFailure, captureKevTiming, publicationDecision, retainedValidationFindings } from '../lib/validation.js';
 import { prepareDraftInWorker, prepareBriefInWorker, validateRetainedBriefInWorker,
   delinkBriefInWorker, briefActionsInWorker } from '../lib/brief-validator.js';
 import { assertBriefInput } from '../lib/brief-input-limits.js';
@@ -40,7 +40,8 @@ import { briefReadingState, loadBriefReadingState, briefPresentation, presentati
 import { listBriefDrafts, readBriefDraft, saveRejectedBrief, revalidateBriefDraft, summarizeBriefDraft, validDraftId, draftValidation, recordDraftPublication } from '../lib/brief-drafts.js';
 import { createPublicationLookup, verifyPublicationReplay, publishDraftEdition } from '../lib/brief-publication.js';
 import { BRIEF_COMPOSITION_VERSION } from '../lib/brief-assembly.js';
-import { buildGroundingManifest, visibleHeadlineEvidence } from '../lib/grounding.js';
+import { buildGroundingManifest } from '../lib/grounding.js';
+import { headlineCves } from '../lib/intelligence-context.js';
 import { BRIEF_FORMAT_VERSION, STORY_OPENING_CONTRACT } from '../lib/brief-schema.js';
 import { captureBriefDisplay } from '../lib/brief-display.js';
 import { briefNotificationFields } from '../lib/brief-notification.js';
@@ -208,19 +209,10 @@ export function buildGroundTruth(run, capturedCatalog = {}) {
         }
       }
 
-      // The Wire already has authoritative KEV added/due dates, but the brief
-      // prompt previously discarded them. Resolve every CVE visible to the model
-      // (not only headline.kevCVE) so a source-body CVE such as a Joomla entry
-      // cannot acquire a made-up same-shift cutoff. CISA dates are day-granular
-      // and BOD remediation dates apply to FCEB agencies; neither property may be
-      // silently promoted into this organization's internal clock-time target.
-      const visibleCves = new Set();
-      for (const headline of (run?.headlines || [])) {
-        for (const match of visibleHeadlineEvidence(headline).matchAll(/CVE-\d{4}-\d{3,7}/gi)) {
-          visibleCves.add(match[0].toUpperCase());
-        }
-      }
-      const kevTiming = getKEVDueDates([...visibleCves]);
+      // A publisher's comparison with an older incident does not give the
+      // current report that incident's FCEB remediation date.
+      const subjects = new Set((run?.headlines || []).flatMap(headlineCves));
+      const kevTiming = getKEVDueDates([...subjects]);
       for (const [cve, timing] of Object.entries(kevTiming).sort(([a], [b]) => a.localeCompare(b))) {
         const added = timing.date_added
           ? `catalog added ${timing.date_added}`
@@ -791,10 +783,8 @@ export function createBriefRouter({
         // A reconciliation request is never permission to purchase a model
         // call, even when its retained draft was removed or aged out.
         if (scheduledJob.reconcileOnly) {
-          res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-          res.write(`data: ${JSON.stringify({ awaitingReview: true, code: 'E_DRAFT_UNAVAILABLE', message: 'No retained scheduled draft is available. No generation was started.' })}\n\n`);
-          res.end('data: [DONE]\n\n');
-          return;
+          return res.status(409).json({ code: 'E_DRAFT_UNAVAILABLE',
+            error: 'The saved scheduled draft is unavailable. No replacement generation was started.' });
         }
       } catch (err) {
         log.error('brief', `Scheduled briefing recovery failed: ${err.message}`);
@@ -1194,7 +1184,8 @@ export function createBriefRouter({
         if (prepared.automaticRepairs?.length) generationManifest.validation.at(-1).automaticRepairs = prepared.automaticRepairs;
         return checked;
       };
-      let validation = await audit(fullBrief, { extractMetadata: true });
+      const completeFirstDraft = !result.error && !result.timedOut && result.stopReason !== 'max_tokens' && result.stopReason !== 'refusal';
+      let validation = await audit(fullBrief, { extractMetadata: true, firstDraft: completeFirstDraft });
       wordCount = fullBrief.trim().split(/\s+/).length;
       let warnings = validation.valid ? [] : [...validation.warnings];
       // hasHardFail is exported by lib/validation.js — the same module that
@@ -1211,7 +1202,7 @@ export function createBriefRouter({
       if (delinkedBrief !== fullBrief) {
         fullBrief = delinkedBrief;
         wordCount = fullBrief.trim().split(/\s+/).length;
-        validation = await audit(fullBrief);
+        validation = await audit(fullBrief, { firstDraft: completeFirstDraft });
         warnings = validation.valid ? [] : [...validation.warnings];
         hardFail = hasHardFail(validation.issues);
         trustFail = hasTrustCriticalFailure(validation.issues);
@@ -1254,14 +1245,14 @@ export function createBriefRouter({
           }];
         } else {
           log.warn('brief', `Corrective validation retry (${correctiveWarnings.join('; ')})`);
-          send({ reset: true, progress: 'Repairing the draft’s factual, structure, or approval findings...', stage: 'generating' });
+          send({ reset: true, progress: 'Correcting the draft against its saved sources…', stage: 'generating' });
           modelParams.messages = [
             { role: 'user', content: userPrompt },
             // Preserve optional bookkeeping in the repair conversation. It is
             // still revalidated against the replacement, never trusted as fact.
             { role: 'assistant', content: fullBrief + (extractedMetadata.metadata
               ? `\n\n<!-- briefing-metadata\n${JSON.stringify(extractedMetadata.metadata)}\n-->` : '') },
-            { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}.\nLocated findings requiring repair: ${JSON.stringify(repairFindingContext(correctiveIssues, groundingManifest))}\nSource IDs refer to the captured passages above. Related source IDs are candidates to inspect, not proof of support.\n${correctiveGuidance(correctiveIssues)}\n${buildBriefFactLedger(groundingManifest, capturedKevTiming, capturedKevSet.size > 0, capturedKevStatus)}\nRepair only the identified passages and summaries or actions directly dependent on them. Preserve other judgments, their priority, supported specificity, complete paired actions, citations and qualifications. Optional scores may be omitted when they do not change the assessment, scope, priority or response; preserve the supported reporting and never imply that supplied evidence is unavailable. Do not introduce new metrics or deadlines elsewhere while repairing a citation. Return the complete brief in the same format. Keep descriptive headlines, analytical paragraphs and conditional implications; do not introduce mandatory owners, deadlines or action fields. Use only CVEs and URLs in the current-source input; cite captured Evidence IDs in brackets so the application supplies labels and available links; linkless sources remain linkless. Never contradict verified KEV status.` },
+            { role: 'user', content: `Your previous draft failed these checks: ${correctiveWarnings.join('; ')}.\nLocated findings requiring repair: ${JSON.stringify(repairFindingContext(correctiveIssues, groundingManifest))}\nSource IDs refer to the captured passages above. Related source IDs are candidates to inspect, not proof of support.\n${correctiveGuidance(correctiveIssues)}\n${buildBriefFactLedger(groundingManifest, capturedKevTiming, capturedKevSet.size > 0, capturedKevStatus)}\nRepair only the identified passages and any statements whose accuracy directly depends on the correction. Preserve story order and keep the original opening and other paragraphs verbatim wherever they remain accurate. Keep supported evidence, citations, uncertainties and conditional implications. Optional scores may be omitted when they do not change the assessment, scope, priority or response; preserve the supported reporting and never imply that supplied evidence is unavailable. Do not introduce new metrics or deadlines elsewhere while repairing a citation. Make the correction in the affected sentence. Leave out correction notes, numbered footnotes and a separate source list; the reader builds its own source notes. Return the complete brief in the same format. Keep descriptive headlines, analytical paragraphs and conditional implications; do not introduce mandatory owners, deadlines or action fields. Use only CVEs and URLs in the current-source input; cite captured Evidence IDs in brackets so the application supplies labels and available links; linkless sources remain linkless. Never contradict verified KEV status.` },
           ];
         }
         const retryResult = await runProviderAttempt(client);
@@ -1355,7 +1346,7 @@ export function createBriefRouter({
       generationManifest.briefingMetadataContentSha256 = sha256(fullBrief);
       generationManifest.actionRecords = fullBriefActionRecords;
       generationManifest.displayCopy = captureBriefDisplay(fullBrief, groundingManifest, generationManifest.generationSettings.displayContract);
-      generationManifest.publicationValidation = { validationPolicyVersion: validation.validationPolicyVersion, valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial, coverage: validation.coverage,
+      generationManifest.publicationValidation = { validationPolicyVersion: validation.validationPolicyVersion, valid: validation.valid, ...retainedValidationFindings({ ...validation, warnings }), hardFail, trustFail, partial: isPartial, coverage: validation.coverage,
         priorityCoverage: validation.priorityCoverage, sourceQuality: validation.sourceQuality,
         sourceCheckStatus: hardFail || trustFail ? 'findings' : 'passed-supported-checks', editorialReviewStatus: 'not-reviewed' };
       checkedRecoveryDraft = { content: fullBrief, actionRecords: fullBriefActionRecords, validation: { ...validation, partial: isPartial, hardFail, trustFail } };
@@ -1437,7 +1428,6 @@ export function createBriefRouter({
       generationManifest.modelUsed = modelUsed;
       generationManifest.responseModel = result.responseModel || null;
       generationManifest.judgmentEvidence = validation.judgmentEvidence;
-      generationManifest.publicationValidation = { ...generationManifest.publicationValidation, validationPolicyVersion: validation.validationPolicyVersion, valid: validation.valid, warnings: [...warnings], issues: validation.issues, hardFail, trustFail, partial: isPartial };
       generationManifest.costEstimate = { usd: estimateAttemptCosts(generationManifest.providerAttempts), currency: 'USD', asOf: '2026-09-05', basis: 'Sum of per-attempt reported costs or API list-rate estimates' };
       jobs.setPhase(generationJobId, 'publishing');
       let filename;

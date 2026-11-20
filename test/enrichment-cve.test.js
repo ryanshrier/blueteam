@@ -9,6 +9,7 @@ const safeFetchMock = jest.fn();
 const readCappedMock = jest.fn();
 const getExternalCacheMock = jest.fn(() => null);
 const setExternalCacheMock = jest.fn();
+const bulkInsertKEVMock = jest.fn();
 jest.unstable_mockModule('../lib/net.js', () => ({
   safeFetch: safeFetchMock,
   readCapped: readCappedMock,
@@ -16,7 +17,7 @@ jest.unstable_mockModule('../lib/net.js', () => ({
 
 jest.unstable_mockModule('../lib/db.js', () => ({
   getKEVSet: jest.fn(() => new Set()),
-  bulkInsertKEV: jest.fn(),
+  bulkInsertKEV: bulkInsertKEVMock,
   getKEVAge: jest.fn(() => Infinity),
   getKEVDatesAdded: jest.fn(() => ({})),
   getKEVRecords: jest.fn(() => ({})),
@@ -33,7 +34,7 @@ jest.unstable_mockModule('../lib/domain.js', () => ({
 // after ESM dependency evaluation still take effect.
 process.env.NVD_API_KEY = 'test-key';
 
-const { enrichCVEs, enrichEPSS, enrichArticleBodies, extractArticleBody, refreshKEV, nvdCveEvidence, ARTICLE_EXTRACTION_VERSION } = await import('../lib/enrichment.js');
+const { enrichCVEs, enrichEPSS, enrichArticleBodies, extractArticleBody, refreshKEV, enrichKEV, tagKEVFromCatalog, nvdCveEvidence, ARTICLE_EXTRACTION_VERSION } = await import('../lib/enrichment.js');
 
 // A minimal Response-shaped fake matching the convention in test/feeds.test.js
 // — enrichCVEs/enrichEPSS only touch .status/.ok; the body is consumed by the
@@ -332,10 +333,52 @@ describe('refreshKEV — concurrent startup calls', () => {
     expect(safeFetchMock.mock.calls[0][1].headers).toMatchObject({
       'User-Agent': expect.stringMatching(/^BlueTeam\.News\/\d+\.\d+\.\d+/),
     });
-    releaseCatalog(JSON.stringify({ vulnerabilities: [{ cveID: 'CVE-2026-9999' }] }));
+    releaseCatalog(JSON.stringify({ count: 1, vulnerabilities: [{ cveID: 'CVE-2026-9999' }] }));
     const [a, b] = await Promise.all([first, second]);
     expect(a).toBe(b);
     expect(a.has('CVE-2026-9999')).toBe(true);
+  });
+
+  test.each([
+    { count: 2, vulnerabilities: [{ cveID: 'CVE-2026-8001' }] },
+    { vulnerabilities: [{ cveID: 'CVE-2026-8001' }] },
+    { count: 2, vulnerabilities: [{ cveID: 'CVE-2026-8001' }, { cveID: 'CVE-2026-8001' }] },
+    { count: 1, vulnerabilities: [{ cveID: 'bad' }] },
+    { count: 1, vulnerabilities: [{ cveID: 'CVE-2026-8001', dueDate: '2026-02-30' }] },
+    { count: 1, vulnerabilities: [{ cveID: 'CVE-2026-8001', dateAdded: '2026-02-28T10:00:00Z' }] },
+  ])('a malformed catalog preserves the last complete snapshot and reports refresh failure', async (malformed) => {
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValueOnce(JSON.stringify({ count: 2, vulnerabilities: [
+      { cveID: 'CVE-2026-8001' }, { cveID: 'CVE-2026-8002' },
+    ] })).mockResolvedValueOnce(JSON.stringify(malformed))
+      .mockResolvedValueOnce(JSON.stringify({ count: 1, vulnerabilities: [{ cveID: 'CVE-2026-8002' }] }));
+    expect((await refreshKEV()).size).toBe(2);
+    bulkInsertKEVMock.mockClear();
+    const h = { title: 'Vendor bulletin for CVE-2026-8001' };
+    await expect(enrichKEV([h])).rejects.toThrow('retained catalog used');
+    expect(h.kevCVE).toBe('CVE-2026-8001');
+    expect(bulkInsertKEVMock).not.toHaveBeenCalled();
+    expect([...(await refreshKEV())]).toEqual(['CVE-2026-8002']);
+    expect(bulkInsertKEVMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('a comparison transfers no catalog record, NVD lookup or EPSS scope to the primary story', async () => {
+    const subject = 'CVE-2026-44001', comparator = 'CVE-2026-44002';
+    const h = { title: 'Roller update for hosted blogs', description:
+      `The Roller update addresses ${subject}. In April, CISA also flagged Apache ActiveMQ ${comparator}.` };
+    tagKEVFromCatalog([h], new Set([comparator]));
+    expect(h).toMatchObject({ isKEV: false, kevCVE: null, kevRecords: [] });
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValueOnce(JSON.stringify(nvdBody(subject, { baseScore: 7.2, baseSeverity: 'HIGH' })))
+      .mockResolvedValueOnce(JSON.stringify({ data: [{ cve: subject, epss: '0.22', percentile: '0.66' }] }));
+    await enrichCVEs([h], 5);
+    await enrichEPSS([h]);
+    expect(h.cvssMetrics.map(metric => metric.cve)).toEqual([subject]);
+    expect(h.epssCVE).toBe(subject);
+    expect(h.cveData).toContain(subject);
+    const requests = safeFetchMock.mock.calls.map(([url]) => String(url));
+    expect(requests.some(url => url.includes('epss') && url.includes(subject))).toBe(true);
+    expect(requests.join(' ')).not.toContain(comparator);
   });
 });
 
@@ -376,6 +419,26 @@ describe('enrichCVEs — NVD throttling', () => {
 });
 
 describe('extractArticleBody — persistent cache', () => {
+  test('fetches one document for separate digest sections and never copies a neighboring excerpt', async () => {
+    const url = 'https://bulletin.test/weekly';
+    const rows = ['alpha', 'beta', '%EF%BD%82eta', 'missing'].map(id => ({ source: 'Desk', title: id + ' update', link: url + '#' + id,
+      sectionAnchor: id, horizon: 1 }));
+    safeFetchMock.mockResolvedValue(fakeResponse());
+    readCappedMock.mockResolvedValue('<main><h2><a name="alpha">Alpha</a></h2><p>Alpha requires a client certificate.</p><h2 id="beta">Beta</h2><p>Beta was patched yesterday.</p><h2 id="ｂeta">Separate section</h2><p>The maintainer released a different update today.</p></main>');
+    await expect(enrichArticleBodies(rows, 4)).rejects.toThrow('3/4');
+    expect(safeFetchMock.mock.calls.map(call => call[0])).toEqual([url]);
+    expect(rows.map(h => h.articleBody)).toEqual(['Alpha requires a client certificate.', 'Beta was patched yesterday.', 'The maintainer released a different update today.', undefined]);
+  });
+
+  test.each(['As of', 'The city council has confirmed its plans to build a large community swimming pool this coming summer.'])(
+    'uses an existing extraction slot on a weak high-ranked passage ahead of a complete short prerequisite: %s', async passage => {
+      safeFetchMock.mockResolvedValue(fakeResponse());
+      readCappedMock.mockResolvedValue('<article>The gateway update was published.</article>');
+      const complete = { title: 'Certificate prerequisites', description: 'Access requires a client certificate.', link: 'https://one.test/', score: 66, horizon: 1 };
+      const weak = { title: 'Widget gateway update', passage, link: 'https://two.test/', score: 60, horizon: 2 };
+      await enrichArticleBodies([complete, weak], 1);
+      expect(safeFetchMock.mock.calls.map(call => call[0])).toEqual([weak.link]);
+    });
   test('allocates article requests across distinct developments and retains weak KEV leads', async () => {
     safeFetchMock.mockResolvedValue(fakeResponse());
     readCappedMock.mockResolvedValue('<article>The vendor reports a vulnerability. Administrators should verify affected deployments and apply the supported remediation.</article>');

@@ -79,6 +79,31 @@ describe('startDailyBriefSchedule', () => {
     expect(isReady).not.toHaveBeenCalled();
     expect(state.state).toMatchObject({ outcome: 'success', attempts: 3, lastSuccessDate: '2026-09-05', draftId: null });
   });
+  test('missing retained work retires only that edition and survives a scheduler restart', async () => {
+    let clock = new Date('2026-09-05T08:00:00Z');
+    const callbacks = [];
+    const state = stateHarness({ scheduleDate: '2026-09-05', attempts: 1, outcome: 'awaiting-review', draftId: 'lost' });
+    const generateBrief = jest.fn().mockImplementationOnce(job => requestBriefGeneration({
+      baseUrl: 'http://fixture.test', internalToken: 'fixture', scheduledJob: job,
+      fetchImpl: async () => Response.json({ code: 'E_DRAFT_UNAVAILABLE', error: 'Saved draft unavailable.' }, { status: 409 }),
+    })).mockResolvedValue({ filename: 'next-edition.md' });
+    const isReady = jest.fn(() => true);
+    const options = { generateBrief, isReady, getScheduleConfig: () => ({ ...ENABLED, timezone: 'UTC' }),
+      now: () => clock, getState: state.getState, setState: state.setState, getLegacyLastSuccessDate: () => null,
+      setLegacyLastSuccessDate: () => {}, setTimeoutFn: fn => { callbacks.push(fn); return callbacks.length; },
+      clearTimeoutFn: () => {}, logger: { info: jest.fn(), error: jest.fn() } };
+    startDailyBriefSchedule(options);
+    await callbacks.at(-1)();
+    expect(generateBrief.mock.calls[0][0]).toMatchObject({ reconcileOnly: true });
+    expect(isReady).not.toHaveBeenCalled();
+    startDailyBriefSchedule(options);
+    expect(state.state).toMatchObject({ outcome: 'draft-unavailable', attempts: 1, draftId: null, nextEditionDate: '2026-09-06' });
+    clock = new Date('2026-09-06T05:00:00Z');
+    await callbacks.at(-1)();
+    expect(generateBrief).toHaveBeenCalledTimes(2);
+    expect(state.state).toMatchObject({ outcome: 'success', attempts: 1, lastSuccessDate: '2026-09-06' });
+  });
+
   test('a retained draft gets only free rechecks across restart and permits the next daily edition', async () => {
     const callbacks = [];
     const state = stateHarness();

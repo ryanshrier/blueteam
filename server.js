@@ -9,6 +9,7 @@ assertSupportedNode();
 // over .env. Otherwise an untouched `cp .env.example .env` (the README's own
 // setup step) would silently clobber HOST/PORT/API_SECRET the operator exports
 // at runtime — see .env.example, which now ships those defaults commented out.
+const openAiEnvSource = process.env.OPENAI_API_KEY ? 'inherited' : 'dotenv';
 dotenv.config({ quiet: true }); // suppress dotenv's stdout banner/tip line
 
 import express from 'express';
@@ -196,7 +197,7 @@ const bootKevWarmup = COLLECTION_DISABLED ? Promise.resolve() : refreshKEV().cat
 // Settings can switch providers live. CLI profiles and credentials load once at startup.
 loadUserSettings(DATA_DIR);
 const providerModule = await loadProviderModule(process.env, __dirname);
-const ai = createAiProvider({ getSettings: getUserSettings, getAnalysisSettings: () => getConfig().analysisSettings || {}, providerModule, cwd: __dirname });
+const ai = createAiProvider({ openAiEnvSource, getSettings: getUserSettings, getAnalysisSettings: () => getConfig().analysisSettings || {}, providerModule, cwd: __dirname });
 const refreshAi = () => ai.refresh();
 const getAiStatus = () => ai.getStatus();
 if (!ai.getClient()) log.warn('env', ai.getStatus().error || 'Selected AI provider is not configured — AI briefing disabled');
@@ -535,13 +536,6 @@ function armDailyBriefSchedule() {
 // webhook behavior as an operator-triggered brief. The route owns the one
 // refresh/evidence gate, avoiding a duplicate pipeline refresh on failures.
 async function generateScheduledBrief(scheduledJob) {
-  const hasPublishedArchive = Boolean(
-    scheduledJob?.editionDate
-    && existsSync(join(HISTORY_DIR, scheduledBriefFilename(scheduledJob.editionDate))),
-  );
-  if (!ai.getClient() && !hasPublishedArchive) {
-    throw new Error('AI briefing is disabled — configure an API key for the selected provider in Settings');
-  }
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Server address unavailable');
   const connectHost = (HOST === '0.0.0.0' || HOST === '::') ? '127.0.0.1' : HOST;

@@ -8,6 +8,8 @@ import { signalUrl, isFeedStale } from '../wire/wire-format.js';
 import { readerEvidenceLimits } from './brief-review.js';
 import { readerIssueIdentity } from './brief-renderer.js';
 
+export const COMPACT_READER_QUERY = '(max-width: 600px), (max-height: 500px) and (max-width: 950px)';
+
 export function overviewModel(brief = {}) {
   const content = String(brief.content || '');
   const parsed = parseBrief(content);
@@ -105,19 +107,25 @@ function judgment(story, featured = false, savedMetadata = null, filename = '', 
   </article>`;
 }
 
-export function renderOverview(brief = {}, { judgmentMetadata = [], developingAnchor = '', now = Date.now(),
-  compactIntroduction = typeof matchMedia === 'function' && matchMedia('(max-width: 600px)').matches } = {}) {
+export function renderOverview(brief = {}, { judgmentMetadata = [], headings = [], developingAnchor = '', now = Date.now(),
+  compactIntroduction = typeof matchMedia === 'function' && matchMedia(COMPACT_READER_QUERY).matches } = {}) {
   const model = overviewModel(brief);
   const [featured, ...stories] = model.judgments;
+  const sections = briefSections(brief.content);
+  const anchorFor = name => headings.find(heading => heading.textContent.trim().toUpperCase().startsWith(name))?.id || '';
+  const developing = developingAnchor || anchorFor(sections.developing);
+  const watch = anchorFor(sections.watchlist);
+  const developingLabel = model.formatVersion === 2 ? 'Read developing item' : 'Read watch criteria';
   return `<div class="brief-overview-edition">${assessmentDate(brief, now)}
     ${brief.review?.status === 'editorially-corrected' ? `<p class="brief-overview-review">Corrected edition · <a href="#edition-record" data-open-edition-record>See changes</a></p>` : ''}</div>
     ${model.preface ? `<p class="brief-overview-preface">${escapeHtml(model.preface)}</p>` : ''}
-    <details class="brief-overview-introduction"${compactIntroduction && featured ? '' : ' open'}><summary>${featured ? "Today's picture" : 'Edition summary'}</summary>
+    <details class="brief-overview-introduction"${compactIntroduction && featured ? '' : ' open'}><summary>Edition summary</summary>
     <section class="brief-overview-edition-note" aria-label="Edition summary"><p>${escapeHtml(model.editionLead || 'No edition summary recorded.')}</p>
       ${model.blufSources.length || !featured ? metadata({ citations: model.blufSources }) : ''}${reportLink(brief.filename, '', 'Read full report')}</section></details>
     ${featured ? `<div class="brief-overview-front">${judgment(featured, true, judgmentMetadata[0], brief.filename, readerEvidenceLimits(brief, 1))}</div>` : ''}
     ${stories.length ? `<section class="brief-overview-more" aria-label="More stories from this edition"><h2 class="brief-overview-label">More in this edition</h2><div class="brief-overview-grid">${stories.map((story, index) => judgment(story, false, judgmentMetadata[index + 1], brief.filename, readerEvidenceLimits(brief, index + 2))).join('')}</div></section>` : ''}
-    ${model.developing.length ? `<section class="brief-overview-watch" aria-label="Also watching from this edition"><h2>Also watching <span>From the saved edition</span></h2><ul>${model.developing.map(item => `<li><h3>${escapeHtml(item.displayTitle)}</h3>${item.summary ? `<p class="brief-overview-watch-summary">${escapeHtml(item.summary)}</p>` : ''}${item.condition ? `<p class="brief-overview-watch-condition"><span>Watch for</span> ${escapeHtml(item.condition)}</p>` : ''}</li>`).join('')}</ul>${reportLink(brief.filename, developingAnchor, 'Read watch criteria')}</section>` : ''}
+    ${model.developing.length ? `<section class="brief-overview-watch" aria-label="Also watching from this edition"><h2>Also watching <span>From the saved edition</span></h2><ul>${model.developing.map(item => `<li><h3>${escapeHtml(item.displayTitle)}</h3>${item.summary ? `<p class="brief-overview-watch-summary">${escapeHtml(item.summary)}</p>` : ''}${item.condition ? `<p class="brief-overview-watch-condition"><span>Watch for</span> ${escapeHtml(item.condition)}</p>` : ''}</li>`).join('')}</ul>${reportLink(brief.filename, developing, developingLabel)}</section>` : ''}
+    ${model.formatVersion === 2 && model.watchlist.length && watch ? reportLink(brief.filename, watch, 'Read watch criteria') : ''}
       <aside class="brief-overview-recent" aria-label="Recent developments"><h2 class="brief-overview-label">Recent developments</h2><p class="brief-overview-recent-note">Current reporting · separate from the saved assessment</p>
         <div data-overview-recent><p role="status">Loading current reporting…</p></div>
         <a class="brief-overview-wire" href="/wire?sort=newest">Open Wire <span aria-hidden="true">→</span></a>

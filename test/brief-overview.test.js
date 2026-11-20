@@ -361,6 +361,16 @@ The [later source note](https://saved.example/later) qualifies its scope.
     expect(anchoredLink?.[1]).toBe('/briefing/brief-2026-09-04-02.md#section-7-developing-situations-retained');
   });
 
+  test('narrative links land on the authored developing and watch sections independently', () => {
+    const content = "<!-- briefing-format: 2 -->\n## DEVELOPING\n### Update pending\nThe scope remains unclear.\n## WHAT COULD CHANGE THE PICTURE\nPublication of the final scope would change this assessment.";
+    const html = renderOverview({ content, filename: SAVED_BRIEF.filename }, { headings: [
+      { textContent: 'Developing', id: 'section-2-developing' },
+      { textContent: 'WHAT COULD CHANGE THE PICTURE', id: 'section-3-watch' },
+    ] });
+    expect(html).toMatch(/#section-2-developing">Read developing item/);
+    expect(html).toMatch(/#section-3-watch">Read watch criteria/);
+  });
+
   test('a missing summary remains explicit and does not prevent reading any saved assessment', () => {
     const brief = { ...SAVED_BRIEF, content: SAVED_BRIEF.content.replace(/## BLUF\n[^]*?(?=## KEY JUDGMENTS)/, '') };
     const html = renderOverview(brief);

@@ -11,7 +11,7 @@ import { exportBriefNewspaper } from './brief-export.js';
 import { mountGenerationStatus } from './generation-status.js';
 import { fetchBriefs, fetchBrief, searchBriefs, fetchSettings } from '../core/api.js';
 import * as briefingApi from '../core/api.js';
-import { renderOverview, mountRecentDevelopments } from './brief-overview.js';
+import { renderOverview, mountRecentDevelopments, COMPACT_READER_QUERY } from './brief-overview.js';
 import { navigate, resolveLocation, setPageTitle } from '../core/router.js';
 import { formatBriefLabel, formatBriefPublication, archivePublishedAt, formatEventTime } from '../core/brief-date.js';
 import { archiveLocation, archiveRoute, fetchArchivePage, archiveListHtml } from './brief-archive.js';
@@ -47,6 +47,7 @@ let historyRequest = 0;
 let readingMode = 'overview';
 let stopRecentDevelopments = null;
 let stopEditionToolsDismissal = null;
+let compactReader = null;
 try { const saved = localStorage.getItem('briefing.readingMode'); if (['overview', 'scan', 'read'].includes(saved)) readingMode = saved === 'scan' ? 'read' : saved; } catch { /* browser storage is optional */ }
 
 export function briefGenerateModel({ enabled, known, loading, generating, accounting }) {
@@ -89,6 +90,19 @@ function reflectDocumentActions() {
   if (copy) copy.disabled = !ready || !currentBrief?.filename;
   const modes = document.querySelector?.('.brief-document-bar');
   if (modes) modes.hidden = !ready;
+  const controls = document.getElementById('briefControls');
+  const slot = document.getElementById('briefToolGenerateSlot');
+  const bar = document.getElementById('briefGenerate')?.parentElement;
+  const hint = document.getElementById('briefGenerateInput');
+  if (controls && slot && bar && hint) {
+    const compact = ready && compactReader?.matches;
+    if (compact && bar.parentElement !== slot) slot.append(bar, hint);
+    if (!compact && bar.parentElement === slot) {
+      controls.prepend(bar);
+      controls.parentElement.append(hint);
+    }
+    slot.hidden = !compact;
+  }
 }
 
 function disposePrintPreview() {
@@ -266,6 +280,9 @@ export function generationErrorMessage({ message, code }) {
 }
 
 export function render(main) {
+  compactReader?.removeEventListener?.('change', reflectDocumentActions);
+  compactReader = typeof matchMedia === 'function' ? matchMedia(COMPACT_READER_QUERY) : null;
+  compactReader?.addEventListener?.('change', reflectDocumentActions);
   stopEditionToolsDismissal?.();
   stopEditionToolsDismissal = null;
   main.innerHTML = `
@@ -278,7 +295,7 @@ export function render(main) {
         </div>
         <span class="sr-only" id="briefSrLive" aria-live="polite"></span>
         <div class="briefing-actions">
-          <div class="briefing-controls">
+          <div class="briefing-controls" id="briefControls">
             <div class="brief-operator-bar" role="group" aria-label="Briefing tasks">
               <button class="btn-primary" id="briefGenerate" type="button" aria-describedby="briefGenerateInput" disabled>Checking AI availability…</button>
             </div>
@@ -290,6 +307,7 @@ export function render(main) {
               <summary>Edition tools <span aria-hidden="true">⌄</span></summary>
               <div class="brief-tools-panel">
                 <div class="brief-tools-heading"><strong>Edition tools</strong><button type="button" class="btn-ghost" id="briefToolsClose" data-close-edition-tools>Close</button></div>
+                <div class="brief-tools-group" id="briefToolGenerateSlot" hidden></div>
                 <section class="brief-tools-group" aria-label="Browse editions">
                   <nav class="brief-reader-nav" aria-label="Briefing navigation"><a data-brief-route href="/briefing?latest=1">Latest</a><a data-brief-route href="/briefing?archive=1">Archive</a></nav>
                   <label class="brief-toolbar-field">Edition
@@ -935,8 +953,7 @@ function renderBriefContent(content, text, { hardFail = false, checkStructure = 
   stopRecentDevelopments = null;
   if (overview) {
     const judgmentMetadata = [...content.querySelectorAll('.brief-judgment-card')].map(card => briefRenderer.briefAssessmentMetadata?.(card));
-    const developingAnchor = [...content.querySelectorAll('h2[id]')].find(heading => /developing situations/i.test(heading.textContent))?.id || '';
-    overview.innerHTML = renderOverview(getState().currentBrief, { judgmentMetadata, developingAnchor });
+    overview.innerHTML = renderOverview(getState().currentBrief, { judgmentMetadata, headings: [...content.querySelectorAll('h2[id]')] });
     stopRecentDevelopments = mountRecentDevelopments(overview.querySelector('[data-overview-recent]'), briefingApi.fetchHeadlines);
   }
   const overviewTarget = /^#overview-judgment-\d+$/.test(location.hash) ? overview?.querySelector(location.hash) : null;
@@ -1695,6 +1712,8 @@ function reflectGenerationRecovery(model) {
 // bound once for background generation events, but route/search requests started
 // by this mount must not repaint or replace state after the operator leaves.
 export function unmount() {
+  compactReader?.removeEventListener?.('change', reflectDocumentActions);
+  compactReader = null;
   stopEditionToolsDismissal?.();
   stopEditionToolsDismissal = null;
   historyRequest++;

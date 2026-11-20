@@ -21,7 +21,7 @@ Recommended: the latest Node.js 24 security patch (24.22.1 or newer) with npm. S
 The project pins Node 24.22.1 in `.node-version` and `.nvmrc`. On Windows, `powershell -File .\scripts\setup-lts.ps1` installs a checksum-verified official LTS runtime under `.runtime/` and reinstalls native dependencies with its bundled npm. Run it after cloning when the system Node is unsupported. Application npm commands automatically use this managed runtime when needed; `npm run runtime:check` reports the selected executable and verifies the native SQLite binding. Direct installs with an unsupported Node version fail before modifying dependencies.
 
 ```bash
-git clone --branch v1.4.9 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
+git clone --branch v1.5.0 --single-branch https://github.com/ryanshrier/blueteam.git blueteam
 cd blueteam
 npm install
 npm start
@@ -56,11 +56,13 @@ ANTHROPIC_API_KEY=
 
 Enter your key after `=`. Environment keys override saved keys for the same provider. OpenAI generation calls the Responses API directly; it requires an OpenAI API key and does not use a Codex CLI or ChatGPT subscription login. See [Configuration](docs/configuration.md) for provider selection, model settings, and precedence.
 
-Open **Briefing → Generate briefing** beside the reader controls. Generation waits for enough fresh source evidence and reports progress from collection through publication across open Briefing tabs. Wire searches, filters, and hidden items do not change its input selection.
+Open **Briefing → Generate briefing**. On a phone displaying a saved edition, open **Edition tools → Generate briefing**. Generation waits for enough fresh source evidence and reports progress from collection through publication across open Briefing tabs. Wire searches, filters, and hidden items do not change its input selection.
 
 New briefings use one analytical format: Today's picture, descriptive Priority stories, and optional Developing / What could change the picture. Source IDs become captured citation labels and links. Stories explain significance, attribution and conditional local implications without requiring owners, action lists or target dates. Automatic repair preserves unaffected stories and rechecks the merged copy. Unknown sources, unsupported facts and contradictory cited deadlines still require correction; routine editorial notes do not hold publication.
 
 Automatic generation is off by default. Enable it separately in Settings and choose a time, timezone, and retry policy. Manual and scheduled runs use the selected provider and the same validation and storage pipeline. Retries can add cost; application limits are not a provider spending cap.
+
+A scheduled recheck uses a saved draft and its captured evidence, even if the provider key is unavailable. An eligible draft publishes automatically. If the draft is missing, the scheduler records that outcome and resumes with the next daily edition.
 
 ## Using the views
 
@@ -91,6 +93,8 @@ See [Evidence and relevance](docs/evidence-and-relevance.md) for retention rules
 The server binds to `127.0.0.1` by default. Remote interactive access requires a strong `API_SECRET` and an authenticating TLS reverse proxy that injects the bearer token upstream. See [Operations and deployment](docs/operations.md).
 
 Local state lives in `data/watchfloor.db`, saved assessments and input receipts in `briefs/`, editorial corrections and publication decisions in `reviews/`, and operator settings in the gitignored `data/settings.local.json`. Back up these together. Saved API keys are masked in responses but stored in plaintext. Protect the host account and backups.
+
+Version 1.5.0 improves source identity, automatic briefing repair, and reader presentation. See the [1.5.0 upgrade notes](docs/operations.md#from-v149-to-v150).
 
 Version 1.4.9 separates regex-worker startup from its evaluation deadline and stabilizes release tests while preserving validation limits. Follow the [v1.4.9 upgrade notes](docs/operations.md#from-v148-to-v149). Version 1.4.8 improved Briefing openings, Overview and Wall readability, catalog grouping, and the default repair budget. Follow the [v1.4.8 upgrade notes](docs/operations.md#from-v147-to-v148); saved editions remain intact and dependencies and SQLite schema 11 are unchanged. Version 1.4.7 introduced analytical Briefings with conditional implications, preserves unaffected reporting during repair, and reduces avoidable review friction. Follow the [v1.4.7 upgrade notes](docs/operations.md#from-v146-to-v147) for the stopped-process backup, copied profile limits, shared generation deadline and document-schema rollback requirements. From v1.4.5 or earlier, also read the [v1.4.6 notes](docs/operations.md#from-v145-to-v146) for larger retained artifacts and their rollback requirements. SQLite stays at schema 11; SQLite and other major upgrades remain undecided. From v1.4.4 or earlier, also follow the [v1.4.5 notes](docs/operations.md#from-v144-to-v145) for raised Node security floors, native-dependency reinstallation, Bob streaming, delivery reconciliation and saved-citation limitations. From v1.4.3, also read the [v1.4.4 notes](docs/operations.md#from-v143-to-v144) for Bob startup and CLI diagnostics. From v1.4.2, also read the [v1.4.3 notes](docs/operations.md#from-v142-to-v143) for shared action records, coverage accounting, and the optional CLI provider. When upgrading from v1.4.0 or v1.4.1, also read the [v1.4.2 notes](docs/operations.md#from-v140-or-v141-to-v142) for retained drafts and check policies. Upgrading from v1.3.2 migrates SQLite from schema 9 to 11 and initializes a saved-edition receipt inventory; follow the [earlier upgrade steps](docs/operations.md#from-v132-to-v140), including the stopped-process backup and optional browser-decision import. Rollback requires the matching pre-upgrade state backup.
 

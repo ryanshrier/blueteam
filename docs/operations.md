@@ -134,6 +134,10 @@ Source licensing and handling restrictions are not tracked or enforced per passa
 
 Before an upgrade, take a stopped-process backup and record the current tag or commit.
 
+### From v1.4.9 to v1.5.0
+
+Stop the application and back up its state directory, settings and local provider configuration. Install the tagged release and restart with the same state directory. Existing editions and receipts remain readable. This upgrade keeps SQLite schema 11. A launch-environment OpenAI key takes precedence over the project .env key.
+
 ### From v1.4.8 to v1.4.9
 
 Stop the service and back up state, saved Briefings and receipts, configuration,

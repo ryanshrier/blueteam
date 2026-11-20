@@ -35,8 +35,9 @@ describe('Wire investigation filters', () => {
       expect(filterSignals([item], { q: 'cve-2026-98765' })).toEqual([item]);
       expect(filterSignals([item], { q: 'CVE-2026-987' })).toEqual([item]);
     }
-    expect(signalCves({ cves: ['cve-2026-98765', null, {}], editorialContext: { cves: ['CVE-2026-98765'] },
-      kevRecords: [{ cve: 'CVE-2026-12345' }] })).toEqual(['CVE-2026-98765', 'CVE-2026-12345']);
+    const legacy = { cves: ['cve-2026-98765', null, {}], kevRecords: [{ cve: 'CVE-2026-12345' }] };
+    expect(signalCves(legacy)).toEqual(['CVE-2026-98765', 'CVE-2026-12345']);
+    expect(signalCves({ ...legacy, editorialContext: { cves: ['CVE-2026-98765'] } })).toEqual(['CVE-2026-98765']);
     expect(signalCves({ cves: {}, editorialContext: { cves: null }, kevRecords: {} })).toEqual([]);
     expect(signalCves(null)).toEqual([]);
   });

@@ -95,7 +95,7 @@ test('post-selection article capture supplies body-only CVEs to the existing loo
   const calls = [];
   safeFetch.mockImplementation(async url => {
     calls.push(url);
-    if (url.includes('known_exploited_vulnerabilities.json')) return new Response(JSON.stringify({ vulnerabilities: [{ cveID: cve, dateAdded: '2026-10-09' }] }));
+    if (url.includes('known_exploited_vulnerabilities.json')) return new Response(JSON.stringify({ count: 1, vulnerabilities: [{ cveID: cve, dateAdded: '2026-10-09' }] }));
     if (url === headline.link) return new Response(`<article><p>Gateway security update. ${cve} affects Gateway version 1.2.3. The vendor recommends checking deployment before applying its update.</p><aside>CVE-2026-87022 is an unrelated sidebar.</aside></article>`);
     if (url.includes('services.nvd.nist.gov')) return new Response(JSON.stringify({ vulnerabilities: [{ cve: { id: cve, vulnStatus: 'Analyzed', metrics: { cvssMetricV31: [{ cvssData: { baseScore: 8.1 } }] } } }] }));
     if (url.includes('api.first.org')) return new Response(JSON.stringify({ data: [{ cve, epss: '0.42' }] }));

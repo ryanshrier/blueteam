@@ -14,6 +14,16 @@ const params = { model: DEFAULT_OPENAI_MODEL, system: 'Use supplied evidence.', 
 const terminal = (type = 'response.completed', reason) => ({ type, response: { model: DEFAULT_OPENAI_MODEL, status: type.split('.')[1], ...(reason ? { incomplete_details: { reason } } : {}), usage: { input_tokens: 100, output_tokens: 50, input_tokens_details: { cached_tokens: 20 }, output_tokens_details: { reasoning_tokens: 15 } } } });
 
 describe('live AI provider configuration', () => {
+  test.each([['inherited', /launch environment/], ['dotenv', /from \.env/], ['settings', /in Settings/]])('401 identifies the selected %s credential without echoing provider text', async (source, hint) => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse({ error: { code: 'invalid_api_key', message: 'sensitive masked suffix' } }, 401));
+    const manager = createAiProvider({ getSettings: () => ({ aiProvider: 'openai', openaiKey }), openAiEnvSource: source,
+      env: source === 'settings' ? {} : { OPENAI_API_KEY: openaiKey }, fetchImpl });
+    const stream = manager.getClient().stream({ messages: [] }, {});
+    await expect(stream.next()).rejects.toThrow(hint);
+    const verified = await manager.verifyKey(undefined, 'openai');
+    expect(verified.error).toMatch(hint);
+    expect(verified.error).not.toContain('sensitive');
+  });
   test('uses environment keys, saved provider/model choices, and switches clients on refresh', () => {
     let settings = { aiProvider: 'openai', openaiKey: 'saved-openai', anthropicKey: 'saved-anthropic', openaiModel: 'gpt-5.3-codex' };
     const factory = jest.fn(key => ({ key }));
