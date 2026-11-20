@@ -2,6 +2,7 @@
 
 ## 1.5.0 — 2026-11-20
 
+- Update the RSS XML parser to address excessive CPU use when processing malformed input (GHSA-474x-hrwr-fgx4).
 - Briefing headlines describe the specific control affected. The edition lead focuses on the most consequential development, and Overview and Wall carry decisive qualifications alongside the opening.
 - Generation can resolve a missing NVD citation and its assessment qualifiers against a unique captured record. Numbered citations with an exact captured source resolve automatically. Material contradictions retain their existing checks.
 - Publisher digest sections retain their own source identity. Historical CVE comparisons no longer inflate coverage demands, and a malformed KEV feed preserves the last usable catalog.
