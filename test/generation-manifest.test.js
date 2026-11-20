@@ -8,6 +8,8 @@ import {
   recordValidation, serializeGenerationManifest, sha256,
 } from '../lib/generation-manifest.js';
 import { saveBrief } from '../lib/history.js';
+import { publicationDecision, retainedValidationFindings } from '../lib/validation.js';
+import { publishDraftEdition } from '../lib/brief-publication.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
 import { snapshotScoringConfiguration } from '../lib/scoring-snapshot.js';
 import { busyGenerationManifest } from './fixtures/busy-generation-manifest.js';
@@ -90,6 +92,40 @@ describe('generation input receipt', () => {
     expect(() => receipt({ run: { headlines: Array.from({ length: 201 }, () => ({ title: 'source' })) } })).toThrow(/retention limit/);
     expect(() => serializeGenerationManifest({ large: 'x'.repeat(MAX_GENERATION_MANIFEST_BYTES) })).toThrow(/retention limit/);
     expect(() => serializeGenerationManifest({ large: '界'.repeat(Math.floor(MAX_GENERATION_MANIFEST_BYTES / 3)) })).toThrow(/retention limit/);
+  });
+
+  test.each([[], [{code:'CVSS_UNSUPPORTED',severity:'trust',message:'Unsupported score.'}],
+    [{code:'SECURITY_CONTROL_CHANGE',severity:'review',message:'Unqualified direction.'}]].map(material => [material]))('advisory volume preserves the publication decision and material detail', material => {
+    const issues = [...Array.from({length:125}, (_, i) => ({code:'CITATION_DISPLAY_MISMATCH',severity:'note',message:'Display detail '+i})), ...material];
+    const checks = { validationPolicyVersion:4, valid:false, warnings:issues.map(issue => issue.message), issues };
+    const manifest = receipt();
+    recordValidation(manifest,'copy',checks);
+    const saved = JSON.parse(serializeGenerationManifest(manifest)).validation[0];
+    expect(saved.issues).toHaveLength(100);
+    expect(saved.warnings).toHaveLength(100);
+    expect(saved.issues.slice(0,material.length)).toEqual(material);
+    expect(saved.diagnosticCounts).toEqual({warnings:issues.length,issues:issues.length,
+      omittedAdvisoriesByCode:{CITATION_DISPLAY_MISMATCH:25+material.length}});
+    expect(publicationDecision(saved).canPublish).toBe(publicationDecision(checks).canPublish);
+    expect(publicationDecision(saved).reviewIssues).toEqual(publicationDecision(checks).reviewIssues);
+  });
+
+  test.each([100,200])('more than %i material findings retain bounded details and full disposition', limit => {
+    const issues = Array.from({length:limit+18}, (_, i) => ({code:'SECURITY_CONTROL_CHANGE',severity:'review',message:'Unqualified instruction '+i}));
+    const reviewOnly = {validationPolicyVersion:4, issues, warnings:issues.map(i => i.message)};
+    const reduced = retainedValidationFindings(reviewOnly,limit);
+    expect(reduced.issues).toHaveLength(limit);
+    expect(reduced.warnings).toHaveLength(limit);
+    expect(reduced.diagnosticCounts).toMatchObject({blockers:0, reviewIssues:issues.length,
+      omittedMaterial:[{code:'SECURITY_CONTROL_CHANGE',severity:'review',count:18}]});
+    expect(publicationDecision(reduced)).toMatchObject({canPublish:false,requiresReview:true,blockers:[]});
+    const request = {securityControlReview:{reviewer:'Operator',reason:'Checked displayed instructions',contentSha256:'fixture'}};
+    expect(() => publishDraftEdition({artifact:{revisions:[{sha256:'fixture'}]}, validation:reduced,request})).toThrow(/Recheck the exact copy/);
+    const mixed = { ...reviewOnly, issues:[...issues,{code:'CVSS_UNSUPPORTED',severity:'trust',message:'Wrong score'}] };
+    const retained = retainedValidationFindings(mixed,limit);
+    expect(publicationDecision(retained)).toMatchObject({canPublish:false,requiresReview:true,blockers:[mixed.issues.at(-1)]});
+    expect(retained.issues).toHaveLength(limit);
+    expect(retained.diagnosticCounts).toMatchObject({blockers:1,reviewIssues:issues.length});
   });
 
   test('strips credential URLs and credential-shaped evidence while retaining hashes of original prompts', () => {

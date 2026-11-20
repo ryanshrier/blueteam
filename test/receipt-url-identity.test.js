@@ -8,6 +8,7 @@ import { validationSourceFromManifest, saveRejectedBrief, revalidateBriefDraft }
 import { validateBrief, normalizeBriefCitations } from '../lib/validation.js';
 import { recheckReadingCopy } from '../lib/brief-reading-checks.js';
 import { renderBriefCitations } from '../lib/brief-citations.js';
+import { deduplicateWithCorroboration } from '../lib/feeds.js';
 import { BRIEF_EVALUATION_CASES, referenceBrief, EVAL_DATE } from './fixtures/brief-evaluation.js';
 
 function signedFixture() {
@@ -25,6 +26,28 @@ function signedFixture() {
 }
 
 describe('private retained citation identities', () => {
+  test('separately restores signed digest anchors whose rendered names differ by case or compatibility normalization', () => {
+    const document = 'https://vendor.example/bulletin?signature=fixture';
+    const anchors = ['Key', 'key', 'Ｋey'];
+    const rows = anchors.map((anchor, i) => ({ title: 'Bulletin update ' + i, source: 'Desk', date: EVAL_DATE,
+      link: new URL(document + '#' + anchor).href, passage: 'The publisher updated section ' + i + '.' }));
+    const headlines = deduplicateWithCorroboration(rows);
+    expect(headlines).toHaveLength(3);
+    expect(new Set(headlines.map(h => h.sectionAnchor)).size).toBe(3);
+    const packet = buildGroundingManifest({ headlines });
+    const manifest = buildGenerationManifest({ run: { headlines }, groundingManifest: packet, config: {}, editionContext: { date: EVAL_DATE } });
+    const copy = rows.map(row => '[Desk](<' + row.link + '>)').join('\n\n');
+    const replayed = validationSourceFromManifest(JSON.parse(JSON.stringify(manifest)), copy).groundingManifest;
+    for (const member of packet.members) {
+      expect(replayed.members.find(record => record.id === member.id).url).toBe(member.url);
+    }
+    const firstOnly = validationSourceFromManifest(manifest, '[Desk](<' + rows[0].link + '>)').groundingManifest;
+    expect(firstOnly.members.filter(member => member.url).map(member => member.url)).toEqual([rows[0].link]);
+    for (const alias of [document + '#KEY', document + '#%4Bey', document + '#Key%00', 'javascript:invalid', document.replace('vendor.', 'user@vendor.') + '#Key']) {
+      expect(isAllowedSourceUrl(alias, replayed)).toBe(false);
+      expect(validationSourceFromManifest(manifest, '[Desk](<' + alias + '>)').groundingManifest.members.every(member => !member.url)).toBe(true);
+    }
+  });
   test('signed destinations replay exactly without storing their credential query values', () => {
     const { url, content, original, manifest } = signedFixture();
     const retained = JSON.parse(JSON.stringify(manifest));

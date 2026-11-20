@@ -1,5 +1,5 @@
 import { test, expect } from '@jest/globals';
-import { evaluateFormat, evaluateMutations, factAuditView, visibleText, reviewHtml } from '../scripts/lib/brief-format-evaluation.mjs';
+import { evaluateFormat, evaluateMutations, evaluateEditorialRepair, factAuditView, visibleText, reviewHtml } from '../scripts/lib/brief-format-evaluation.mjs';
 import { authoredFormatCandidate } from './fixtures/brief-format-evaluation.js';
 
 test('authored format reference preserves case-specific conditions without owner/target requirements', () => {
@@ -19,6 +19,7 @@ test('negative controls catch lost meaning as well as numerically wrong facts', 
   expect(rows.filter(row => !row.detected)).toEqual([]);
   expect(rows.find(row => row.id === 'wrong-score').factualCaught).toBe(true);
   expect(rows.find(row => row.id === 'credentials-dropped').authoredCaught).toBe(true);
+  expect(rows.find(row => row.id === 'execution-condition-buried')).toMatchObject({authoredCaught:true, factualCaught:false});
 });
 
 test('hidden content cannot satisfy visible editorial expectations', () => {
@@ -27,6 +28,19 @@ test('hidden content cannot satisfy visible editorial expectations', () => {
   const hidden = original.replace(phrase, `<!-- ${phrase} -->`);
   expect(evaluateFormat(hidden).authoredChecksPassed).toBe(false);
   expect(visibleText('text <!-- secret -->\n```\nhidden\n```')).not.toMatch(/secret|hidden/);
+});
+
+test('repair restores the nine audit degradations, the edition lead and a misplaced story qualification', () => {
+  const results = evaluateEditorialRepair(authoredFormatCandidate());
+  expect(results.map(row => row.id)).toEqual(['invented-local-compromise','lost-virtualization-implication',
+    'lost-access-condition','dispute-erased','proposal-becomes-mandate','proposal-becomes-order','credentials-dropped',
+    'execution-condition-buried','preservation-order-dropped','negated-response','unsupported-edition-lead']);
+  for (const result of results) {
+    expect(result.beforePreservation.authoredChecksPassed).toBe(false);
+    expect(result.afterPreservation).toMatchObject({ authoredChecksPassed:true, canPublish:true });
+    expect(result.recovery.accepted).toBe(true);
+  }
+  expect(results.at(-1).beforePreservation.editionLead.unsupportedClaims).toEqual(['payroll compromise']);
 });
 
 test('audit view does not create assignments or dates and review HTML escapes source text', () => {

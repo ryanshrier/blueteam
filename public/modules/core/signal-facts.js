@@ -2,6 +2,21 @@
 // preference never changes the captured authority, identity or uncertainty.
 const cve = value => /^CVE-\d{4}-\d{3,7}$/i.test(value || '') ? value.toUpperCase() : '';
 const text = value => typeof value === 'string' ? value : '';
+
+// New signals carry the subjects determined from the complete source captures.
+// Even an empty assessed list is meaningful. Recover IDs from display fields
+// only for older payloads without that assessment.
+export function signalCves(headline = {}) {
+  if (!headline || typeof headline !== 'object') return [];
+  const captured = headline.editorialContext?.cves;
+  if (Array.isArray(captured)) return [...new Set(captured.map(cve).filter(Boolean))];
+  const strings = values => Array.isArray(values) ? values : [];
+  return [...new Set([
+    ...strings(headline.cves), headline.kevCVE, ...strings(headline.kevRecords).map(record => record?.cve),
+    headline.title, headline.description, headline.cveData,
+  ].flatMap(value => typeof value === 'string'
+    ? (value.match(/\bCVE-\d{4}-\d{3,7}\b/gi) || []).map(id => id.toUpperCase()) : []))];
+}
 const cveObservations = headline => (Array.isArray(headline.cveObservations) ? headline.cveObservations : [])
   .filter(item => cve(item?.cve)).map(item => ({ cve: cve(item.cve), retrievedAt: text(item.retrievedAt) || null }));
 const band = score => score >= 9 ? 'critical' : score >= 7 ? 'high' : score >= 4 ? 'medium' : score > 0 ? 'low' : 'none';

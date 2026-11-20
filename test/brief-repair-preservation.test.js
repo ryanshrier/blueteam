@@ -58,14 +58,56 @@ test('a uniquely located defective story may still be omitted', () => {
   expect(correctiveRecoveryDecision(bad,draft(result.content)).accepted).toBe(true);
 });
 
-test('preserves optional analysis and permits a dependent opening correction', () => {
+test('preserves optional analysis and the original opening on a localized correction', () => {
   const tail='\n\n## WHAT COULD CHANGE THE PICTURE\nA revised affected range would change the assessment. [S1.1]\n';
   const original=draft(bad.text+tail);
   const changed=good.replace('Gateway intrusion scope', 'Changed gateway scope');
   const result=preserveUnaffectedStories(original,{text:changed});
   expect(result.content).toContain('A revised affected range');
-  expect(result.preservation.restoredSections).toEqual(['WHAT COULD CHANGE THE PICTURE']);
-  expect(result.content).toContain('Changed gateway scope');
+  expect(result.preservation.restoredSections).toEqual(['WHAT COULD CHANGE THE PICTURE', "TODAY'S PICTURE"]);
+  expect(result.content).toContain('Gateway intrusion scope');
+});
+
+test('retains a corrected edition opening when the same erroneous metric appears there', () => {
+  const opening = 'Gateway intrusion scope';
+  const sameMetric = 'NVD lists CVE-2026-23456: CVSS v4.0 9.9 (Secondary assessment) (provisional). ';
+  const original = draft(bad.text.replace(opening, sameMetric + opening));
+  expect(preserveUnaffectedStories(original, {text:good}).content).toBe(good);
+});
+
+test('a located citation repair retains the rest of the story', () => {
+  const story = parseBrief(good).stories[0];
+  const lead = story.paragraphs[0];
+  const original = draft(good.replace('Local exposure is unconfirmed.', 'Local exposure is unconfirmed. [S999.1]'));
+  const corrected = good.replace(lead, 'Researchers reported an incident.');
+  const merged = preserveUnaffectedStories(original, {text:corrected});
+  expect(merged.content).not.toContain('[S999.1]');
+  expect(merged.content).toContain(lead);
+  expect(publicationDecision(check(merged.content)).canPublish).toBe(true);
+});
+
+test('a repaired paragraph keeps its original position when the provider reorders the story', () => {
+  const [lead, metric] = parseBrief(good).stories[1].narrative.split(/\n\s*\n/);
+  const candidate = good.replace(lead+'\n\n'+metric, metric+'\n\n'+lead);
+  expect(candidate).not.toBe(good);
+  const merged = preserveUnaffectedStories(bad,{text:candidate});
+  expect(parseBrief(merged.content).stories[1].narrative).toBe(parseBrief(good).stories[1].narrative);
+  expect(correctiveRecoveryDecision(bad,draft(merged.content)).accepted).toBe(true);
+});
+
+test.each(['rewritten', 'deleted'])('worker retains a %s lead from the repaired story with its access condition', async action => {
+  const originalLead = parseBrief(good).stories[1].paragraphs[0];
+  const candidate = good.replace(originalLead, action === 'rewritten' ? 'The vendor released an update.' : '');
+  expect(candidate).not.toContain(originalLead);
+  const validator = createBriefValidator();
+  try {
+    const result = await validator.prepare(candidate, FORMAT_EVAL_DATE, source, {original:bad});
+    expect(result.content).toContain(originalLead);
+    expect(result.content).not.toContain('9.9');
+    expect(result.preservation.restoredStoryPassages).toEqual([2]);
+    expect(publicationDecision(result.validation).canPublish).toBe(true);
+    expect(correctiveRecoveryDecision(bad, {text:result.content,validation:result.validation}).accepted).toBe(true);
+  } finally { await validator.close(); }
 });
 
 test('does not treat hidden headings or duplicate titles as authority to rewrite other stories', () => {

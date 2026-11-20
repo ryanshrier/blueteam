@@ -3,10 +3,12 @@ import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import express from 'express';
-import { initDB, closeDB, getDB, setMeta, getMeta } from '../lib/db.js';
+import { initDB, closeDB, getDB, setMeta, getMeta, headlineArchiveKey } from '../lib/db.js';
 import { sourceIdentity, canonicalSourceUrl, observeSources, getSourceEvidence, pruneEvidence, comparePassages, EVIDENCE_PASSAGE_LIMIT } from '../lib/evidence.js';
 import { deduplicateWithCorroboration } from '../lib/feeds.js';
 import { createLandscapeRouter } from '../routes/landscape.js';
+import { groupEvidenceEvents } from '../lib/evidence-events.js';
+import { buildGroundingManifest, selectGroundingMembers } from '../lib/grounding.js';
 
 const DAY1 = '2026-09-01T10:00:00.000Z';
 const DAY2 = '2026-09-02T10:00:00.000Z';
@@ -33,6 +35,70 @@ describe('retained source observations', () => {
     const noLink = sample({ link: '', feedUrl: '', sourceIdentifier: '' });
     expect(sourceIdentity(noLink).sourceId).toBe(sourceIdentity({ ...noLink, passage: 'Changed excerpt' }).sourceId);
     expect(sourceIdentity(noLink).sourceId).not.toBe(sourceIdentity({ ...noLink, source: 'Different publisher' }).sourceId);
+  });
+
+  test('a digest retains individually selectable, inspectable sections and preserves previously captured document IDs', () => {
+    const base = sample({ link: 'https://vendor.example/digest', sourceIdentifier: 'shared-feed-guid' });
+    const [legacy] = observeSources([base], { observedAt: DAY1 });
+    const sections = Array.from({ length: 25 }, (_, i) => ({ ...base, link: base.link + '#' + (i + 1),
+      title: 'Weekly Report: Product ' + (i + 1) + ' release advisory', passage: 'Product ' + (i + 1) + ' requires a user certificate.' }));
+    const records = [...sections, { ...sections[2] }];
+    const refs = observeSources(records, { observedAt: DAY1 });
+    expect(new Set(refs.map(ref => ref.sourceId)).size).toBe(25);
+    expect(refs.every(ref => ref.sourceId !== legacy.sourceId && !ref.changed)).toBe(true);
+    expect(getSourceEvidence(legacy.sourceId).canonicalUrl).toBe(base.link);
+    const groups = deduplicateWithCorroboration(records);
+    expect(groups).toHaveLength(25);
+    expect(new Set(groups.map(headlineArchiveKey)).size).toBe(25);
+    expect(groupEvidenceEvents(groups)).toHaveLength(25);
+    expect(groups.every(h => h.corroboration === 1 && h.eventIdentity.articleCount === 1)).toBe(true);
+    const citations = buildGroundingManifest({ headlines: groups }).members;
+    expect(citations).toHaveLength(25);
+    expect(new Set(citations.map(s => s.url))).toEqual(new Set(sections.map(item => item.link)));
+    expect(citations.every(source => source.url === getSourceEvidence(source.sourceRevisions[0].sourceId).revisions[0].canonicalUrl)).toBe(true);
+    const singleton = { ...sections[5], sectionAnchor: undefined, title: 'Correction', passage: 'A later correction to the affected release.' };
+    const [update] = observeSources([singleton], { observedAt: DAY2 });
+    expect(update).toMatchObject({ sourceId: refs[5].sourceId, changed: true, canonicalUrl: singleton.link });
+  });
+
+  test('opposing exposure claims retain two reports and never add a publisher to either claim', () => {
+    const report = { source: 'A', link: 'https://a.example/a', title: 'Vendor confirms customer records were exposed during incident' };
+    const denial = { source: 'B', link: 'https://b.example/b', title: 'Vendor confirms customer records were not exposed during incident' };
+    const reports = deduplicateWithCorroboration([report, denial, { ...report }]);
+    expect(reports).toHaveLength(2);
+    expect(reports.every(h => h.corroboration === 1)).toBe(true);
+    expect(buildGroundingManifest({ headlines: reports }).members.map(s => s.title)).toEqual(expect.arrayContaining([report.title, denial.title]));
+    const neutral = { ...report, source: 'C', link: 'https://c.example/c', title: 'Vendor confirms incident involving customer records' };
+    const bridged = deduplicateWithCorroboration([{ ...report, title: neutral.title, passage: report.title },
+      { ...denial, title: neutral.title, passage: denial.title }, { ...neutral, weight: 5 }]);
+    expect(bridged).toHaveLength(2);
+    expect(bridged.every(group => !(group.sources.includes('A') && group.sources.includes('B')))).toBe(true);
+    const aggregate = { ...neutral, sourceMembers: [report, denial], sources: ['A', 'B'], corroboration: 2 };
+    const regrouped = deduplicateWithCorroboration([aggregate, neutral]);
+    expect(regrouped.every(group => !(group.sources.includes('A') && group.sources.includes('B')))).toBe(true);
+    const disputed = { ...neutral, passage: report.title + '. ' + denial.title };
+    const third = { ...neutral, source: 'Third', link: 'https://third.example/incident' };
+    for (const inputs of [[third, disputed, { ...disputed }], [disputed, { ...disputed }, third]]) {
+      const grouped = deduplicateWithCorroboration(inputs);
+      expect(grouped).toHaveLength(2);
+      expect(grouped.every(group => group.corroboration === 1)).toBe(true);
+    }
+    const event = { eventId: 'retained-event' };
+    expect(groupEvidenceEvents([{ ...aggregate, eventIdentity: event }, { ...third, eventIdentity: event }])).toHaveLength(2);
+  });
+
+  test('a citable first-party report survives the four-secondary limit and a feed alias cannot consume a slot', () => {
+    const primary = sample();
+    const rest = Array.from({ length: 5 }, (_, i) => sample({ source: 'News ' + i, link: 'https://news.example/' + i, category: 'cyber-news' }));
+    const advisory = sample({ source: 'Maintainer', link: 'https://maintainer.example/notice', category: 'vendor-advisory' });
+    const selected = selectGroundingMembers({ ...primary, sourceMembers: [primary, { ...primary, source: 'RSS alias' }, ...rest, advisory] });
+    expect(selected).toHaveLength(5);
+    expect(selected).toContain(advisory);
+    expect(selected.some(member => member.source === 'RSS alias')).toBe(false);
+    const distinct = sample({ source: 'Audit office', link: 'https://audit.example/notice', passage: 'Inventory checks identified an additional affected release.' });
+    const spanning = selectGroundingMembers({ ...primary, sourceMembers: [primary, ...rest, advisory, distinct] });
+    expect(spanning).toContain(distinct);
+    expect(spanning).toContain(advisory);
   });
 
   test('same URL change stores exact before/after, times, and stable identity; repeats deduplicate', () => {

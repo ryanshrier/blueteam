@@ -129,7 +129,7 @@ try {
 
 async function runReaderChecks(actionFixture) {
   const {render,unmount}=await import('/modules/briefing/briefing-view.js');
-  const {decisionCardContent,decisionCopyText}=await import('/modules/briefing/brief-renderer.js');
+  const {applySemanticStyling,decisionCardContent,decisionCopyText}=await import('/modules/briefing/brief-renderer.js');
   const {expandReaderDisclosures}=await import('/modules/briefing/brief-export.js');
   const {setState}=await import('/modules/core/store.js');
   let checks=0, current, pending=false, generation=null, newer=null, publicationRevision='initial', archiveFailure=false;
@@ -137,6 +137,15 @@ async function runReaderChecks(actionFixture) {
   const until=async predicate=>{ for(let i=0;i<200;i++){ if(predicate())return; await new Promise(done=>setTimeout(done,10)); } throw new Error('Reader fixture timed out'); };
   const q=selector=>document.querySelector(selector);
   const filename='brief-2026-10-09.md';
+  const citeHost=document.createElement('div');
+  const {renderMarkdown}=await import('/modules/core/markdown.js');
+  const catalog='[CISA KEV catalog](https://example.test/kev)';
+  citeHost.innerHTML=renderMarkdown(`A catalog change occurred. ${catalog} ${catalog} Local exposure is unknown.\n\n[The 2026-10-09 build](https://vendor.test/build) is affected. [Vendor, 2026-10-09](https://vendor.test/update) says scope is disputed.`);
+  applySemanticStyling(citeHost);
+  const citedParagraphs=citeHost.querySelectorAll('p');
+  check(citedParagraphs[0].textContent.replace(/\s+/g,' ')==='A catalog change occurred. [1] Local exposure is unknown.','A detached catalog citation has one number, with no duplicated publisher text');
+  check(citedParagraphs[1].querySelector('a.brief-cite-label')?.textContent==='The 2026-10-09 build'&&citedParagraphs[1].textContent.includes('Vendor, 2026-10-09'),'Dated linked subjects retain their meaning in the full report');
+  check(citeHost.querySelectorAll('.brief-sources-appendix li').length===3&&citeHost.querySelector('.brief-sources-appendix .source-link')?.href==='https://example.test/kev','References preserve the exact captured destinations');
   const certainty='High for the advisory; Moderate for local impact. Deployment breadth remains unknown.';
   const single='Moderate — independent deployment evidence remains unavailable.';
   const markdown=`# Synthetic defensive briefing
@@ -210,12 +219,13 @@ Check affected inventory before scheduling remediation.
     q('#briefOverviewMode').click();await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));scrollTo(0,0);
   }
   await show('clean');
-  const generate=q('#briefGenerate'), generateBox=generate.getBoundingClientRect();
-  check(!generate.closest('details')&&generate.getClientRects().length>0,'Generate is available without opening Edition tools');
-  check(generateBox.height>=44&&generateBox.left>=0&&generateBox.right<=innerWidth+1,'Generate touch target fits the viewport');
-  const tools=q('#briefEditionTools'), drafts=q('#briefDrafts');
+  const generate=q('#briefGenerate'), tools=q('#briefEditionTools'), drafts=q('#briefDrafts');
+  check(innerWidth <= 600 ? generate.closest('details') === tools : !generate.closest('details'),
+    'Saved edition generation is in phone tools and the desktop toolbar');
   check(!tools.open&&drafts.closest('details')===tools,'Draft review belongs to the closed Edition tools');
   tools.querySelector('summary').click();
+  const generateBox=generate.getBoundingClientRect();
+  check(generateBox.height>=44&&generateBox.left>=0&&generateBox.right<=innerWidth+1,'Generate touch target fits the viewport');
   const draftsBox=drafts.getBoundingClientRect();
   check(drafts.getClientRects().length>0&&draftsBox.height>=44&&draftsBox.left>=0&&draftsBox.right<=innerWidth+1,'Draft review is reachable inside Edition tools with a fitting touch target');
   // Safari can focus the focusable main ancestor during a button pointer

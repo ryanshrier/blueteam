@@ -81,6 +81,8 @@ describe('substantive source evidence', () => {
     }
   });
   test('empty and repeated headings are title-only, including punctuation differences', () => {
+    expect(classifySourceEvidence({ title: 'Weekly Report: Apache HTTP Server 2.4に複数の脆弱性',
+      passage: 'Apache HTTP Server 2.4に複数の脆弱性 続きを読む' }).status).toBe('title-only');
     expect(classifySourceEvidence({ title: 'Vendor patch', passage: '' }).status).toBe('title-only');
     expect(classifySourceEvidence({ title: 'Vendor patch', passage: 'Vendor patch. Vendor patch.' }).status).toBe('title-only');
   });

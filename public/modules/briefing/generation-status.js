@@ -38,7 +38,7 @@ export function generationStatusModel(data, generationId = '') {
   const attempt = generationId ? 'This attempt' : 'Latest attempt';
   const phases = {
     collecting: 'Collecting current source evidence…', preparing: 'Preparing saved evidence and briefing context…',
-    generating: 'Writing the briefing…', validating: 'Checking evidence, coverage, and actions…', publishing: 'Saving the checked edition…',
+    generating: 'Writing the briefing…', validating: 'Checking the draft against its sources…', publishing: 'Saving the checked edition…',
   };
   const messages = {
     running: phases[job.phase] || 'Generation is running. The archive updates after publication.',

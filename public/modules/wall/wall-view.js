@@ -97,6 +97,7 @@ let sourceLoadError = false;
 let renderLoadError = false;
 let displayedPage = null;  // publication metadata belongs to the held content, never the next poll
 let readingOffsets = [0];
+let measuredScrollEnd = null;
 let resizeHandler = null;
 let mountVersion = 0;      // ignore a response from an earlier mount
 let mountedLayer = null;  // delegated navigation survives section body replacements
@@ -793,7 +794,7 @@ function renderPageUnsafe(lastPart, preservePosition) {
   reflectPaused();
   // Publication and controls can wrap and change the available reading height.
   // Measure only after the complete page chrome describes this exact content.
-  readingOffsets = readingStops(body);
+  measureReadingStops(body);
   if (lastPart) body.scrollTop = readingOffsets.at(-1);
   reflectPager();
   resetDwell();
@@ -879,7 +880,7 @@ function advanceNewsPage() {
   if (isPresentation()) {
     refreshReadingStops();
     const body = document.getElementById('nbBody');
-    if (readingOffsets.some(offset => offset > (body?.scrollTop || 0) + 2)) { turnPage(1); return; }
+    if (readingOffsets.some(offset => offset > (body?.scrollTop || 0) + 0.5)) { turnPage(1); return; }
     if (interruptedPage) {
       const nextPart = newsPages[newsPage + 1];
       if (nextPart && topicKey(nextPart) === topicKey(displayedPage)) { turnPage(1); return; }
@@ -952,8 +953,8 @@ function turnPage(dir) {
   refreshReadingStops();
   const current = body.scrollTop;
   const nextOffset = dir > 0
-    ? readingOffsets.find(offset => offset > current + 2)
-    : [...readingOffsets].reverse().find(offset => offset < current - 2);
+    ? readingOffsets.find(offset => offset > current + 0.5)
+    : [...readingOffsets].reverse().find(offset => offset < current - 0.5);
   if (nextOffset !== undefined) {
     body.scrollTop = nextOffset;
     lastFlipAt = Date.now();
@@ -983,7 +984,7 @@ function refreshReadingStops(rearm = false) {
     renderPage(false, true);
     return;
   }
-  readingOffsets = readingStops(body);
+  measureReadingStops(body);
   reflectPager();
   if (rearm && displayedPage) {
     lastFlipAt = Date.now();
@@ -991,6 +992,11 @@ function refreshReadingStops(rearm = false) {
     scheduleNextPage();
     updateLiveline();
   }
+}
+
+function measureReadingStops(body) {
+  measuredScrollEnd = Math.max(0, body.scrollHeight - body.clientHeight);
+  readingOffsets = readingStops(body);
 }
 
 function displayedFolioLabel() {
@@ -1009,9 +1015,9 @@ function reflectPager() {
   // Browsers clamp scrollTop, so an obsolete final offset must not leave the
   // footer on Screen 1 when the last lines are already visible.
   const end = Math.max(0, (body?.scrollHeight || 0) - (body?.clientHeight || 0));
-  if (body?.clientHeight > 0 && Math.abs((readingOffsets.at(-1) || 0) - end) > 2) readingOffsets = readingStops(body);
+  if (body?.clientHeight > 0 && end !== measuredScrollEnd) measureReadingStops(body);
   const scrollTop = body?.scrollTop || 0;
-  const index = Math.max(0, readingOffsets.findLastIndex(offset => offset <= scrollTop + 2));
+  const index = Math.max(0, readingOffsets.findLastIndex(offset => offset <= scrollTop + 0.5));
   const part = readingOffsets.length > 1 ? ` · Screen ${index + 1} of ${readingOffsets.length}` : '';
   if (isPresentation()) {
     const topics = [...new Set(availablePages.map(topicKey))];
@@ -1420,7 +1426,7 @@ function glanceHtml(page) {
   };
   return `<section class="nb-display-card nb-glance${hasRail ? ' nb-glance-with-rail' : ''}" data-kind="${escapeHtml(page.kind)}" data-composition="glance">
     <div class="nb-glance-main">
-      <p class="nb-display-kicker">${escapeHtml(model.label)}</p>
+      <p class="nb-display-kicker">${escapeHtml([model.label, page.editionAgeLabel].filter(Boolean).join(' · '))}</p>
       <h2 class="nb-glance-headline">${escapeHtml(model.headline)}</h2>
       ${model.summary ? `<div class="nb-glance-takeaway">${model.summaryLabel ? `<p class="nb-glance-label">${escapeHtml(model.summaryLabel)}</p>` : ''}${model.summary.split(/\n\s*\n/).filter(Boolean).map(paragraph => `<p class="nb-glance-summary">${escapeHtml(paragraph)}</p>`).join('')}</div>` : ''}
       ${!hasRail && model.facts.length ? `<dl class="nb-glance-inline-facts">${model.facts.map(fact => `<div><dt>${escapeHtml(fact.label)}</dt><dd>${factValue(fact)}</dd></div>`).join('')}</dl>` : ''}

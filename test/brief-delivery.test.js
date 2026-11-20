@@ -3,7 +3,7 @@ import { scheduledBriefDelivery } from '../lib/brief-delivery.js';
 
 test.each([
   ['awaiting-review', 'awaiting-review'], ['failed', 'failed'], ['attempt-limit', 'failed'],
-  ['waiting-for-key', 'failed'], ['skipped', 'missed'], ['reconcile-pending', 'reconciliation-pending'],
+  ['waiting-for-key', 'failed'], ['draft-unavailable', 'failed'], ['skipped', 'missed'], ['reconcile-pending', 'reconciliation-pending'],
 ])('scheduled outcome %s needs operational attention without retrying', (outcome, status) => {
   expect(scheduledBriefDelivery({ enabled: true, outcome })).toMatchObject({ status, needsAttention: true });
 });

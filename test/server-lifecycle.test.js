@@ -35,7 +35,7 @@ describe('server shutdown ordering', () => {
     const cachedCve = 'CVE-2026-10001';
     const freshCve = 'CVE-2026-10002';
     db.bulkInsertKEV([{ cveID: cachedCve, dateAdded: '2026-09-01' }]);
-    readCapped.mockResolvedValue(JSON.stringify({ vulnerabilities: [{ cveID: freshCve, dateAdded: '2026-09-05' }] }));
+    readCapped.mockResolvedValue(JSON.stringify({ count: 1, vulnerabilities: [{ cveID: freshCve, dateAdded: '2026-09-05' }] }));
     const bootWarmup = refreshKEV();
     const resources = [];
     const stopped = jest.fn();

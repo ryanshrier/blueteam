@@ -15,6 +15,29 @@ export { actionRoleHtml };
 // Distinguish the generated citation ledger from any authored Sources section.
 export const CITATION_APPENDIX_LABEL = 'References';
 
+function referenceLabel(anchor) {
+  const label = (anchor?.textContent || '').trim();
+  return /^(?:.+,\s*(?:\d{4}-\d{2}-\d{2}|date unavailable)|CISA KEV catalog)$/i.test(label)
+    || label === anchor?.getAttribute?.('href');
+}
+
+function adjacentContent(node, direction) {
+  let sibling = node[direction];
+  while (sibling?.nodeType === 3 && !sibling.textContent.trim()) sibling = sibling[direction];
+  return sibling;
+}
+
+// Only a reference cluster following a complete sentence can stand alone as
+// superscripts. A dated linked subject or condition still belongs in the prose.
+function detachedReference(anchor) {
+  if (!referenceLabel(anchor)) return false;
+  const previous = adjacentContent(anchor, 'previousSibling');
+  if (!previous?.matches?.('.brief-cite[data-label-retained="false"]') && !/[.!?]\s*$/.test(previous?.textContent || '')) return false;
+  let next = adjacentContent(anchor, 'nextSibling');
+  while (next?.matches?.('a[href]') && referenceLabel(next)) next = adjacentContent(next, 'nextSibling');
+  return !/^\p{Ll}/u.test((next?.textContent || '').trimStart());
+}
+
 // A tier is the judgment's analytic classification, not an instruction. The
 // explicit **Act now:** action remains the sole source of that directive; using
 // ACT NOW as a synonym for every Tactical judgment contradicted valid 72-hour
@@ -616,6 +639,14 @@ export function applySemanticStyling(container, { decisionControls = false, pres
     if (a.closest('.brief-cite, .brief-sources-appendix, .assessment-meta') || a.classList.contains('brief-cite-label')) return;
     const href = a.getAttribute('href') || '';
     if (!/^https?:/i.test(href)) return;
+    const citationLabel = detachedReference(a);
+    const label = (a.textContent || '').trim();
+    const previous = citationLabel && adjacentContent(a, 'previousSibling');
+    const previousRef = previous?.querySelector?.('.brief-cite-link');
+    if (previousRef?.dataset.sourceUrl === href && previousRef.dataset.sourceLabel === label) {
+      a.remove();
+      return;
+    }
     let n = numberByHref.get(href);
     if (n == null) {
       n = sources.length + 1;
@@ -635,15 +666,12 @@ export function applySemanticStyling(container, { decisionControls = false, pres
     ref.id = `brief-citation-${n}-${container.querySelectorAll('.brief-cite').length + 1}`;
     ref.textContent = `[${n}]`;
     ref.dataset.tip = href;
-    ref.dataset.sourceLabel = source?.label || source?.host || href;
+    ref.dataset.sourceLabel = label || source?.label || source?.host || href;
     ref.tabIndex = 0;
     ref.setAttribute('aria-label', `Reference ${n}: ${source?.label || source?.host || href}`);
 
     const sup = document.createElement('sup');
     sup.className = 'brief-cite';
-    // Dated publisher labels are references; undated links may be grammatical
-    // attribution ("Google reports…") and must remain in the sentence.
-    const citationLabel = /(?:\b\d{4}-\d{2}-\d{2}\b|date unavailable|https?:\/\/)/i.test(a.textContent || '');
     sup.dataset.labelRetained = String(!citationLabel);
     sup.appendChild(ref);
     a.classList.add('brief-cite-label');

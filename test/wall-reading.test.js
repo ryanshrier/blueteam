@@ -21,7 +21,19 @@ describe('Wall continuations', () => {
     expect(readingStops({ clientHeight: 600, scrollHeight: 600 })).toEqual([0]);
     expect(readingStops({ clientHeight: 0, scrollHeight: 900 })).toEqual([0]);
   });
-  test('covers the entire document with overlapping screens including a short final part', () => {
+  test('skips 16 pixels of empty padding and keeps a partially visible qualifier reachable under zoom', () => {
+    const body = { clientHeight: 600, scrollHeight: 616, scrollTop: 0,
+      getBoundingClientRect: () => ({ top: 100, height: 1200 }), querySelectorAll: () => [] };
+    let bottom = 1290;
+    body.ownerDocument = {
+      createTreeWalker: () => { let read = false; return { nextNode: () => read ? null : (read = true, { textContent: 'qualifier' }) }; },
+      createRange: () => ({ selectNodeContents() {}, getClientRects: () => [{ width: 100, height: 24, bottom }] }),
+    };
+    expect(readingStops(body)).toEqual([0]);
+    bottom = 1326;
+    expect(readingStops(body)).toEqual([0, 13]);
+  });
+  test('covers the entire unmeasured document with overlapping screens including a short final part', () => {
     const height = 430;
     const total = 2413;
     const stops = readingStops({ clientHeight: height, scrollHeight: total });

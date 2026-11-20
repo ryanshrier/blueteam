@@ -4,8 +4,34 @@
 // also scroll the same content directly; there is no second abridged document.
 export function readingStops(body) {
   const height = Number(body?.clientHeight) || 0;
-  const end = Math.max(0, (Number(body?.scrollHeight) || 0) - height);
-  if (height <= 0 || end <= 2) return [0];
+  let end = Math.max(0, (Number(body?.scrollHeight) || 0) - height);
+  if (height <= 0 || end === 0) return [0];
+  const doc = body.ownerDocument;
+  const bounds = body.getBoundingClientRect?.();
+  if (bounds?.height > 0 && doc?.createTreeWalker && doc.createRange) {
+    // scrollHeight includes the card's trailing padding. Measure the last
+    // visible line and non-text elements at the current scroll position and zoom.
+    let lastBottom = -Infinity;
+    const measure = rect => {
+      if (rect.width > 0 && rect.height > 0) lastBottom = Math.max(lastBottom, rect.bottom);
+    };
+    const walker = doc.createTreeWalker(body, 4);
+    const range = doc.createRange();
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!node.textContent.trim()) continue;
+      range.selectNodeContents(node);
+      for (const rect of range.getClientRects()) measure(rect);
+    }
+    for (const element of body.querySelectorAll('img, video, canvas, svg, button, input, select, textarea, iframe, [role="img"]')) {
+      measure(element.getBoundingClientRect());
+    }
+    if (Number.isFinite(lastBottom)) {
+      const bottom = (lastBottom - bounds.top) * height / bounds.height + (body.scrollTop || 0);
+      end = Math.min(end, Math.max(0, Math.ceil(bottom - height)));
+    }
+  }
+  if (end === 0) return [0];
   let overlap = 64;
   const view = body.ownerDocument?.defaultView;
   if (view?.getComputedStyle && body.querySelectorAll) {

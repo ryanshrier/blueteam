@@ -311,9 +311,17 @@ describe('explicit repair publication', () => {
     expect(getClient).not.toHaveBeenCalled(); expect(getFreshRun).not.toHaveBeenCalled();
   });
 
-  test.each(['missing', 'partial', 'fact-conflict', 'human-review'])(
+  test('a missing scheduled draft gives an actionable failure without invoking a provider', async () => {
+    const response = await reconcileSchedule();
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: 'E_DRAFT_UNAVAILABLE' });
+    expect(getClient).not.toHaveBeenCalled(); expect(getFreshRun).not.toHaveBeenCalled();
+    expect(archives()).toEqual([]);
+  });
+
+  test.each(['partial', 'fact-conflict', 'human-review'])(
     'a no-spend scheduled recheck keeps %s work held', async mode => {
-      if (mode !== 'missing') draft({ scheduled: true, partial: mode === 'partial', text: mode === 'fact-conflict'
+      draft({ scheduled: true, partial: mode === 'partial', text: mode === 'fact-conflict'
         ? `${content}\nCVE-2026-99999 is actively exploited.` : mode === 'human-review'
           ? content.replace('identify applicable systems and review owners', 'disable MFA for affected accounts') : content });
       const response = await reconcileSchedule();

@@ -1,8 +1,9 @@
 // Display composition preserves authored records and uses saved short copy.
 // The glance projection never turns a qualified procedure into an isolated task.
-import { executiveSummaryModel, executiveTargetModel, actionDisplayModel, usableKevRecords, cleanSummary } from './wall-format.js';
+import { executiveSummaryModel, executiveTargetModel, actionDisplayModel, usableKevRecords, cleanSummary, isBriefStale } from './wall-format.js';
+import { formatBriefLabel } from '../core/brief-date.js';
 import { formatDecisionWindow, judgmentCertainty, storyDisplay } from '/vendor/brief-schema.js';
-import { signalSeverity } from '../core/signal-facts.js';
+import { signalCves, signalSeverity } from '../core/signal-facts.js';
 
 export const DISPLAY_DEFAULTS = Object.freeze({ size: 'standard', margin: 'normal', speed: 'normal', playlist: 'balanced', feedSeconds: 90, holdSeconds: 0, dim: false, dimStart: 1, dimEnd: 5, maintenance: false, maintenanceHour: 4, fullscreen: true, awake: true });
 export const DISPLAY_STORAGE_KEY = 'bt-wall-display';
@@ -297,10 +298,11 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
       block: { label: blocks[0].label, text: blocks.map(item => item.text).join(' ') }, ...extra });
   };
   const presentation = doc?.review?.presentation?.status === 'reviewed' ? doc.review.presentation : null;
+  const older = doc && isBriefStale(doc.date, doc.generatedAt);
   if (briefLoadError) pages.push({ kind: 'brieferror' });
   if (doc && settings.playlist !== 'updates') {
     const lead = doc.stories?.[0];
-    const coverTitle = lead?.formatVersion === 2 ? "Today's picture" : 'Shift assessment';
+    const coverTitle = lead?.formatVersion === 2 ? (older ? 'Edition outlook' : "Today's picture") : 'Shift assessment';
     const coverSummary = presentation?.bluf || doc.blufProse || doc.bluf;
     add('bluf', 0, coverTitle, [{ text: coverSummary }], {
       formatVersion: lead?.formatVersion,
@@ -361,6 +363,12 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
   }
   // KEV and Wire remain in all playlists. Cadence below also interjects them
   // while a long assessment is being read; freshness is still a separate label.
+  if (older) {
+    const date = formatBriefLabel(doc.date || doc.filename || doc.generatedAt);
+    for (const page of pages) {
+      if (page.block) page.editionAgeLabel = ['Older edition', date].filter(Boolean).join(' · ');
+    }
+  }
   const featuredStories = settings.playlist !== 'updates' ? doc?.stories || [] : [];
   const featuredCves = new Set(featuredStories.flatMap(topicCves));
   const catalog = usableKevRecords(landscape?.kev);
@@ -395,7 +403,7 @@ export function buildPresentationPages(doc, landscape, settings = DISPLAY_DEFAUL
     if (featuredArticles.has(articleIdentity(item.link)) && !later) return false;
     if (coveredReports.some(report => articleIdentity(report.url) === articleIdentity(item.link)
       && Date.parse(report.publishedAt) === Date.parse(item.date)) && !updatedCapture) return false;
-    const identities = topicCves({ title: item.title, kevCVE: item.kevCVE, whatHappened: item.description });
+    const identities = signalCves(item);
     if (identities.length && !identities.some(cve => !catalogCves.has(cve) && (!featuredCves.has(cve) || later))) return false;
     const article = articleIdentity(item.link);
     if ((article && seenArticles.has(article)) || (identities.length && identities.every(cve => seenCves.has(cve)))) return false;

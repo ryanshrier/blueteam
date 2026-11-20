@@ -4,7 +4,8 @@
 // the document, window, or `location`.
 
 import { formatBriefLabel } from '../core/brief-date.js';
-import { evidenceQualifications, capturedSignalFacts } from '../core/signal-facts.js';
+import { evidenceQualifications, capturedSignalFacts, signalCves } from '../core/signal-facts.js';
+export { signalCves } from '../core/signal-facts.js';
 
 // The saved edition may predate today's feed. Bind its label and destination
 // to the same snapshot so a reader always opens the edition that was named.
@@ -71,20 +72,6 @@ export function signalUrl(headline, origin = '', evidence = null) {
 
 function names(values) {
   return (Array.isArray(values) ? values : []).map(value => typeof value === 'string' ? value : value?.name || value?.label || '').filter(Boolean);
-}
-
-// API CVE identities come from complete retained evidence, which can contain
-// identifiers omitted from the shorter display excerpt. Keep search and copied
-// investigation links on the same normalized identity set, with legacy fallbacks.
-export function signalCves(headline = {}) {
-  if (!headline || typeof headline !== 'object') return [];
-  const strings = values => Array.isArray(values) ? values : [];
-  return [...new Set([
-    ...strings(headline.cves), ...strings(headline.editorialContext?.cves),
-    headline.title, headline.description, headline.cveData, headline.kevCVE,
-    ...strings(headline.kevRecords).map(record => record?.cve),
-  ].flatMap(value => typeof value === 'string'
-    ? (value.match(/\bCVE-\d{4}-\d{3,7}\b/gi) || []).map(id => id.toUpperCase()) : []))];
 }
 
 export function matchesCluster(headline, cluster) {

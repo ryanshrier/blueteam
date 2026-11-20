@@ -40,12 +40,55 @@ describe('app-rendered source references', () => {
     expect(renderBriefCitations('[S1.1]', manifest).content).toBe('[Vendor, date unavailable]');
   });
 
+  test.each([
+    ['Footnote.[^8]', '[^8]: [S1.1]'],
+    ['Footnote[^8].', '[^8]: [S1.1]'],
+    ['Footnote. [17]', '[17]: https://example.test/advisory?a=1&amp;b=2#scope'],
+  ])('binds %s to its explicit captured definition', (claim, definition) => {
+    const result = renderBriefCitations(claim + '\r\n\r\n' + definition, grounding);
+    expect(result.content.trimEnd()).toBe('Footnote. ' + citation);
+    expect(result.issues).toEqual([]);
+    expect(renderBriefCitations(result.content, grounding).content).toBe(result.content);
+  });
+
+  test('a linked source ID only expands when both its ID and exact destination match', () => {
+    const link = '[S1.1](https://example.test/advisory?a=1&amp;b=2#scope)';
+    const other = link.replace('#scope', '#elsewhere');
+    const text = `Claim. ${link} Another. ${other} Example: \`${link}\`.`;
+    expect(renderBriefCitations(text, grounding).content).toBe(`Claim. ${citation} Another. ${other} Example: \`${link}\`.`);
+  });
+
+  test('a URL matching a legacy record without a usable source ID leaves the original citation intact', () => {
+    const text = 'Claim. [1]\n\n[1]: https://example.test/report';
+    for (const record of [{ label: 'Vendor' }, { id: 'S1.1', label: '' }]) {
+      expect(renderBriefCitations(text, { members: [{ ...record, url: 'https://example.test/report' }] }).content).toBe(text);
+    }
+  });
+
+  test.each([
+    'Claim.[^1]',
+    'Claim.[^1]\n\n[^1]: [S99.1]',
+    'Claim.[^1]\n\n[^1]: https://wrong.example/advisory',
+    'Claim.[^1]\n\n[^1]: https://example.test/advisory?a=1&amp;b=2#different',
+    'Claim.[^1]\n\n[^1]: The survey covers only three deployments. [S1.1]',
+    'Claim.[^1]\n\n[^1]: [S1.1]\n  A retained limitation.',
+    'Claim.[^1]\n\n[^1]: [S1.1]\n[^1]: [S2.1]',
+    'Claim.[^1] and [the source][^1]\n\n[^1]: [S1.1]',
+    'Claim.[^1]\n\n[^1]: [S1.1]\n\n[S1.1]: https://wrong.example/rebound',
+    'Claim.[^1] Literal `[^1]`.\n\n[^1]: [S1.1]',
+  ])('does not infer numeric identity or consume authored note prose (%s)', text => {
+    const result = renderBriefCitations(text, grounding).content;
+    expect(result).toContain('Claim.[^1]');
+    if (text.includes('[^1]:')) expect(result).toContain('[^1]:');
+    if (text.includes('three deployments')) expect(result).toContain('only three deployments');
+  });
+
   test.each(['[S99.1]', '[S1]', '[S1.1, S88.2]', '[S1.1 and S88.2]', '[S1.1 invented publisher]',
     '[S1.1, invented publisher]', '[S1.1-S2.1]', '[S1.1 through S2.1]', '[S1.1 and]', '[S1.1,]',
     '[NVD-CVE-2026-99999]'])('keeps an unresolved reference visible and blocking: %s', reference => {
     const result = renderBriefCitations(`A claim.\nAnother claim ${reference}.`, grounding);
     expect(result.content).toContain(reference);
-    expect(result.issues).toEqual([expect.objectContaining({ code: 'CITATION_REFERENCE_INVALID', severity: 'trust', location: { line: 2, excerpt: reference } })]);
+    expect(result.issues).toEqual([expect.objectContaining({ code: 'CITATION_REFERENCE_INVALID', severity: 'trust', location: { scope: 'paragraph', line: 2, excerpt: reference } })]);
   });
 
   test('does not guess among duplicate IDs or captures with indistinguishable display identities', () => {
@@ -134,6 +177,15 @@ describe('source references remain subject to factual checks', () => {
   const first = item.headlines[0];
   const withIds = baseline.replaceAll(`[${first.source}, September 4, 2026](${first.link})`, '[S1.1]');
   const validate = text => validateBrief(text, EVAL_DATE, { publication: true, groundingManifest: manifest });
+
+  test('numeric source-only footnotes pass the normal publication checks while a false score still fails', () => {
+    const numbered = withIds.replaceAll('[S1.1]', '[^17]') + '\n\n[^17]: [S1.1]';
+    const result = validate(numbered);
+    expect(result.judgmentEvidence[0].sourceIds).toEqual(['S1.1']);
+    expect(publicationDecision(result).canPublish).toBe(true);
+    expect(publicationDecision(validate(numbered.replace('[^17]', 'CVSS 10.0 [^17]'))).canPublish).toBe(false);
+    expect(publicationDecision(validate(numbered.replace('[^17]: [S1.1]', '[^17]: https://unknown.example/source'))).canPublish).toBe(false);
+  });
 
   test('checks expanded source IDs as captured evidence without changing the caller text', () => {
     expect(withIds).not.toBe(baseline);

@@ -1,7 +1,7 @@
 import { test, expect } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { marked } from 'marked';
-import { assembleBrief } from '../lib/brief-assembly.js';
+import { assembleBrief, normalizeNarrativeHeadings } from '../lib/brief-assembly.js';
 import { briefFormatVersion, stampBriefFormat, parseBrief, parseJudgments } from '../lib/brief-schema.js';
 import { validateBrief, publicationDecision } from '../lib/validation.js';
 import { buildGroundingManifest } from '../lib/grounding.js';
@@ -95,6 +95,36 @@ test('generation has one analytical prompt with no format selection', () => {
   expect(user).toContain('conditional');
   expect(user).not.toContain('otherwise explicitly state no supported intersection');
   expect(buildSystemPrompt({ analysisSettings: {} }, { date: FORMAT_EVAL_DATE })).not.toContain('## KEY JUDGMENTS');
+});
+
+test('known typographic headings normalize during preparation and explicit saved-draft recheck', () => {
+  const curly = content.replace("## TODAY'S PICTURE", '## TODAY’S PICTURE');
+  const manifest = buildGenerationManifest({ run: {}, config, groundingManifest, briefFormatVersion: 2, editionContext: { date: FORMAT_EVAL_DATE } });
+  const artifact = { manifest, revisions: [{ number: 1, content: curly }] };
+  const rechecked = prepareDraftRevision(artifact, curly);
+  expect(rechecked.changed).toBe(true);
+  expect(rechecked.retained).toBe(content);
+  expect(artifact.revisions[0].content).toBe(curly);
+  expect(assembleBrief(curly, source).content).toBe(content);
+  expect(publicationDecision(check(rechecked.retained)).canPublish).toBe(true);
+  for (const malformed of [curly.replace('## TODAY’S PICTURE', '## EDITION'), curly.replace('## TODAY’S PICTURE', "## TODAY'S PICTURE\n\nDuplicate.\n\n## TODAY’S PICTURE")]) {
+    expect(publicationDecision(check(assembleBrief(malformed, source).content)).canPublish).toBe(false);
+  }
+  const protectedText = ['A reference to TODAY’S PICTURE.', '> ## TODAY’S PICTURE', '<!--', '## TODAY’S PICTURE', '-->', '~~~markdown', '## TODAY’S PICTURE', '~~~'].join('\r\n');
+  expect(normalizeNarrativeHeadings(protectedText + '\r\n## TODAY’S PICTURE\r\n')).toBe(protectedText + "\r\n## TODAY'S PICTURE\r\n");
+});
+
+test('retrospective timing can cite its own narrative story across paragraphs, never the next story', () => {
+  const headline = { source:'Incident review', title:'A vendor narrows its exploitation timeline',
+    description:'The incident review documents the timeline for CVE-2026-12345. The vulnerability was exploited within one day of disclosure. Its scope is limited to the cases reviewed.',
+    link:'https://example.test/timeline', date:'2026-10-29' };
+  const local = { ...source, groundingManifest:buildGroundingManifest({headlines:[headline]}) };
+  const intro = "## TODAY'S PICTURE\n\nThe incident review narrows the timeline.\n\n## PRIORITY STORIES\n\n### A vendor narrows the timeline\n\nThe vendor describes CVE-2026-12345. [S1.1]\n\n";
+  const statement = 'The vulnerability was exploited within one day of disclosure.';
+  const codes = text => validateBrief(assembleBrief(text,local).content,FORMAT_EVAL_DATE,local).issues.map(issue => issue.code);
+  expect(codes(intro+statement)).not.toContain('FACT_EVENT_TIMELINE_UNSUPPORTED');
+  expect(codes(intro+'### A separate incident\n\n'+statement)).toContain('FACT_EVENT_TIMELINE_UNSUPPORTED');
+  expect(codes(intro+statement.replace('one day','two days'))).toContain('FACT_EVENT_TIMELINE_UNSUPPORTED');
 });
 
 test('worker preparation, retained checks and draft edits stay bound to the captured format', async () => {

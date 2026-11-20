@@ -3,6 +3,7 @@ import { buildGroundingManifest } from '../lib/grounding.js';
 import { validateBrief, publicationDecision } from '../lib/validation.js';
 import { repairMetricQualifiers } from '../lib/brief-metric-repair.js';
 import { createBriefValidator } from '../lib/brief-validator.js';
+import { BRIEF_INPUT_LIMITS } from '../lib/brief-input-limits.js';
 import { buildGenerationManifest, sha256 } from '../lib/generation-manifest.js';
 import { saveRejectedBrief, revalidateBriefDraft, readBriefDraft } from '../lib/brief-drafts.js';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -23,6 +24,88 @@ const report = (assessment, happened = `${cve} affects the gateway. ${vendor}`) 
   `## KEY JUDGMENTS\n### Signal 1 — [Horizon 1] Gateway review\n**Assessment:** ${assessment}\n**What happened:** ${happened}\n`;
 const check = (text, version = 4) => validateBrief(text, '2026-10-09', { ...source, validationPolicyVersion: version });
 const relevant = result => result.issues.filter(issue => /CVSS|CVE_CITATION|JUDGMENT_CITATION/.test(issue.code));
+
+const metricStatement = `NVD lists ${cve} at CVSS v4.0 9.5.`;
+const narrative = (statement, extra = '') => `<!-- briefing-format: 2 -->
+## TODAY'S PICTURE
+Gateway exposure depends on deployment.
+
+## PRIORITY STORIES
+### Gateway exposure depends on deployment
+${cve} affects deployed gateway configurations. ${vendor}
+
+${statement}${extra}
+`;
+const narrativeSource = { ...source, briefFormatVersion: 2, editorialStandard: 2 };
+
+test('a missing citation for an explicitly attributed, exact NVD metric is supplied with its captured qualifications', async () => {
+  const validator = createBriefValidator();
+  const text = narrative(metricStatement);
+  try {
+    const initial = publicationDecision(validateBrief(text, '2026-10-09', narrativeSource));
+    expect(initial.canPublish).toBe(false);
+    expect(initial.blockers.map(issue => issue.code)).toContain('FACT_CVSS_UNSUPPORTED');
+    const prepared = await validator.prepare(text, '2026-10-09', narrativeSource, { assemble: false });
+    expect(publicationDecision(prepared.validation)).toMatchObject({ canPublish: true, blockers: [], reviewIssues: [] });
+    expect(prepared.content).toBe(text.replace('9.5.', `9.5 (Secondary assessment) (provisional). ${nvd}`));
+    expect(prepared.automaticRepairs).toEqual([expect.objectContaining({ kind: 'cite-captured-nvd-metric', sourceIds: [`NVD-${cve}`] })]);
+    const repeated = await validator.prepare(prepared.content, '2026-10-09', narrativeSource, { assemble: false });
+    expect(repeated.content).toBe(prepared.content);
+    expect(repeated.automaticRepairs).toEqual([]);
+  } finally { await validator.close(); }
+});
+
+test('a local metric edit above the size ceiling leaves the original findings available for repair', async () => {
+  const validator = createBriefValidator();
+  const text = narrative(metricStatement);
+  const padded = text + ' '.repeat(BRIEF_INPUT_LIMITS.maxBytes - Buffer.byteLength(text) - 1);
+  try {
+    const prepared = await validator.prepare(padded, '2026-10-09', narrativeSource, { assemble: false });
+    expect(prepared.content).toBe(padded);
+    expect(prepared.automaticRepairs).toEqual([]);
+    expect(publicationDecision(prepared.validation).blockers.map(issue => issue.code)).toContain('FACT_CVSS_UNSUPPORTED');
+  } finally { await validator.close(); }
+});
+
+test.each([
+  `According to NVD, ${cve} has a CVSS v4.0 9.5.`,
+  `NVD assigned ${cve} a CVSS v4.0 9.5.`,
+])('a different sentence form keeps its explicit NVD attribution: %s', async sentence => {
+  const validator = createBriefValidator();
+  try {
+    const prepared = await validator.prepare(narrative(sentence), '2026-10-09', narrativeSource, { assemble: false });
+    expect(prepared.content).toBe(narrative(sentence.replace('9.5.', `9.5 (Secondary assessment) (provisional). ${nvd}`)));
+    expect(publicationDecision(prepared.validation).canPublish).toBe(true);
+  } finally { await validator.close(); }
+});
+
+test('an unsupported number, attribution, conflicting qualification, ambiguous capture or unrelated blocker keeps the draft intact', async () => {
+  const validator = createBriefValidator();
+  const statements = [
+    metricStatement.replace('NVD', 'The vendor'), metricStatement.replace('9.5', '9.9'), metricStatement.replace('v4.0', 'v3.1'),
+    `According to the vendor, ${cve} has a CVSS v4.0 9.5.`, `The vendor disputes that NVD assigned ${cve} a CVSS v4.0 9.5.`,
+    metricStatement.replace('9.5.', '9.5 (Primary assessment).'), metricStatement.replace('9.5.', '9.5 (final).'),
+    metricStatement.replace(cve, 'CVE-2026-99999'), '> ' + metricStatement, '`' + metricStatement + '`',
+    metricStatement + `\n\nThe vendor rates ${cve} at CVSS v4.0 9.5.`,
+    metricStatement + ' Administrators should disable MFA.',
+  ];
+  const captured = groundingManifest.members.find(record => record.id === `NVD-${cve}`);
+  const cases = statements.map(statement => [narrative(statement), narrativeSource]);
+  for (const replacement of [
+    { ...captured, cvssMetrics: [...captured.cvssMetrics, { ...captured.cvssMetrics[0], type: 'Primary' }] },
+    { ...captured, cvssMetrics: [...captured.cvssMetrics, { ...captured.cvssMetrics[0], score: 8.5 }] },
+    { ...captured, applicabilityRejected: true }, { ...captured, url: 'https://vendor.example/other' },
+  ]) cases.push([narrative(metricStatement), { ...narrativeSource, groundingManifest: { ...groundingManifest,
+    members: groundingManifest.members.map(record => record === captured ? replacement : record) } }]);
+  try {
+    for (const [text, evidence] of cases) {
+      const prepared = await validator.prepare(text, '2026-10-09', evidence, { assemble: false });
+      expect(prepared.content).toBe(text);
+      expect(prepared.automaticRepairs).toEqual([]);
+      expect(publicationDecision(prepared.validation).canPublish).toBe(false);
+    }
+  } finally { await validator.close(); }
+});
 
 test('a captured metric cited beside its Assessment claim has the same support as a What happened citation', () => {
   const text = report(`${claim} (provisional). ${nvd}`);
@@ -115,5 +198,26 @@ test('a saved-draft recheck records its qualifier repair without rewriting the o
     expect(updated.automaticCheckedAt).toBeTruthy();
     expect(updated.operatorSavedAt).toBeUndefined();
     expect(readBriefDraft(directory, saved.id)).toEqual(updated);
+  } finally { await validator.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('rechecking against a saved capture can add the missing NVD citation without changing the original revision', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'brief-score-citation-'));
+  const validator = createBriefValidator();
+  try {
+    const text = narrative(metricStatement);
+    const manifest = buildGenerationManifest({ run: {}, config: {}, briefFormatVersion: 2, groundingManifest,
+      editionContext: { date: '2026-10-09', timezone: 'America/Chicago' } });
+    const saved = saveRejectedBrief(directory, { content: text, manifest, validation: validateBrief(text, '2026-10-09', narrativeSource) });
+    const updated = await revalidateBriefDraft(directory, saved.id, { baseRevision: 1, content: text },
+      { automatic: true, prepareDraft: payload => validator.prepareDraft(payload) });
+    expect(updated.revisions).toHaveLength(2);
+    expect(updated.revisions[0]).toEqual(saved.revisions[0]);
+    expect(updated.manifestSha256).toBe(saved.manifestSha256);
+    const revision = updated.revisions[1];
+    expect(publicationDecision(revision.validation).canPublish).toBe(true);
+    expect(revision.content).toContain(`9.5 (Secondary assessment) (provisional). ${nvd}`);
+    expect(revision.sha256).toBe(sha256(revision.content));
+    expect(revision.automaticRepairs).toEqual([expect.objectContaining({ kind: 'cite-captured-nvd-metric', sourceIds: [`NVD-${cve}`] })]);
   } finally { await validator.close(); rmSync(directory, { recursive: true, force: true }); }
 });

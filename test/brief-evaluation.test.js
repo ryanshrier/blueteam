@@ -117,7 +117,7 @@ afterAll(() => {
   finally { rmSync(historyDir, { recursive: true, force: true }); }
 });
 
-async function execute(item, corrective = false, { provider = selectedProvider, model = selectedModel, rejectDraft = false, stopReasons = ['end_turn'], terminal = true, sharedFacts = false } = {}) {
+async function execute(item, corrective = false, { provider = selectedProvider, model = selectedModel, rejectDraft = false, stopReasons = ['end_turn'], terminal = true, sharedFacts = false, rewriteDraft } = {}) {
   currentCase = item; saved = null; calls = 0; acceptedAttempts = []; localRejections = []; capturedRequests = []; metadata.clear();
   const draftText = () => {
     let draft = narrativeReferenceBrief(item);
@@ -129,7 +129,7 @@ async function execute(item, corrective = false, { provider = selectedProvider, 
       });
     }
     if (rejectDraft || (corrective && calls === 1)) draft = draft.replace("## TODAY'S PICTURE", '## MISSING OPENING');
-    return draft;
+    return rewriteDraft ? rewriteDraft(draft) : draft;
   };
   const scriptedOpenAi = provider === 'openai' && !live ? createOpenAiClient('synthetic-evaluation', model, async (_url, options) => {
     const body = JSON.parse(options.body);
@@ -329,6 +329,23 @@ test.each(evaluatedCases)('$id: $description', async item => {
   expect(saved.text).not.toMatch(/Required decisions|recommended target|Recommended actions/);
   expect(row.blockers).toEqual([]);
   expect(row.issues.filter(issue => issue.code.startsWith('ACTION_SUMMARY'))).toEqual([]);
+});
+
+(observed ? test.skip : test).each(['anthropic', 'openai', 'custom'])('%s publishes a corrected first-draft lead and a captured numeric footnote on one attempt', async provider => {
+  const item = { ...BRIEF_EVALUATION_CASES[0], id: 'first-draft-lead-and-footnote' };
+  const model = provider === 'openai' ? DEFAULT_OPENAI_MODEL : provider === 'anthropic' ? 'claude-sonnet-5' : 'custom-replay';
+  const unrelatedLead = 'All customers confirmed compromise of their payroll systems.';
+  const row = await execute(item, false, { provider, model, sharedFacts: true, rewriteDraft(draft) {
+    return draft.replace(/(## TODAY'S PICTURE\s*\n)[\s\S]*?(?=\n## PRIORITY STORIES)/, `$1${unrelatedLead}\n`)
+      .replace('[s1.1]', '[^17]') + '\n[^17]: [S1.1]\n';
+  } });
+  expect(row).toMatchObject({ published: true, providerAttempts: 1, recordedAttempts: 1, requiresReview: false, resets: 0, blockers: [] });
+  expect(saved.text).not.toContain(unrelatedLead);
+  expect(saved.text).not.toContain('[^17]');
+  expect(saved.text).toContain('[Synthetic Vendor, 2026-09-04](https://example.test/evaluation/vendor)');
+  expect(saved.text).toContain('Its relevance depends on local permissions');
+  expect(row.receipt.validation.flatMap(check => check.automaticRepairs || [])).toContainEqual(expect.objectContaining({ kind: 'use-cited-story-opening' }));
+  expect(row.displayEvaluation.displayAvailable).toBe(true);
 });
 
 (observed ? test.skip : test).each(BRIEF_EVALUATION_CASES)('custom normalized adapter: $id', async item => {
